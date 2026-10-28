@@ -77,7 +77,11 @@ const changedSince = (() => {
     .split("\n")
     .map((l) => l.slice(3).trim())
     .filter(Boolean)
-  return [...new Set([...committed, ...dirty])].filter((f) => CODE.test(f) && !f.startsWith("package-lock"))
+  // 本仓库的适配：evidence/ 是**测量数据**（每次跑 bench/measure 都会变），test/.harness 是测试产物，
+  // 它们不是「代码变了」——否则每跑一次基准就要求 bump 一次版本。
+  return [...new Set([...committed, ...dirty])]
+    .filter((f) => CODE.test(f) && !f.startsWith("package-lock"))
+    .filter((f) => !f.startsWith("evidence/") && !f.startsWith("test/.harness/") && !f.startsWith("tmp/"))
 })()
 
 const versionBumped = `v${version}` !== lastTag

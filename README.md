@@ -1,5 +1,8 @@
 # dsh-GOkifu-compact
 
+> 已发布：npm `dsh-gokifu-compact@1.7.0` · [GitHub Release v1.7.0](https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.7.0)
+> 安装：`dsh plugin --profile <name> add dsh-gokifu-compact`
+
 > 已经装好了？直接看 [快速开始](QUICKSTART.md)。
 
 > **为什么叫 GOkifu-compact** —— **GO（围棋）+ kifu（棋谱）+ compact（压缩）**。

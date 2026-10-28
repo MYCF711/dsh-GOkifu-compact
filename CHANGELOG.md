@@ -1,5 +1,13 @@
 # 更新记录
 
+## 1.7.1 — 2026-10-29
+
+### 发布后收尾
+
+- 维护检查 `scripts/check-maintenance.mjs` 适配本仓库：`evidence/`（测量数据，每跑一次 bench/measure 都会变）
+  与 `test/.harness/`（测试产物）不再算「代码改动」—— 否则每跑一次基准都要求 bump 一次版本
+- HANDOFF / README 写入发布信息（npm `dsh-gokifu-compact@1.7.0`、Release v1.7.0、安装命令）
+
 ## 1.7.0 — 2026-10-29
 
 > 起因：自 v1.3.4 起累计 9 个版本未发布；本版是首个公开发布，汇总 1.3.5–1.6.3 的全部改动，

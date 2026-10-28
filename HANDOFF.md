@@ -15,14 +15,15 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.6.3**（P0 1.3.5 → 标记 1.4.0 → 替换 1.5.0 → 计费/摘要 1.5.1 → 收尾 1.6.0 → index 1.6.1 → 规则兜底 1.6.2 → 真实进程 fold 1.6.3，均未发版） |
+| 版本 | **1.7.0**（已发布：2026-10-29）|
 | 单测 | **118 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/dsh-GOkifu-compact |
-| 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
+| npm | `dsh-gokifu-compact@1.7.0`（`dsh plugin --profile <name> add dsh-gokifu-compact`）|
+| 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.7.0 |
 | 本地路径 | `D:\主工作区\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
 | 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `dsh-GOkifu-compact` |
-| 运行期生效 | ✅ v1.4.0 已重启生效；✅ v1.5.0 也已重启生效（02:37 那次，日志里已见 `replace`） |
+| 运行期生效 | GPU 进程仍是 02:37 启动的旧代码；**重启一次即到 v1.7.0** |
 
 ## 今天做了什么（0.1.0 → 1.3.4）
 
@@ -157,7 +158,7 @@ sessions/<sessionId>/
 
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | **重启 DSH（部署最新代码）** | v1.6.3 需要重启才进 GUI 进程；重启后 `node test/doctor.mjs` 应全绿 |
+| 1 | **重启 DSH（部署最新代码）** | v1.7.0 已发布但 GUI 进程仍是旧代码；重启后 `node test/doctor.mjs` 应全绿 |
 | 2 | **GUI 长会话的自然 fold** | 机制链路已在真实 dsh 进程验证（`test/real-headless-fold.mjs`，多次 3~6/6 成功）；GUI 里 45 万 token 的自然触发要等重启后跑一段 |
 | 3 | **真实计费对账（口径已建）** | `test/measure-billing.mjs` 能按会话拆「未缓存/缓存/清单占比/fold 收支」；网关价目表不落盘，金额需主人按账单折算 |
 | 4 | **其它历史会话的回洗** | `test/rewash-graph.mjs` 只对 session-5acafe42 跑过；其余会话按需各自 dry-run + apply |
