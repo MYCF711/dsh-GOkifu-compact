@@ -50,10 +50,13 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   //   redundant = 和某条成功路径到达同一终点（等价，不必重试）
   //   novel     = 探出了成功路径没走过的状态（有参考价值）
   //   longer    = 比某条成功路径绕远
+  // 多参照点：分别列出「相对哪条成功路径」的结论
   const tags = [];
-  if (tewari?.samePosition) tags.push("redundant");
+  if (tewari?.redundantVs?.length) tags.push(`redundant vs ${tewari.redundantVs.join(",")}`);
+  else if (tewari?.samePosition) tags.push("redundant");
   if (tewari?.probes?.length > 0) tags.push("novel");
-  if (tewari?.vsBaseline === "longer") tags.push("longer");
+  if (tewari?.longerVs?.length) tags.push(`longer vs ${tewari.longerVs.join(",")}`);
+  else if (tewari?.vsBaseline === "longer") tags.push("longer");
   if (tags.length === 0) tags.push("dead"); // 没有任何等价/探新/绕路信息 = 纯死路
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;

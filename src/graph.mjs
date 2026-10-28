@@ -378,40 +378,57 @@ export function tewariAnalysis(g, edge) {
     (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && g.nodes[e.to],
   );
 
-  // 从同起点的成功后继出发做 BFS：得到「标准定式能到达的节点集合」
-  const baselineReach = new Set();
-  const queue = alts.map((e) => e.to);
-  const seen = new Set(queue);
-  while (queue.length > 0) {
-    const id = queue.shift();
-    baselineReach.add(id);
-    for (const e of Object.values(g.edges)) {
-      if (e.from === id && e.to && !seen.has(e.to)) {
-        seen.add(e.to);
-        queue.push(e.to);
+  // ★ 多参照点（v1.0.0）：对**每条**成功出边单独判定，而不是取并集。
+  //   同一条失败边相对 e5 可能是 redundant，相对 e7 可能是 novel —— 这正是「看第二个判优、看第三个判劣」。
+  const baselines = alts.map((alt) => {
+    const reach = new Set();
+    const q = [alt.to];
+    const seen = new Set(q);
+    while (q.length > 0) {
+      const id = q.shift();
+      reach.add(id);
+      for (const e of Object.values(g.edges)) {
+        if (e.from === id && e.to && !seen.has(e.to)) {
+          seen.add(e.to);
+          q.push(e.to);
+        }
+      }
+    }
+    const sameEndpoint = Boolean(to && to === alt.to);
+    const reachesEndpoint = Boolean(to && reach.has(to));
+    return { edgeId: alt.id, sameEndpoint, reachesEndpoint };
+  });
+
+  // 汇总（给热清单用）
+  const redundantVs = baselines.filter((b) => b.sameEndpoint).map((b) => b.edgeId);
+  const longerVs = baselines.filter((b) => !b.sameEndpoint && b.reachesEndpoint).map((b) => b.edgeId);
+
+  // 探新：失败边终点不在任何 baseline 的可达集合里
+  const anyReach = new Set();
+  for (const alt of alts) {
+    const q = [alt.to];
+    const seen = new Set(q);
+    while (q.length > 0) {
+      const id = q.shift();
+      anyReach.add(id);
+      for (const e of Object.values(g.edges)) {
+        if (e.from === id && e.to && !seen.has(e.to)) {
+          seen.add(e.to);
+          q.push(e.to);
+        }
       }
     }
   }
-
-  // ★ 判定只有两种：同型 / 不同型。
-  //   同型 = 失败边和某条成功路径到达**同一个终点**（殊途同归，完全等价）。
-  //   不同型 = 其余情况；此时额外记录两件**可以同时成立**的事：
-  //     probes    —— 探出了标准定式没走过的节点（有价值）
-  //     vsBaseline—— 相对标准定式更差（longer）/ 更优（shorter）/ 未知
-  const successEnds = new Set(alts.map((e) => e.to));
-  const samePosition = Boolean(to && successEnds.has(to));
-
   const probes = [];
-  if (to && g.nodes[to] && !baselineReach.has(to) && !samePosition) {
+  if (to && g.nodes[to] && !anyReach.has(to)) {
     probes.push(to);
-    // 顺着失败边之后继续走，把标准定式没覆盖的节点都记下来（最多 8 个，防爆）
     const q2 = [to];
     const seen2 = new Set([to]);
     while (q2.length > 0 && probes.length < 8) {
       const id = q2.shift();
       for (const e of Object.values(g.edges)) {
         if (e.from !== id || !e.to || !g.nodes[e.to]) continue;
-        if (baselineReach.has(e.to) || seen2.has(e.to)) continue;
+        if (anyReach.has(e.to) || seen2.has(e.to)) continue;
         seen2.add(e.to);
         probes.push(e.to);
         q2.push(e.to);
@@ -420,22 +437,27 @@ export function tewariAnalysis(g, edge) {
     }
   }
 
+  const samePosition = redundantVs.length > 0;
   let vsBaseline = "unknown";
   if (samePosition) vsBaseline = "same";
-  else if (to && baselineReach.has(to)) vsBaseline = "longer"; // 基线也能到，但失败边绕了
+  else if (longerVs.length > 0) vsBaseline = "longer";
 
   return {
     kind: samePosition ? "same_position" : "different",
     samePosition,
     probes,
     vsBaseline,
+    // ★ 多参照点明细：每条成功路径一个结论
+    baselines,
+    redundantVs,
+    longerVs,
     alternatives: alts.length,
     note: samePosition
-      ? "殊途同归：与标准定式到达同一局面，只是路径不同"
+      ? `殊途同归：与 ${redundantVs.join(",")} 到达同一局面`
       : probes.length > 0
         ? `探出 ${probes.length} 处标准定式没走过的节点`
-        : to && baselineReach.has(to)
-          ? "标准定式也能到达，但这一步绕了路"
+        : longerVs.length > 0
+          ? `标准定式 ${longerVs.join(",")} 也能到达，但这一步绕了路`
           : "与标准定式不同型，且未探出新节点",
   };
 }

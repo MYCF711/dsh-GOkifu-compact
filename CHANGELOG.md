@@ -1,5 +1,38 @@
 # 更新记录
 
+## 1.0.0 — 2026-10-28
+
+### 手割多参照点（Multi-baseline tewari）
+
+**问题**：之前取成功路径的并集，同一条失败边只能给一个结论。
+但「看第二个你判断优，看第三个是劣」—— 同一条失败边相对不同成功路径可能有不同结论。
+
+**改法**：`tewariAnalysis` 对**每条**成功出边单独判定，返回：
+
+```js
+{
+  baselines: [
+    { edgeId: "e1", sameEndpoint: true,  reachesEndpoint: true  },
+    { edgeId: "e2", sameEndpoint: false, reachesEndpoint: false },
+  ],
+  redundantVs: ["e1"],   // 相对哪些成功路径是冗余（同终点）
+  longerVs: [],          // 相对哪些绕路
+  probes: [...],         // 探出的新节点
+}
+```
+
+热清单显示：
+
+```
+- e3 "绕到B" → boom [redundant vs e1]
+```
+
+**1.0.0 含义**：API 稳定、语义完整（同型 / 探新 / 冗余 / 绕路，每条边明确指向「相对哪条成功路径」）。
+
+### 测试
+
+85 项全绿
+
 ## 0.9.1 — 2026-10-28
 
 ### 热清单去重：`CURRENT PATH` 与 `WORKING` 相同时只显示一个
