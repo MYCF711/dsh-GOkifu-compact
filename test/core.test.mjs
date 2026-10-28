@@ -217,3 +217,17 @@ tests["tewari：成功路径能到达失败终点 → detour"] = async () => {
   const r = tewariAnalysis(g, g.edges[eBad]);
   if (r.kind !== "detour") throw new Error(`应判 detour，实际 ${r.kind}`);
 };
+
+tests["tewari：失败之后走出成功 → profit（赚）"] = async () => {
+  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
+  const g = createGraph({ sessionId: "tewari4" });
+  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const eBad = addEdge(g, { from: u, intent: "先试错的方案", action: "try_x()" });
+  const nX = addAgentNode(g, { seq: 2, turn: 1, goal: "X", worldHash: "WX", constraintHash: "C1", via: eBad });
+  settleEdge(g, eBad, { to: nX.id, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "boom" });
+  const eGood = addEdge(g, { from: nX.id, intent: "改用另一条路", action: "try_y()" });
+  const nY = addAgentNode(g, { seq: 3, turn: 1, goal: "Y", worldHash: "WY", constraintHash: "C1", via: eGood });
+  settleEdge(g, eGood, { to: nY.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  const r = tewariAnalysis(g, g.edges[eBad]);
+  if (r.kind !== "profit") throw new Error(`应判 profit，实际 ${r.kind}`);
+};

@@ -47,7 +47,13 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   const showReason = level <= 2;
   // 手割标记：纯亏 = 同起点有成功路径且不经过它；绕路 = 成功路径也能到它的终点
   const tag =
-    tewari?.kind === "pure_loss" ? " [纯亏]" : tewari?.kind === "detour" ? " [绕路]" : "";
+    tewari?.kind === "profit"
+      ? " [赚]"
+      : tewari?.kind === "pure_loss"
+        ? " [纯亏]"
+        : tewari?.kind === "detour"
+          ? " [绕路]"
+          : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
 

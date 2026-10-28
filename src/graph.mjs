@@ -377,24 +377,42 @@ export function tewariAnalysis(g, edge) {
   const alts = Object.values(g.edges).filter(
     (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && g.nodes[e.to],
   );
+
+  // 看「失败之后」是否走出了成功（从 to 出发能到 success）
+  let afterSuccess = false;
+  if (to && g.nodes[to]) {
+    const q2 = [to];
+    const seen2 = new Set([to]);
+    while (q2.length > 0 && !afterSuccess) {
+      const id = q2.shift();
+      for (const e of Object.values(g.edges)) {
+        if (e.from !== id) continue;
+        if (e.result === "success") { afterSuccess = true; break; }
+        if (e.to && g.nodes[e.to] && !seen2.has(e.to)) {
+          seen2.add(e.to);
+          q2.push(e.to);
+        }
+      }
+    }
+  }
+
+  // 1) 没有标准定式可比：失败之后走出成功 ⇒ 必要试错（赚）；否则无法手割
   if (alts.length === 0) {
+    if (afterSuccess) {
+      return {
+        kind: "profit",
+        alternatives: 0,
+        note: "同起点没有别的成功路径，但失败之后走出了成功：必要试错（赚）",
+      };
+    }
     return {
       kind: "no_alternative",
       alternatives: 0,
-      note: "同起点没有成功路径可比，无法手割",
+      note: "同起点没有成功路径可比，失败之后也没有成功，无法手割",
     };
   }
 
-  // 失败边没有终点节点（尝试没走到任何状态）：只要有成功替代路径，就是纯亏
-  if (!to) {
-    return {
-      kind: "pure_loss",
-      alternatives: alts.length,
-      note: "失败边没有终点节点；同起点存在不经过它的成功路径",
-    };
-  }
-
-  // 从成功后继出发做 BFS，看能否到达失败边的终点
+  // 2) 有标准定式：从成功后继出发 BFS，看能到达哪些节点
   const reachable = new Set();
   const queue = alts.map((e) => e.to);
   const seen = new Set(queue);
@@ -409,16 +427,19 @@ export function tewariAnalysis(g, edge) {
     }
   }
 
+  // 3) 标准定式能到达失败终点 → 绕路（可能必要，但不如直达）
   if (to && reachable.has(to)) {
     return {
       kind: "detour",
       alternatives: alts.length,
-      note: "失败终点在成功路径上，可能是绕路",
+      note: "标准定式也能到达这个终点，但绕了路",
     };
   }
+
+  // 4) 标准定式不经过它：纯亏
   return {
     kind: "pure_loss",
     alternatives: alts.length,
-    note: "把这一步拿掉，同起点有成功路径且不经过它",
+    note: "把这一步拿掉，同起点有成功路径且不经过它（纯亏）",
   };
 }
