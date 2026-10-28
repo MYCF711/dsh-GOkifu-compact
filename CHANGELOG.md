@@ -1,5 +1,51 @@
 # 更新记录
 
+## 1.5.0 — 2026-10-29
+
+### P1-4 彻底修法：热清单**就地替换**，surface 永远只有一条
+
+**问题（拿真实会话日志数出来的）**：旧版每次注入都**追加**一条新 `user/message`，旧的不替换。
+`session-5acafe42`（死循环那个会话）累积 **176 条 / 809,819 字符 ≈ 27 万 token** ——
+它的上下文峰值 672,392 token 里，约 27 万是**这个插件自己注入的热清单**。
+一个压缩插件自己的热上下文成了最大的上下文消费者。
+
+| 会话 | 注入条数 | 累计字符 | ≈ tokens |
+|---|---:|---:|---:|
+| `session-5acafe42` | 176 | 809,819 | ≈ 270,000 |
+| `session-365cdcf6` | 103 | 238,083 | ≈ 79,000 |
+| `session-5787ac6b` | 74 | 155,569 | ≈ 52,000 |
+| 12 个会话合计 | 375 | 1,225,074 | ≈ 408,000 |
+
+**改法**：`pre-step` 里找到当前 surface 上最后一条 `chess-context` 节点，用 DSH 官方的
+`surfaceOp: {op:"replace", startSeq, endSeq}` + `sourceEventSeqs` **就地替换**（官方 system-prompt
+的 in-history 提交、`tool-result-pruner` 用的同一机制），并且**不进** `decision.messages`。
+首次注入（或清单被 fold 遮蔽）时仍走追加路径。
+
+- 内容一字不差时直接返回：不写日志、不推进 `contentGeneration`
+- 锚点失效（刚被 fold 遮蔽）会抛错 ⇒ **捕获后退回追加**，绝不因此丢信息
+- 被 fold 遮蔽后**立刻补回**，不等限流（否则模型一段时间内看不到死路清单）
+- 限流维持原样（≥40 事件 / 失败边 +5）—— 替换不占额外 prompt，但会写日志事件并推进
+  `contentGeneration`（下游 `startsSeries`），节奏不动最稳
+- 新增配置 `hotLedgerReplace`（默认 `true`，false 退回追加）
+- **历史包袱一次清**：v1.5.0 之前追加出来的旧清单不能被删除（surface 只有 append/replace），
+  但可以逐条**替换成一行占位**（`[stale chess-ledger elided …]`）。实测 `session-5acafe42` 的 surface 上
+  还压着 **44 条 / 295,255 字符 ≈ 9.8 万 token** —— 那个会话下次被打开时会被自动清掉。
+  幂等：占位本身 < 200 字符，下次进来直接跳过。
+
+**验证**
+
+- `test/real-ledger-replace.mjs`（新，8/8）：真实 `@deepseek-ai/dsh-session` 上验证替换机制 ——
+  含「连续替换 50 次仍只有一条」「替换非当前节点抛错」「漏报 sourceEventSeqs 抛错」「替换后仍能按
+  `source.kind` 找回当前清单」
+- `test/engine-harness.test.mjs`（+3）：就地替换（`decision.messages` 无新增、surface 恒 1 条、内容更新）、
+  被 fold 遮蔽后立刻补回、历史旧清单被换成占位且幂等；变异自检（关掉替换 / 关掉清理 ⇒ 用例变红）
+- `node test/run.mjs` → **107 passed, 0 failed**；verify-install 13/13；real-modules 4/4；real-fold 5/5
+
+产物：`evidence/P1-4-清单替换实测.md`
+
+**遗留**：历史累积要等下一次 fold 才会被遮蔽（surface 只有 append/replace，无法删除节点）；
+本机运行实例需**再重启一次**才带上本改动。
+
 ## 1.4.0 — 2026-10-29
 
 ### 模型消费者视角：标记必须自解释、原因不许丢（子代理盲测驱动）

@@ -15,14 +15,14 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.4.0**（P0 修复 1.3.5 + 标记/原因改造 1.4.0，均未发版） |
-| 单测 | **104 passed, 0 failed** |
+| 版本 | **1.5.0**（P0 1.3.5 + 标记/原因 1.4.0 + 清单替换 1.5.0，均未发版） |
+| 单测 | **107 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/DSH-GOkifu-compact |
 | 最新 Release | https://github.com/MYCF711/DSH-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
 | 本地路径 | `D:\主工作区\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
 | 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `DSH-GOkifu-compact` |
-| 运行期生效 | ❌ **未重启，跑的还是 v1.3.4** |
+| 运行期生效 | ✅ v1.4.0 已重启生效；✅ v1.5.0 也已重启生效（02:37 那次，日志里已见 `replace`） |
 
 ## 今天做了什么（0.1.0 → 1.3.4）
 
@@ -119,6 +119,14 @@ sessions/<sessionId>/
 代价：全库 tokens **+6.8%**，换来带原因的失败边 **89 → 209（2.35×）**。
 证据：`evidence/热清单标记AB实验.md`（含「报错原文误导」场景的 1/6 vs 0/6）。
 
+### 第五阶段：清单就地替换（v1.4.0 → 1.5.0）
+
+旧版每次注入都**追加**一条新消息 ⇒ 实测 `session-5acafe42` 累积 **176 条 / 81 万字符 ≈ 27 万 token**
+（它上下文峰值 672K 里约 27 万是插件自己注入的）—— 压缩插件自己的热上下文成了最大的消费者。
+现在用 DSH 官方的 `surfaceOp:{op:"replace"}` **就地替换**，surface 上永远只有一条；
+历史追加出来的旧清单被一次性换成一行占位（事故会话 surface 上还压着 44 条 / 29.5 万字符 ≈ 9.8 万 token）。
+证据与遗留：`evidence/P1-4-清单替换实测.md`。
+
 ## 关键文件
 
 | 文件 | 作用 |
@@ -128,9 +136,10 @@ sessions/<sessionId>/
 | `src/ledger.mjs` | 热清单 + 硬事实块 |
 | `src/summary-prompt.mjs` | 摘要指令 + 机械约束 |
 | `src/verifier.mjs` | 成功/失败判定 |
-| `test/run.mjs` | 104 项单测 |
+| `test/run.mjs` | 107 项单测 |
 | `test/verify-graphs.mjs` | 全库棋谱健康检查（P0 验收工具） |
 | `test/ab-render.mjs` | 热清单标记 A/B 夹具（模型消费者实验） |
+| `test/real-ledger-replace.mjs` | 真实 Session 上的「清单就地替换」机制验证（8 项） |
 | `test/markers.test.mjs` | 标记契约（9 项） |
 | `docs/三层树设计.md` | 三层树设计依据 + 6 缺陷 |
 | `docs/P0-worldhash-死循环-根因与修复方案.md` | P0 根因 + 修复方案 + 验证清单 |
@@ -141,13 +150,12 @@ sessions/<sessionId>/
 
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | **重启 DSH（P0 部署）** | v1.3.5 代码已就绪，但插件启动时加载；重启后跑 `node test/verify-graphs.mjs` 五条判据。**这是唯一挡在「修好」前面的事** |
-| 2 | **P1-4 彻底修法** | 热清单注入现在是限流（40 事件 / 失败边 +5），彻底修法是**替换** surface 上的旧消息 |
-| 3 | **真实计费核对** | 模拟显示省 22.7%–43.3%，**未核对真实账单** |
-| 4 | **`ENOENT` 边界** | `failureClass` 判 `blocked:missing-resource`，但文件可能本来就不该存在（应是 `dead`）—— 规则无法区分 |
-| 5 | **旧数据回洗** | `session-5acafe42` 的 101 条 failure 里 43 条 text 型假阳性。**会话已停止**，可回洗（v1.3.0 起渲染层有 `[text:?]` 标记，数据层回洗仍待做） |
-| 7 | **`[dead]` 为「墓碑」的风险** | 1.1.0 盲测指出：写成永久墓碑会关掉「权限变了本来能走」的路。现在靠 `dead` 图例里的「retry only if that path breaks」缓解，未做机器强制 |
-| 6 | **模型是否主动 read 三层树** | 未验证（子代理是被要求读的） |
+| 1 | **再重启一次 DSH** | v1.5.0（清单就地替换）需要重启才生效；重启后跑 `node test/verify-graphs.mjs`（全库健康）|
+| 2 | **真实计费核对** | 现在有真实长会话了：`session-5acafe42` 的 176 条清单 × 平均 4600 字符是真金白银。核对网关账单口径的节省 |
+| 3 | **`ENOENT` 边界** | `failureClass` 判 `blocked:missing-resource`，但文件可能本来就不该存在（应是 `dead`）—— 规则无法区分 |
+| 4 | **旧数据回洗** | `session-5acafe42` 的 101 条 failure 里 43 条 text 型假阳性。**会话已停止**，可回洗（v1.3.0 起渲染层有 `[text:?]` 标记，数据层回洗仍待做） |
+| 6 | **`[dead]` 为「墓碑」的风险** | 1.1.0 盲测指出：写成永久墓碑会关掉「权限变了本来能走」的路。现在靠 `dead` 图例里的「retry only if that path breaks」缓解，未做机器强制 |
+| 5 | **模型是否主动 read 三层树** | 未验证（子代理是被要求读的） |
 
 ## 怎么验证 / 装 / 回滚
 
@@ -155,7 +163,7 @@ sessions/<sessionId>/
 cd D:/主工作区/projects/dsh-chess-context
 
 # 验证（当前 v1.3.5 工作区）
-node test/run.mjs            # 104 passed
+node test/run.mjs            # 107 passed
 node test/verify-install.mjs # 13/13
 node test/real-modules.mjs   # 4/4
 node test/real-fold.mjs      # 5/5

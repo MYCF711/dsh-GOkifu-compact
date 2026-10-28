@@ -112,12 +112,37 @@ function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
     id,
     cwd: process.cwd(),
     surface: { nodes },
+    get seq() {
+      return seq;
+    },
     nextSeq: () => seq++,
     eventAt: (s) => events.get(s),
     requestHeader: () => ({ config: { provider: "p", model: "m", maxTokens: 4096 } }),
     toolHistory: () => ({ tools: [] }),
-    append() {
-      throw new Error("harness: append 未实现（engine 不该在事件回调里 append）");
+    /**
+     * 真实 Session.append 的最小实现（P1-4 需要）：append / replace 两种 surfaceOp。
+     * replace 必须引用当前 surface 上的连续节点，sourceEventSeqs 必须覆盖被遮蔽节点 —— 与真实
+     * Session 的校验一致（见 test/real-ledger-replace.mjs 对真实包的验证）。
+     */
+    append(type, data, opts = {}) {
+      const s = seq++;
+      const event = { type, seq: s, data, ...(opts.surfaceOp === undefined ? {} : { surfaceOp: opts.surfaceOp }), ...(opts.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: opts.sourceEventSeqs }) };
+      events.set(s, event);
+      if (opts.surfaceOp === "append" || opts.surfaceOp === undefined) {
+        nodes.push(s);
+      } else if (opts.surfaceOp && opts.surfaceOp.op === "replace") {
+        const startIdx = nodes.indexOf(opts.surfaceOp.startSeq);
+        const endIdx = nodes.indexOf(opts.surfaceOp.endSeq);
+        if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) throw new Error("harness: replace 范围不在当前 surface 上");
+        const shadowed = nodes.slice(startIdx, endIdx + 1);
+        const cited = new Set(opts.sourceEventSeqs ?? []);
+        const missing = shadowed.filter((x) => !cited.has(x));
+        if (missing.length > 0) throw new Error(`harness: sourceEventSeqs 漏了 ${missing.join(",")}`);
+        nodes.splice(startIdx, endIdx - startIdx + 1, s);
+      } else {
+        throw new Error("harness: 非法 surfaceOp");
+      }
+      return event;
     },
     seedSystem() {
       const s = seq++;
@@ -352,6 +377,126 @@ tests["标记档位（hotLedgerMarkers）能一路传到热清单：off 不打�
   if (off.includes("# markers:")) throw new Error(`off 档仍有图例：\n${off}`);
   const bogus = await run("sess-markers-bogus", { hotLedgerMarkers: "随便写的" });
   if (!bogus.includes("blocked:permission")) throw new Error("非法档位应回落到 semantic");
+};
+
+tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只有一条"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-replace" });
+  const ctx = makeCtx();
+  new Engine(ctx, { graphDir, auto: false });
+  const agent = { session, options: {} };
+  const claimed = [{ id: "claimed-r", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const ledgerSeqs = () => session.surface.nodes.filter((s) => session.eventAt(s)?.data?.source?.kind === "chess-context");
+
+  // 先攒一条失败边 → 第一次注入（surface 上没有清单 ⇒ 追加）
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  const d1 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
+  if (d1.messages.filter((m) => m.source?.kind === "chess-context").length !== 1) throw new Error("第一次应是追加");
+  applyDecision(session, d1, claimed); // 真实 loop 会把 decision 里的新消息 append 进 surface
+  if (ledgerSeqs().length !== 1) throw new Error("surface 上应有一条清单");
+  const firstSeq = ledgerSeqs()[0];
+  const firstText = session.eventAt(firstSeq).data.content[0].text;
+
+  // 再攒 5 条失败边，并推进 45 个事件（越过「40 事件 / 失败边 +5」这两道限流门）
+  for (let i = 0; i < 5; i += 1) {
+    await ctx.emitRaw("session/event", session, assistantEvent(`c${i + 10}`, "bash", { command: `npm test ${i}` }, 10 + i * 3));
+    await ctx.emitRaw("session/event", session, resultEvent(`c${i + 10}`, `boom ${i}\n[exit code: 1]`, 11 + i * 3));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: 12 + i * 3, data: { turn: 1, step: 2 + i } });
+  }
+  for (let i = 0; i < 45; i += 1) session.nextSeq();
+
+  const d2 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 2 }, () => ({ kind: "enter", messages: claimed }));
+  if (d2.messages.filter((m) => m.source?.kind === "chess-context").length !== 0) {
+    throw new Error("第二次应该是就地替换，不该再往 decision.messages 里加一条");
+  }
+  const after = ledgerSeqs();
+  if (after.length !== 1) throw new Error(`surface 上清单节点数 ${after.length}（应恒为 1，P1-4 就是要消除累积）`);
+  if (after[0] === firstSeq) throw new Error("还是旧节点（没有替换）");
+  const newText = session.eventAt(after[0]).data.content[0].text;
+  if (newText === firstText) throw new Error("内容没变（替换成了同一份）");
+  if (!newText.includes("LEARNED (6 failed attempts")) throw new Error(`新清单没反映新的失败数：\n${newText.slice(0, 240)}`);
+
+  // 失败数没变、事件间隔不够 ⇒ 限流门仍然拦住（不写日志、不碰 contentGeneration）
+  const nodesBefore = session.surface.nodes.length;
+  await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 3 }, () => ({ kind: "enter", messages: claimed }));
+  if (session.surface.nodes.length !== nodesBefore) throw new Error("限流门没挡住（不该再注入）");
+};
+
+tests["P1-4 兜底：清单被 fold 遮蔽后，下一次 pre-step 立刻补回来（不等限流）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-refold" });
+  const ctx = makeCtx();
+  new Engine(ctx, { graphDir, auto: false });
+  const agent = { session, options: {} };
+  const claimed = [{ id: "claimed-f", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const ledgerSeqs = () => session.surface.nodes.filter((s) => session.eventAt(s)?.data?.source?.kind === "chess-context");
+
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  const d1 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
+  applyDecision(session, d1, claimed);
+
+  // 模拟 fold：清单节点从 surface 上消失（被 checkpoint 遮蔽）
+  const seq = ledgerSeqs()[0];
+  session.surface.nodes.splice(session.surface.nodes.indexOf(seq), 1);
+  if (ledgerSeqs().length !== 0) throw new Error("前置条件不对");
+
+  const d2 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 2 }, () => ({ kind: "enter", messages: claimed }));
+  const reinjected = d2.messages.filter((m) => m.source?.kind === "chess-context");
+  if (reinjected.length !== 1) throw new Error(`被 fold 遮蔽后应立刻补回，实际 ${reinjected.length}`);
+  if (!reinjected[0].content[0].text.includes("LEARNED")) throw new Error("补回来的不是清单");
+};
+
+tests["P1-4 配套：历史遗留的旧清单被换成一行占位（surface 不再背旧账）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-legacy-elide" });
+  const ctx = makeCtx();
+  // 模拟旧版：surface 上已经压着 3 条长清单（每条 800 字符）
+  for (let i = 0; i < 3; i += 1) {
+    session.push("user/message", {
+      id: `legacy-led-${i}`,
+      role: "user",
+      content: [{ type: "text", text: `LEGACY LEDGER ${i} ${"x".repeat(800)}` }],
+      source: { kind: "chess-context", form: "ledger", digest: `old-${i}` },
+    });
+  }
+  new Engine(ctx, { graphDir, auto: false });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+
+  const agent = { session, options: {} };
+  const claimed = [{ id: "claimed-e", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const ledgerEvents = () =>
+    session.surface.nodes
+      .map((s) => session.eventAt(s))
+      .filter((e) => e?.type === "user/message" && e.data?.source?.kind === "chess-context");
+
+  await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
+  const events = ledgerEvents();
+  if (events.length !== 3) throw new Error(`清单节点数 ${events.length}（不该新增，应就地清理）`);
+  const stubs = events.filter((e) => e.data.source.form === "ledger-stub");
+  if (stubs.length !== 2) throw new Error(`占位数 ${stubs.length}（3 条里除最新那条外都该被清理）`);
+  for (const stub of stubs) {
+    const text = stub.data.content.map((b) => b.text).join("");
+    if (text.length > 200) throw new Error(`占位没变短：${text.length} 字符`);
+    if (!text.includes("elided")) throw new Error(`占位文案不对：${text}`);
+  }
+  const newest = events[events.length - 1];
+  if (!newest.data.content[0].text.includes("<chess-ledger>")) throw new Error("最后一条应是刷新后的真清单");
+
+  // 幂等：再来一次不应再产生占位
+  const before = ledgerEvents().filter((e) => e.data.source.form === "ledger-stub").length;
+  for (let i = 0; i < 45; i += 1) session.nextSeq();
+  await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 2 }, () => ({ kind: "enter", messages: claimed }));
+  const after = ledgerEvents().filter((e) => e.data.source.form === "ledger-stub").length;
+  if (after !== before) throw new Error(`不幂等：占位从 ${before} 变成 ${after}`);
 };
 
 tests["注入去重：同一份清单不重复注入"] = async () => {

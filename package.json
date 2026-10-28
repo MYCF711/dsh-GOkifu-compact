@@ -1,6 +1,6 @@
 {
   "name": "dsh-gokifu-compact",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "DSH context-compression backend with a **go game record (kifu)** DAG: node = position, edge = attempted move + result. Incremental fold (each span summarized once), failure memory that survives compaction, transposition detection (chess-engine style), and a tiny hot ledger rebuilt every step.",
   "type": "module",
   "main": "src/engine.mjs",

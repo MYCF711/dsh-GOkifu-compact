@@ -98,6 +98,7 @@ node test/rollback.mjs
     hotLedger: true           # 每步注入失败清单
     hotLedgerMaxTokens: 500
     hotLedgerMarkers: semantic # semantic（带语义+图例）| terse（只三态）| off
+    hotLedgerReplace: true   # 就地替换 surface 上的旧清单（surface 永远只有一条）
     transposition: true       # 置换检测
     tier2After: 8             # checkpoint 超过 8 个就把最老的两段合并
     graphDir: ''              # 留空 = <DSH_HOME>/chess-context
@@ -146,7 +147,14 @@ DSH 自己的会话日志仍是原始记忆的唯一来源 —— 节点上只�
 
 ## 热上下文长什么样
 
-每步 `agent/pre-step` 注入（清单不变时复用，不重复注入）。**标记一定自带解释** ——
+每步 `agent/pre-step` 注入。**surface 上永远只有一条清单**：清单变了就**就地替换**上一条
+（DSH 的 `surfaceOp:{op:"replace"}`，官方 system-prompt / tool-result-pruner 用的同一机制），
+而不是再追加一条 —— 旧版不替换，实测一个会话累积 **176 条 / 81 万字符 ≈ 27 万 token**
+（`evidence/P1-4-清单替换实测.md`）。
+v1.5.0 之前追加出来的旧清单也会被**一次性换成一行占位**（surface 只支持 append/replace，不能删节点）——
+实测事故会话的 surface 上还压着 44 条 / 29.5 万字符 ≈ 9.8 万 token，下次打开该会话时自动清掉。
+
+**标记一定自带解释** ——
 清单里出现的每个标记，图例里都有对应的一行（按实际用到的动态生成，不浪费预算）：
 
 ```
@@ -183,7 +191,7 @@ LEARNED (3 failed attempts):
 ## 测试
 
 ```bash
-node test/run.mjs            # 104 项：图/判定/范围/热上下文/标记契约/事件落账/接线（假 DSH）
+node test/run.mjs            # 107 项：图/判定/范围/热上下文/标记契约/事件落账/接线（假 DSH）
 node test/verify-install.mjs # 13 项：安装与挂载校验（含运行期 graph.json 证据）
 node test/verify-graphs.mjs  # 全库棋谱健康检查（worldHash 类型 / stateIndex / renderFacts 不抛错）
 node test/ab-render.mjs      # A/B 夹具：同一张棋谱的三种标记档位各渲染一份（模型消费者实验用）
