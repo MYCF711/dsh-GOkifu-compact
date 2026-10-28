@@ -33,6 +33,9 @@
         # 每步注入失败清单（热上下文）
         hotLedger: true
         hotLedgerMaxTokens: 500
+        # 失败边标记：semantic（默认；`[blocked:permission]` + 按用到的标记动态生成图例）
+        #            terse（只写三态，省 token）/ off（不打标记）
+        hotLedgerMarkers: semantic
         # 置换检测：同一状态再次到达时不新建节点
         transposition: true
         auto: true

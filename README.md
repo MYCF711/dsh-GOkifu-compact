@@ -97,6 +97,7 @@ node test/rollback.mjs
     summarizationModel: ima/deepseek-v4.1-flash   # 推荐：ima 免费模型，实测 8/8 死路、2/2 约束
     hotLedger: true           # 每步注入失败清单
     hotLedgerMaxTokens: 500
+    hotLedgerMarkers: semantic # semantic（带语义+图例）| terse（只三态）| off
     transposition: true       # 置换检测
     tier2After: 8             # checkpoint 超过 8 个就把最老的两段合并
     graphDir: ''              # 留空 = <DSH_HOME>/chess-context
@@ -145,29 +146,47 @@ DSH 自己的会话日志仍是原始记忆的唯一来源 —— 节点上只�
 
 ## 热上下文长什么样
 
-每步 `agent/pre-step` 注入（清单不变时复用，不重复注入）：
+每步 `agent/pre-step` 注入（清单不变时复用，不重复注入）。**标记一定自带解释** ——
+清单里出现的每个标记，图例里都有对应的一行（按实际用到的动态生成，不浪费预算）：
 
 ```
 <chess-ledger>
-ROOT USER (verbatim): 必须把测试改成绿的，不要动 prod 配置…
+ROOT USER (verbatim): 把 tests/case*.test.js 跑绿：缓存键算错了。不要动 prod 配置。
 CONSTRAINTS (verbatim):
-- 必须把测试改成绿的。
 - 不要动 prod 配置。
-CURRENT PATH: n1 → n3 → n7
-CURRENT GOAL: 把 fold 的起点挪到 checkpoint 之后
-PROVEN DEAD ENDS (do not retry blind; every one of these was tried):
-- e2 "改成流式写入" → TypeError: Cannot read properties of undefined (reading 'pipe') (seq 120-131)
-- e5 "换用 sqlite" → ENOENT: no such file or directory, open 'data/x.db' (seq 208-211)
+CURRENT GOAL: 缓存键修好，case7 通过
+WORKING: user → n2 (exit 0)
+LEARNED (3 failed attempts):
+# markers:
+#   dead = a working path avoids it — retry only if that path breaks
+#   redundant = working edge <edge> reaches the SAME position — take that one
+#   blocked:permission = needs a permission this environment lacks — retry when it changes
+- e2 "把缓存键改成 JSON.stringify 全部参数" → AssertionError: case7 expected 1 got 2 … [dead redundant:e1]
+- e3 "装全局 sqlite 依赖后再跑" → npm ERR! EACCES: permission denied, mkdir … [blocked:permission]
 </chess-ledger>
 ```
 
-预算不够时**降级不丢边**：先砍原因长度、再砍动作，最后只留 `e<id>`（可回查 graph.md）。
+四条设计约束（都是实测逼出来的）：
+
+1. **标记说语义，不说缩写**：`blocked:permission` 比 `[blocked]` 多出的那截就是「什么条件变了能再试」，
+   而这正是 `revisit_if` 想给模型的东西（旧版只在 index.md 里给，热清单里看不到）。
+2. **图例跟着标记走**：旧版把图例绑在「检测到手割」上 ⇒ 一个只有 EACCES 的会话里 `[blocked]` 裸奔；
+   现在有标记必有图例，且只解释用得上的那几条。
+3. **原因（报错原文）任何档位都保留**：旧版 L3+ 把 `→ 原因` 整段砍掉，实测全库 133 条可见失败边里
+   只有 25 条带原因 —— 而模型判断「这是不是同一个坑」靠的就是报错原文。
+4. **手割标记对最近 30 条边算**（每条一次 BFS）：旧版「显示条数 ≤30 才算」⇒ 40 条失败边的会话
+   一条标记都没有，而模型只对最近几步做决策。
+
+预算不够时**降级不丢边**：先砍意图与原因的**长度**，再砍 seq，最后只列最近 N 条 + 汇总行。
+标记档位可用 `hotLedgerMarkers` 调：`semantic`（默认）| `terse`（只写三态，省 token）| `off`。
 
 ## 测试
 
 ```bash
-node test/run.mjs            # 81 项：图/判定/范围/热上下文/事件落账/接线（假 DSH）
+node test/run.mjs            # 104 项：图/判定/范围/热上下文/标记契约/事件落账/接线（假 DSH）
 node test/verify-install.mjs # 13 项：安装与挂载校验（含运行期 graph.json 证据）
+node test/verify-graphs.mjs  # 全库棋谱健康检查（worldHash 类型 / stateIndex / renderFacts 不抛错）
+node test/ab-render.mjs      # A/B 夹具：同一张棋谱的三种标记档位各渲染一份（模型消费者实验用）
 node test/evidence.mjs       # 重算 evidence/模拟结果.md（计费、保留率、热上下文成本）
 node test/bench.mjs 2000     # 2000 条边的性能与体量
 
@@ -190,7 +209,9 @@ node test/real-e2e.mjs       # 真实 bash 失败 → 压缩 → 续跑 3/3
 | 系统注入被当成用户的话 | user 节点 13 个（含 Hindsight/系统说明） | **3 个**（全是真人输入） |
 | 只读工具文本被当成失败 | failure 55 条（30+ 误报） | **8 条**（逐条核对全真） |
 | 落盘滞后 | 每 25 事件才写 | 变化后 1.2s debounce 写 |
-| 热上下文爆炸 | 1201 条边 → 28,800 tokens | **476 tokens**（L4 降级 + 汇总行） |
+| 热上下文爆炸 | 1201 条边 → 28,800 tokens | **323 tokens**（L5 降级 + 汇总行 + 跳过装不下的档位） |
+| 标记裸奔（v1.4.0） | `[blocked]` 出现却无解释；`redundant`/`longer` 从不在图例里 | 标记自带语义（`blocked:permission`）+ **按用到的标记动态生成图例** |
+| 原因失踪（v1.4.0） | L3+ 把 `→ 报错原文` 整段砍掉（全库 133 条可见失败边只有 25 条带原因） | 任何档位都保留原因（最省档 25 字），带原因条数 89 → **209** |
 
 三层验证的分工：
 

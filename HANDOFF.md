@@ -15,8 +15,8 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.3.5**（P0 修复，未发版） |
-| 单测 | **94 passed, 0 failed** |
+| 版本 | **1.4.0**（P0 修复 1.3.5 + 标记/原因改造 1.4.0，均未发版） |
+| 单测 | **104 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/DSH-GOkifu-compact |
 | 最新 Release | https://github.com/MYCF711/DSH-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
@@ -105,6 +105,20 @@ sessions/<sessionId>/
 
 详见 `docs/三层树设计.md`。
 
+### 第四阶段：标记自解释 + 原因不许丢（v1.3.5 → 1.4.0）
+
+模型消费者盲测（12 次受试）暴露三处「内容不够模型用」：
+
+1. **标记裸奔**：图例绑在「检测到手割」上 ⇒ 只有 EACCES 的会话里 `[blocked]` 没有解释
+2. **标记是缩写不是语义**：`[blocked]` → `[blocked:permission]`（说出「什么变了能再试」）
+3. **原因失踪**：L3+ 把 `→ 报错原文` 整段砍掉（全库 133 条可见失败边只有 25 条带原因），
+   而盲测里 **12/12 次回答**都引用了报错原文
+
+改法：动态图例（出现即解释）+ 任何档位都留原因（逐档变短）+ 手割只算一次（尾部 30 条）
++ 注定装不下的档位直接跳过（2000 边渲染 **7.58 ms → 0.478 ms**）+ 配置 `hotLedgerMarkers`。
+代价：全库 tokens **+6.8%**，换来带原因的失败边 **89 → 209（2.35×）**。
+证据：`evidence/热清单标记AB实验.md`（含「报错原文误导」场景的 1/6 vs 0/6）。
+
 ## 关键文件
 
 | 文件 | 作用 |
@@ -114,8 +128,10 @@ sessions/<sessionId>/
 | `src/ledger.mjs` | 热清单 + 硬事实块 |
 | `src/summary-prompt.mjs` | 摘要指令 + 机械约束 |
 | `src/verifier.mjs` | 成功/失败判定 |
-| `test/run.mjs` | 94 项单测 |
+| `test/run.mjs` | 104 项单测 |
 | `test/verify-graphs.mjs` | 全库棋谱健康检查（P0 验收工具） |
+| `test/ab-render.mjs` | 热清单标记 A/B 夹具（模型消费者实验） |
+| `test/markers.test.mjs` | 标记契约（9 项） |
 | `docs/三层树设计.md` | 三层树设计依据 + 6 缺陷 |
 | `docs/P0-worldhash-死循环-根因与修复方案.md` | P0 根因 + 修复方案 + 验证清单 |
 | `docs/最终报告.md` | 完整报告（含 v1.x 章节） |
@@ -130,6 +146,7 @@ sessions/<sessionId>/
 | 3 | **真实计费核对** | 模拟显示省 22.7%–43.3%，**未核对真实账单** |
 | 4 | **`ENOENT` 边界** | `failureClass` 判 `blocked:missing-resource`，但文件可能本来就不该存在（应是 `dead`）—— 规则无法区分 |
 | 5 | **旧数据回洗** | `session-5acafe42` 的 101 条 failure 里 43 条 text 型假阳性。**会话已停止**，可回洗（v1.3.0 起渲染层有 `[text:?]` 标记，数据层回洗仍待做） |
+| 7 | **`[dead]` 为「墓碑」的风险** | 1.1.0 盲测指出：写成永久墓碑会关掉「权限变了本来能走」的路。现在靠 `dead` 图例里的「retry only if that path breaks」缓解，未做机器强制 |
 | 6 | **模型是否主动 read 三层树** | 未验证（子代理是被要求读的） |
 
 ## 怎么验证 / 装 / 回滚
@@ -138,11 +155,11 @@ sessions/<sessionId>/
 cd D:/主工作区/projects/dsh-chess-context
 
 # 验证（当前 v1.3.5 工作区）
-node test/run.mjs            # 94 passed
+node test/run.mjs            # 104 passed
 node test/verify-install.mjs # 13/13
 node test/real-modules.mjs   # 4/4
 node test/real-fold.mjs      # 5/5
-node test/bench.mjs 2000     # 310 tokens / L4
+node test/bench.mjs 2000     # 323 tokens / 0.478 ms
 node test/verify-graphs.mjs  # 全库棋谱健康检查（P0 验收；重启后必跑）
 
 # 装 / 回滚

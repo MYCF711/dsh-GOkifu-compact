@@ -48,23 +48,51 @@ function seqSpan(edge) {
   return "";
 }
 
-/** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
-export function renderFailureLine(edge, level = 0, tewari = null) {
-  const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
-  const reasonLen = [90, 60, 36, 20][Math.min(level, 3)];
-  const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
-  const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
-  const seq = seqSpan(edge);
-  const showReason = level <= 2;
-  // 手割标记：纯亏 = 同起点有成功路径且不经过它；绕路 = 成功路径也能到它的终点
-  // 手割多标签（可同时成立）。用英文短词 + 图例，模型能直接理解：
-  //   redundant = 和某条成功路径到达同一终点（等价，不必重试）
-  //   novel     = 探出了成功路径没走过的状态（有参考价值）
-  //   longer    = 比某条成功路径绕远
-  // 三态（v1.3.1）：热清单用**短标签**（[dead] / [blocked] / [failed]）省预算；
-  // 详细版（reason / revisit_if）在 index.md 里
+/**
+ * 标记图例（给模型看，不是给人看的缩写）。
+ *
+ * ★ 2026-10-29 修正（模型消费者视角）：旧版把图例**绑在「检测到手割」**上 ——
+ *   一个只有 EACCES 失败、没有成功路径的会话，标记 `[blocked]` 会**裸奔**（没有任何解释）；
+ *   而 `redundant` / `longer` 这两个真的出现在清单里的标记，图例里**从来没有**过。
+ *   新规则：**只要清单里出现某个标记，它的解释就一定出现**（按实际用到的标记动态生成，不浪费 token）。
+ *
+ * 键是标记前缀（`redundant:e1+2` 的键是 `redundant`）。
+ */
+const MARKER_LEGEND = {
+  dead: "a working path avoids it — retry only if that path breaks",
+  "blocked:permission": "needs a permission this environment lacks — retry when it changes",
+  "blocked:missing-resource": "the file/package is absent now — retry when it appears",
+  "blocked:timeout": "the service did not answer in time — retry when it recovers",
+  "blocked:unreachable": "the service refused the connection — retry when it is up",
+  blocked: "the environment is not giving it right now — retry when that changes",
+  failed: "retryability unknown — no evidence either way",
+  redundant: "working edge <edge> reaches the SAME position — take that one",
+  longer: "working edge <edge> reaches this position in fewer steps — take that one",
+  novel: "reached positions no working path covers — new information, not a dead end",
+};
+
+/** 标记 → 图例键（`redundant:e1+2` → `redundant`；`blocked:permission` → 自己）。 */
+export function legendKey(tag) {
+  const base = String(tag).split("+")[0];
+  if (base.startsWith("redundant")) return "redundant";
+  if (base.startsWith("longer")) return "longer";
+  if (base.startsWith("blocked")) return Object.hasOwn(MARKER_LEGEND, base) ? base : "blocked";
+  return base;
+}
+
+/**
+ * 一条失败边的标记。`mode`：
+ *   · `semantic`（默认）—— 标记自带语义：`blocked:permission`（模型不用猜是什么被挡住了，
+ *     这正是「什么条件变了就能再试」的机器可判形式）
+ *   · `terse`    —— 只写三态（`blocked` / `dead` / `failed`）省 token，图例仍然给
+ *   · `off`      —— 完全不打标记（热清单退回纯失败列表）
+ * 手割标记（`redundant:<edge>` / `longer:<edge>` / `novel`）在非 off 模式下都会带上 ——
+ * 它回答的是「这一步为什么多余、相对哪条成功路径」，正是模型下一步要用的信息。
+ */
+export function failureTags(edge, tewari = null, mode = "semantic") {
+  if (mode === "off") return [];
   const cls = failureClass(edge, tewari);
-  const tags = [`${cls.kind}`];
+  const tags = [mode === "semantic" && cls.kind === "blocked" && cls.reason ? `blocked:${cls.reason}` : cls.kind];
   // 标签压缩：只显示第一条参照 + 数量（多条时 +N），避免 50 条边时把预算吃光
   if (tewari?.redundantVs?.length) {
     const n = tewari.redundantVs.length;
@@ -75,22 +103,58 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
     const n = tewari.longerVs.length;
     tags.push(`longer:${tewari.longerVs[0]}${n > 1 ? `+${n - 1}` : ""}`);
   }
+  return tags;
+}
+
+/** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
+export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic") {
+  const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
+  // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
+  //   旧版 level ≥3 直接把 `→ 原因` 整段砍掉 ⇒ 全库实测 133 条可见失败边里只有 25 条带原因，
+  //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」。而原因正是它避免重犯的判据。
+  //   现在最省的一档也留 25 字（"Error: EACCES: permissio…" 足够认出是什么错）。
+  const reasonLen = [90, 60, 36, 25][Math.min(level, 3)];
+  const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
+  const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
+  const seq = seqSpan(edge);
+  const tags = failureTags(edge, tewari, mode);
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
-  return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
+  return `- ${edge.id} "${intent}" → ${reason}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
 
 /**
  * 渲染热上下文。
+ * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
-export function renderLedger(g, { maxTokens = 500, tailFailures = 20 } = {}) {
+export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic" } = {}) {
   const failures = failureEdges(g);
   const open = openEdges(g);
   const latest = latestAgentNode(g);
   const path = latest ? currentPath(g, latest.id) : [];
   const root = g.rootNode ?? g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
 
+  // ★ 手割分析（每条边一次 BFS）**只算一次**，算在「最后 30 条失败边」上：
+  //   降级链的 L4/L5 只列尾部若干条，都是这 30 条的子集 ⇒ 一次计算够所有档位用。
+  //   旧版放在档位循环里，2000 边时要跑 6 档 × 30 条 BFS（实测渲染 4.9 → 7.5ms）；
+  //   旧旧版更糟：显示条数 >30 时一条都不算 ⇒ 大会话里手割标记全丢。
+  const tewariMap = new Map();
+  for (const e of failures.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
+
+  // ★ 便宜的降级：某一档**注定装不下**时不要白渲染（2000 边时要为 L0–L3 各拼 1201 行字符串，
+  //   实测渲染 7.6ms/步；跳过装不下的档位后回到 ~5ms）。判据是每行的**下界**长度
+  //   （id + 意图上限 + 原因上限 + 标记余量），再乘条数 —— 比真实输出小，所以只会跳过
+  //   铁定不合规的档位，不会误伤。
+  const LEVEL_LEN = [[70, 90], [50, 60], [34, 36], [22, 25]];
+
   for (let level = 0; level <= 5; level += 1) {
+    if (level < 5 && failures.length > 0) {
+      const shownCount = level === 4 ? Math.min(failures.length, tailFailures) : level === 5 ? Math.min(failures.length, 10) : failures.length;
+      const [intentLen, reasonLen] = LEVEL_LEN[Math.min(level, 3)];
+      const lowerBound = Math.ceil((shownCount * (25 + intentLen + reasonLen) + 300) / 3);
+      if (lowerBound > maxTokens && level < 4) continue; // L4/L5 是兜底，必须真的渲染一遍
+      if (lowerBound > maxTokens && shownCount > 0 && level === 4 && failures.length > tailFailures) continue;
+    }
     const lines = [];
     lines.push("<chess-ledger>");
     if (root) lines.push(`ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 180)}`);
@@ -171,26 +235,20 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20 } = {}) {
 
     if (failures.length) {
       lines.push(`LEARNED (${failures.length} failed attempts):`);
-      // 先算手割（只对当前显示、≤30 条），再决定要不要加图例（省 token）
+      // 手割分析（tewari）：每条边一次 BFS，防 O(E²) —— 只对**最近 30 条**做。
+      // ★ 2026-10-29：旧版是「显示条数 ≤30 才算」⇒ 一次有 40 条失败边的会话里，
+      //   手割标记**一条都没有**（而模型永远只对最近几步做决策）。改成对尾部 30 条算，
+      //   无论总数多少，最近这批边都有标记。
       const tewariMap = new Map();
-      if (shown.length <= 30) {
-        for (const e of shown) tewariMap.set(e.id, tewariAnalysis(g, e));
-      }
-      const hasTewari = [...tewariMap.values()].some(
-        (t) => t && (t.samePosition || t.probes?.length > 0 || t.vsBaseline === "longer"),
-      );
-      if (hasTewari) {
-        lines.push(
-          "# dead=a working path avoids it (revisit_if it fails) | blocked=needs a resource (revisit_if it changes) | failed=retryability unknown | novel=explored states no working path covered",
-        );
-      }
+      for (const e of shown.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
+      const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)));
+      for (const line of markerLines) lines.push(line);
       if (omitted > 0) {
         lines.push(
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text in graph.md / by seq in the session log`,
         );
       }
-      // 手割分析（tewari）：只对**当前显示**的失败边做，且最多 30 条（每条一次 BFS，防 O(E²)）
-      for (const e of shown) lines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null));
+      for (const e of shown) lines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
     }
     if (open.length && level <= 1) {
       lines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
@@ -205,6 +263,25 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20 } = {}) {
   }
   /* istanbul ignore next -- 循环必然返回 */
   return { text: "", tokens: 0, level: 5, omittedEdges: failures.length, failureCount: failures.length, shownFailures: 0 };
+}
+
+/**
+ * 按**实际用到**的标记生成图例 —— 每个用到的标记一行，没用到的不出现。
+ * 这是「模型能不能看懂标记」的兜底：标记只要出现，解释就一定在同一份清单里，
+ * 不依赖「有没有检测到手割」这种无关条件（旧版的 bug：只有 EACCES 的会话里 [blocked] 裸奔）。
+ */
+function markerLegendLines(tagLists) {
+  const seen = [];
+  for (const tags of tagLists) {
+    for (const tag of tags ?? []) {
+      const key = legendKey(tag);
+      if (!seen.includes(key)) seen.push(key);
+    }
+  }
+  if (seen.length === 0) return [];
+  const out = ["# markers:"];
+  for (const key of seen) out.push(`#   ${key} = ${MARKER_LEGEND[key] ?? "(unknown marker)"}`);
+  return out;
 }
 
 export function collectConstraints(g) {

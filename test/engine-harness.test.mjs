@@ -326,6 +326,34 @@ tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-conte
   if (!injected[0].content[0].text.includes("LEARNED")) throw new Error("注入内容不是失败清单");
 };
 
+tests["标记档位（hotLedgerMarkers）能一路传到热清单：off 不打标记、semantic 默认带语义"] = async () => {
+  const { Engine, graphDir } = await load();
+  const run = async (id, config) => {
+    const session = makeSession({ id });
+    const ctx = makeCtx();
+    new Engine(ctx, { graphDir, auto: false, ...config });
+    await ctx.emitRaw("session/event", session, userEvent("必须保持接口不变。", 1));
+    await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+    await ctx.emitRaw("session/event", session, resultEvent("c1", "npm ERR! EACCES: permission denied\n[exit code: 1]", 3));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+    const claimed = [{ id: "claimed-x", role: "user", content: [{ type: "text", text: "继续" }] }];
+    const agent = { session, options: { provider: "p", model: "m" } };
+    const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1, signal: undefined }, () => ({ kind: "enter", messages: claimed }));
+    return decision.messages.filter((m) => m.source?.kind === "chess-context")[0]?.content[0].text ?? "";
+  };
+  const semantic = await run("sess-markers-sem", { hotLedgerMarkers: "semantic" });
+  if (!semantic.includes("blocked:permission")) throw new Error(`semantic 档没写出原因：\n${semantic}`);
+  if (!semantic.includes("# markers:")) throw new Error(`semantic 档缺图例：\n${semantic}`);
+  const terse = await run("sess-markers-terse", { hotLedgerMarkers: "terse" });
+  if (!terse.includes("[blocked ")) throw new Error(`terse 档应只写三态：\n${terse}`);
+  if (terse.includes("blocked:permission")) throw new Error(`terse 档不该带原因：\n${terse}`);
+  const off = await run("sess-markers-off", { hotLedgerMarkers: "off" });
+  if (off.includes("[blocked")) throw new Error(`off 档仍有标记：\n${off}`);
+  if (off.includes("# markers:")) throw new Error(`off 档仍有图例：\n${off}`);
+  const bogus = await run("sess-markers-bogus", { hotLedgerMarkers: "随便写的" });
+  if (!bogus.includes("blocked:permission")) throw new Error("非法档位应回落到 semantic");
+};
+
 tests["注入去重：同一份清单不重复注入"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-dedup" });

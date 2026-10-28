@@ -58,6 +58,9 @@ const BASE_KEYS = new Set([
 
 const SUMMARY_MODE = new Set(["hybrid", "rules", "llm"]);
 
+/** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
+const MARKER_MODES = new Set(["semantic", "terse", "off"]);
+
 export const name = "dsh-gokifu-compact";
 
 export const Config = z.object({
@@ -80,6 +83,7 @@ export const Config = z.object({
   minFoldTokens: z.number().default(8000).description("被遮蔽内容少于这么多 token 就不 fold（摘要本身要花钱）"),
   hotLedger: z.boolean().default(true).description("每轮注入失败清单（热上下文）"),
   hotLedgerMaxTokens: z.number().default(500).description("失败清单的 token 上限"),
+  hotLedgerMarkers: z.string().default("semantic").description("失败边标记档位：semantic=带语义（blocked:permission）+动态图例；terse=只写三态；off=不打标记"),
   transposition: z.boolean().default(true).description("置换检测：同一状态再次到达时不新建节点"),
   tier2After: z.number().default(8).description("checkpoint 超过这么多时合并最老的两段（tier-2）"),
   graphDir: z.string().default("").description("棋谱落盘目录；留空 = <DSH_HOME>/chess-context"),
@@ -281,7 +285,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         const session = payload.agent.session;
         const g = this.#graph(session);
         if (failureEdges(g).length === 0) return decision;
-        const ledger = renderLedger(g, { maxTokens: this.chess.hotLedgerMaxTokens });
+        const ledger = renderLedger(g, { maxTokens: this.chess.hotLedgerMaxTokens, markers: this.chess.hotLedgerMarkers });
         if (!ledger.text || ledger.tokens === 0) return decision;
         // digest 只算「骨架」：失败边集合 + 根目标 + 约束。
         // 不含 CURRENT PATH / CURRENT GOAL —— 它们每步都变，会让清单每步重注入一次（实测 6 条/轮）。
@@ -601,6 +605,7 @@ function resolveChess(config) {
     minFoldTokens: num(c.minFoldTokens, 8000),
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, 500),
+    hotLedgerMarkers: MARKER_MODES.has(c.hotLedgerMarkers) ? c.hotLedgerMarkers : "semantic",
     transposition: c.transposition !== false,
     tier2After: num(c.tier2After, 8),
     graphDir: str(c.graphDir, ""),
