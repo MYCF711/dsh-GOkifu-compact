@@ -1,12 +1,8 @@
-# dsh-chess-context
+# dsh-kifu-context
 
 > 已经装好了？直接看 [快速开始](QUICKSTART.md)。
 
-> **关于名字里的 `chess`** —— 包名保留 `chess`，但隐喻是**围棋棋谱（kifu）**：
-> 节点 = 棋盘上的局面（交叉点），边 = 一手尝试（落子 + 结果），
-> 失败记忆 = AlphaGo 的胜负回溯 —— 走过就记住，下次到同一局面不重走。
-> 技术上还借了**国际象棋引擎的「转置表」**概念（同一局面经不同路径到达时不重复搜索），
-> 代码里的 `transposition` 就是它。所以准确说是「围棋棋谱 + 国际象棋转置表」的混合。
+> **为什么叫 kifu** —— kifu 是围棋/将棋的「棋谱」。一局棋下完，棋谱上不只有落子顺序，还有每一手的评语。这个插件做的事一样：把 agent 每一步变成一手棋（节点），把当时的思考变成评语（节点的目标 / 约束 / 失败原因），把整个任务变成一局可复盘的棋。高价值的棋局，几年后仍能记起整盘怎么下；走到关键处，旧棋谱会吊起记忆，让人悬崖勒马。
 
 
 DSH（DeepSeek Harness）的上下文压缩后端。它把「历史 → 一段摘要」换成
@@ -43,9 +39,9 @@ node test/rollback.mjs
 
 | # | 动作 | 为什么 |
 |---|---|---|
-| ① | `<profile>/node_modules/dsh-chess-context` → 本项目的 junction | 让 preset 能按包名解析到它 |
+| ① | `<profile>/node_modules/dsh-kifu-context` → 本项目的 junction | 让 preset 能按包名解析到它 |
 | ② | `profile/package.json` 的 `dependencies` 加一条 `link:` | 供 pnpm 感知（**不加 `dsh.profile.bundles`**，否则会在顶层再挂一份，与 preset 内那份冲突） |
-| ③ | preset 的 `cordis.patch.yml` 里把 group 内的 `compaction-basic` 换成 `dsh-chess-context` | 真正生效的是 preset 内那一份（见 `docs/DSH-技术测绘.md` §9 陷阱 4） |
+| ③ | preset 的 `cordis.patch.yml` 里把 group 内的 `compaction-basic` 换成 `dsh-kifu-context` | 真正生效的是 preset 内那一份（见 `docs/DSH-技术测绘.md` §9 陷阱 4） |
 
 > ⚠ **单实例硬规则**：`ctx.compaction` 在同一 isolate realm 里只能注册一次，
 > 注册第二个会在构造期抛 `service "compaction" has been registered`，并连带整个 preset generation 挂掉。
@@ -55,7 +51,7 @@ node test/rollback.mjs
 
 ```yaml
 - id: chess-context
-  name: 'dsh-chess-context'
+  name: 'dsh-kifu-context'
   config:
     thresholdRatio: 0.45      # 压力闸：min(窗口×0.45, 窗口−输出预留−64K)
     headroomTokens: 65536
@@ -172,7 +168,7 @@ node test/real-e2e.mjs       # 真实 bash 失败 → 压缩 → 续跑 3/3
 | 假 DSH | `test/engine-harness.test.mjs` | engine 的接线：构造 / 落账 / 注入 / 门控 / 溢出自救 |
 | **真模块** | `test/real-modules.mjs` + `test/real-fold.mjs` | **重启后会不会崩**：依赖名对不对、能否继承官方事务、摘要是否真的替换了官方模板 |
 
-最后一层是从 `app.asar` 里把 29 个 `@deepseek-ai/*` 包提取到 `tmp/dsh-chess-context/modules`
+最后一层是从 `app.asar` 里把 29 个 `@deepseek-ai/*` 包提取到 `tmp/dsh-kifu-context/modules`
 再 import 的 —— 它验证的是真实类，不是 stub。
 
 ## 已知边界（诚实清单）

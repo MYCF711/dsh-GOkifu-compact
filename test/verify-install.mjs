@@ -4,7 +4,7 @@
  * 检查 6 件事，任何一条失败都退出码 1：
  *   ① 包已链接进 profile/node_modules，且能读到 package.json
  *   ② profile/package.json 有 link 依赖，且 dsh.profile.bundles 里没有它（防止顶层双挂载）
- *   ③ preset 的 compaction group 里是 dsh-chess-context，且没有 compaction-basic（单实例）
+ *   ③ preset 的 compaction group 里是 dsh-kifu-context，且没有 compaction-basic（单实例）
  *   ④ preset 的 group 仍然 isolate:{compaction:true}（否则整个 preset 挂载失败）
  *   ⑤ preset 里其他 compaction 成员（command-compact / tool-result-pruner）还在
  *   ⑥ 运行期证据：<DSH_HOME>/chess-context/sessions 下有 graph.json（说明 keeper 真跑过）
@@ -20,7 +20,7 @@ const getArg = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
-const PKG = "dsh-chess-context";
+const PKG = "dsh-kifu-context";
 const DSH_HOME = process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
 const PROFILE = getArg("profile", "desktop");
 const PRESET = getArg("preset", "personal-assistant");
@@ -57,7 +57,7 @@ if (nodeFs.existsSync(profilePkgPath)) {
 /* ③④⑤ preset */
 if (nodeFs.existsSync(PRESET_FILE)) {
   const text = nodeFs.readFileSync(PRESET_FILE, "utf8");
-  add("preset 引用了 dsh-chess-context", text.includes(`'${PKG}'`) || text.includes(`"${PKG}"`));
+  add("preset 引用了 dsh-kifu-context", text.includes(`'${PKG}'`) || text.includes(`"${PKG}"`));
   add("preset 里没有 compaction-basic（单实例）", !text.includes("- id: compaction-basic"));
   add("preset 保留 command-compact", text.includes("dsh-command-compact"));
   add("preset 保留 tool-result-pruner", text.includes("dsh-compaction-tool-result-pruner"));

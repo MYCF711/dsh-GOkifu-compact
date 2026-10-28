@@ -21,7 +21,7 @@ import { createRequire } from "node:module";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
 const ASAR = process.env.DSH_ASAR ?? "D:\\DeepSeek Harness\\resources\\app.asar";
-const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-chess-context", "modules");
+const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-kifu-context", "modules");
 
 const ROOTS = ["@deepseek-ai/dsh-compaction-basic"];
 
@@ -136,7 +136,7 @@ try {
   mod = await import(engineUrl);
   check("import src/engine.mjs（真实依赖）", () => {
     if (typeof mod.default !== "function") throw new Error("默认导出不是 class");
-    if (mod.name !== "dsh-chess-context") throw new Error(`name=${mod.name}`);
+    if (mod.name !== "dsh-kifu-context") throw new Error(`name=${mod.name}`);
     if (!mod.Config) throw new Error("没有导出 Config");
   });
 } catch (error) {

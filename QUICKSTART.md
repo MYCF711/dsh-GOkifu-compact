@@ -1,4 +1,4 @@
-# 快速开始 · dsh-chess-context
+# 快速开始 · dsh-kifu-context
 
 > 给「已经装好，现在要用」的人。安装/回滚细节见 [README](../README.md)。
 
@@ -7,7 +7,7 @@
 ### 1. 确认插件已加载
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context
+cd D:/主工作区/projects/dsh-kifu-context
 node test/verify-install.mjs
 ```
 
@@ -50,7 +50,7 @@ node -e "const g=require('D:/DeepSeek Harness/home/chess-context/sessions/<目�
 ## 三 · 配置（`cordis.patch.yml` 里）
 
 ```yaml
-dsh-chess-context:
+dsh-kifu-context:
   thresholdRatio: 0.45        # 压力闸：上下文用到 45% 就 fold
   retainRatio: 0.1            # fold 后保留最近 10% 的对话
   minFoldTokens: 8000         # 小于这个量不值得 fold
@@ -109,7 +109,7 @@ node test/replay-verify.mjs     # 用你当前会话的真实日志回放，看�
 
 | 东西 | 路径 |
 |---|---|
-| 插件源码 | `D:\主工作区\projects\dsh-chess-context` |
+| 插件源码 | `D:\主工作区\projects\dsh-kifu-context` |
 | 棋谱数据 | `<DSH_HOME>\chess-context\sessions\<sessionId>\graph.json` |
 | 人读视图 | 同目录 `graph.md`（只在 idle / fold 后更新） |
 | 证据 | 项目 `evidence/`（13 个文件，每个 .md + .json） |
