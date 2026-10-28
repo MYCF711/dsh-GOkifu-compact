@@ -528,24 +528,42 @@ export function renderNodeMd(g, nodeId) {
 /** 索引 md（三层文件树的第一层，替代整篇 graph.md） */
 export function renderIndexMd(g) {
   const cut = (x, k) => String(x ?? "").slice(0, k);
+
+  // 计算每个节点的深度（从**入度为 0 的节点**出发的最短路径；转置边不重复入队）
+  // 用入度 0 而不是 rootUserNodeIds：后者每个 user 消息都是一个"根"，会导致所有节点深度都是 0
+  const depth = new Map();
+  const hasIn = new Set(Object.values(g.edges).filter((e) => e.to).map((e) => e.to));
+  const roots = Object.keys(g.nodes).filter((id) => !hasIn.has(id));
+  const queue = roots.map((id) => [id, 0]);
+  while (queue.length > 0) {
+    const [id, d] = queue.shift();
+    if (depth.has(id)) continue;
+    depth.set(id, d);
+    for (const e of Object.values(g.edges)) {
+      if (e.from === id && e.to && !depth.has(e.to)) queue.push([e.to, d + 1]);
+    }
+  }
+
   const lines = [
     `# 棋谱 ${g.sessionId}`,
     "",
     `> 节点 ${g.order.length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次`,
     "",
-    "## 落子顺序",
+    "## 落子顺序（缩进 = 深度；每个节点只出现一次）",
     "",
   ];
   for (const id of g.order) {
     const n = g.nodes[id];
     if (!n) continue;
+    const d = depth.get(id) ?? 0;
+    const indent = "  ".repeat(Math.min(d, 12)); // 深度封顶 12 级，防路径爆炸
     const label = n.kind === "user" ? "USER" : "STATE";
     const title = n.kind === "user" ? cut(n.text, 40) : n.goal ? cut(n.goal, 40) : "(无目标)";
-    lines.push(`- [${id}](./nodes/${id}.md) ${label} seq=${n.seq} ${title}`);
+    lines.push(`${indent}- [${id}](./nodes/${id}.md) ${label} seq=${n.seq} ${title}`);
     const outs = Object.values(g.edges).filter((e) => e.from === id);
     for (const e of outs) {
       const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
-      lines.push(`  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}`);
+      lines.push(`${indent}  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}`);
     }
   }
   return lines.join("\n");
