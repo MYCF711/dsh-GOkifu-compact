@@ -30,7 +30,7 @@ tests["30 条失败边：逐条列出，不省略"] = () => {
   const r = renderLedger(g, { maxTokens: 1200 });
   if (r.omittedEdges !== 0) throw new Error(`不该省略，实际 ${r.omittedEdges}`);
   if (r.shownFailures !== 30) throw new Error(`展示 ${r.shownFailures}`);
-  if (!r.text.includes("PROVEN DEAD ENDS (30 total")) throw new Error("缺失败边标题");
+  if (!r.text.includes("LEARNED (30 failed attempts")) throw new Error("缺失败边标题");
   if (!r.text.includes("必须保持公开 API 响应字段不变")) throw new Error("缺约束");
 };
 
@@ -41,7 +41,7 @@ tests["1000 条失败边：token 受预算约束，且汇总行说明省略数"]
   if (r.level !== 4 && r.level !== 5) throw new Error(`应降到 L4/L5，实际 L${r.level}`);
   if (r.omittedEdges <= 0) throw new Error("1000 条应省略一部分");
   if (!r.text.includes("earlier dead ends omitted for budget")) throw new Error("缺汇总行（模型不知道还有多少条）");
-  if (!r.text.includes("PROVEN DEAD ENDS (1000 total")) throw new Error("总数必须写真实值");
+  if (!r.text.includes("LEARNED (1000 failed attempts")) throw new Error("总数必须写真实值");
 };
 
 tests["1000 条失败边：摘要的事实块仍全量（或明确说明省略范围）"] = () => {

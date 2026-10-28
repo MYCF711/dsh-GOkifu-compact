@@ -305,7 +305,7 @@ tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-conte
   if (decision.kind !== "enter") throw new Error(`decision 不对：${decision.kind}`);
   const injected = decision.messages.filter((m) => m.source?.kind === "chess-context");
   if (injected.length !== 1) throw new Error(`注入条数 ${injected.length}`);
-  if (!injected[0].content[0].text.includes("PROVEN DEAD ENDS")) throw new Error("注入内容不是失败清单");
+  if (!injected[0].content[0].text.includes("LEARNED")) throw new Error("注入内容不是失败清单");
 };
 
 tests["注入去重：同一份清单不重复注入"] = async () => {

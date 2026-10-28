@@ -1,5 +1,36 @@
 # 更新记录
 
+## 0.9.0 — 2026-10-28
+
+### 热清单标题改 `LEARNED` + 每条失败边都有归属标签
+
+**问题**：`PROVEN DEAD ENDS` 是给人类看的标题，而且里面混着三种完全不同的边：
+- 真正的死路（没有成功路径经过）
+- 等价成功路径（`redundant`）
+- 探出新状态（`novel`）
+
+**改法**：
+
+```
+LEARNED (2 failed attempts):
+# dead=no working path goes through it (don't retry) | redundant=a working path reaches the same endpoint | novel=explored states no working path covered (may revisit) | longer=detours vs a working path
+- e1 "删掉整个 node_modules" → 权限不足 [dead]
+- e2 "绕远路到同一终点" → boom [redundant]
+```
+
+每条失败边现在**必有标签**：
+
+| 标签 | 含义 | 该怎么做 |
+|---|---|---|
+| `[dead]` | 没有成功路径经过 | 别重试 |
+| `[redundant]` | 有成功路径到同一终点 | 走那条 |
+| `[novel]` | 探出了成功路径没走过的状态 | 可复查 |
+| `[longer]` | 比成功路径绕远 | 走短的 |
+
+### 测试
+
+85 项全绿
+
 ## 0.8.0 — 2026-10-28
 
 ### `WORKING` 显示完整成功路径

@@ -259,7 +259,7 @@ result.resume = {
 console.log(`  ③ 续跑保真：提到 ${resumeScore.kept}/${resumeScore.total} 条失败做法`);
 
 /* ④ 置换提示采纳 */
-const warnings = "⚠ 置换：你回到了节点 n9（经过 3 条边）——这里试过的路都已经记在 PROVEN DEAD ENDS 里，换一条没试过的。";
+const warnings = "⚠ 置换：你回到了节点 n9（经过 3 条边）——这里试过的路都已经记在 LEARNED 里，换一条没试过的。";
 const cachedTrans = prior?.transposition?.text;
 const transOut = cachedTrans
   ? { text: cachedTrans, usage: { total_tokens: prior.transposition.tokens } }

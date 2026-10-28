@@ -54,6 +54,7 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   if (tewari?.samePosition) tags.push("redundant");
   if (tewari?.probes?.length > 0) tags.push("novel");
   if (tewari?.vsBaseline === "longer") tags.push("longer");
+  if (tags.length === 0) tags.push("dead"); // 没有任何等价/探新/绕路信息 = 纯死路
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
@@ -133,7 +134,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
     }
 
     if (failures.length) {
-      lines.push(`PROVEN DEAD ENDS (${failures.length} total; do not retry blind):`);
+      lines.push(`LEARNED (${failures.length} failed attempts):`);
       // 先算手割（只对当前显示、≤30 条），再决定要不要加图例（省 token）
       const tewariMap = new Map();
       if (shown.length <= 30) {
@@ -143,7 +144,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
         (t) => t && (t.samePosition || t.probes?.length > 0 || t.vsBaseline === "longer"),
       );
       if (hasTewari) {
-        lines.push("# tags: redundant=same endpoint as a working path | novel=explored states no working path covered | longer=detours");
+        lines.push(
+          "# dead=no working path goes through it (don't retry) | redundant=a working path reaches the same endpoint | novel=explored states no working path covered (may revisit) | longer=detours vs a working path",
+        );
       }
       if (omitted > 0) {
         lines.push(
@@ -264,5 +267,5 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
 export function renderTranspositionWarning(result) {
   if (!result?.transposition) return "";
   const { nodeId, hops } = result.transposition;
-  return `⚠ 置换：你回到了节点 ${nodeId}${hops ? `（经过 ${hops} 条边）` : ""}——这里试过的路都已经记在 PROVEN DEAD ENDS 里，换一条没试过的。`;
+  return `⚠ 置换：你回到了节点 ${nodeId}${hops ? `（经过 ${hops} 条边）` : ""}——这里试过的路都已经记在 LEARNED 里，换一条没试过的。`;
 }

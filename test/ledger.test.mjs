@@ -28,14 +28,14 @@ tests["没有失败边时不渲染死路段（省 token）"] = () => {
   const g = buildGraph({ failures: 0 });
   const r = renderLedger(g);
   if (r.failureCount !== 0) throw new Error("failureCount 不对");
-  if (r.text.includes("PROVEN DEAD ENDS")) throw new Error("不该有死路段");
+  if (r.text.includes("LEARNED")) throw new Error("不该有死路段");
 };
 
 tests["预算不足时按档位降级（总数不丢）"] = () => {
   const g = buildGraph({ failures: 60 });
   const r = renderLedger(g, { maxTokens: 300 });
   if (r.level < 2) throw new Error(`应降级，实际 L${r.level}`);
-  if (!r.text.includes("PROVEN DEAD ENDS (60 total")) throw new Error("总数丢了");
+  if (!r.text.includes("LEARNED (60 failed attempts")) throw new Error("总数丢了");
   if (r.failureCount !== 60) throw new Error("failureCount 不对");
 };
 
