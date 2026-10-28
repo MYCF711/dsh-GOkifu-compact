@@ -209,15 +209,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       if (problems.length > 0) {
         this.ctx.logger?.warn?.(`chess-context: 棋谱不变量告警 ${problems.length} 条：${problems.slice(0, 3).join("; ")}`);
       }
-      // 三层文件树（v1.2.0）：index.md + nodes/*.md + raw/*.md
-      // 只在「首次」和「fold 后」写 —— 2000 边时 4000 个文件会卡住事件循环；
-      // 中间状态的 flush 只写 graph.json（下次 fold 会整体刷新树）。
+      // 三层文件树（v1.2.0）：index.md + nodes/*.md（raw/ 已砍，见 v1.2.4）
+      //
+      // ★ 2026-10-29（goal ⑤ 的实测副作用）：`index.md` 是模型读的入口（`TRACE:` 就指向它），
+      //   旧版只在「首次 / fold 后」写 ⇒ 长会话里它**落后于 graph.json**。
+      //   盲测里的子代理当场发现了这点（「index.md 仅 350 边/17 失败，graph.json 才是 447 边/23 失败」）。
+      //   现在：**每次 flush 都重写 index.md**（单文件 ~50KB，渲染 1.3ms；debounce 后每 1.2s 最多一次），
+      //   `nodes/*.md` 仍只在「首次 / fold 后」写（2000 边时是 2000 个文件，不能每步来一遍）。
       const firstWrite = !this.treeWritten.has(session.id);
+      const nodesDir = nodePath.join(dir, "nodes");
+      nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
       if (tree || firstWrite) {
         this.treeWritten.add(session.id);
-        const nodesDir = nodePath.join(dir, "nodes");
         nodeFs.mkdirSync(nodesDir, { recursive: true });
-        nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
         // 写**所有**节点（g.nodes），不只是 g.order —— 被合并且仍被边引用的节点也要有文件
         for (const id of Object.keys(g.nodes)) {
           const n = g.nodes[id];
@@ -273,7 +277,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     ctx.on("agent/status", ({ agent, status }) => {
       if (status === "idle") {
         try {
-          this.#flush(agent.session, { md: true });
+          this.#flush(agent.session);
         } catch {
           /* 落盘失败不阻塞 */
         }

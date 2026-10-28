@@ -691,3 +691,24 @@ tests["摘要模型不可用、且路由模型就是它 ⇒ 直接抛错（不�
   if (!threw) throw new Error("同一个模型失败时不该静默成功");
   if (ctx.streamCalls.length !== 1) throw new Error(`不该重试，实际调用 ${ctx.streamCalls.length} 次`);
 };
+
+tests["index.md 每次落盘都刷新（不再等 fold —— 它是模型读的入口）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-index-fresh" });
+  const ctx = makeCtx();
+  new Engine(ctx, { graphDir, auto: false });
+  const dir = nodePath.join(graphDir, "sessions", "sess-index-fresh");
+
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const before = nodeFs.readFileSync(nodePath.join(dir, "index.md"), "utf8");
+
+  await ctx.emitRaw("session/event", session, assistantEvent("c9", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c9", "AssertionError: nope\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const after = nodeFs.readFileSync(nodePath.join(dir, "index.md"), "utf8");
+  if (after === before) throw new Error("index.md 没有刷新（还停在首次写入的版本）");
+  if (!after.includes("AssertionError")) throw new Error(`index.md 里没有新的失败原因：\n${after.slice(0, 400)}`);
+};
