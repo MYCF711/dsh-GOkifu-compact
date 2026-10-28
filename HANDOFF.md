@@ -152,14 +152,27 @@ sessions/<sessionId>/
 
 ## 未完成（按优先级）
 
+> 2026-10-29：goal 当前阶段的 ①–⑤ 全部完成（各有可复跑脚本 + 证据文件，见下方表格）。
+> 下面只剩「需要主人动一下」和「后续可选」两类。
+
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | **再重启一次 DSH** | v1.5.0（清单就地替换）需要重启才生效；重启后跑 `node test/verify-graphs.mjs`（全库健康）|
-| 2 | **真实计费核对** | 现在有真实长会话了：`session-5acafe42` 的 176 条清单 × 平均 4600 字符是真金白银。核对网关账单口径的节省 |
-| 3 | **`ENOENT` 边界** | `failureClass` 判 `blocked:missing-resource`，但文件可能本来就不该存在（应是 `dead`）—— 规则无法区分 |
-| 4 | **旧数据回洗** | `session-5acafe42` 的 101 条 failure 里 43 条 text 型假阳性。**会话已停止**，可回洗（v1.3.0 起渲染层有 `[text:?]` 标记，数据层回洗仍待做） |
-| 6 | **`[dead]` 为「墓碑」的风险** | 1.1.0 盲测指出：写成永久墓碑会关掉「权限变了本来能走」的路。现在靠 `dead` 图例里的「retry only if that path breaks」缓解，未做机器强制 |
-| 5 | **模型是否主动 read 三层树** | 未验证（子代理是被要求读的） |
+| 1 | **重启 DSH（部署最新代码）** | v1.6.3 需要重启才进 GUI 进程；重启后 `node test/doctor.mjs` 应全绿 |
+| 2 | **GUI 长会话的自然 fold** | 机制链路已在真实 dsh 进程验证（`test/real-headless-fold.mjs`，多次 3~6/6 成功）；GUI 里 45 万 token 的自然触发要等重启后跑一段 |
+| 3 | **真实计费对账（口径已建）** | `test/measure-billing.mjs` 能按会话拆「未缓存/缓存/清单占比/fold 收支」；网关价目表不落盘，金额需主人按账单折算 |
+| 4 | **其它历史会话的回洗** | `test/rewash-graph.mjs` 只对 session-5acafe42 跑过；其余会话按需各自 dry-run + apply |
+| 5 | **index.md 时效性** | v1.6.1 起每次 flush 重写；`nodes/*.md` 仍只在首次/fold 后写（快照，细节以 graph.json 为准） |
+| 6 | **`text` 型残留 8 条** | 证据区间对不上，保守未洗（见 `evidence/收尾三件-dead锚点-树读取-回洗.md`） |
+
+## goal ①–⑤ 的验收对应
+
+| 项 | 证据 / 复跑 |
+|---|---|
+| ① 真实计费核对 | `evidence/真实计费核对.md` · `node test/measure-billing.mjs` |
+| ② 真实进程首次 fold | `evidence/真实进程首次fold.md` · `node test/real-headless-fold.mjs` |
+| ③ dead 重开锚点 / 缺资源语义 | `evidence/收尾三件-dead锚点-树读取-回洗.md` · `node test/run.mjs markers` |
+| ④ 历史误报回洗 | 同上 · `node test/rewash-graph.mjs <sessionDir> [--apply]` |
+| ⑤ 三层树被模型主动读取 | 同上（盲测 2/2）· 渲染层 `TRACE:` 行 |
 
 ## 怎么验证 / 装 / 回滚
 
