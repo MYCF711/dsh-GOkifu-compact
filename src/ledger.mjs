@@ -82,29 +82,45 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
       for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c, level <= 1 ? 220 : 120)}`);
     }
     if (path.length > 1 && level <= 2) {
-      lines.push(`CURRENT PATH: ${path.map((n) => `${n.id}${n.kind === "user" ? "(user)" : ""}`).join(" → ")}`);
+      // 先算完整成功路径（WORKING）—— 和 CURRENT PATH 相同就只显示一个，避免重复
+      const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
+      let workingIds = null;
+      let workingTail = null;
+      if (successEdges.length > 0) {
+        const last = successEdges[successEdges.length - 1];
+        const ids = [last.from, last.to];
+        const seen = new Set(ids);
+        let cur = last.from;
+        for (;;) {
+          const prev = Object.values(g.edges).find(
+            (e) => e.result === "success" && e.to === cur && g.nodes[e.from] && !seen.has(e.from),
+          );
+          if (!prev) break;
+          ids.unshift(prev.from);
+          seen.add(prev.from);
+          cur = prev.from;
+        }
+        workingIds = ids;
+        workingTail = last;
+      }
+
+      const currentIds = path.map((n) => n.id);
+      const sameAsWorking =
+        workingIds !== null &&
+        workingIds.length === currentIds.length &&
+        workingIds.every((id, i) => id === currentIds[i]);
+
+      // 只有「当前路径 ≠ 成功路径」时才额外显示 CURRENT PATH（否则 WORKING 已经说了）
+      if (!sameAsWorking) {
+        lines.push(`CURRENT PATH: ${path.map((n) => `${n.id}${n.kind === "user" ? "(user)" : ""}`).join(" → ")}`);
+      }
       const goal = latest?.goal;
       if (goal) lines.push(`CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}`);
-      // 完整成功路径：模型不能只看到「最近一条边」，要知道整条路怎么走通的
-      if (level <= 2) {
-        const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
-        if (successEdges.length > 0) {
-          const last = successEdges[successEdges.length - 1];
-          const path = [last.from, last.to];
-          const seen = new Set(path);
-          let cur = last.from;
-          for (;;) {
-            const prev = Object.values(g.edges).find(
-              (e) => e.result === "success" && e.to === cur && g.nodes[e.from] && !seen.has(e.from),
-            );
-            if (!prev) break;
-            path.unshift(prev.from);
-            seen.add(prev.from);
-            cur = prev.from;
-          }
-          const label = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
-          lines.push(`WORKING: ${path.map(label).join(" → ")}${last.verify?.summary ? ` (${clip(last.verify.summary, 40)})` : ""}`);
-        }
+      if (workingIds !== null) {
+        const label = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
+        lines.push(
+          `WORKING: ${workingIds.map(label).join(" → ")}${workingTail?.verify?.summary ? ` (${clip(workingTail.verify.summary, 40)})` : ""}`,
+        );
       }
       // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
       //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
