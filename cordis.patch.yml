@@ -1,6 +1,6 @@
-# dsh-chess-context · bundle patch
+# dsh-gokifu-compact · bundle patch
 #
-# 装包：`dsh plugin --profile <name> add dsh-chess-context`
+# 装包：`dsh plugin --profile <name> add dsh-gokifu-compact`
 #   → 追加进 profile 的 `dsh.profile.bundles`，并把下面的行 insert 进组合。
 #
 # ⚠ 单实例硬规则：压缩后端只能有一个。
@@ -13,7 +13,7 @@
 # 配置项含义见 README.md；默认值按「1M 窗口、growth-gated」调过。
 - insert:
     - id: chess-context
-      name: 'dsh-chess-context'
+      name: 'dsh-gokifu-compact'
       config:
         # 压力闸：min(窗口 × 0.45, 窗口 − 输出预留 − 64K)
         thresholdRatio: 0.45

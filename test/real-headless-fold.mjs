@@ -94,6 +94,7 @@ try {
     encoding: "utf8",
     timeout: 300000,
     maxBuffer: 64 * 1024 * 1024,
+    cwd: nodePath.join(ROOT, "tmp"), // 别让受试任务把临时脚本写进仓库根
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
   });
 } catch (error) {

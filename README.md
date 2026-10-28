@@ -1,4 +1,4 @@
-# DSH-GOkifu-compact
+# dsh-GOkifu-compact
 
 > 已经装好了？直接看 [快速开始](QUICKSTART.md)。
 

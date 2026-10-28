@@ -1,4 +1,4 @@
-# DSH-GOkifu-compact · 交接文件
+# dsh-GOkifu-compact · 交接文件
 
 > 2026-10-28 · 给下一个会话
 > **先读这一页，再读 `docs/最终报告.md`。不要重新推导。**
@@ -18,10 +18,10 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 | 版本 | **1.6.3**（P0 1.3.5 → 标记 1.4.0 → 替换 1.5.0 → 计费/摘要 1.5.1 → 收尾 1.6.0 → index 1.6.1 → 规则兜底 1.6.2 → 真实进程 fold 1.6.3，均未发版） |
 | 单测 | **118 passed, 0 failed** |
 | 挂载校验 | 13/13 |
-| GitHub | https://github.com/MYCF711/DSH-GOkifu-compact |
-| 最新 Release | https://github.com/MYCF711/DSH-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
+| GitHub | https://github.com/MYCF711/dsh-GOkifu-compact |
+| 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
 | 本地路径 | `D:\主工作区\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
-| 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `DSH-GOkifu-compact` |
+| 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `dsh-GOkifu-compact` |
 | 运行期生效 | ✅ v1.4.0 已重启生效；✅ v1.5.0 也已重启生效（02:37 那次，日志里已见 `replace`） |
 
 ## 今天做了什么（0.1.0 → 1.3.4）

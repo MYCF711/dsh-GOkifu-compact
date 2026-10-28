@@ -1,5 +1,42 @@
 # 更新记录
 
+## 1.7.0 — 2026-10-29
+
+> 起因：自 v1.3.4 起累计 9 个版本未发布；本版是首个公开发布，汇总 1.3.5–1.6.3 的全部改动，
+> 并把展示名统一为 `dsh-GOkifu-compact`（前缀小写、只有 GO 大写）。
+
+### 首个公开发布（汇总 1.3.5 – 1.6.3）
+
+**P0 修复：压缩 226 次只成功 3 次的根因**
+- `worldHash` 类型契约（对象 → 字符串）+ `fromJSON` 加载边界自愈历史脏数据 + `stateIndex` 重建
+- 实机 `session-5acafe42`：139 次 `worldHash?.slice is not a function`、223/226 次压缩失败；修后全库 1,279 个对象字段归零
+
+**热清单（给模型看的那一小块）**
+- 标记自带语义：`blocked:permission` / `dead retry-if:<edge>`；图例按用到的标记动态生成（出现即解释）
+- 报错原文任何档位都不丢；手割多参照点（同一失败边相对每条成功路径分别结论）
+- **清单就地替换**：surface 上永远只有一条（旧版累积过 176 条 / 81 万字符 ≈ 27 万 token）
+- 历史清单一次性换成一行占位；2000 边渲染 0.478 ms / 323 tokens
+
+**压缩本身**
+- 增量 fold（只压 checkpoint 之后）+ 机械约束段
+- 摘要三层降级：配置模型 → 路由模型 → 规则摘要（压缩永不因摘要模型挂掉而失败）
+- 真实 dsh 进程里 fold 3~6 次全成功（`test/real-headless-fold.mjs`）
+
+**工具与维护**
+- `test/doctor.mjs` 体检、`test/measure-billing.mjs` 真实计费审计、`test/rewash-graph.mjs` 历史回洗、
+  `test/verify-graphs.mjs` 全库健康、`test/ab-render.mjs` 标记 A/B 夹具
+- 仓库维护照搬 `magpie-plugin-scaffold`：`scripts/check-maintenance.mjs` + `scripts/release.mjs`
+
+### 展示名
+
+- `DSH-GOkifu-compact` → **`dsh-GOkifu-compact`**（前缀小写、只有 GO 大写；包名仍为 `dsh-gokifu-compact`）
+- GitHub 仓库同步改名：`MYCF711/dsh-GOkifu-compact`
+- 修正 `cordis.patch.yml` 里写错的包名（`dsh-chess-context` → `dsh-gokifu-compact`）
+
+### 测试
+
+118 项单测全绿 + 真实包验证 8/8 + 真实进程 fold 3~6/6
+
 ## 1.6.3 — 2026-10-29
 
 ### 真实 DSH 进程里的首次 fold + 修掉「rules 模式从未成功过」的真 bug
