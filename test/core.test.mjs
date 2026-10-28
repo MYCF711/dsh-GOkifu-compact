@@ -262,5 +262,5 @@ tests["三层文件树：单节点 md 含评语 / 入边 / 出边 / raw 链接"]
   if (!md.includes("## 入边")) throw new Error("缺入边");
   if (!md.includes("e1 ← n1")) throw new Error("入边内容不对");
   if (!md.includes("## 出边")) throw new Error("缺出边");
-  if (!md.includes("../raw/2.md")) throw new Error("缺 raw 链接");
+  if (!md.includes("raw/ 已砍掉")) throw new Error("缺 raw 说明");
 };

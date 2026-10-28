@@ -514,7 +514,7 @@ export function renderNodeMd(g, nodeId) {
     } else if (n.via && g.edges[n.via]) {
       const via = g.edges[n.via];
       const text = via.intent || via.action;
-      if (text) lines.push(`## 评语（来自入边 ${n.via}）`, "", text, "");
+      if (text) lines.push(`## 评语（来自入边 ${n.via}，非 LLM 原话）`, "", text, "");
     }
     lines.push("## 状态", "", `- worldHash: \`${cut(n.worldHash, 12)}\``, `- constraintHash: \`${cut(n.constraintHash, 12)}\``, "");
   }
@@ -528,7 +528,7 @@ export function renderNodeMd(g, nodeId) {
   if (outs.length === 0) lines.push("（无）");
   else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.result === "failure" ? ` [verify:${e.verify?.kind ?? "none"}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 400)}` : ""}`);
   lines.push("");
-  lines.push("## 原始记录", "", `../raw/${n.seq}.md`, "");
+  lines.push("## 原始记录", "", "（raw/ 已砍掉：节点数据在 graph.json，见 docs/CHANGELOG v1.2.4）", "");
   return lines.join("\n");
 }
 
@@ -554,7 +554,7 @@ export function renderIndexMd(g) {
   const lines = [
     `# 棋谱 ${g.sessionId}`,
     "",
-    `> 节点 ${g.order.length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次 · updated ${new Date(g.updatedAt).toISOString()}`,
+    `> 节点 ${Object.keys(g.nodes).length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次 · updated ${new Date(g.updatedAt).toISOString()}`,
     "",
     "## 落子顺序（缩进 = 深度；每个节点只出现一次）",
     "",
