@@ -1,0 +1,571 @@
+diff --git a/src/engine.mjs b/src/engine.mjs
+index 375c5a1..8ea250d 100644
+--- a/src/engine.mjs
++++ b/src/engine.mjs
+@@ -168,8 +168,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
+     }
+     st.world.restore(st.touched);
+     // 把世界状态的读写能力注入 state（防御式：世界状态可能尚未构造）
+-    st.worldHashOf = () => (st.world && typeof st.world.hash === "function" ? st.world.hash() : "pending");
+-    st.constraintHashOf = () => (st.constraints && typeof st.constraints.hash === "function" ? st.constraints.hash() : "pending");
++    // ★ P0 修复（2026-10-28，实机 187 次 compression 失败）：world.hash() 返回
++    //   { hash, mode, files } 对象，节点字段只允许字符串。旧版直接返回对象 ⇒
++    //   graph.json 里 206/267 节点的 worldHash 是对象 ⇒ ledger 的 `.slice()` 抛
++    //   "latest?.worldHash?.slice is not a function" ⇒ 压缩 100% 失败。
++    st.worldHashOf = () => {
++      if (!st.world || typeof st.world.hash !== "function") return "pending";
++      const w = st.world.hash();
++      if (typeof w === "string") return w;
++      return typeof w?.hash === "string" ? w.hash : "pending";
++    };
++    // ★ P0 修复：st.constraints 从未被赋值 ⇒ constraintHash 恒为 "pending" ⇒
++    //   stateIndex 永不建立、置换检测形同虚设。约束哈希直接由用户节点约束文本算。
++    st.constraintHashOf = () => hashSet(collectConstraintText(g));
+     st.touchPath = (p) => { if (st.world && typeof st.world.touch === "function") st.world.touch(p); };
+     this.runtime.set(key, st);
+     return st;
+diff --git a/src/graph.mjs b/src/graph.mjs
+index feb44b4..3b99712 100644
+--- a/src/graph.mjs
++++ b/src/graph.mjs
+@@ -34,6 +34,17 @@ export function hashSet(items) {
+   return sha(sorted.join("\u0000"));
+ }
+ 
++/**
++ * 把「哈希」收敛成字符串。worldstate.hash() 返回 { hash, mode, files }（含元数据），
++ * 而节点字段的契约是字符串 —— 在边界统一归一化，兼容历史脏数据。
++ */
++export function hashText(value) {
++  if (typeof value === "string") return value;
++  if (value && typeof value === "object" && typeof value.hash === "string") return value.hash;
++  if (value === null || value === undefined) return "pending";
++  return String(value);
++}
++
+ export function createGraph({ sessionId, cwd = "" }) {
+   const now = Date.now();
+   return {
+@@ -85,6 +96,10 @@ export function addUserNode(g, { seq, turn = null, text, constraints }) {
+  *   若 stateKey 命中已有节点，则**不新建节点**，只返回命中信息（图上只多一条边）。
+  */
+ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintHash, via = null }) {
++  // ★ P0：哈希字段只存字符串。历史实机里 keeper 把 worldstate.hash() 的返回对象
++  //   （{ hash, mode, files }）直接写了进来，导致 ledger 的 `.slice()` 崩溃。
++  worldHash = hashText(worldHash);
++  constraintHash = hashText(constraintHash);
+   // 落账阶段还没有真实状态哈希（要 stat 文件，成本高）——先占位，fold 前回填。
+   const pending = worldHash === "pending" || constraintHash === "pending";
+   const key = `${worldHash}/${constraintHash}`;
+@@ -278,6 +293,44 @@ export function toJSON(g) {
+ export function fromJSON(text) {
+   const obj = JSON.parse(text);
+   if (obj.version !== GRAPH_VERSION) throw new Error(`graph: unsupported version ${obj.version}`);
++  // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
++  //   { hash, mode, files } 对象直接写进了节点字段。这里在加载边界统一收敛成字符串，
++  //   否则 ledger 的 `.slice()` 会抛 "latest?.worldHash?.slice is not a function"，
++  //   整个压缩链路失败（实机 session-5acafe42：187 次该错误 / 226 次压缩仅 3 次成功）。
++  let pendingConstraint = 0;
++  for (const node of Object.values(obj.nodes ?? {})) {
++    if (!node || node.kind !== "agent") continue;
++    node.worldHash = hashText(node.worldHash);
++    node.constraintHash = hashText(node.constraintHash);
++    if (node.constraintHash === "pending") pendingConstraint += 1;
++  }
++  // ★ 第二处历史修复：旧版 st.constraints 从未赋值 ⇒ 所有节点 constraintHash 都是
++  //   "pending" ⇒ stateIndex 永远为空、置换检测形同虚设（全库 1,440 节点只有 5 条索引）。
++  //   按时序累积回填（节点创建时只看到它之前的约束），与运行期 constraintHashOf 的语义一致。
++  if (pendingConstraint > 0) {
++    const seen = [];
++    for (const id of obj.order ?? []) {
++      const n = obj.nodes?.[id];
++      if (!n) continue;
++      if (n.kind === "user" && Array.isArray(n.constraints)) {
++        seen.push(...n.constraints);
++      } else if (n.kind === "agent" && n.constraintHash === "pending") {
++        n.constraintHash = hashSet(seen);
++      }
++    }
++  }
++  // stateIndex 是**派生数据**，不是权威数据：不论本次是否修复过字段，都在加载边界
++  // 按节点真实字段重建一遍。旧 index 里可能有 "[object Object]/…" 这类脏 key，
++  // 也可能因为 constraintHash 恒为 pending 而从未建立（全库 1,440 节点只有 5 条索引）。
++  const rebuilt = {};
++  for (const id of obj.order ?? []) {
++    const n = obj.nodes?.[id];
++    if (!n || n.kind !== "agent") continue;
++    if (n.worldHash === "pending" || n.constraintHash === "pending") continue;
++    const key = `${n.worldHash}/${n.constraintHash}`;
++    if (rebuilt[key] === undefined) rebuilt[key] = id;
++  }
++  obj.stateIndex = rebuilt;
+   return obj;
+ }
+ 
+diff --git a/src/ledger.mjs b/src/ledger.mjs
+index 5877442..5b6e250 100644
+--- a/src/ledger.mjs
++++ b/src/ledger.mjs
+@@ -29,6 +29,17 @@ function clip(text, n) {
+   return t.length <= n ? t : `${t.slice(0, Math.max(0, n - 1))}…`;
+ }
+ 
++/**
++ * 只取哈希的前 n 位。兼容字符串与历史脏数据里的 { hash, mode, files } 对象 ——
++ * 旧版直接 `.slice()`，遇到对象就抛 "latest?.worldHash?.slice is not a function"，
++ * 导致 renderLedger 整体失败、压缩链路 100% 中断。
++ */
++function shortHash(value, n = 12) {
++  if (typeof value === "string") return value.slice(0, n);
++  if (value && typeof value === "object" && typeof value.hash === "string") return value.hash.slice(0, n);
++  return "";
++}
++
+ function seqSpan(edge) {
+   const e = edge.evidence;
+   if (!e) return "";
+@@ -278,7 +289,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
+   if (path.length) {
+     lines.push(`CURRENT_PATH: ${path.map((n) => n.id).join(" -> ")}`);
+     if (latest?.goal) lines.push(`CURRENT_GOAL: ${latest.goal}`);
+-    lines.push(`CURRENT_STATE_KEY: ${latest?.worldHash?.slice(0, 12)}/${latest?.constraintHash?.slice(0, 12)}`);
++    lines.push(`CURRENT_STATE_KEY: ${shortHash(latest?.worldHash)}/${shortHash(latest?.constraintHash)}`);
+   }
+   const open = openEdges(g);
+   if (open.length) {
+diff --git a/test/engine-harness.test.mjs b/test/engine-harness.test.mjs
+index 2f0de79..a17e53b 100644
+--- a/test/engine-harness.test.mjs
++++ b/test/engine-harness.test.mjs
+@@ -142,6 +142,8 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
+   const overlay = {};
+   const ctx = {
+     logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} },
++    /** 摘要（llm.stream）收到的 options，供断言 prompt 内容 */
++    streamCalls: [],
+     on(name, fn) {
+       const arr = listeners.get(name) ?? [];
+       arr.push(fn);
+@@ -163,7 +165,9 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
+       async resolveModelInfo() {
+         return { context: { contextWindow: window }, defaultMaxTokens: 4096 };
+       },
+-      async *stream() {
++      async *stream(options) {
++        // 记录每次摘要调用的完整输入 —— 用来断言「硬事实块」真的带着失败边进了 prompt
++        ctx.streamCalls.push(options);
+         yield { type: "text-delta", text: "## 目标\n- mock" };
+       },
+     },
+@@ -286,6 +290,20 @@ tests["事件落账：user/assistant/tool/step 走完后 graph.json 有节点与
+   if (agents.length !== 1) throw new Error(`agent 节点 ${agents.length}`);
+   if (failures.length !== 1) throw new Error(`失败边 ${failures.length}`);
+   if (!failures[0].errorSnippet.includes("AssertionError")) throw new Error("失败原因没落盘");
++  // ★ P0 回归（2026-10-28 实机：226 次压缩只成功 3 次，上下文涨到 66 万 token → 模型死循环）：
++  //   worldstate.hash() 返回的是 { hash, mode, files } 对象，keeper 经 engine 注入的
++  //   worldHashOf/constraintHashOf 落库时**必须已是字符串**。旧版把对象原样写进节点，
++  //   随后 ledger 的 `.slice()` 对对象抛 TypeError，整条压缩链路回滚。
++  //   这条断言走的是真实代码路径（keeper → addAgentNode ← engine.worldHashOf），
++  //   纯函数单测传的是字符串假数据，正是它把契约不一致藏住的。
++  for (const [field, value] of [["worldHash", agents[0].worldHash], ["constraintHash", agents[0].constraintHash]]) {
++    if (typeof value !== "string") throw new Error(`${field} 不是字符串：${JSON.stringify(value)}（${typeof value}）`);
++    if (value === "pending") throw new Error(`${field} 仍是 pending（engine 注入的哈希函数没生效）`);
++  }
++  const key = `${agents[0].worldHash}/${agents[0].constraintHash}`;
++  if (g.stateIndex[key] !== agents[0].id) {
++    throw new Error(`stateIndex 未建立：${key} → ${JSON.stringify(g.stateIndex)}`);
++  }
+ };
+ 
+ tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-context 消息"] = async () => {
+@@ -387,3 +405,68 @@ tests["溢出自救：绕过阈值与增长门控"] = async () => {
+   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+   if (!result) throw new Error("溢出自救必须能压");
+ };
++
++/**
++ * ★ P0 死亡循环的端到端回归（2026-10-28 实机 session-5acafe42）。
++ *
++ * 生产故障链：v1.3.4 把 worldstate.hash() 的 { hash, mode, files } 对象直接写进节点 →
++ *   summarize() 里 renderFacts() 对对象调 .slice() → TypeError →
++ *   compactRegion 事务回滚 → 226 次压缩只成功 3 次 → 上下文涨到 66 万 token →
++ *   模型 reasoning 退化自我重复 → 被 magpie 判循环中断。
++ *
++ * 这个测试走的是**真实路径**：磁盘上的旧 graph.json → #graph() → fromJSON 修复 →
++ * summarize() → renderFacts()。纯函数单测（传字符串假数据）正是当初漏掉这条链的原因。
++ */
++tests["P0 回归：旧磁盘棋谱（worldHash 是对象）也能跑完 summarize，不再抛 .slice is not a function"] = async () => {
++  const { Engine } = await load();
++  const dir = nodePath.join(GRAPHS, "legacy");
++  const sessDir = nodePath.join(dir, "sessions", "sess-legacy");
++  nodeFs.mkdirSync(sessDir, { recursive: true });
++  const legacy = {
++    version: 1, sessionId: "sess-legacy", cwd: "C:/tmp", createdAt: 1, updatedAt: 1,
++    nextNode: 3, nextEdge: 2,
++    nodes: {
++      n1: { id: "n1", kind: "user", seq: 1, text: "不许动 prod 配置。把构建跑通。", constraints: ["不许动 prod 配置"], ts: 1 },
++      n2: {
++        id: "n2", kind: "agent", seq: 2, goal: "试改 prod 配置",
++        // 实机脏数据：worldstate.hash() 的返回值被原样写进了节点
++        worldHash: { hash: "deadbeefdeadbeefdeadbeefdeadbeef", mode: "stat", files: 21 },
++        constraintHash: "pending", via: "e1", ts: 1,
++      },
++    },
++    edges: {
++      e1: {
++        id: "e1", from: "n1", to: "n2", intent: "直接改 prod 配置", action: "edit(file_path=prod.yml)",
++        result: "failure", verify: { kind: "exit", summary: "EACCES" },
++        errorSnippet: "Error: EACCES: permission denied, open 'prod.yml'",
++        evidence: { start: 1, end: 2 }, transposition: false, ts: 1,
++      },
++    },
++    order: ["n1", "n2"],
++    stateIndex: { "[object Object]/pending": "n2" },
++    rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
++  };
++  nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(legacy, null, 1), "utf8");
++
++  const session = makeSession({ id: "sess-legacy" });
++  const ctx = makeCtx();
++  const engine = new Engine(ctx, { graphDir: dir, auto: false });
++  // 旧版在这一行抛 TypeError：renderFacts → `latest?.worldHash?.slice(0, 12)`
++  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
++  if (!out || !Array.isArray(out.summary) || out.summary.length === 0) throw new Error("summarize 没产出内容");
++
++  // 硬事实块必须带着失败边与原因进了 prompt（这是压缩不丢死路的前提）
++  const options = ctx.streamCalls.at(-1);
++  if (!options) throw new Error("llm.stream 没被调用");
++  const instruction = options.messages.at(-1)?.content?.[0]?.text ?? "";
++  for (const needle of ["e1", "EACCES", "不许动 prod 配置"]) {
++    if (!instruction.includes(needle)) throw new Error(`硬事实块里没有 ${needle}：\n${instruction.slice(0, 600)}`);
++  }
++  // 内存图的字段必须已被 fromJSON 收敛成字符串 + 索引重建（否则下一次 flush 又写回脏数据）
++  const g = engine.graphs.get("sess-legacy");
++  if (typeof g.nodes.n2.worldHash !== "string") throw new Error(`加载后 worldHash 仍是 ${typeof g.nodes.n2.worldHash}`);
++  if (g.nodes.n2.constraintHash === "pending") throw new Error("加载后 constraintHash 仍是 pending（置换检测仍不可用）");
++  if (g.stateIndex[`${g.nodes.n2.worldHash}/${g.nodes.n2.constraintHash}`] !== "n2") {
++    throw new Error(`stateIndex 未重建：${JSON.stringify(g.stateIndex)}`);
++  }
++};
+diff --git a/test/verify-graphs.mjs b/test/verify-graphs.mjs
+new file mode 100644
+index 0000000..dbab8b6
+--- /dev/null
++++ b/test/verify-graphs.mjs
+@@ -0,0 +1,163 @@
++/**
++ * verify-graphs.mjs —— 全库棋谱健康检查（P0 worldHash 类型契约的验收工具）
++ *
++ * 用途：把 `<DSH_HOME>/chess-context/sessions/<sessionId>/graph.json` 全部过一遍
++ * `fromJSON()`，校验三件事：
++ *   1. 加载后 agent 节点的 `worldHash` / `constraintHash` 全是**字符串**
++ *      （事故：v1.3.4 把 `worldstate.hash()` 的 `{hash,mode,files}` 对象写进了节点，
++ *       ledger 的 `.slice()` 抛 TypeError → 226 次压缩只成功 3 次）
++ *   2. 加载后 `renderFacts()` 不抛错（这是 summarize() 的第一步，抛错 = 压缩 100% 失败）
++ *   3. 重新序列化（下一次 flush 写回的形态）不再有对象残留
++ * 另外报告 `stateIndex` 的条目数（置换检测是否可用）—— 加载时按节点字段重建。
++ *
++ * 用法：
++ *   node test/verify-graphs.mjs                 # 用 DSH_HOME 或默认路径
++ *   node test/verify-graphs.mjs <sessions目录>  # 指定目录
++ *   node test/verify-graphs.mjs --json          # 只输出 JSON（给脚本用）
++ *
++ * 退出码：0 = 全健康；1 = 有任何一条不健康（对象残留 / renderFacts 抛错 / 解析失败）。
++ * 注意：本脚本**只读**，不写任何 graph.json —— 磁盘痊愈靠插件下次 flush。
++ */
++
++import nodeFs from "node:fs";
++import nodePath from "node:path";
++import os from "node:os";
++import { fromJSON, toJSON } from "../src/graph.mjs";
++import { renderFacts, renderLedger } from "../src/ledger.mjs";
++
++function defaultRoot() {
++  const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
++  return nodePath.join(home, "chess-context", "sessions");
++}
++
++const argv = process.argv.slice(2);
++const asJson = argv.includes("--json");
++const root = argv.find((a) => !a.startsWith("--")) ?? defaultRoot();
++
++if (!nodeFs.existsSync(root)) {
++  console.error(`找不到棋谱目录：${root}`);
++  process.exit(1);
++}
++
++const rows = [];
++let bad = 0;
++
++for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
++  if (!entry.isDirectory()) continue;
++  const file = nodePath.join(root, entry.name, "graph.json");
++  if (!nodeFs.existsSync(file)) continue;
++
++  const row = {
++    session: entry.name,
++    agents: 0,
++    objectWorldHashBefore: 0,
++    objectWorldHashAfter: 0,
++    stateIndexBefore: 0,
++    stateIndexAfter: 0,
++    factsChars: 0,
++    ledgerTokens: 0,
++    problems: [],
++  };
++
++  let raw;
++  try {
++    raw = nodeFs.readFileSync(file, "utf8");
++  } catch (error) {
++    row.problems.push(`读文件失败：${String(error)}`);
++    bad += 1;
++    rows.push(row);
++    continue;
++  }
++
++  let parsed;
++  try {
++    parsed = JSON.parse(raw);
++  } catch (error) {
++    row.problems.push(`JSON 解析失败：${String(error)}`);
++    bad += 1;
++    rows.push(row);
++    continue;
++  }
++
++  const agentsOf = (g) => Object.values(g.nodes ?? {}).filter((n) => n && n.kind === "agent");
++  row.agents = agentsOf(parsed).length;
++  row.objectWorldHashBefore = agentsOf(parsed).filter((n) => typeof n.worldHash === "object" && n.worldHash !== null).length;
++  row.stateIndexBefore = Object.keys(parsed.stateIndex ?? {}).length;
++
++  let g;
++  try {
++    g = fromJSON(raw);
++  } catch (error) {
++    row.problems.push(`fromJSON 失败：${String(error)}`);
++    bad += 1;
++    rows.push(row);
++    continue;
++  }
++
++  row.objectWorldHashAfter = agentsOf(g).filter((n) => typeof n.worldHash === "object" && n.worldHash !== null).length;
++  row.stateIndexAfter = Object.keys(g.stateIndex ?? {}).length;
++  if (row.objectWorldHashAfter > 0) row.problems.push(`加载后仍有 ${row.objectWorldHashAfter} 个对象的 worldHash`);
++
++  for (const node of agentsOf(g)) {
++    if (typeof node.worldHash !== "string") row.problems.push(`${node.id}.worldHash 类型 ${typeof node.worldHash}`);
++    if (typeof node.constraintHash !== "string") row.problems.push(`${node.id}.constraintHash 类型 ${typeof node.constraintHash}`);
++  }
++
++  try {
++    row.factsChars = renderFacts(g).length;
++  } catch (error) {
++    row.problems.push(`renderFacts 抛错：${String(error)}`);
++  }
++
++  // 热清单也过一遍：它每步都渲染，是这条链路上最先炸的消费者之一
++  try {
++    row.ledgerTokens = renderLedger(g, { maxTokens: 500 }).tokens;
++  } catch (error) {
++    row.problems.push(`renderLedger 抛错：${String(error)}`);
++  }
++
++  const round = JSON.parse(toJSON(g));
++  const objectAfterRound = agentsOf(round).filter((n) => typeof n.worldHash === "object" && n.worldHash !== null).length;
++  if (objectAfterRound > 0) row.problems.push(`重新序列化后仍有 ${objectAfterRound} 个对象`);
++
++  if (row.problems.length > 0) bad += 1;
++  rows.push(row);
++}
++
++const total = rows.reduce(
++  (acc, r) => ({
++    sessions: acc.sessions + 1,
++    agents: acc.agents + r.agents,
++    before: acc.before + r.objectWorldHashBefore,
++    after: acc.after + r.objectWorldHashAfter,
++    idxBefore: acc.idxBefore + r.stateIndexBefore,
++    idxAfter: acc.idxAfter + r.stateIndexAfter,
++  }),
++  { sessions: 0, agents: 0, before: 0, after: 0, idxBefore: 0, idxAfter: 0 },
++);
++
++const summary = { root, sessions: total.sessions, agents: total.agents, objectWorldHash: { before: total.before, after: total.after }, stateIndex: { before: total.idxBefore, after: total.idxAfter }, unhealthySessions: bad };
++
++if (asJson) {
++  console.log(JSON.stringify({ summary, rows }, null, 1));
++} else {
++  console.log(`== verify-graphs（${root}）==`);
++  for (const r of rows) {
++    const mark = r.problems.length === 0 ? "✓" : "✗";
++    console.log(
++      `  ${mark} ${r.session.slice(0, 34).padEnd(36)} agent ${String(r.agents).padStart(4)}  ` +
++        `对象 ${r.objectWorldHashBefore}→${r.objectWorldHashAfter}  ` +
++        `stateIndex ${r.stateIndexBefore}→${r.stateIndexAfter}  ` +
++        `facts ${r.factsChars} 字 / ledger ${r.ledgerTokens} tok` +
++        (r.problems.length ? `\n      ${r.problems.join("\n      ")}` : ""),
++    );
++  }
++  console.log(
++    `\n合计：${summary.sessions} 个会话 / ${summary.agents} 个 agent 节点 / ` +
++      `对象 worldHash ${summary.objectWorldHash.before} → ${summary.objectWorldHash.after} / ` +
++      `stateIndex ${summary.stateIndex.before} → ${summary.stateIndex.after}`,
++  );
++  console.log(bad === 0 ? "\n== 全部健康 ==" : `\n== ${bad} 个会话不健康 ==`);
++}
++
++process.exitCode = bad === 0 ? 0 : 1;
+diff --git a/test/worldhash.test.mjs b/test/worldhash.test.mjs
+new file mode 100644
+index 0000000..f38b5a0
+--- /dev/null
++++ b/test/worldhash.test.mjs
+@@ -0,0 +1,147 @@
++/**
++ * worldHash 类型契约回归测试（P0，2026-10-28 实机故障）
++ *
++ * 事故现场：session-5acafe42 的 graph.json 里 206/267 个 agent 节点的 worldHash
++ * 是 { hash, mode, files } 对象（worldstate.hash() 的返回值被直接写入）。
++ * ledger.renderLedger() 里 `latest?.worldHash?.slice(0, 12)` 对对象抛
++ *   "latest?.worldHash?.slice is not a function"
++ * ⇒ 压缩链路 226 次里只有 3 次成功，上下文一路涨到 66 万 token，模型思考退化死循环。
++ *
++ * 本测试锁三件事：
++ *   1. addAgentNode 收到对象也没关系 —— 落库前收敛成字符串
++ *   2. fromJSON 读历史脏数据时自动修复（不用手工迁移 200+ 会话）
++ *   3. renderLedger 对脏数据不抛错（防御性 = 双保险）
++ */
++
++import { createGraph, addUserNode, addAgentNode, addEdge, fromJSON, toJSON, hashText } from "../src/graph.mjs";
++import { renderFacts } from "../src/ledger.mjs";
++
++export const tests = {
++  "hashText：字符串原样、对象取 .hash、空值 pending"() {
++    if (hashText("abc") !== "abc") throw new Error("字符串被改写");
++    const obj = { hash: "deadbeef", mode: "stat", files: 21 };
++    if (hashText(obj) !== "deadbeef") throw new Error(`对象未取 .hash：${hashText(obj)}`);
++    if (hashText(null) !== "pending") throw new Error("null 应为 pending");
++    if (hashText(undefined) !== "pending") throw new Error("undefined 应为 pending");
++  },
++
++  "addAgentNode：worldHash 传对象时落库为字符串"() {
++    const g = createGraph({ sessionId: "s1" });
++    const u = addUserNode(g, { seq: 1, text: "目标：修好测试" });
++    const e = addEdge(g, { from: u, intent: "试 A", action: "bash(test)" });
++    const node = addAgentNode(g, {
++      seq: 5,
++      goal: "A 完成",
++      worldHash: { hash: "aaa111", mode: "stat", files: 3 },
++      constraintHash: { hash: "ccc333", mode: "set", files: 1 },
++      via: e,
++    });
++    const n = g.nodes[node.id];
++    if (typeof n.worldHash !== "string" || n.worldHash !== "aaa111") {
++      throw new Error(`worldHash 未收敛：${JSON.stringify(n.worldHash)} (${typeof n.worldHash})`);
++    }
++    if (typeof n.constraintHash !== "string" || n.constraintHash !== "ccc333") {
++      throw new Error(`constraintHash 未收敛：${JSON.stringify(n.constraintHash)} (${typeof n.constraintHash})`);
++    }
++    // stateIndex 必须建立（修复前对象 key 会变成 "[object Object]/..." 或根本不写）
++    const key = "aaa111/ccc333";
++    if (g.stateIndex[key] !== node.id) throw new Error(`stateIndex 未建立：${JSON.stringify(g.stateIndex)}`);
++  },
++
++  "fromJSON：历史脏数据（对象 worldHash）自动修复并重建 stateIndex"() {
++    const dirty = {
++      version: 1,
++      sessionId: "legacy",
++      cwd: "/tmp",
++      createdAt: 1,
++      updatedAt: 1,
++      nextNode: 3,
++      nextEdge: 2,
++      nodes: {
++        n1: { id: "n1", kind: "user", seq: 1, text: "目标" },
++        n2: {
++          id: "n2",
++          kind: "agent",
++          seq: 2,
++          goal: "第一步",
++          worldHash: { hash: "bbb222", mode: "stat", files: 21 },
++          constraintHash: "ddd444",
++          via: null,
++          ts: 1,
++        },
++      },
++      edges: {},
++      order: ["n1", "n2"],
++      stateIndex: { "[object Object]/ddd444": "n2" },
++      rootUserNodeIds: ["n1"],
++      checkpointSeq: null,
++      foldCount: 0,
++      lastFoldTotalTokens: 0,
++      foldMarks: [],
++    };
++    const g = fromJSON(JSON.stringify(dirty));
++    if (typeof g.nodes.n2.worldHash !== "string" || g.nodes.n2.worldHash !== "bbb222") {
++      throw new Error(`fromJSON 未修复：${JSON.stringify(g.nodes.n2.worldHash)}`);
++    }
++    if (g.stateIndex["[object Object]/ddd444"] !== undefined) throw new Error("脏 stateIndex 未被清理");
++    if (g.stateIndex["bbb222/ddd444"] !== "n2") throw new Error(`stateIndex 未重建：${JSON.stringify(g.stateIndex)}`);
++    // 再序列化一次必须是干净的字符串（保证下次 flush 后磁盘数据痊愈）
++    const round = JSON.parse(toJSON(g));
++    if (typeof round.nodes.n2.worldHash !== "string") throw new Error("重新落盘后仍是对象");
++  },
++
++  "renderFacts：worldHash 是对象时不抛错（防御层）"() {
++    const g = createGraph({ sessionId: "s1" });
++    const u = addUserNode(g, { seq: 1, text: "目标：修好测试" });
++    const e = addEdge(g, { from: u, intent: "试 A", action: "bash(test)" });
++    const node = addAgentNode(g, { seq: 5, goal: "A 完成", worldHash: "aaa111", constraintHash: "ccc333", via: e });
++    // 绕过 addAgentNode 直接注入脏对象，模拟旧数据未经 fromJSON 的情况
++    g.nodes[node.id].worldHash = { hash: "aaa111bbb222ccc333", mode: "stat", files: 3 };
++    g.nodes[node.id].constraintHash = { hash: "ccc333ddd444", mode: "set", files: 1 };
++    const out = renderFacts(g);
++    if (!out.includes("CURRENT_STATE_KEY: aaa111bbb222/ccc333ddd444")) {
++      throw new Error(`CURRENT_STATE_KEY 渲染错误：\n${out}`);
++    }
++  },
++
++  "fromJSON：历史 pending constraintHash 回填并重建 stateIndex"() {
++    const dirty = {
++      version: 1, sessionId: "legacy2", cwd: "/tmp", createdAt: 1, updatedAt: 1,
++      nextNode: 5, nextEdge: 1,
++      nodes: {
++        n1: { id: "n1", kind: "user", seq: 1, text: "必须保留登录框", constraints: ["必须保留登录框"] },
++        n2: { id: "n2", kind: "agent", seq: 2, goal: "A", worldHash: "W1", constraintHash: "pending", via: null, ts: 1 },
++        n3: { id: "n3", kind: "agent", seq: 3, goal: "B", worldHash: "W1", constraintHash: "pending", via: null, ts: 1 },
++        n4: { id: "n4", kind: "agent", seq: 4, goal: "C", worldHash: "W2", constraintHash: "pending", via: null, ts: 1 },
++      },
++      edges: {}, order: ["n1", "n2", "n3", "n4"],
++      stateIndex: {},
++      rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
++    };
++    const g = fromJSON(JSON.stringify(dirty));
++    for (const id of ["n2", "n3", "n4"]) {
++      if (g.nodes[id].constraintHash === "pending") throw new Error(id + " 的 constraintHash 未回填");
++    }
++    const keys = Object.keys(g.stateIndex);
++    if (keys.length !== 2) throw new Error("stateIndex 应为 2 条，实际 " + keys.length + ": " + JSON.stringify(keys));
++    if (g.stateIndex["W1/" + g.nodes.n2.constraintHash] !== "n2") throw new Error("W1 未保留最早节点 n2");
++  },
++
++  "fromJSON：字段本身干净但 stateIndex 脏/空时也重建（派生数据，不信任磁盘上的旧索引）"() {
++    const dirty = {
++      version: 1, sessionId: "legacy3", cwd: "/tmp", createdAt: 1, updatedAt: 1,
++      nextNode: 3, nextEdge: 1,
++      nodes: {
++        n1: { id: "n1", kind: "user", seq: 1, text: "目标" },
++        n2: { id: "n2", kind: "agent", seq: 2, goal: "A", worldHash: "W1", constraintHash: "C1", via: null, ts: 1 },
++      },
++      edges: {}, order: ["n1", "n2"],
++      // 旧实机现场：字段是字符串（或 pending 被 fold 回填过），但索引里全是脏 key
++      stateIndex: { "[object Object]/pending": "n2" },
++      rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
++    };
++    const g = fromJSON(JSON.stringify(dirty));
++    if (g.stateIndex["[object Object]/pending"] !== undefined) throw new Error("脏 key 未被清理");
++    if (g.stateIndex["W1/C1"] !== "n2") throw new Error(`干净字段也未重建索引：${JSON.stringify(g.stateIndex)}`);
++  },
++};

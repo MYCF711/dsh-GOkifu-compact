@@ -29,6 +29,17 @@ function clip(text, n) {
   return t.length <= n ? t : `${t.slice(0, Math.max(0, n - 1))}…`;
 }
 
+/**
+ * 只取哈希的前 n 位。兼容字符串与历史脏数据里的 { hash, mode, files } 对象 ——
+ * 旧版直接 `.slice()`，遇到对象就抛 "latest?.worldHash?.slice is not a function"，
+ * 导致 renderLedger 整体失败、压缩链路 100% 中断。
+ */
+function shortHash(value, n = 12) {
+  if (typeof value === "string") return value.slice(0, n);
+  if (value && typeof value === "object" && typeof value.hash === "string") return value.hash.slice(0, n);
+  return "";
+}
+
 function seqSpan(edge) {
   const e = edge.evidence;
   if (!e) return "";
@@ -278,7 +289,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
   if (path.length) {
     lines.push(`CURRENT_PATH: ${path.map((n) => n.id).join(" -> ")}`);
     if (latest?.goal) lines.push(`CURRENT_GOAL: ${latest.goal}`);
-    lines.push(`CURRENT_STATE_KEY: ${latest?.worldHash?.slice(0, 12)}/${latest?.constraintHash?.slice(0, 12)}`);
+    lines.push(`CURRENT_STATE_KEY: ${shortHash(latest?.worldHash)}/${shortHash(latest?.constraintHash)}`);
   }
   const open = openEdges(g);
   if (open.length) {

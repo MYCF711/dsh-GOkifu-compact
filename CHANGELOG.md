@@ -1,5 +1,41 @@
 # 更新记录
 
+## 1.3.5 — 2026-10-28
+
+### P0 修复：`worldHash` 类型契约（事故：压缩 226 次只成功 3 次 → 上下文涨到 66 万 → 模型死循环）
+
+**根因**：`worldstate.hash()` 返回 `{ hash, mode, files }` 对象，engine 的 `worldHashOf()`
+把它原样交给 keeper，节点字段于是存了**对象**；随后 `renderFacts()` 里
+`latest?.worldHash?.slice(0, 12)` 对对象调 `.slice()` 抛
+`latest?.worldHash?.slice is not a function` —— 这一步在 `summarize()` 之前，
+于是 `compactRegion` 事务整体回滚，**压缩彻底不工作**。
+
+**改动**
+
+- `src/engine.mjs`：`worldHashOf()` 收敛成字符串（兼容 `string` / `{hash}` / `pending`）；
+  `constraintHashOf()` 改为 `hashSet(collectConstraintText(g))`（`st.constraints` 从未被赋值
+  ⇒ `constraintHash` 恒为 `pending` ⇒ `stateIndex` 永不建立、置换检测形同虚设）
+- `src/graph.mjs`：新增 `hashText()`；`addAgentNode()` 入口归一化（对象永不进图）；
+  `fromJSON()` 在加载边界修复历史脏数据（对象 → 字符串、按时序回填 pending `constraintHash`）
+  并**无条件重建 `stateIndex`**（派生数据不信任磁盘旧值）
+- `src/ledger.mjs`：新增 `shortHash()` 防御层，`CURRENT_STATE_KEY` 不再裸调 `.slice()`
+
+**验证**
+
+- `node test/run.mjs` → **94 passed, 0 failed**（87 + 新增 7）
+- 全库回放（新增工具 `node test/verify-graphs.mjs`）：23 个会话 / 1578 个 agent 节点 /
+  对象 worldHash **1279 → 0** / `stateIndex` **5 → 185** / 全部会话 `renderFacts`+`renderLedger` 不抛错
+- 真实日志独立核对：`session-5acafe42` 的 `compaction/end` **226** 次、`error` **223** 次、
+  其中本错误 **139** 次
+- 变异自检：把修复回滚 → 新增的端到端回归变红（两层都回滚时错误与实机同形）
+- 干净 HEAD 克隆 + `git apply` 补丁 → 94 passed（不是改着源码跑的自证）
+
+**产物**：`docs/P0-worldhash-死循环-根因与修复方案.md`、`docs/P0-worldhash-死循环修复.patch`、
+`evidence/P0-worldhash-修复验证.md`、`test/worldhash.test.mjs`、`test/verify-graphs.mjs`
+
+**部署**：插件在 DSH 启动时加载，**需重启生效**；历史数据由 `fromJSON` 加载边界自动修复，
+无需手工迁移。
+
 ## 1.3.4 — 2026-10-28
 
 ### 文档数字同步到 v1.3.1

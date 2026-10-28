@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T15:21:26.639Z",
+  "generatedAt": "2026-10-28T16:06:41.804Z",
   "edges": 2000,
   "nodes": 2001,
   "failures": 1201,
@@ -11,10 +11,10 @@
   "jsonBytes": 1477526,
   "ms": {
     "observePair": 0.007,
-    "renderLedger": 6.169,
-    "renderFacts": 1.037,
-    "renderMd": 1.16,
-    "serialize": 3.559,
+    "renderLedger": 6.194,
+    "renderFacts": 1.014,
+    "renderMd": 1.129,
+    "serialize": 3.487,
     "selectRange": 0.007
   }
 }

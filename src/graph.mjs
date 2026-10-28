@@ -34,6 +34,17 @@ export function hashSet(items) {
   return sha(sorted.join("\u0000"));
 }
 
+/**
+ * 把「哈希」收敛成字符串。worldstate.hash() 返回 { hash, mode, files }（含元数据），
+ * 而节点字段的契约是字符串 —— 在边界统一归一化，兼容历史脏数据。
+ */
+export function hashText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.hash === "string") return value.hash;
+  if (value === null || value === undefined) return "pending";
+  return String(value);
+}
+
 export function createGraph({ sessionId, cwd = "" }) {
   const now = Date.now();
   return {
@@ -85,6 +96,10 @@ export function addUserNode(g, { seq, turn = null, text, constraints }) {
  *   若 stateKey 命中已有节点，则**不新建节点**，只返回命中信息（图上只多一条边）。
  */
 export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintHash, via = null }) {
+  // ★ P0：哈希字段只存字符串。历史实机里 keeper 把 worldstate.hash() 的返回对象
+  //   （{ hash, mode, files }）直接写了进来，导致 ledger 的 `.slice()` 崩溃。
+  worldHash = hashText(worldHash);
+  constraintHash = hashText(constraintHash);
   // 落账阶段还没有真实状态哈希（要 stat 文件，成本高）——先占位，fold 前回填。
   const pending = worldHash === "pending" || constraintHash === "pending";
   const key = `${worldHash}/${constraintHash}`;
@@ -278,6 +293,44 @@ export function toJSON(g) {
 export function fromJSON(text) {
   const obj = JSON.parse(text);
   if (obj.version !== GRAPH_VERSION) throw new Error(`graph: unsupported version ${obj.version}`);
+  // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
+  //   { hash, mode, files } 对象直接写进了节点字段。这里在加载边界统一收敛成字符串，
+  //   否则 ledger 的 `.slice()` 会抛 "latest?.worldHash?.slice is not a function"，
+  //   整个压缩链路失败（实机 session-5acafe42：187 次该错误 / 226 次压缩仅 3 次成功）。
+  let pendingConstraint = 0;
+  for (const node of Object.values(obj.nodes ?? {})) {
+    if (!node || node.kind !== "agent") continue;
+    node.worldHash = hashText(node.worldHash);
+    node.constraintHash = hashText(node.constraintHash);
+    if (node.constraintHash === "pending") pendingConstraint += 1;
+  }
+  // ★ 第二处历史修复：旧版 st.constraints 从未赋值 ⇒ 所有节点 constraintHash 都是
+  //   "pending" ⇒ stateIndex 永远为空、置换检测形同虚设（全库 1,440 节点只有 5 条索引）。
+  //   按时序累积回填（节点创建时只看到它之前的约束），与运行期 constraintHashOf 的语义一致。
+  if (pendingConstraint > 0) {
+    const seen = [];
+    for (const id of obj.order ?? []) {
+      const n = obj.nodes?.[id];
+      if (!n) continue;
+      if (n.kind === "user" && Array.isArray(n.constraints)) {
+        seen.push(...n.constraints);
+      } else if (n.kind === "agent" && n.constraintHash === "pending") {
+        n.constraintHash = hashSet(seen);
+      }
+    }
+  }
+  // stateIndex 是**派生数据**，不是权威数据：不论本次是否修复过字段，都在加载边界
+  // 按节点真实字段重建一遍。旧 index 里可能有 "[object Object]/…" 这类脏 key，
+  // 也可能因为 constraintHash 恒为 pending 而从未建立（全库 1,440 节点只有 5 条索引）。
+  const rebuilt = {};
+  for (const id of obj.order ?? []) {
+    const n = obj.nodes?.[id];
+    if (!n || n.kind !== "agent") continue;
+    if (n.worldHash === "pending" || n.constraintHash === "pending") continue;
+    const key = `${n.worldHash}/${n.constraintHash}`;
+    if (rebuilt[key] === undefined) rebuilt[key] = id;
+  }
+  obj.stateIndex = rebuilt;
   return obj;
 }
 

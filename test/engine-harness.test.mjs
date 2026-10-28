@@ -142,6 +142,8 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
   const overlay = {};
   const ctx = {
     logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} },
+    /** 摘要（llm.stream）收到的 options，供断言 prompt 内容 */
+    streamCalls: [],
     on(name, fn) {
       const arr = listeners.get(name) ?? [];
       arr.push(fn);
@@ -163,7 +165,9 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
       async resolveModelInfo() {
         return { context: { contextWindow: window }, defaultMaxTokens: 4096 };
       },
-      async *stream() {
+      async *stream(options) {
+        // 记录每次摘要调用的完整输入 —— 用来断言「硬事实块」真的带着失败边进了 prompt
+        ctx.streamCalls.push(options);
         yield { type: "text-delta", text: "## 目标\n- mock" };
       },
     },
@@ -286,6 +290,20 @@ tests["事件落账：user/assistant/tool/step 走完后 graph.json 有节点与
   if (agents.length !== 1) throw new Error(`agent 节点 ${agents.length}`);
   if (failures.length !== 1) throw new Error(`失败边 ${failures.length}`);
   if (!failures[0].errorSnippet.includes("AssertionError")) throw new Error("失败原因没落盘");
+  // ★ P0 回归（2026-10-28 实机：226 次压缩只成功 3 次，上下文涨到 66 万 token → 模型死循环）：
+  //   worldstate.hash() 返回的是 { hash, mode, files } 对象，keeper 经 engine 注入的
+  //   worldHashOf/constraintHashOf 落库时**必须已是字符串**。旧版把对象原样写进节点，
+  //   随后 ledger 的 `.slice()` 对对象抛 TypeError，整条压缩链路回滚。
+  //   这条断言走的是真实代码路径（keeper → addAgentNode ← engine.worldHashOf），
+  //   纯函数单测传的是字符串假数据，正是它把契约不一致藏住的。
+  for (const [field, value] of [["worldHash", agents[0].worldHash], ["constraintHash", agents[0].constraintHash]]) {
+    if (typeof value !== "string") throw new Error(`${field} 不是字符串：${JSON.stringify(value)}（${typeof value}）`);
+    if (value === "pending") throw new Error(`${field} 仍是 pending（engine 注入的哈希函数没生效）`);
+  }
+  const key = `${agents[0].worldHash}/${agents[0].constraintHash}`;
+  if (g.stateIndex[key] !== agents[0].id) {
+    throw new Error(`stateIndex 未建立：${key} → ${JSON.stringify(g.stateIndex)}`);
+  }
 };
 
 tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-context 消息"] = async () => {
@@ -386,4 +404,69 @@ tests["溢出自救：绕过阈值与增长门控"] = async () => {
   for (let i = 0; i < 5; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压");
+};
+
+/**
+ * ★ P0 死亡循环的端到端回归（2026-10-28 实机 session-5acafe42）。
+ *
+ * 生产故障链：v1.3.4 把 worldstate.hash() 的 { hash, mode, files } 对象直接写进节点 →
+ *   summarize() 里 renderFacts() 对对象调 .slice() → TypeError →
+ *   compactRegion 事务回滚 → 226 次压缩只成功 3 次 → 上下文涨到 66 万 token →
+ *   模型 reasoning 退化自我重复 → 被 magpie 判循环中断。
+ *
+ * 这个测试走的是**真实路径**：磁盘上的旧 graph.json → #graph() → fromJSON 修复 →
+ * summarize() → renderFacts()。纯函数单测（传字符串假数据）正是当初漏掉这条链的原因。
+ */
+tests["P0 回归：旧磁盘棋谱（worldHash 是对象）也能跑完 summarize，不再抛 .slice is not a function"] = async () => {
+  const { Engine } = await load();
+  const dir = nodePath.join(GRAPHS, "legacy");
+  const sessDir = nodePath.join(dir, "sessions", "sess-legacy");
+  nodeFs.mkdirSync(sessDir, { recursive: true });
+  const legacy = {
+    version: 1, sessionId: "sess-legacy", cwd: "C:/tmp", createdAt: 1, updatedAt: 1,
+    nextNode: 3, nextEdge: 2,
+    nodes: {
+      n1: { id: "n1", kind: "user", seq: 1, text: "不许动 prod 配置。把构建跑通。", constraints: ["不许动 prod 配置"], ts: 1 },
+      n2: {
+        id: "n2", kind: "agent", seq: 2, goal: "试改 prod 配置",
+        // 实机脏数据：worldstate.hash() 的返回值被原样写进了节点
+        worldHash: { hash: "deadbeefdeadbeefdeadbeefdeadbeef", mode: "stat", files: 21 },
+        constraintHash: "pending", via: "e1", ts: 1,
+      },
+    },
+    edges: {
+      e1: {
+        id: "e1", from: "n1", to: "n2", intent: "直接改 prod 配置", action: "edit(file_path=prod.yml)",
+        result: "failure", verify: { kind: "exit", summary: "EACCES" },
+        errorSnippet: "Error: EACCES: permission denied, open 'prod.yml'",
+        evidence: { start: 1, end: 2 }, transposition: false, ts: 1,
+      },
+    },
+    order: ["n1", "n2"],
+    stateIndex: { "[object Object]/pending": "n2" },
+    rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
+  };
+  nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(legacy, null, 1), "utf8");
+
+  const session = makeSession({ id: "sess-legacy" });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  // 旧版在这一行抛 TypeError：renderFacts → `latest?.worldHash?.slice(0, 12)`
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || !Array.isArray(out.summary) || out.summary.length === 0) throw new Error("summarize 没产出内容");
+
+  // 硬事实块必须带着失败边与原因进了 prompt（这是压缩不丢死路的前提）
+  const options = ctx.streamCalls.at(-1);
+  if (!options) throw new Error("llm.stream 没被调用");
+  const instruction = options.messages.at(-1)?.content?.[0]?.text ?? "";
+  for (const needle of ["e1", "EACCES", "不许动 prod 配置"]) {
+    if (!instruction.includes(needle)) throw new Error(`硬事实块里没有 ${needle}：\n${instruction.slice(0, 600)}`);
+  }
+  // 内存图的字段必须已被 fromJSON 收敛成字符串 + 索引重建（否则下一次 flush 又写回脏数据）
+  const g = engine.graphs.get("sess-legacy");
+  if (typeof g.nodes.n2.worldHash !== "string") throw new Error(`加载后 worldHash 仍是 ${typeof g.nodes.n2.worldHash}`);
+  if (g.nodes.n2.constraintHash === "pending") throw new Error("加载后 constraintHash 仍是 pending（置换检测仍不可用）");
+  if (g.stateIndex[`${g.nodes.n2.worldHash}/${g.nodes.n2.constraintHash}`] !== "n2") {
+    throw new Error(`stateIndex 未重建：${JSON.stringify(g.stateIndex)}`);
+  }
 };

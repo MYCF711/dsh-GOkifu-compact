@@ -168,8 +168,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     }
     st.world.restore(st.touched);
     // 把世界状态的读写能力注入 state（防御式：世界状态可能尚未构造）
-    st.worldHashOf = () => (st.world && typeof st.world.hash === "function" ? st.world.hash() : "pending");
-    st.constraintHashOf = () => (st.constraints && typeof st.constraints.hash === "function" ? st.constraints.hash() : "pending");
+    // ★ P0 修复（2026-10-28，实机 187 次 compression 失败）：world.hash() 返回
+    //   { hash, mode, files } 对象，节点字段只允许字符串。旧版直接返回对象 ⇒
+    //   graph.json 里 206/267 节点的 worldHash 是对象 ⇒ ledger 的 `.slice()` 抛
+    //   "latest?.worldHash?.slice is not a function" ⇒ 压缩 100% 失败。
+    st.worldHashOf = () => {
+      if (!st.world || typeof st.world.hash !== "function") return "pending";
+      const w = st.world.hash();
+      if (typeof w === "string") return w;
+      return typeof w?.hash === "string" ? w.hash : "pending";
+    };
+    // ★ P0 修复：st.constraints 从未被赋值 ⇒ constraintHash 恒为 "pending" ⇒
+    //   stateIndex 永不建立、置换检测形同虚设。约束哈希直接由用户节点约束文本算。
+    st.constraintHashOf = () => hashSet(collectConstraintText(g));
     st.touchPath = (p) => { if (st.world && typeof st.world.touch === "function") st.world.touch(p); };
     this.runtime.set(key, st);
     return st;
