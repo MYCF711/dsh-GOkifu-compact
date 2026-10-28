@@ -1,7 +1,7 @@
 {
   "name": "dsh-chess-context",
-  "version": "0.2.0",
-  "description": "DSH context-compression backend with a chess-record DAG: incremental fold (compress each span once), failure memory that survives compaction, transposition detection, and a tiny hot ledger rebuilt every step.",
+  "version": "0.2.1",
+  "description": "DSH context-compression backend with a **go game record (kifu)** DAG: node = position, edge = attempted move + result. Incremental fold (each span summarized once), failure memory that survives compaction, transposition detection (chess-engine style), and a tiny hot ledger rebuilt every step.",
   "type": "module",
   "main": "src/engine.mjs",
   "exports": {
