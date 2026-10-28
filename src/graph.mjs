@@ -570,7 +570,7 @@ export function renderIndexMd(g) {
     const outs = Object.values(g.edges).filter((e) => e.from === id);
     for (const e of outs) {
       const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
-      lines.push(`${indent}  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}`);
+      lines.push(`${indent}  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}${e.result === "failure" && e.verify?.kind === "text" ? " [text:?]" : ""}`);
     }
   }
   // 失败边全表：index 的缩进树每个节点只出现一次，跨边/置换边不在树里。
@@ -583,7 +583,7 @@ export function renderIndexMd(g) {
     const from = e.from ?? "?";
     const to = e.to ?? "(未结算)";
     lines.push(
-      `- ${e.id} ${from} → ${to}: ${cut(e.intent || e.action, 60)} — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 160)} [verify:${e.verify?.kind ?? "none"}]`,
+      `- ${e.id} ${from} → ${to}: ${cut(e.intent || e.action, 60)} — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 160)} [verify:${e.verify?.kind ?? "none"}]${e.verify?.kind === "text" ? " [text:?]" : ""}`,
     );
   }
   if (failCount === 0) lines.push("（无）");
