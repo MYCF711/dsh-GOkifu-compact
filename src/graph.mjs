@@ -378,47 +378,13 @@ export function tewariAnalysis(g, edge) {
     (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && g.nodes[e.to],
   );
 
-  // 看「失败之后」是否走出了成功（从 to 出发能到 success）
-  let afterSuccess = false;
-  if (to && g.nodes[to]) {
-    const q2 = [to];
-    const seen2 = new Set([to]);
-    while (q2.length > 0 && !afterSuccess) {
-      const id = q2.shift();
-      for (const e of Object.values(g.edges)) {
-        if (e.from !== id) continue;
-        if (e.result === "success") { afterSuccess = true; break; }
-        if (e.to && g.nodes[e.to] && !seen2.has(e.to)) {
-          seen2.add(e.to);
-          q2.push(e.to);
-        }
-      }
-    }
-  }
-
-  // 1) 没有标准定式可比：失败之后走出成功 ⇒ 必要试错（赚）；否则无法手割
-  if (alts.length === 0) {
-    if (afterSuccess) {
-      return {
-        kind: "profit",
-        alternatives: 0,
-        note: "同起点没有别的成功路径，但失败之后走出了成功：必要试错（赚）",
-      };
-    }
-    return {
-      kind: "no_alternative",
-      alternatives: 0,
-      note: "同起点没有成功路径可比，失败之后也没有成功，无法手割",
-    };
-  }
-
-  // 2) 有标准定式：从成功后继出发 BFS，看能到达哪些节点
-  const reachable = new Set();
+  // 从同起点的成功后继出发做 BFS：得到「标准定式能到达的节点集合」
+  const baselineReach = new Set();
   const queue = alts.map((e) => e.to);
   const seen = new Set(queue);
   while (queue.length > 0) {
     const id = queue.shift();
-    reachable.add(id);
+    baselineReach.add(id);
     for (const e of Object.values(g.edges)) {
       if (e.from === id && e.to && !seen.has(e.to)) {
         seen.add(e.to);
@@ -427,19 +393,49 @@ export function tewariAnalysis(g, edge) {
     }
   }
 
-  // 3) 标准定式能到达失败终点 → 绕路（可能必要，但不如直达）
-  if (to && reachable.has(to)) {
-    return {
-      kind: "detour",
-      alternatives: alts.length,
-      note: "标准定式也能到达这个终点，但绕了路",
-    };
+  // ★ 判定只有两种：同型 / 不同型。
+  //   同型 = 失败边和某条成功路径到达**同一个终点**（殊途同归，完全等价）。
+  //   不同型 = 其余情况；此时额外记录两件**可以同时成立**的事：
+  //     probes    —— 探出了标准定式没走过的节点（有价值）
+  //     vsBaseline—— 相对标准定式更差（longer）/ 更优（shorter）/ 未知
+  const successEnds = new Set(alts.map((e) => e.to));
+  const samePosition = Boolean(to && successEnds.has(to));
+
+  const probes = [];
+  if (to && g.nodes[to] && !baselineReach.has(to) && !samePosition) {
+    probes.push(to);
+    // 顺着失败边之后继续走，把标准定式没覆盖的节点都记下来（最多 8 个，防爆）
+    const q2 = [to];
+    const seen2 = new Set([to]);
+    while (q2.length > 0 && probes.length < 8) {
+      const id = q2.shift();
+      for (const e of Object.values(g.edges)) {
+        if (e.from !== id || !e.to || !g.nodes[e.to]) continue;
+        if (baselineReach.has(e.to) || seen2.has(e.to)) continue;
+        seen2.add(e.to);
+        probes.push(e.to);
+        q2.push(e.to);
+        if (probes.length >= 8) break;
+      }
+    }
   }
 
-  // 4) 标准定式不经过它：纯亏
+  let vsBaseline = "unknown";
+  if (samePosition) vsBaseline = "same";
+  else if (to && baselineReach.has(to)) vsBaseline = "longer"; // 基线也能到，但失败边绕了
+
   return {
-    kind: "pure_loss",
+    kind: samePosition ? "same_position" : "different",
+    samePosition,
+    probes,
+    vsBaseline,
     alternatives: alts.length,
-    note: "把这一步拿掉，同起点有成功路径且不经过它（纯亏）",
+    note: samePosition
+      ? "殊途同归：与标准定式到达同一局面，只是路径不同"
+      : probes.length > 0
+        ? `探出 ${probes.length} 处标准定式没走过的节点`
+        : to && baselineReach.has(to)
+          ? "标准定式也能到达，但这一步绕了路"
+          : "与标准定式不同型，且未探出新节点",
   };
 }

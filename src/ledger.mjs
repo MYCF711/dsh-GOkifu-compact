@@ -46,14 +46,12 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   const seq = seqSpan(edge);
   const showReason = level <= 2;
   // 手割标记：纯亏 = 同起点有成功路径且不经过它；绕路 = 成功路径也能到它的终点
-  const tag =
-    tewari?.kind === "profit"
-      ? " [赚]"
-      : tewari?.kind === "pure_loss"
-        ? " [纯亏]"
-        : tewari?.kind === "detour"
-          ? " [绕路]"
-          : "";
+  // 手割多标签（可同时成立）：同型 / 探新 / 劣
+  const tags = [];
+  if (tewari?.samePosition) tags.push("同型");
+  if (tewari?.probes?.length > 0) tags.push("探新");
+  if (tewari?.vsBaseline === "longer") tags.push("劣");
+  const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
 

@@ -173,7 +173,7 @@ tests["mergeNodeInto 合并非叶子节点：入边与出边都改指向，不�
 };
 
 // ── 手割分析（tewari）：判断一条失败边是不是纯亏 ──
-tests["tewari：同起点有成功路径且不经过失败终点 → pure_loss"] = async () => {
+tests["tewari：同型判定 —— 失败终点不在标准定式上 → different"] = async () => {
   const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
   const g = createGraph({ sessionId: "tewari" });
   const u = addUserNode(g, { seq: 1, text: "把数据算出来" });
@@ -185,21 +185,23 @@ tests["tewari：同起点有成功路径且不经过失败终点 → pure_loss"]
 
   const r = tewariAnalysis(g, g.edges[eBad]);
   if (!r) throw new Error("应返回分析结果");
-  if (r.kind !== "pure_loss") throw new Error(`应判 pure_loss，实际 ${r.kind}`);
+  if (r.kind !== "different") throw new Error(`应判 different，实际 ${r.kind}`);
   if (r.alternatives !== 1) throw new Error(`替代路径数应为 1，实际 ${r.alternatives}`);
+  if (r.vsBaseline !== "unknown") throw new Error(`应 unknown，实际 ${r.vsBaseline}`);
 };
 
-tests["tewari：同起点没有成功路径 → no_alternative"] = async () => {
+tests["tewari：没有标准定式可比 → different(unknown)"] = async () => {
   const { createGraph, addUserNode, addEdge, settleEdge, tewariAnalysis } = await import("../src/graph.mjs");
   const g = createGraph({ sessionId: "tewari2" });
   const u = addUserNode(g, { seq: 1, text: "唯一尝试" });
   const e = addEdge(g, { from: u, intent: "唯一的路", action: "try()" });
   settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "boom" });
   const r = tewariAnalysis(g, g.edges[e]);
-  if (r.kind !== "no_alternative") throw new Error(`应判 no_alternative，实际 ${r.kind}`);
+  if (r.kind !== "different") throw new Error(`应判 different，实际 ${r.kind}`);
+  if (r.alternatives !== 0) throw new Error(`应 0 条替代，实际 ${r.alternatives}`);
 };
 
-tests["tewari：成功路径能到达失败终点 → detour"] = async () => {
+tests["tewari：标准定式能到但绕路 → vsBaseline=longer"] = async () => {
   const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
   const g = createGraph({ sessionId: "tewari3" });
   const u = addUserNode(g, { seq: 1, text: "目标 C" });
@@ -215,10 +217,11 @@ tests["tewari：成功路径能到达失败终点 → detour"] = async () => {
   settleEdge(g, eBX, { to: nX.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
 
   const r = tewariAnalysis(g, g.edges[eBad]);
-  if (r.kind !== "detour") throw new Error(`应判 detour，实际 ${r.kind}`);
+  if (r.kind !== "different") throw new Error(`应判 different，实际 ${r.kind}`);
+  if (r.vsBaseline !== "longer") throw new Error(`应 longer，实际 ${r.vsBaseline}`);
 };
 
-tests["tewari：失败之后走出成功 → profit（赚）"] = async () => {
+tests["tewari：探出标准定式没走过的节点 → probes 非空（有价值）"] = async () => {
   const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
   const g = createGraph({ sessionId: "tewari4" });
   const u = addUserNode(g, { seq: 1, text: "目标" });
@@ -229,5 +232,6 @@ tests["tewari：失败之后走出成功 → profit（赚）"] = async () => {
   const nY = addAgentNode(g, { seq: 3, turn: 1, goal: "Y", worldHash: "WY", constraintHash: "C1", via: eGood });
   settleEdge(g, eGood, { to: nY.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
   const r = tewariAnalysis(g, g.edges[eBad]);
-  if (r.kind !== "profit") throw new Error(`应判 profit，实际 ${r.kind}`);
+  if (r.kind !== "different") throw new Error(`应判 different，实际 ${r.kind}`);
+  if (r.probes.length === 0) throw new Error("应探出新节点");
 };
