@@ -1,5 +1,19 @@
 # 更新记录
 
+## 1.2.3 — 2026-10-28
+
+### 展示名改为 `DSH-GOkifu-compact`（大写 GO）
+
+`GO` 才是围棋（`go` 是编程语言）。但 **npm 包名只能小写**（`dsh-gokifu-compact`），这是 npm 的硬限制。
+
+- README / AGENTS / QUICKSTART / docs 标题：`DSH-GOkifu-compact`
+- GitHub 仓库：`MYCF711/DSH-GOkifu-compact`
+- npm 包名 / 配置项 / 路径：保持 `dsh-gokifu-compact`（小写）
+
+### 测试
+
+87 项全绿
+
 ## 1.2.2 — 2026-10-28
 
 ### 性能：`graph.md` 不再自动写
@@ -377,7 +391,9 @@ PROVEN DEAD ENDS (1 total; do not retry blind):
 - **kifu**：棋谱（围棋/将棋的记谱方式：一局棋的完整记录 + 每手评语）
 - **compact**：这个插件实际做的事（上下文压缩）
 
-比 `kifu-context` 更明确：`context` 只说明「上下文」没说明「压缩」；`gokifu` 把棋种和棋谱都标出来。
+比 `kifu-context` 更明确：`context` 只说明「上下文」没说明「压缩」；`GOkifu` 把棋种和棋谱都标出来。
+
+**展示名用大写 GO**（`GO` 才是围棋）；npm 包名只能小写（`dsh-gokifu-compact`，npm 硬限制）。
 
 ### 术语澄清：`transposition` 不是核心
 

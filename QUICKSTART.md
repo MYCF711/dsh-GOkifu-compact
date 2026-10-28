@@ -1,4 +1,4 @@
-# 快速开始 · dsh-gokifu-compact
+# 快速开始 · DSH-GOkifu-compact
 
 > 给「已经装好，现在要用」的人。安装/回滚细节见 [README](../README.md)。
 
