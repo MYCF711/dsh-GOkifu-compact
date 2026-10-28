@@ -50,9 +50,10 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   //   redundant = 和某条成功路径到达同一终点（等价，不必重试）
   //   novel     = 探出了成功路径没走过的状态（有参考价值）
   //   longer    = 比某条成功路径绕远
-  // 三态（v1.1.1）：blocked（环境性，带 revisit_if）/ dead（有证据）/ failed（未知）
+  // 三态（v1.3.1）：热清单用**短标签**（[dead] / [blocked] / [failed]）省预算；
+  // 详细版（reason / revisit_if）在 index.md 里
   const cls = failureClass(edge, tewari);
-  const tags = [`${cls.kind}:${cls.reason}${cls.revisitIf ? ` revisit_if=${cls.revisitIf}` : ""}`];
+  const tags = [`${cls.kind}`];
   // 标签压缩：只显示第一条参照 + 数量（多条时 +N），避免 50 条边时把预算吃光
   if (tewari?.redundantVs?.length) {
     const n = tewari.redundantVs.length;
@@ -71,7 +72,7 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
  * 渲染热上下文。
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
-export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
+export function renderLedger(g, { maxTokens = 500, tailFailures = 20 } = {}) {
   const failures = failureEdges(g);
   const open = openEdges(g);
   const latest = latestAgentNode(g);
