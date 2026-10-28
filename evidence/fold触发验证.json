@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-10-28T07:54:08.545Z",
+  "model": "group/deepseek-v4.1-flash1017",
+  "window": 200000,
+  "threshold": 90000,
+  "results": [
+    {
+      "step": "below-threshold",
+      "folded": false
+    },
+    {
+      "step": "over-threshold",
+      "folded": false,
+      "before": 25,
+      "after": 25,
+      "summaryChars": 0
+    },
+    {
+      "step": "growth-gate",
+      "folded": false
+    },
+    {
+      "step": "second-fold",
+      "folded": false
+    },
+    {
+      "step": "overflow",
+      "folded": true
+    }
+  ]
+}

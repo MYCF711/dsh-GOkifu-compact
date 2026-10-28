@@ -1,0 +1,63 @@
+{
+  "name": "dsh-chess-context",
+  "version": "0.2.0",
+  "description": "DSH context-compression backend with a chess-record DAG: incremental fold (compress each span once), failure memory that survives compaction, transposition detection, and a tiny hot ledger rebuilt every step.",
+  "type": "module",
+  "main": "src/engine.mjs",
+  "exports": {
+    ".": "./src/engine.mjs",
+    "./graph": "./src/graph.mjs",
+    "./range": "./src/range.mjs",
+    "./ledger": "./src/ledger.mjs",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "src",
+    "!src/.engine-under-test.mjs",
+    "!src/.harness-stubs"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs",
+    "evidence": "node test/evidence.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "compaction",
+    "context-compression",
+    "agent-memory"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-compaction": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-compaction-basic": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-compaction": {
+      "optional": false
+    },
+    "@deepseek-ai/dsh-compaction-basic": {
+      "optional": false
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": false
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": false
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": false
+    }
+  }
+}

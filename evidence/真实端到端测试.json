@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-10-28T12:58:40.945Z",
+  "model": "group/deepseek-v4.1-flash1017",
+  "graph": {
+    "nodes": 5,
+    "edges": 4,
+    "failures": 3
+  },
+  "factsChars": 927,
+  "ledgerTokens": 194,
+  "ledgerLevel": 0,
+  "summary": {
+    "chars": 925,
+    "tokens": 1069,
+    "failureKept": 3,
+    "failureTotal": 3
+  },
+  "resume": {
+    "chars": 544,
+    "failureMentioned": 3,
+    "text": "1) 目标：统计 `data.jsonl` 中的有效记录数，必须处理空行与坏行，且不得修改数据文件。\n\n2) 已试过且失败的做法（逐条）：\n- e1：整体解析 JSONL 文件（`node step1.mjs`）→ 失败：`<anonymous_script>:3 {\"id\":2} ^`（seq 2-3）\n- e2：按换行切分后逐行解析，不跳空行（`node step2.mjs`）→ 失败：`<anonymous_script>:1 SyntaxError: Unexpected end of JSON input`（seq 5-6）\n- e3：跳过空行再逐行解析（`node step3.mjs`）→ 失败：`<anonymous_script>:1 {bad json ^`（seq 8-9）\n- e4（未验证）：用 try/catch 跳过坏行（`node step4.mjs`）仅返回 “2 chars, no exit code”，无有效计数或成功退出码，不能视为成功。\n\n3) 下一步：一条命令——写一个只读脚本，逐行读取 `data.jsonl`，先判空行，再用 try/catch 解析 JSON，成功才计数，最后打印有效记录数，并运行它核验输出且确认文件未被修改。"
+  },
+  "lengthRatio": 2.48,
+  "convoChars": 373
+}

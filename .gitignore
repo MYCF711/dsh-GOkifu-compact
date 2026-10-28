@@ -1,0 +1,4 @@
+src/.harness-stubs/
+src/.engine-under-test.mjs
+test/.harness/
+node_modules/

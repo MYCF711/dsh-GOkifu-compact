@@ -1,0 +1,229 @@
+{
+  "generatedAt": "2026-10-28T07:11:37.322Z",
+  "cases": [
+    {
+      "case": "200K 窗口 · 200 步 · 每步 7K tokens",
+      "args": {
+        "steps": 200,
+        "scale": 1,
+        "window": 200000,
+        "reserved": 8192,
+        "headroom": 16384
+      },
+      "chessRules": {
+        "folds": 32,
+        "requestTokens": 16124800,
+        "summaryCostTokens": 0,
+        "billedTokens": 16124800,
+        "meanTokens": 80624,
+        "peakTokens": 99900,
+        "threshold": 90000,
+        "retainTokens": 30689,
+        "finalNodes": 42,
+        "checkpointsLeft": 7
+      },
+      "chessHybrid": {
+        "folds": 32,
+        "requestTokens": 16124800,
+        "summaryCostTokens": 1339000,
+        "billedTokens": 17463800,
+        "meanTokens": 80624,
+        "peakTokens": 99900,
+        "threshold": 90000,
+        "retainTokens": 30689,
+        "finalNodes": 42,
+        "checkpointsLeft": 7
+      },
+      "official": {
+        "folds": 12,
+        "requestTokens": 22078000,
+        "summaryCostTokens": 1346700,
+        "billedTokens": 23424700,
+        "meanTokens": 110390,
+        "peakTokens": 165700,
+        "threshold": 160000,
+        "retainTokens": 30689,
+        "finalNodes": 36,
+        "checkpointsLeft": 1
+      },
+      "savedRules": 31.16,
+      "savedHybrid": 25.45,
+      "meanRules": 26.96,
+      "meanHybrid": 26.96
+    },
+    {
+      "case": "1M 窗口 · 600 步 · 每步 7K tokens",
+      "args": {
+        "steps": 600,
+        "scale": 1,
+        "window": 1000000,
+        "reserved": 65536,
+        "headroom": 65536
+      },
+      "chessRules": {
+        "folds": 14,
+        "requestTokens": 185312200,
+        "summaryCostTokens": 0,
+        "billedTokens": 185312200,
+        "meanTokens": 308854,
+        "peakTokens": 456900,
+        "threshold": 450000,
+        "retainTokens": 149514,
+        "finalNodes": 166,
+        "checkpointsLeft": 7
+      },
+      "chessHybrid": {
+        "folds": 14,
+        "requestTokens": 185312200,
+        "summaryCostTokens": 3922000,
+        "billedTokens": 189234200,
+        "meanTokens": 308854,
+        "peakTokens": 456900,
+        "threshold": 450000,
+        "retainTokens": 149514,
+        "finalNodes": 166,
+        "checkpointsLeft": 7
+      },
+      "official": {
+        "folds": 6,
+        "requestTokens": 279325600,
+        "summaryCostTokens": 3785500,
+        "billedTokens": 283111100,
+        "meanTokens": 465543,
+        "peakTokens": 804000,
+        "threshold": 800000,
+        "retainTokens": 149514,
+        "finalNodes": 240,
+        "checkpointsLeft": 1
+      },
+      "savedRules": 34.54,
+      "savedHybrid": 33.16,
+      "meanRules": 33.66,
+      "meanHybrid": 33.66
+    },
+    {
+      "case": "200K 窗口 · 200 步 · 每步 21K tokens（大工具输出）",
+      "args": {
+        "steps": 200,
+        "scale": 3,
+        "window": 200000,
+        "reserved": 8192,
+        "headroom": 16384
+      },
+      "chessRules": {
+        "folds": 99,
+        "requestTokens": 18371000,
+        "summaryCostTokens": 0,
+        "billedTokens": 18371000,
+        "meanTokens": 91855,
+        "peakTokens": 104000,
+        "threshold": 90000,
+        "retainTokens": 30689,
+        "finalNodes": 14,
+        "checkpointsLeft": 7
+      },
+      "chessHybrid": {
+        "folds": 99,
+        "requestTokens": 18371000,
+        "summaryCostTokens": 4164000,
+        "billedTokens": 22535000,
+        "meanTokens": 91855,
+        "peakTokens": 104000,
+        "threshold": 90000,
+        "retainTokens": 30689,
+        "finalNodes": 14,
+        "checkpointsLeft": 7
+      },
+      "official": {
+        "folds": 39,
+        "requestTokens": 23767100,
+        "summaryCostTokens": 4127600,
+        "billedTokens": 27894700,
+        "meanTokens": 118836,
+        "peakTokens": 167000,
+        "threshold": 160000,
+        "retainTokens": 30689,
+        "finalNodes": 20,
+        "checkpointsLeft": 1
+      },
+      "savedRules": 34.14,
+      "savedHybrid": 19.21,
+      "meanRules": 22.7,
+      "meanHybrid": 22.7
+    }
+  ],
+  "ledgerStats": [
+    {
+      "failures": 1,
+      "ledgerTokens": 120,
+      "ledgerLevel": 0,
+      "omittedEdges": 0,
+      "factsTokens": 184,
+      "graphMdBytes": 528
+    },
+    {
+      "failures": 3,
+      "ledgerTokens": 188,
+      "ledgerLevel": 0,
+      "omittedEdges": 0,
+      "factsTokens": 293,
+      "graphMdBytes": 1004
+    },
+    {
+      "failures": 10,
+      "ledgerTokens": 428,
+      "ledgerLevel": 0,
+      "omittedEdges": 0,
+      "factsTokens": 675,
+      "graphMdBytes": 2678
+    },
+    {
+      "failures": 30,
+      "ledgerTokens": 841,
+      "ledgerLevel": 3,
+      "omittedEdges": 0,
+      "factsTokens": 1802,
+      "graphMdBytes": 7618
+    },
+    {
+      "failures": 80,
+      "ledgerTokens": 2108,
+      "ledgerLevel": 3,
+      "omittedEdges": 0,
+      "factsTokens": 4619,
+      "graphMdBytes": 19968
+    }
+  ],
+  "retentionModel": [
+    {
+      "folds": 1,
+      "official": 0.7,
+      "chess": 1
+    },
+    {
+      "folds": 2,
+      "official": 0.49,
+      "chess": 1
+    },
+    {
+      "folds": 3,
+      "official": 0.343,
+      "chess": 1
+    },
+    {
+      "folds": 4,
+      "official": 0.2401,
+      "chess": 1
+    },
+    {
+      "folds": 5,
+      "official": 0.1681,
+      "chess": 1
+    },
+    {
+      "folds": 6,
+      "official": 0.1176,
+      "chess": 1
+    }
+  ]
+}

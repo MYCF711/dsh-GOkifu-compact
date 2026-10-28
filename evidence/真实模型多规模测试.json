@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-10-28T13:03:19.287Z",
+  "model": "group/deepseek-v4.1-flash1017",
+  "report": [
+    {
+      "scenario": "A-小",
+      "note": "5 条失败边",
+      "factsChars": 1125,
+      "ledgerTokens": 237,
+      "summaryChars": 1320,
+      "tokens": 1179,
+      "ms": 5437,
+      "failureTotal": 5,
+      "failureKept": 5,
+      "constraintTotal": 2,
+      "constraintKept": 2,
+      "merged": false
+    },
+    {
+      "scenario": "B-中",
+      "note": "15 条失败边",
+      "factsChars": 2585,
+      "ledgerTokens": 442,
+      "summaryChars": 3290,
+      "tokens": 2485,
+      "ms": 8007,
+      "failureTotal": 15,
+      "failureKept": 15,
+      "constraintTotal": 3,
+      "constraintKept": 3,
+      "merged": false
+    },
+    {
+      "scenario": "C-大",
+      "note": "30 条失败边",
+      "factsChars": 4764,
+      "ledgerTokens": 403,
+      "summaryChars": 5530,
+      "tokens": 4004,
+      "ms": 10068,
+      "failureTotal": 30,
+      "failureKept": 30,
+      "constraintTotal": 3,
+      "constraintKept": 3,
+      "merged": false
+    }
+  ]
+}

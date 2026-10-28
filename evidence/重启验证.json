@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-10-28T12:56:14.215Z",
+  "session": "session-5acafe42-b85b-4e06-845a-65428b43d7c0",
+  "events": 2539,
+  "frames": 1319,
+  "v012": {
+    "nodes": 370,
+    "edges": 443,
+    "failures": 22,
+    "users": 4,
+    "ignoredInjections": 30,
+    "ledgerTokens": 349,
+    "ledgerLevel": 3
+  },
+  "v010": {
+    "nodes": 25,
+    "edges": 219,
+    "failures": 90,
+    "users": 22,
+    "userTexts": [
+      "我重启了，你继续完善插件，你把之前的goal改一下，保留我加的那些括号及其内的内容",
+      "<hindsight_knowledge> This repository has a Hindsight memory",
+      "持续优化到本地时间23：00点，现在是15：26，15时26，持续优化到23时整，没到点不准停。你可以用测试实例链接ma",
+      "<system-reminder> The following workspace instructions may b",
+      "<system-reminder> The available skill catalog changed. This ",
+      "Current runtime context. This snapshot supersedes earlier ru",
+      "<system-reminder> Additional instructions from: projects\\dsh",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "Agent b3f3108b-f51a-4e94-be29-10ba3046dc9b sent a message:  ",
+      "Background subagent b3f3108b-f51a-4e94-be29-10ba3046dc9b fin",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "Agent 437ac6f5-c591-4a6b-bfbf-c676fc517f28 sent a message:  ",
+      "Background subagent 437ac6f5-c591-4a6b-bfbf-c676fc517f28 fin",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
+      "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压"
+    ]
+  }
+}
