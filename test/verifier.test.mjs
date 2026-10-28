@@ -95,3 +95,31 @@ export const tests = {
     if (paths.includes("x")) throw new Error("把 content 当路径了");
   },
 };
+
+/* ── 2026-10-29：errorSnippet 取「结论行」（实机 e373/e312 暴露出旧版取到的是噪声） ── */
+Object.assign(tests, {
+  "errorSnippet：Python traceback 取最后那条异常（不是 [stderr] + 第一帧）"() {
+    const text = "[stderr]\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 19, in <module>\r\nTypeError: 'int' object is not subscriptable";
+    const out = errorSnippet(text);
+    if (!out.includes("TypeError: 'int' object is not subscriptable")) throw new Error(`没取到结论行：${out}`);
+    if (out.includes("[stderr]") || out.includes("most recent call last")) throw new Error(`还在取噪声：${out}`);
+  },
+
+  "errorSnippet：跳过 [stderr] 标记行，抓 sed 的结论"() {
+    const out = errorSnippet("=== 上下文 ===\n[stderr]\nsed: -e expression #1, char 1: unknown command: `,'");
+    if (!out.includes("sed: -e expression")) throw new Error(`没抓到 sed 行：${out}`);
+    if (out.startsWith("[stderr]")) throw new Error(`开头还是标记行：${out}`);
+  },
+
+  "errorSnippet：node 的 Error: 行连同栈顶保留"() {
+    const out = errorSnippet("Error: ENOENT: no such file or directory, open 'D:\\d\\x.md'\r\n    at Object.writeFileSync (node:fs:2483:20)");
+    if (!out.startsWith("Error: ENOENT")) throw new Error(`没从 Error 行开始：${out}`);
+    if (!out.includes("writeFileSync")) throw new Error(`没带上栈顶：${out}`);
+  },
+
+  "errorSnippet：traceback 末尾的 [exit code: 1] 不会被当成结论"() {
+    const out = errorSnippet("Traceback (most recent call last):\n  File a.ts line 3\nTypeError: x\n[exit code: 1]");
+    if (!out.includes("TypeError: x")) throw new Error(`取错了：${out}`);
+    if (out.includes("[exit code")) throw new Error(`把退出码当结论了：${out}`);
+  },
+});

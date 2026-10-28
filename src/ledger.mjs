@@ -59,23 +59,24 @@ function seqSpan(edge) {
  * 键是标记前缀（`redundant:e1+2` 的键是 `redundant`）。
  */
 const MARKER_LEGEND = {
-  dead: "a working path avoids it — retry only if that path breaks",
+  dead: "a working path avoids it — retry only if retry-if breaks",
   "blocked:permission": "needs a permission this environment lacks — retry when it changes",
-  "blocked:missing-resource": "the file/package is absent now — retry when it appears",
-  "blocked:timeout": "the service did not answer in time — retry when it recovers",
-  "blocked:unreachable": "the service refused the connection — retry when it is up",
-  blocked: "the environment is not giving it right now — retry when that changes",
-  failed: "retryability unknown — no evidence either way",
-  redundant: "working edge <edge> reaches the SAME position — take that one",
-  longer: "working edge <edge> reaches this position in fewer steps — take that one",
-  novel: "reached positions no working path covers — new information, not a dead end",
+  "blocked:missing-resource": "absent — retry when it appears, or create it",
+  "blocked:timeout": "no answer in time — retry when it recovers",
+  "blocked:unreachable": "connection refused — retry when it is up",
+  blocked: "not available right now — retry when that changes",
+  failed: "retryability unknown",
+  redundant: "working edge <edge> reaches the SAME position — take it",
+  longer: "working edge <edge> reaches it in fewer steps — take it",
+  novel: "reached positions no working path covers — new information",
 };
 
-/** 标记 → 图例键（`redundant:e1+2` → `redundant`；`blocked:permission` → 自己）。 */
+/** 标记 → 图例键（`redundant:e1+2` → `redundant`；`dead retry-if:e1` → `dead`）。 */
 export function legendKey(tag) {
   const base = String(tag).split("+")[0];
   if (base.startsWith("redundant")) return "redundant";
   if (base.startsWith("longer")) return "longer";
+  if (base.startsWith("dead")) return "dead";
   if (base.startsWith("blocked")) return Object.hasOwn(MARKER_LEGEND, base) ? base : "blocked";
   return base;
 }
@@ -93,8 +94,14 @@ export function failureTags(edge, tewari = null, mode = "semantic") {
   if (mode === "off") return [];
   const cls = failureClass(edge, tewari);
   const tags = [mode === "semantic" && cls.kind === "blocked" && cls.reason ? `blocked:${cls.reason}` : cls.kind];
-  // 标签压缩：只显示第一条参照 + 数量（多条时 +N），避免 50 条边时把预算吃光
-  if (tewari?.redundantVs?.length) {
+  // ★ 2026-10-29（goal ③）：「dead」不能是永久墓碑。它成立的依据是「某条成功边不经过这里」，
+  //   所以把那条边直接写进标记：`dead retry-if:e1` —— 那条成功路径一旦不通，就是该回头重试的信号。
+  //   依据由 tewari 给（dead 的定义就是 same_position ⇒ redundantVs 非空），不是猜的。
+  if (cls.kind === "dead" && tewari?.redundantVs?.length) {
+    const n = tewari.redundantVs.length;
+    tags[0] = `dead retry-if:${tewari.redundantVs[0]}${n > 1 ? `+${n - 1}` : ""}`;
+  } else if (tewari?.redundantVs?.length) {
+    // 非 dead（典型是 blocked + 同终点）：冗余关系照旧单独标注
     const n = tewari.redundantVs.length;
     tags.push(`redundant:${tewari.redundantVs[0]}${n > 1 ? `+${n - 1}` : ""}`);
   }
@@ -127,7 +134,7 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
  * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
-export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic" } = {}) {
+export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "" } = {}) {
   const failures = failureEdges(g);
   const open = openEdges(g);
   const latest = latestAgentNode(g);
@@ -235,6 +242,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
 
     if (failures.length) {
       lines.push(`LEARNED (${failures.length} failed attempts):`);
+      // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
+      //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
+      if (treeDir) lines.push(`TRACE: ${treeDir}/index.md  (per-node detail: nodes/<id>.md)`);
       // 手割分析（tewari）：每条边一次 BFS，防 O(E²) —— 只对**最近 30 条**做。
       // ★ 2026-10-29：旧版是「显示条数 ≤30 才算」⇒ 一次有 40 条失败边的会话里，
       //   手割标记**一条都没有**（而模型永远只对最近几步做决策）。改成对尾部 30 条算，
@@ -245,7 +255,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       for (const line of markerLines) lines.push(line);
       if (omitted > 0) {
         lines.push(
-          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text in graph.md / by seq in the session log`,
+          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${treeDir ? `${treeDir}/index.md` : "index.md"} (per node: nodes/<id>.md) / by seq in the session log`,
         );
       }
       for (const e of shown) lines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));

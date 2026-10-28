@@ -69,18 +69,52 @@ const TEST_PASS_RE = /(\d+)\s+(?:passed|passing|tests? passed|个?通过)|all te
 const TEST_FAIL_RE = /\b([1-9]\d*)\s+(?:failed|failing|个?失败|errors?)\b/i;
 const DIFF_RE = /(\d+)\s*(?:insertions?\(\+\)|deletions?\(-\))/;
 
-/** 取首个错误行 + 其后最多 2 行，截 400 字符。 */
+/** 常见工具的「结论行」（shell 输出里最像错误的一行）。 */
+const TOOL_ERR_RE = /^\s*(?:sed|awk|grep|cp|mv|rm|mkdir|tar|git|npm|node|python|python3|bash|sh|curl|docker|make|tsc)\s*:\s*.*(?:error|unknown command|invalid option|unrecognized option|no such|cannot|not found|denied|failed)/i;
+
+/**
+ * 取「最像结论」的那几行，截 400 字符。
+ *
+ * ★ 2026-10-29 实机修正（模型消费者视角）：旧版从**第一个**匹配行往下取 3 行，于是
+ *   · Python traceback 取到的是 `[stderr]` + `Traceback (most recent call last):` + 第一帧 ——
+ *     真正的结论（最后一行 `TypeError: ...`）一个字都没有；实测本会话 e373 就是这样。
+ *   · 带 `[stderr]` 流标记的结果，第一行永远是标记本身（0 信息）。
+ *   现在的取法：① traceback ⇒ 取**最后一行顶格**（异常结论）；② 否则优先 `XxxError:` 行；
+ *   ③ 再退到硬错误串 / 常见工具错误行；④ 都没有才退到前 3 行。全程跳过 `[stderr]` / `[stdout]` 标记行。
+ */
 export function errorSnippet(text, limit = 400) {
   const raw = String(text ?? "");
   if (!raw) return "";
-  const lines = raw.split("\n");
-  let start = lines.findIndex((line) => ERR_LINE_RE.test(line));
-  if (start < 0) start = lines.findIndex((line) => HARD_ERR_RE.test(line));
-  if (start < 0) start = 0;
-  while (start < lines.length - 1 && /^\s*<anonymous_script>:\d+\s*$/.test(lines[start])) start += 1;
-  let head = start;
-  if (head > 0 && lines[head - 1].trim().length > 0 && lines[head - 1].length <= 120) head -= 1;
-  return lines.slice(head, start + 3).join("\n").trim().slice(0, limit);
+  const lines = raw.replace(/\r\n?/g, "\n").split("\n");
+  const isMarker = (line) => /^\s*\[(?:stderr|stdout)\]\s*$/i.test(line);
+  const clean = (picked) => picked.filter((line) => !isMarker(line)).join("\n").trim().slice(0, limit);
+
+  // ① traceback：帧在中间，结论是最后那条 `XxxError:`（没有就取最后一个顶格行）
+  const tb = lines.findIndex((line) => /Traceback \(most recent call last\)/.test(line));
+  if (tb >= 0) {
+    const after = lines
+      .slice(tb + 1)
+      .filter((line) => line.trim().length > 0 && !isMarker(line) && !/^\s*\[exit code:\s*-?\d+\]\s*$/.test(line));
+    const errLine = [...after].reverse().find((line) => /(?:^|[\s.])(?:[A-Za-z_$][\w$]*(?:Error|Exception))\b/.test(line));
+    const conclusion = errLine ?? [...after].reverse().find((line) => !/^\s/.test(line));
+    return clean(conclusion === undefined ? after.slice(-2) : [conclusion]);
+  }
+
+  // ②③ 结论行（顺序有讲究：行首锚定的优先，避免被注释/正文里出现的 EACCES 之类抢先）
+  for (const re of [
+    /(?:^|[\s:（(])(?:[A-Za-z_$][\w$]*(?:Error|Exception))\s*:/,
+    ERR_LINE_RE,
+    HARD_LINE_RE,
+    TOOL_ERR_RE,
+  ]) {
+    const idx = lines.findIndex((line) => !isMarker(line) && re.test(line));
+    if (idx < 0) continue;
+    const from = /^\s*<anonymous_script>:\d+\s*$/.test(lines[idx]) ? idx + 1 : idx;
+    return clean(lines.slice(from, from + 3));
+  }
+
+  // ④ 兜底
+  return clean(lines.slice(0, 3));
 }
 
 /**

@@ -131,8 +131,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     return this.chess.graphDir.length > 0 ? this.chess.graphDir : nodePath.join(resolveHome(), "chess-context");
   }
 
+  /** 会话的棋谱目录（三层树就长在这里：index.md + nodes/<id>.md + graph.json）。 */
+  #sessionDir(session) {
+    return nodePath.join(this.#dir(), "sessions", safeId(session.id));
+  }
+
   #graphPath(session) {
-    return nodePath.join(this.#dir(), "sessions", safeId(session.id), "graph.json");
+    return nodePath.join(this.#sessionDir(session), "graph.json");
   }
 
   #graph(session) {
@@ -297,7 +302,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         }
         const g = this.#graph(session);
         if (failureEdges(g).length === 0) return decision;
-        const ledger = renderLedger(g, { maxTokens: this.chess.hotLedgerMaxTokens, markers: this.chess.hotLedgerMarkers });
+        const ledger = renderLedger(g, {
+          maxTokens: this.chess.hotLedgerMaxTokens,
+          markers: this.chess.hotLedgerMarkers,
+          treeDir: this.#sessionDir(session),
+        });
         if (!ledger.text || ledger.tokens === 0) return decision;
         // digest 只算「骨架」：失败边集合 + 根目标 + 约束。
         // 不含 CURRENT PATH / CURRENT GOAL —— 它们每步都变，会让清单每步重注入一次（实测 6 条/轮）。

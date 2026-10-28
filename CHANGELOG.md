@@ -1,5 +1,28 @@
 # 更新记录
 
+## 1.6.0 — 2026-10-29
+
+### goal ③④⑤ 三件收尾
+
+**③ `[dead]` 不再是一块永久墓碑**：标记直接从 tewari 参照点取锚点 ——
+`dead retry-if:e384+1`（那条成功边不通了就回头重试）；图例同步；
+`blocked:missing-resource` 的图例改成「等它出现，**或者把它创建出来**」。
+
+**⑤ 热清单指向**真的**三层树**：旧省略行写的是 `graph.md`，而它从 v1.2.2 起就不再自动写了（死指针）。
+现在引擎把会话树目录传进渲染器，输出 `TRACE: <sessions>/<sid>/index.md (per-node detail: nodes/<id>.md)`。
+**盲测 2/2**：两个隔离子代理（只给清单、不提读文件）都自己读了 index.md / graph.json / nodes/*.md，
+并把清单里被省略的 13 条失败做法逐条重建；其中一个还发现 index.md 已过期、改用 graph.json 作权威。
+
+**④ 历史误报回洗**：新工具 `test/rewash-graph.mjs`（dry-run 默认、写前备份、会话在写则拒绝、证据对齐校验）。
+对 `session-5acafe42` 执行 `--apply`：failure 边 101 → **71**，`text` 型误报 43 → **8**（剩下 8 条证据对不上，保守不动），
+其中 4 条改判 `hard-error`（原文确有错误）、30 条降级 `unverified`；35 条留 `rewashed` 审计字段；树已重建。
+
+证据：`evidence/收尾三件-dead锚点-树读取-回洗.md`
+
+### 测试
+
+115 项全绿（+4 errorSnippet 回归、+2 标记契约）
+
 ## 1.5.1 — 2026-10-29
 
 ### 真实计费核对 + 摘要模型失效兜底（实机数据驱动）

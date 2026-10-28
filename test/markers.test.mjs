@@ -106,15 +106,37 @@ tests["多参照点：同一条失败边同时给出 redundant 与 longer 两个
   if (!t.redundantVs.includes(ids.e10)) throw new Error(`相对 ${ids.e10} 应判 redundant：${JSON.stringify(t.redundantVs)}`);
   if (!t.longerVs.includes(ids.e20)) throw new Error(`相对 ${ids.e20} 应判 longer：${JSON.stringify(t.longerVs)}`);
   const merged = failureTags(e1, t);
+  // 这条边的错误是 EACCES ⇒ 先判 blocked（三态的优先级），所以是 blocked + 两个手割结论并存
+  if (!merged.some((x) => x.startsWith("blocked"))) throw new Error(`应判 blocked（EACCES 优先）：${JSON.stringify(merged)}`);
   if (!merged.some((x) => x.startsWith("redundant:")) || !merged.some((x) => x.startsWith("longer:"))) {
-    throw new Error(`两个结论没有同时进标记：${JSON.stringify(merged)}`);
+    throw new Error(`两个手割结论没有同时进标记：${JSON.stringify(merged)}`);
   }
+};
+
+tests["dead 带重开锚点：retry-if 指向那条成功边（不是永久墓碑）"] = () => {
+  const { g, e0 } = manyFailuresGraph(3);
+  const t = tewariAnalysis(g, failureEdges(g).find((e) => e.id !== e0));
+  const tags = failureTags(failureEdges(g).find((e) => e.id !== e0), t);
+  if (!tags.some((x) => x === `dead retry-if:${e0}`)) throw new Error(`dead 没带重开锚点：${JSON.stringify(tags)}`);
+  const r = renderLedger(g, { maxTokens: 500 });
+  if (!r.text.includes("retry only if retry-if breaks")) throw new Error(`图例没解释 retry-if：\n${r.text}`);
+};
+
+tests["TRACE：热清单指向真的三层树（不再是 v1.2.2 起就不再写的 graph.md）"] = () => {
+  const { g } = manyFailuresGraph(3);
+  const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/abc" });
+  if (!r.text.includes("TRACE: D:/x/chess-context/sessions/abc/index.md")) throw new Error(`缺 TRACE 行：\n${r.text}`);
+  if (!r.text.includes("nodes/<id>.md")) throw new Error("没告诉模型每节点细节在哪");
+  if (r.text.includes("graph.md")) throw new Error("还在指向已废弃的 graph.md");
+  // 不传 treeDir 时不该凭空造路径
+  const plain = renderLedger(g, { maxTokens: 500 });
+  if (plain.text.includes("TRACE:")) throw new Error("没有树目录却印了 TRACE");
 };
 
 tests["失败边 >30 条：最近的边仍然带手割标记（旧版一条都没有）"] = () => {
   const { g, e0 } = manyFailuresGraph(40);
   const r = renderLedger(g, { maxTokens: 500 });
-  if (!r.text.includes(`redundant:${e0}`)) throw new Error(`40 条失败边时手割标记消失：\n${r.text}`);
+  if (!r.text.includes(`retry-if:${e0}`)) throw new Error(`40 条失败边时手割标记消失（dead 应带 retry-if）：\n${r.text}`);
 };
 
 tests["原因在任何降级档位都保留（旧版 L3+ 全砍）"] = () => {
