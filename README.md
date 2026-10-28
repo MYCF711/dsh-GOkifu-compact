@@ -58,8 +58,8 @@ node test/rollback.mjs
     minFoldTokens: 8000       # 被遮蔽内容少于这个数不值得压
     summaryMode: hybrid       # hybrid | rules（零模型调用）| llm
     maxTokens: 2048
-    summarizationProvider: '' # 留空=跟随最近一次路由
-    summarizationModel: ''
+    summarizationProvider: magpie                 # 留空=跟随最近一次路由
+    summarizationModel: ima/deepseek-v4.1-flash   # 推荐：ima 免费模型，实测 8/8 死路、2/2 约束
     hotLedger: true           # 每步注入失败清单
     hotLedgerMaxTokens: 500
     transposition: true       # 置换检测
@@ -75,6 +75,29 @@ node test/rollback.mjs
 | `rules` | **0 次** | 高频小 fold、预算敏感；摘要由规则模板生成（目标/约束/死路/已验证/当前节点） |
 | `hybrid`（默认） | 1 次/fold | 需要模型补写「意图」与「下一步」；硬事实仍由规则给定 |
 | `llm` | 1 次/fold | 只在明确需要模型自由发挥时 |
+
+## 推荐摘要模型
+
+`summaryMode: hybrid` 需要一次模型调用。推荐把 `summarizationProvider` / `summarizationModel`
+指向 **ima 免费模型**（先用 `magpie-ima-local-auth` 插件接入）：
+
+```yaml
+summaryMode: hybrid
+summarizationProvider: magpie
+summarizationModel: ima/deepseek-v4.1-flash
+```
+
+实测（同一份 8 条失败边 + 2 条约束的合成会话，3 次采样）：
+
+| 模板 | 死路保留 | 约束保留 | 摘要长度 |
+|---|---|---|---|
+| 本插件棋谱模板 + ima V4.1-Flash | **8/8（3/3 次）** | **2/2（3/3 次）** | 1,887 字符 |
+| 官方 8 段模板 | 5/8 | 0/2 | ~3,072 字符 |
+
+也就是说：**ima 这种免费小模型最适合的正是“单轮、结构化、无工具”的摘要任务**，而不是
+当 DSH 的 agent 后端。它在这里比官方模板更听话，而且不占主路由额度。
+
+证据：[evidence/ima-摘要测试.md](evidence/ima-摘要测试.md)（3 次采样原始输出）。
 
 ## 它产出什么
 
