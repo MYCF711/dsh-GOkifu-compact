@@ -1,5 +1,53 @@
 # 更新记录
 
+## 0.7.0 — 2026-10-28
+
+### 模型消费者视角优化（给模型用，不是给人看）
+
+**1. 手割标记改成模型能直接理解的英文短词 + 图例**
+
+| 旧 | 新 | 图例含义 |
+|---|---|---|
+| `[同型]` | `[redundant]` | same endpoint as a working path |
+| `[探新]` | `[novel]` | explored states no working path covered |
+| `[劣]` | `[longer]` | detours |
+
+图例只在确实有标记时出现（省 token）：
+```
+# tags: redundant=same endpoint as a working path | novel=explored states no working path covered | longer=detours
+```
+
+**2. 新增 `WORKING` 行 —— 模型不能只看到死路，还要知道哪条路是通的**
+
+```
+WORKING: user → n2 (exit 0)
+```
+
+**3. 消除 `PROVEN DEAD ENDS` 与「同型」的矛盾**：`redundant` 明确说它等价于成功路径，不是真正的死路。
+
+### 实测热清单
+
+```
+<chess-ledger>
+ROOT USER (verbatim): 目标：把构建跑通
+CURRENT PATH: n1(user) → n2
+CURRENT GOAL: 装好了
+WORKING: user → n2 (exit 0)
+PROVEN DEAD ENDS (1 total; do not retry blind):
+# tags: redundant=same endpoint as a working path | novel=explored states no working path covered | longer=detours
+- e1 "绕路A" → boom [redundant]
+</chess-ledger>
+```
+
+### 测试
+
+85 项全绿
+
+### 待办（下一版）
+
+- 手割多参照点：同一失败边相对多条成功路径的分别结论
+- 真实模型 A/B：带手割标记 vs 不带，验证模型是否真的少走死路
+
 ## 0.6.0 — 2026-10-28
 
 ### 重构：手割从四档改成「两判定 + 多标签」

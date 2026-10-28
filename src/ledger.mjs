@@ -46,11 +46,14 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   const seq = seqSpan(edge);
   const showReason = level <= 2;
   // 手割标记：纯亏 = 同起点有成功路径且不经过它；绕路 = 成功路径也能到它的终点
-  // 手割多标签（可同时成立）：同型 / 探新 / 劣
+  // 手割多标签（可同时成立）。用英文短词 + 图例，模型能直接理解：
+  //   redundant = 和某条成功路径到达同一终点（等价，不必重试）
+  //   novel     = 探出了成功路径没走过的状态（有参考价值）
+  //   longer    = 比某条成功路径绕远
   const tags = [];
-  if (tewari?.samePosition) tags.push("同型");
-  if (tewari?.probes?.length > 0) tags.push("探新");
-  if (tewari?.vsBaseline === "longer") tags.push("劣");
+  if (tewari?.samePosition) tags.push("redundant");
+  if (tewari?.probes?.length > 0) tags.push("novel");
+  if (tewari?.vsBaseline === "longer") tags.push("longer");
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
@@ -81,6 +84,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
       lines.push(`CURRENT PATH: ${path.map((n) => `${n.id}${n.kind === "user" ? "(user)" : ""}`).join(" → ")}`);
       const goal = latest?.goal;
       if (goal) lines.push(`CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}`);
+      // 最近一条成功边：模型需要知道「哪条路是通的」，不能只看到死路
+      const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
+      if (successEdges.length > 0 && level <= 2) {
+        const se = successEdges[successEdges.length - 1];
+        const fromNode = g.nodes[se.from];
+        const toNode = g.nodes[se.to];
+        const label = (n) => (n?.kind === "user" ? "user" : n?.id ?? "?");
+        lines.push(
+          `WORKING: ${label(fromNode)} → ${label(toNode)}${se.verify?.summary ? ` (${clip(se.verify.summary, 40)})` : ""}`,
+        );
+      }
       // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
       //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
       const hops = path.length - 1;
@@ -110,14 +124,24 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
 
     if (failures.length) {
       lines.push(`PROVEN DEAD ENDS (${failures.length} total; do not retry blind):`);
+      // 先算手割（只对当前显示、≤30 条），再决定要不要加图例（省 token）
+      const tewariMap = new Map();
+      if (shown.length <= 30) {
+        for (const e of shown) tewariMap.set(e.id, tewariAnalysis(g, e));
+      }
+      const hasTewari = [...tewariMap.values()].some(
+        (t) => t && (t.samePosition || t.probes?.length > 0 || t.vsBaseline === "longer"),
+      );
+      if (hasTewari) {
+        lines.push("# tags: redundant=same endpoint as a working path | novel=explored states no working path covered | longer=detours");
+      }
       if (omitted > 0) {
         lines.push(
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text in graph.md / by seq in the session log`,
         );
       }
       // 手割分析（tewari）：只对**当前显示**的失败边做，且最多 30 条（每条一次 BFS，防 O(E²)）
-      const tewariOf = (e) => (shown.length <= 30 ? tewariAnalysis(g, e) : null);
-      for (const e of shown) lines.push(renderFailureLine(e, level, tewariOf(e)));
+      for (const e of shown) lines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null));
     }
     if (open.length && level <= 1) {
       lines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
