@@ -191,10 +191,14 @@ LEARNED (3 failed attempts):
 ## 测试
 
 ```bash
-node test/run.mjs            # 107 项：图/判定/范围/热上下文/标记契约/事件落账/接线（假 DSH）
+node test/run.mjs            # 118 项：图/判定/范围/热上下文/标记契约/事件落账/接线（假 DSH）
+node test/doctor.mjs         # 一条命令体检：安装 / 摘要模型 / 压缩成败 / 棋谱 / 树新鲜度
 node test/verify-install.mjs # 13 项：安装与挂载校验（含运行期 graph.json 证据）
 node test/verify-graphs.mjs  # 全库棋谱健康检查（worldHash 类型 / stateIndex / renderFacts 不抛错）
+node test/measure-billing.mjs # 真实 usage 计费审计（prompt / 缓存命中 / 清单占比 / fold 收支）
+node test/measure-ledger.mjs # 热清单的 token 与信息量（--terse / --off 可换档对比）
 node test/ab-render.mjs      # A/B 夹具：同一张棋谱的三种标记档位各渲染一份（模型消费者实验用）
+node test/rewash-graph.mjs   # 历史棋谱回洗（dry-run 默认；--apply 写盘并重建树）
 node test/evidence.mjs       # 重算 evidence/模拟结果.md（计费、保留率、热上下文成本）
 node test/bench.mjs 2000     # 2000 条边的性能与体量
 
