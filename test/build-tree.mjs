@@ -13,7 +13,6 @@ const g = fromJSON(fs.readFileSync(path.join(SESS, "graph.json"), "utf8"));
 
 fs.writeFileSync(path.join(SESS, "index.md"), renderIndexMd(g), "utf8");
 fs.mkdirSync(path.join(SESS, "nodes"), { recursive: true });
-fs.mkdirSync(path.join(SESS, "raw"), { recursive: true });
 let n = 0;
 for (const id of g.order) {
   const node = g.nodes[id];

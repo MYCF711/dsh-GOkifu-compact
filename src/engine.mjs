@@ -196,25 +196,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       if (tree || firstWrite) {
         this.treeWritten.add(session.id);
         const nodesDir = nodePath.join(dir, "nodes");
-        const rawDir = nodePath.join(dir, "raw");
         nodeFs.mkdirSync(nodesDir, { recursive: true });
-        nodeFs.mkdirSync(rawDir, { recursive: true });
         nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
         for (const id of g.order) {
           const n = g.nodes[id];
           if (!n) continue;
           nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
-          nodeFs.writeFileSync(
-            nodePath.join(rawDir, `${n.seq}.md`),
-            `# raw seq=${n.seq}
-
-\`\`\`json
-${JSON.stringify(n, null, 2)}
-\`\`\`
-`,
-            "utf8",
-          );
         }
+        // raw/ 不写：节点 JSON 与 graph.json 完全重复（190 文件 / 417KB 浪费）。
+        // 真正的「原始记录」应该是事件原文，等以后从 session 日志接。
       }
       // graph.md 不再自动写（177KB/次是纯 IO 浪费；三层文件树已是人读视图）
       // 需要时：node test/build-md.mjs <sessionDir>
