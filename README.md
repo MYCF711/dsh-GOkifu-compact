@@ -22,7 +22,7 @@
 
 ## 三层文件树
 
-每次 flush 额外写三层（`graph.json` / `graph.md` 保留兼容）：
+每次 flush 额外写三层（`graph.json` 是数据源；`graph.md` 按需生成，见下）：
 
 | 文件 | 内容 | 谁用 |
 |---|---|---|
@@ -218,3 +218,6 @@ node test/real-e2e.mjs       # 真实 bash 失败 → 压缩 → 续跑 3/3
 - [DSH 技术测绘](docs/DSH-技术测绘.md)（1300 行，每条带 asar 行号）
 - [最终报告](docs/最终报告.md) · [重启后验证清单](docs/重启后验证清单.md)
 - [证据：模拟结果](evidence/模拟结果.md)
+
+
+> `graph.md`（整篇人读视图）不再自动写 —— 用 `node test/build-md.mjs <sessionDir>` 按需生成。

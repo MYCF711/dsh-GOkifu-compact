@@ -1,5 +1,22 @@
 # 更新记录
 
+## 1.2.2 — 2026-10-28
+
+### 性能：`graph.md` 不再自动写
+
+`graph.md` 是整篇人读视图（157KB），每次 flush 写是纯 IO 浪费；三层文件树（index/nodes/raw）已经是人读视图。
+
+**改法**：
+
+- `#flush` 不再写 `graph.md`
+- 需要时：`node test/build-md.mjs <sessionDir>` 按需生成
+
+**保留**：`graph.json`（数据源，插件自己恢复用，必须写）。
+
+### 测试
+
+87 项全绿
+
 ## 1.2.1 — 2026-10-28
 
 ### 文档：README 加三层文件树说明

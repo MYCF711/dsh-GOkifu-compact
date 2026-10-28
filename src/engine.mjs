@@ -111,6 +111,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     super(ctx, pickBase(config));
     this.chess = resolveChess(config);
     this.graphs = new Map();
+    /** 三层文件树已写过的会话（2000 边时 4000 文件会卡事件循环，只首次与 fold 后写） */
+    this.treeWritten = new Set();
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */
     this.flushTimers = new Map();
     this.runtime = new Map();
@@ -173,7 +175,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     return st;
   }
 
-  #flush(session) {
+  #flush(session, { tree = false } = {}) {
     const g = this.#graph(session);
     const dir = nodePath.dirname(this.#graphPath(session));
     try {
@@ -188,28 +190,34 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       nodeFs.writeFileSync(tmp, toJSON(g), "utf8");
       nodeFs.renameSync(tmp, this.#graphPath(session));
       // 三层文件树（v1.2.0）：index.md + nodes/*.md + raw/*.md
-      // 与 graph.md 并存：graph.md 是整篇人读视图，三层树是可浏览/可 grep/可 diff 的结构
-      const nodesDir = nodePath.join(dir, "nodes");
-      const rawDir = nodePath.join(dir, "raw");
-      nodeFs.mkdirSync(nodesDir, { recursive: true });
-      nodeFs.mkdirSync(rawDir, { recursive: true });
-      nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
-      for (const id of g.order) {
-        const n = g.nodes[id];
-        if (!n) continue;
-        nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
-        nodeFs.writeFileSync(
-          nodePath.join(rawDir, `${n.seq}.md`),
-          `# raw seq=${n.seq}
+      // 只在「首次」和「fold 后」写 —— 2000 边时 4000 个文件会卡住事件循环；
+      // 中间状态的 flush 只写 graph.json（下次 fold 会整体刷新树）。
+      const firstWrite = !this.treeWritten.has(session.id);
+      if (tree || firstWrite) {
+        this.treeWritten.add(session.id);
+        const nodesDir = nodePath.join(dir, "nodes");
+        const rawDir = nodePath.join(dir, "raw");
+        nodeFs.mkdirSync(nodesDir, { recursive: true });
+        nodeFs.mkdirSync(rawDir, { recursive: true });
+        nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
+        for (const id of g.order) {
+          const n = g.nodes[id];
+          if (!n) continue;
+          nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
+          nodeFs.writeFileSync(
+            nodePath.join(rawDir, `${n.seq}.md`),
+            `# raw seq=${n.seq}
 
 \`\`\`json
 ${JSON.stringify(n, null, 2)}
 \`\`\`
 `,
-          "utf8",
-        );
+            "utf8",
+          );
+        }
       }
-      nodeFs.writeFileSync(nodePath.join(dir, "graph.md"), renderMd(g), "utf8");
+      // graph.md 不再自动写（177KB/次是纯 IO 浪费；三层文件树已是人读视图）
+      // 需要时：node test/build-md.mjs <sessionDir>
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${String(error)}`);
     }
