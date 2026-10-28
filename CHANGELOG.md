@@ -1,5 +1,39 @@
 # 更新记录
 
+## 1.1.0 — 2026-10-28
+
+### 失败三态（子代理 A/B 实验驱动）
+
+**实验结论**：两个隔离子代理独立做 A/B（带标记 vs 不带），**行为差异为零**。
+`[dead]` 作为「别重试」的指令没用 —— 失败记录 + `WORKING` 行已经足够推出；
+而且**有损**：把「相对于当前成功路径」写成永久墓碑，会关掉「权限变了本来能走」的路。
+
+**改法**：`failureClass(edge, tewari)` 返回三态：
+
+| 状态 | 条件 | 带什么 |
+|---|---|---|
+| `blocked` | 资源类错误（EACCES / ENOENT / timeout / ECONNREFUSED） | `revisit_if=...`（什么条件变了可以再试） |
+| `dead` | 有成功路径且**失败边有终点**证明不经过它 | `revisit_if=working path fails` + `redundant:<edge>` |
+| `failed` | 其余（可重试性未知） | 无 |
+
+**关键顺序**：先判 `blocked` 再判 `dead` —— 权限不足是环境性阻塞，不是本质无解。
+
+**关键边界**：`to` 为 null（没走到任何节点）**不算 dead 证据** —— 只说明试过没成，不能证明有替代。
+
+**实测输出**：
+
+```
+LEARNED (3 failed attempts):
+# dead=a working path avoids it (revisit_if it fails) | blocked=needs a resource (revisit_if it changes) | failed=retryability unknown | novel=explored states no working path covered
+- e2 "绕路到B" → boom [dead:a-working-path-avoids-it revisit_if=working path fails redundant:e1]
+- e3 "写 prod" → EACCES [blocked:permission revisit_if=permission changes]
+- e4 "试命令" → boom [failed:retryability unknown]
+```
+
+### 测试
+
+85 项全绿
+
 ## 1.0.0 — 2026-10-28
 
 ### 手割多参照点（Multi-baseline tewari）

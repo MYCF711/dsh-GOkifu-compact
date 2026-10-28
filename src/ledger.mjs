@@ -17,7 +17,7 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis } from "./graph.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./graph.mjs";
 
 /** 保守 token 估算（CJK 1 字≈1 token，英文 ~4 字/token；取 3 折中偏保守）。 */
 export function estimateTokens(text) {
@@ -50,14 +50,19 @@ export function renderFailureLine(edge, level = 0, tewari = null) {
   //   redundant = 和某条成功路径到达同一终点（等价，不必重试）
   //   novel     = 探出了成功路径没走过的状态（有参考价值）
   //   longer    = 比某条成功路径绕远
-  // 多参照点：分别列出「相对哪条成功路径」的结论
-  const tags = [];
-  if (tewari?.redundantVs?.length) tags.push(`redundant vs ${tewari.redundantVs.join(",")}`);
-  else if (tewari?.samePosition) tags.push("redundant");
+  // 三态（v1.1.1）：blocked（环境性，带 revisit_if）/ dead（有证据）/ failed（未知）
+  const cls = failureClass(edge, tewari);
+  const tags = [`${cls.kind}:${cls.reason}${cls.revisitIf ? ` revisit_if=${cls.revisitIf}` : ""}`];
+  // 标签压缩：只显示第一条参照 + 数量（多条时 +N），避免 50 条边时把预算吃光
+  if (tewari?.redundantVs?.length) {
+    const n = tewari.redundantVs.length;
+    tags.push(`redundant:${tewari.redundantVs[0]}${n > 1 ? `+${n - 1}` : ""}`);
+  }
   if (tewari?.probes?.length > 0) tags.push("novel");
-  if (tewari?.longerVs?.length) tags.push(`longer vs ${tewari.longerVs.join(",")}`);
-  else if (tewari?.vsBaseline === "longer") tags.push("longer");
-  if (tags.length === 0) tags.push("dead"); // 没有任何等价/探新/绕路信息 = 纯死路
+  if (tewari?.longerVs?.length) {
+    const n = tewari.longerVs.length;
+    tags.push(`longer:${tewari.longerVs[0]}${n > 1 ? `+${n - 1}` : ""}`);
+  }
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
@@ -164,7 +169,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
       );
       if (hasTewari) {
         lines.push(
-          "# dead=no working path goes through it (don't retry) | redundant=a working path reaches the same endpoint | novel=explored states no working path covered (may revisit) | longer=detours vs a working path",
+          "# dead=a working path avoids it (revisit_if it fails) | blocked=needs a resource (revisit_if it changes) | failed=retryability unknown | novel=explored states no working path covered",
         );
       }
       if (omitted > 0) {

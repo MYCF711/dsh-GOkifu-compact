@@ -461,3 +461,39 @@ export function tewariAnalysis(g, edge) {
           : "与标准定式不同型，且未探出新节点",
   };
 }
+
+/**
+ * 失败三态（v1.1.1）—— 两个子代理 A/B 实验的反馈：
+ *   1. 资源类错误（EACCES/ENOENT/timeout）→ blocked，带 revisitIf（什么条件变了可以再试）
+ *   2. 有证据的「同起点有成功路径且不经过它」→ dead
+ *   3. 其余 → failed（可重试性未知）
+ *
+ * 关键：**先判 blocked 再判 dead** —— 权限不足是环境性阻塞，不是本质无解；
+ * 把 EACCES 写成 dead 会让「拿到权限后本来能走的路」被永久关掉。
+ */
+export function failureClass(edge, tewari) {
+  const text = `${edge?.errorSnippet ?? ""} ${edge?.verify?.summary ?? ""}`;
+
+  // 1) 资源类 → blocked（环境性，不是本质无解）
+  if (/(EACCES|EPERM|permission denied|权限不足|access denied)/i.test(text)) {
+    return { kind: "blocked", reason: "permission", revisitIf: "permission changes" };
+  }
+  if (/(ENOENT|not found|no such file|不存在)/i.test(text)) {
+    return { kind: "blocked", reason: "missing-resource", revisitIf: "resource appears" };
+  }
+  if (/(ETIMEDOUT|timeout|超时|timed out)/i.test(text)) {
+    return { kind: "blocked", reason: "timeout", revisitIf: "network/service recovers" };
+  }
+  if (/(ECONNREFUSED|connection refused|连接被拒)/i.test(text)) {
+    return { kind: "blocked", reason: "unreachable", revisitIf: "service up" };
+  }
+
+  // 2) 有证据的 dead：同起点有成功路径，失败**有终点**且终点不在任何成功路径上。
+  //    to 为 null（没走到任何节点）不算证据 —— 只说明试过没成，不能证明「有替代」。
+  if (tewari && tewari.alternatives > 0 && edge?.to && tewari.probes?.length === 0 && tewari.vsBaseline !== "longer") {
+    return { kind: "dead", reason: "a-working-path-avoids-it", revisitIf: "working path fails" };
+  }
+
+  // 3) 其余 → failed（可重试性未知）
+  return { kind: "failed", reason: "retryability unknown" };
+}

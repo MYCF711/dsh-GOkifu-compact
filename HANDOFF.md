@@ -81,3 +81,29 @@
 | P2-13/14/15 | L4 不看预算；约束不截断；`_chessActiveRange` 在 `/compact` 路径为 null；`llm` 模式仍带 facts | P2-13 **已修**（加 L5 兜底）；P2-15 **已修**（README 表述改为「不降级到规则摘要，仍带硬事实」）；P2-14 **已修**（覆盖 `compactRegion` 在事务入口设置 `_chessActiveRange`、finally 恢复 prev，支持嵌套） |
 
 **当前状态**：81 项单测全绿（修完 3 个 P0 后）。
+
+---
+
+## v1.0.0（2026-10-28）· 手割多参照点
+
+### 新增
+
+`tewariAnalysis` 返回 `baselines: [{edgeId, sameEndpoint, reachesEndpoint}]` —— 对**每条**成功出边单独判定。
+热清单显示 `[redundant vs e1]` / `[longer vs e2]`，而不是笼统的 `[redundant]`。
+
+**为什么**：同一条失败边相对不同成功路径可能结论不同（用户原话：「看第二个你判断优，看第三个是劣」）。
+
+### 当前状态
+
+- 版本 **1.0.0**
+- 85 项单测全绿
+- 发布：https://github.com/MYCF711/dsh-gokifu-compact/releases/tag/v1.0.0
+
+### 待办（按优先级）
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | 真实模型 A/B：带手割标记 vs 不带 | 子代理在跑 |
+| 2 | 三层文件树（index/nodes/raw）落地进插件 | 设计已验证（`evidence/棋谱有效性实验.md`），未实现 |
+| 3 | 热清单图例压缩（现在 ~50 tokens） | 未做 |
+| 4 | `graph.md` 加围棋术语注释（人读视图） | 未做 |
