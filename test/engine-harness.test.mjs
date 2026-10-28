@@ -726,6 +726,9 @@ tests["hybrid 模式下摘要模型全挂 ⇒ 退回规则摘要（fold 必须�
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || out.llmStreamCall !== false) throw new Error("应退回规则摘要（llmStreamCall=false）");
   if (out.degraded !== "rules") throw new Error(`degraded 标记缺失：${JSON.stringify(out.degraded)}`);
+  // ★ 真实 DSH 抓到的坑：compaction/summary 事件的 provider/model 不允许 undefined
+  if (typeof out.provider !== "string" || out.provider.length === 0) throw new Error(`provider 必须是字符串：${JSON.stringify(out.provider)}`);
+  if (typeof out.model !== "string" || out.model.length === 0) throw new Error(`model 必须是字符串：${JSON.stringify(out.model)}`);
   const text = out.summary.map((b) => b.text).join("\n");
   if (!text.includes("## 目标")) throw new Error(`规则摘要结构不对：\n${text.slice(0, 300)}`);
   if (!ctx.warns.some((w) => w.includes("退回规则摘要"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);

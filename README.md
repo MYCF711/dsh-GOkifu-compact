@@ -199,6 +199,7 @@ node test/measure-billing.mjs # 真实 usage 计费审计（prompt / 缓存命�
 node test/measure-ledger.mjs # 热清单的 token 与信息量（--terse / --off 可换档对比）
 node test/ab-render.mjs      # A/B 夹具：同一张棋谱的三种标记档位各渲染一份（模型消费者实验用）
 node test/rewash-graph.mjs   # 历史棋谱回洗（dry-run 默认；--apply 写盘并重建树）
+node test/real-headless-fold.mjs # **真实 dsh 进程**里触发 fold（headless profile + overlay；真 Session/真事务）
 node test/evidence.mjs       # 重算 evidence/模拟结果.md（计费、保留率、热上下文成本）
 node test/bench.mjs 2000     # 2000 条边的性能与体量
 

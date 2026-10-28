@@ -381,17 +381,27 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const g = this.#graph(session);
     const mode = this.chess.summaryMode;
 
-    if (mode === "rules") {
-      const text = ruleSummary(g, this.#activeRange());
-      return { summary: [{ type: "text", text }], rawOutput: undefined, llmStreamCall: false };
-    }
+    // ★ 2026-10-29 真实 DSH 进程抓到（headless 实测）：规则摘要的返回值**必须**带 provider/model 字符串。
+    //   官方 commitCompactionBody 把 summarize() 的 provider/model **不判空**地写进
+    //   `compaction/summary` 事件；我们只返回 {summary, rawOutput, llmStreamCall} ⇒ 事件里出现
+    //   `provider: undefined` ⇒ 真实 Session.append 抛
+    //   `session event "compaction/summary" carries non-JSON-serializable data` ⇒ 每一次 fold 都失败。
+    //   假 Session（单测 / real-fold）不校验 JSON 序列化，所以之前一直没暴露 —— **summaryMode: rules 在
+    //   真实 DSH 里从未成功过**。规则摘要没有模型，就用当前路由做「记账口径」，没有路由则用哨兵值。
+    const routed = routedTarget(session);
+    const ruleResult = () => ({
+      summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
+      rawOutput: undefined,
+      llmStreamCall: false,
+      provider: routed?.provider ?? "chess-context",
+      model: routed?.model ?? "rules",
+    });
+
+    if (mode === "rules") return ruleResult();
 
     const target = summarizeTarget(this.chess, session, agent);
     if (target === undefined) {
-      if (mode === "hybrid") {
-        const text = ruleSummary(g, this.#activeRange());
-        return { summary: [{ type: "text", text }], rawOutput: undefined, llmStreamCall: false };
-      }
+      if (mode === "hybrid") return ruleResult();
       throw new Error("chess-context: no provider/model available for summarization");
     }
 
@@ -470,6 +480,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
         rawOutput: undefined,
         llmStreamCall: false,
+        provider: routed?.provider ?? "chess-context",
+        model: routed?.model ?? "rules",
         degraded: "rules",
       };
     }

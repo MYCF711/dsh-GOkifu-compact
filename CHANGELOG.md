@@ -1,5 +1,26 @@
 # 更新记录
 
+## 1.6.3 — 2026-10-29
+
+### 真实 DSH 进程里的首次 fold + 修掉「rules 模式从未成功过」的真 bug
+
+**新增 `test/real-headless-fold.mjs`**：起一个**真正的 dsh headless 进程**（独立 profile + overlay，
+阈值压到 0.002 触发），跑迷你任务并核对 `compaction/*` 与 checkpoint —— 真 Session、真 compactRegion、
+真 surface 替换。实测 **3~5 次 fold 全成功、0 失败**（`evidence/真实进程首次fold.md`）。
+
+**抓到的真 bug**：第一次跑时 7 次 fold 全报
+`session event "compaction/summary" carries non-JSON-serializable data` ——
+官方 `commitCompactionBody()` 把 `summarize()` 返回的 `provider`/`model` **不判空**写进事件，
+而规则摘要（`summaryMode: rules` 与「摘要模型全挂」的兜底）没带这两个字段 ⇒ `provider: undefined` ⇒
+真实 Session 的 JSON 校验拒绝。**`summaryMode: rules` 在真实 DSH 里从未成功过**（假 Session 不校验，
+桌面 preset 又用 hybrid，所以一直没暴露）。
+修法：所有 summarize() 返回路径都带 provider/model 字符串（规则摘要用当前路由做记账口径，
+没有路由用 `chess-context`/`rules` 哨兵）。+harness 断言。
+
+### 测试
+
+118 项单测 + 真实进程 fold 测试（3 次成功 / 0 失败）
+
 ## 1.6.2 — 2026-10-29
 
 ### 压缩永不因摘要模型挂掉而失败（hybrid ⇒ 规则摘要兜底）+ doctor 体检

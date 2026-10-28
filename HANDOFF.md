@@ -15,7 +15,7 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.6.2**（P0 1.3.5 → 标记 1.4.0 → 替换 1.5.0 → 计费/摘要 1.5.1 → 收尾 1.6.0 → index 刷新 1.6.1 → 规则兜底 1.6.2，均未发版） |
+| 版本 | **1.6.3**（P0 1.3.5 → 标记 1.4.0 → 替换 1.5.0 → 计费/摘要 1.5.1 → 收尾 1.6.0 → index 1.6.1 → 规则兜底 1.6.2 → 真实进程 fold 1.6.3，均未发版） |
 | 单测 | **118 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/DSH-GOkifu-compact |
@@ -143,6 +143,7 @@ sessions/<sessionId>/
 | `test/measure-billing.mjs` | 真实 usage 计费审计（prompt/缓存/清单占比/fold 收支） |
 | `test/rewash-graph.mjs` | 历史棋谱回洗（errorSnippet 重取 + text 型误报降级；dry-run 默认） |
 | `test/doctor.mjs` | 一条命令体检（安装 / 摘要模型 / 压缩成败 / 棋谱 / 树新鲜度） |
+| `test/real-headless-fold.mjs` | **真实 dsh 进程**里的 fold 验收（真 Session / 真 compactRegion） |
 | `test/markers.test.mjs` | 标记契约（9 项） |
 | `docs/三层树设计.md` | 三层树设计依据 + 6 缺陷 |
 | `docs/P0-worldhash-死循环-根因与修复方案.md` | P0 根因 + 修复方案 + 验证清单 |
