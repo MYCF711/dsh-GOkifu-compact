@@ -198,7 +198,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         const nodesDir = nodePath.join(dir, "nodes");
         nodeFs.mkdirSync(nodesDir, { recursive: true });
         nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
-        for (const id of g.order) {
+        // 写**所有**节点（g.nodes），不只是 g.order —— 被合并且仍被边引用的节点也要有文件
+        for (const id of Object.keys(g.nodes)) {
           const n = g.nodes[id];
           if (!n) continue;
           nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");

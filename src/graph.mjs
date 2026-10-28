@@ -519,7 +519,7 @@ export function renderNodeMd(g, nodeId) {
   const outs = Object.values(g.edges).filter((e) => e.from === nodeId);
   lines.push("## 出边", "");
   if (outs.length === 0) lines.push("（无）");
-  else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 100)}` : ""}`);
+  else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 400)}` : ""}`);
   lines.push("");
   lines.push("## 原始记录", "", `../raw/${n.seq}.md`, "");
   return lines.join("\n");
@@ -566,5 +566,19 @@ export function renderIndexMd(g) {
       lines.push(`${indent}  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}`);
     }
   }
+  // 失败边全表：index 的缩进树每个节点只出现一次，跨边/置换边不在树里。
+  // 模型要枚举**全部**失败边时用这一段（子代理实测：只靠缩进树只能看到 190/404 条边）。
+  lines.push("", "## 失败边全表（含跨边 / 置换边）", "");
+  let failCount = 0;
+  for (const e of Object.values(g.edges)) {
+    if (e.result !== "failure") continue;
+    failCount += 1;
+    const from = e.from ?? "?";
+    const to = e.to ?? "(未结算)";
+    lines.push(
+      `- ${e.id} ${from} → ${to}: ${cut(e.intent || e.action, 60)} — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 160)}`,
+    );
+  }
+  if (failCount === 0) lines.push("（无）");
   return lines.join("\n");
 }
