@@ -84,16 +84,26 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
       lines.push(`CURRENT PATH: ${path.map((n) => `${n.id}${n.kind === "user" ? "(user)" : ""}`).join(" → ")}`);
       const goal = latest?.goal;
       if (goal) lines.push(`CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}`);
-      // 最近一条成功边：模型需要知道「哪条路是通的」，不能只看到死路
-      const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
-      if (successEdges.length > 0 && level <= 2) {
-        const se = successEdges[successEdges.length - 1];
-        const fromNode = g.nodes[se.from];
-        const toNode = g.nodes[se.to];
-        const label = (n) => (n?.kind === "user" ? "user" : n?.id ?? "?");
-        lines.push(
-          `WORKING: ${label(fromNode)} → ${label(toNode)}${se.verify?.summary ? ` (${clip(se.verify.summary, 40)})` : ""}`,
-        );
+      // 完整成功路径：模型不能只看到「最近一条边」，要知道整条路怎么走通的
+      if (level <= 2) {
+        const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
+        if (successEdges.length > 0) {
+          const last = successEdges[successEdges.length - 1];
+          const path = [last.from, last.to];
+          const seen = new Set(path);
+          let cur = last.from;
+          for (;;) {
+            const prev = Object.values(g.edges).find(
+              (e) => e.result === "success" && e.to === cur && g.nodes[e.from] && !seen.has(e.from),
+            );
+            if (!prev) break;
+            path.unshift(prev.from);
+            seen.add(prev.from);
+            cur = prev.from;
+          }
+          const label = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
+          lines.push(`WORKING: ${path.map(label).join(" → ")}${last.verify?.summary ? ` (${clip(last.verify.summary, 40)})` : ""}`);
+        }
       }
       // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
       //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
