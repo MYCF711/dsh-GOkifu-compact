@@ -396,9 +396,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       ...input.messages,
       { role: "user", content: [{ type: "text", text: instruction }] },
     ];
-    const options = {
-      provider: target.provider,
-      model: target.model,
+    const buildOptions = (t) => ({
+      provider: t.provider,
+      model: t.model,
       messages,
       toolHistory: session.toolHistory(),
       ...(input.tools === undefined ? {} : { tools: [...input.tools] }),
@@ -406,16 +406,43 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       sessionId: session.id,
       purpose: "compaction",
       ...(signal === undefined ? {} : { signal }),
+    });
+    const runStream = async (t, into) => {
+      for await (const chunk of this.ctx.llm.stream(buildOptions(t))) into.push(chunk);
+      const finish = into.finish;
+      if (finish?.kind === "error" || finish?.kind === "aborted") {
+        throw new LlmError(finish.failure?.message ?? "summarization failed", finish.failure?.code, finish.failure);
+      }
+      if (finish?.kind === "max-tokens") {
+        const error = new Error("chess-context: summarization truncated at the token cap (incomplete record)");
+        error.code = "MAX_TOKENS";
+        throw error;
+      }
+      return into;
     };
-    for await (const chunk of this.ctx.llm.stream(options)) assembler.push(chunk);
-    const finish = assembler.finish;
-    if (finish?.kind === "error" || finish?.kind === "aborted") {
-      throw new LlmError(finish.failure?.message ?? "summarization failed", finish.failure?.code, finish.failure);
-    }
-    if (finish?.kind === "max-tokens") {
-      const error = new Error("chess-context: summarization truncated at the token cap (incomplete record)");
-      error.code = "MAX_TOKENS";
-      throw error;
+
+    // ★ 2026-10-29 实机暴露：preset 把摘要模型配成 `magpie/ima/deepseek-v4.1-flash`，
+    //   而 magpie provider 的模型表里没有它 ⇒ 每次 fold 都抛
+    //   `pi-ai provider "magpie" has no configured model "ima/deepseek-v4.1-flash"`，
+    //   当前会话连试 8 次全失败（上下文只会继续涨 —— 和 P0 的后果一样，只是原因不同）。
+    //   摘要模型不可用**不该让整条压缩链失败**：退回「当前路由的模型」再试一次。
+    let used = target;
+    try {
+      await runStream(target, assembler);
+    } catch (error) {
+      const routed = routedTarget(session);
+      const differs = routed !== undefined && (routed.provider !== target.provider || routed.model !== target.model);
+      if (!differs || signal?.aborted) throw error;
+      this.ctx.logger?.warn?.(
+        `chess-context: 摘要模型 ${target.provider}/${target.model} 不可用（${String(error?.message ?? error)}），改用当前路由 ${routed.provider}/${routed.model} 重试一次`,
+      );
+      const retry = new BlockAssembler();
+      await runStream(routed, retry);
+      used = routed;
+      assembler.chunks.length = 0;
+      for (const chunk of retry.chunks) assembler.push(chunk);
+      assembler.finish = retry.finish;
+      assembler.usage = retry.usage;
     }
     const raw = assembler.blocks();
     if (contentHasImage(raw)) throw new LlmError("chess summary cannot contain image output", "UNSUPPORTED_CONTENT");
@@ -436,8 +463,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       summary,
       rawOutput: raw,
       llmStreamCall: true,
-      provider: options.provider,
-      model: options.model,
+      provider: used.provider,
+      model: used.model,
       maxTokens: this.chess.maxTokens,
       ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
     };

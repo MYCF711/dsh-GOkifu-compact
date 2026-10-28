@@ -15,8 +15,8 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.5.0**（P0 1.3.5 + 标记/原因 1.4.0 + 清单替换 1.5.0，均未发版） |
-| 单测 | **107 passed, 0 failed** |
+| 版本 | **1.5.1**（P0 1.3.5 + 标记/原因 1.4.0 + 清单替换 1.5.0 + 计费/摘要兜底 1.5.1，均未发版） |
+| 单测 | **109 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/DSH-GOkifu-compact |
 | 最新 Release | https://github.com/MYCF711/DSH-GOkifu-compact/releases/tag/v1.3.4（1.3.5 只在本地） |
@@ -136,10 +136,11 @@ sessions/<sessionId>/
 | `src/ledger.mjs` | 热清单 + 硬事实块 |
 | `src/summary-prompt.mjs` | 摘要指令 + 机械约束 |
 | `src/verifier.mjs` | 成功/失败判定 |
-| `test/run.mjs` | 107 项单测 |
+| `test/run.mjs` | 109 项单测 |
 | `test/verify-graphs.mjs` | 全库棋谱健康检查（P0 验收工具） |
 | `test/ab-render.mjs` | 热清单标记 A/B 夹具（模型消费者实验） |
 | `test/real-ledger-replace.mjs` | 真实 Session 上的「清单就地替换」机制验证（8 项） |
+| `test/measure-billing.mjs` | 真实 usage 计费审计（prompt/缓存/清单占比/fold 收支） |
 | `test/markers.test.mjs` | 标记契约（9 项） |
 | `docs/三层树设计.md` | 三层树设计依据 + 6 缺陷 |
 | `docs/P0-worldhash-死循环-根因与修复方案.md` | P0 根因 + 修复方案 + 验证清单 |
@@ -163,7 +164,7 @@ sessions/<sessionId>/
 cd D:/主工作区/projects/dsh-chess-context
 
 # 验证（当前 v1.3.5 工作区）
-node test/run.mjs            # 107 passed
+node test/run.mjs            # 109 passed
 node test/verify-install.mjs # 13/13
 node test/real-modules.mjs   # 4/4
 node test/real-fold.mjs      # 5/5

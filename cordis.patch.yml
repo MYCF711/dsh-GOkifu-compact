@@ -26,9 +26,13 @@
         minFoldTokens: 8000
         # hybrid = 规则事实 + 一次模型润色；rules = 零模型调用
         summaryMode: hybrid
-        # 推荐用 ima 免费模型做 fold（实测 3/3 次 8/8 死路、2/2 约束）
-        summarizationProvider: magpie
-        summarizationModel: ima/deepseek-v4.1-flash
+        # 摘要模型：留空 = 跟随当前路由（最稳，任何 provider 都可用）。
+        # 想用免费模型省 fold 成本，先确认该 provider 的模型表里确实有那个 id ——
+        # 实测踩坑：写 magpie + ima/deepseek-v4.1-flash，而 magpie provider 的模型表里没有它，
+        # 每次 fold 都抛 `pi-ai provider "magpie" has no configured model "ima/deepseek-v4.1-flash"`，
+        # 一个会话连试 8 次全失败（引擎已加「摘要模型不可用 ⇒ 退回路由模型」兜底）。
+        summarizationProvider: ''
+        summarizationModel: ''
         maxTokens: 3072   # 中文摘要 ~1200 字；2048 会把末尾的死路截掉（实测）
         # 每步注入失败清单（热上下文）
         hotLedger: true

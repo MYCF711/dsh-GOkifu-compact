@@ -162,11 +162,13 @@ function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   return session;
 }
 
-function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
+function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set() } = {}) {
   const listeners = new Map();
   const overlay = {};
   const ctx = {
-    logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} },
+    logger: { info: () => {}, warn: (m) => ctx.warns.push(String(m)), debug: () => {}, error: () => {} },
+    /** 记录 warn 文案（用于断言「摘要模型不可用时退回了路由」） */
+    warns: [],
     /** 摘要（llm.stream）收到的 options，供断言 prompt 内容 */
     streamCalls: [],
     on(name, fn) {
@@ -193,6 +195,9 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000 } = {}) {
       async *stream(options) {
         // 记录每次摘要调用的完整输入 —— 用来断言「硬事实块」真的带着失败边进了 prompt
         ctx.streamCalls.push(options);
+        if (failModels.has(options.model)) {
+          throw new Error(`pi-ai provider "${options.provider}" has no configured model "${options.model}"`);
+        }
         yield { type: "text-delta", text: "## 目标\n- mock" };
       },
     },
@@ -642,4 +647,47 @@ tests["P0 回归：旧磁盘棋谱（worldHash 是对象）也能跑完 summariz
   if (g.stateIndex[`${g.nodes.n2.worldHash}/${g.nodes.n2.constraintHash}`] !== "n2") {
     throw new Error(`stateIndex 未重建：${JSON.stringify(g.stateIndex)}`);
   }
+};
+
+tests["摘要模型不可用 ⇒ 退回当前路由模型重试一次（实机 `magpie/ima/...` 未配置）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-summarizer-fallback" });
+  const ctx = makeCtx({ failModels: new Set(["ima/deepseek-v4.1-flash"]) });
+  const engine = new Engine(ctx, {
+    graphDir,
+    auto: false,
+    summarizationProvider: "magpie",
+    summarizationModel: "ima/deepseek-v4.1-flash",
+  });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || !Array.isArray(out.summary) || out.summary.length === 0) throw new Error("退回后仍没产出摘要");
+  if (ctx.streamCalls.length !== 2) throw new Error(`应调用两次（坏的 + 路由的），实际 ${ctx.streamCalls.length}`);
+  if (ctx.streamCalls[0].model !== "ima/deepseek-v4.1-flash") throw new Error("第一次应先用配置的模型");
+  if (ctx.streamCalls[1].model !== "m") throw new Error(`第二次应退回路由模型 m，实际 ${ctx.streamCalls[1].model}`);
+  if (out.model !== "m") throw new Error(`返回的 model 应是实际使用的 m，实际 ${out.model}`);
+  if (!ctx.warns.some((w) => w.includes("不可用") && w.includes("重试"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);
+};
+
+tests["摘要模型不可用、且路由模型就是它 ⇒ 直接抛错（不无限重试）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-summarizer-same" });
+  const ctx = makeCtx({ failModels: new Set(["m"]) }); // 路由模型就是 m
+  const engine = new Engine(ctx, { graphDir, auto: false, summarizationProvider: "p", summarizationModel: "m" });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  let threw = false;
+  try {
+    await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  } catch {
+    threw = true;
+  }
+  if (!threw) throw new Error("同一个模型失败时不该静默成功");
+  if (ctx.streamCalls.length !== 1) throw new Error(`不该重试，实际调用 ${ctx.streamCalls.length} 次`);
 };
