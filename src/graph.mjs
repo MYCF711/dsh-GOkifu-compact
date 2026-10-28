@@ -554,7 +554,7 @@ export function renderIndexMd(g) {
   const lines = [
     `# 棋谱 ${g.sessionId}`,
     "",
-    `> 节点 ${g.order.length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次`,
+    `> 节点 ${g.order.length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次 · updated ${new Date(g.updatedAt).toISOString()}`,
     "",
     "## 落子顺序（缩进 = 深度；每个节点只出现一次）",
     "",

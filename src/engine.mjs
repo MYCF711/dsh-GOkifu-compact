@@ -187,8 +187,6 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       if (problems.length > 0) {
         this.ctx.logger?.warn?.(`chess-context: 棋谱不变量告警 ${problems.length} 条：${problems.slice(0, 3).join("; ")}`);
       }
-      nodeFs.writeFileSync(tmp, toJSON(g), "utf8");
-      nodeFs.renameSync(tmp, this.#graphPath(session));
       // 三层文件树（v1.2.0）：index.md + nodes/*.md + raw/*.md
       // 只在「首次」和「fold 后」写 —— 2000 边时 4000 个文件会卡住事件循环；
       // 中间状态的 flush 只写 graph.json（下次 fold 会整体刷新树）。
@@ -209,6 +207,10 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       }
       // graph.md 不再自动写（177KB/次是纯 IO 浪费；三层文件树已是人读视图）
       // 需要时：node test/build-md.mjs <sessionDir>
+
+      // ★ JSON 最后写（原子 rename = 提交点）：md 先就绪，读者以 graph.json 的 updatedAt 为准
+      nodeFs.writeFileSync(tmp, toJSON(g), "utf8");
+      nodeFs.renameSync(tmp, this.#graphPath(session));
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${String(error)}`);
     }
