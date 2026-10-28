@@ -673,7 +673,7 @@ tests["摘要模型不可用 ⇒ 退回当前路由模型重试一次（实机 `
   if (!ctx.warns.some((w) => w.includes("不可用") && w.includes("重试"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);
 };
 
-tests["摘要模型不可用、且路由模型就是它 ⇒ 直接抛错（不无限重试）"] = async () => {
+tests["摘要模型不可用、且路由模型就是它 ⇒ 不重试，退回规则摘要"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-summarizer-same" });
   const ctx = makeCtx({ failModels: new Set(["m"]) }); // 路由模型就是 m
@@ -682,14 +682,9 @@ tests["摘要模型不可用、且路由模型就是它 ⇒ 直接抛错（不�
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-  let threw = false;
-  try {
-    await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
-  } catch {
-    threw = true;
-  }
-  if (!threw) throw new Error("同一个模型失败时不该静默成功");
-  if (ctx.streamCalls.length !== 1) throw new Error(`不该重试，实际调用 ${ctx.streamCalls.length} 次`);
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (ctx.streamCalls.length !== 1) throw new Error(`同一个模型不该重试，实际调用 ${ctx.streamCalls.length} 次`);
+  if (!out || out.degraded !== "rules") throw new Error("hybrid 下应退回规则摘要");
 };
 
 tests["index.md 每次落盘都刷新（不再等 fold —— 它是模型读的入口）"] = async () => {
@@ -711,4 +706,51 @@ tests["index.md 每次落盘都刷新（不再等 fold —— 它是模型读的
   const after = nodeFs.readFileSync(nodePath.join(dir, "index.md"), "utf8");
   if (after === before) throw new Error("index.md 没有刷新（还停在首次写入的版本）");
   if (!after.includes("AssertionError")) throw new Error(`index.md 里没有新的失败原因：\n${after.slice(0, 400)}`);
+};
+
+tests["hybrid 模式下摘要模型全挂 ⇒ 退回规则摘要（fold 必须能落地）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-rules-fallback" });
+  const ctx = makeCtx({ failModels: new Set(["m", "ima/deepseek-v4.1-flash"]) }); // 配置的和路由的都挂
+  const engine = new Engine(ctx, {
+    graphDir,
+    auto: false,
+    summarizationProvider: "magpie",
+    summarizationModel: "ima/deepseek-v4.1-flash",
+  });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || out.llmStreamCall !== false) throw new Error("应退回规则摘要（llmStreamCall=false）");
+  if (out.degraded !== "rules") throw new Error(`degraded 标记缺失：${JSON.stringify(out.degraded)}`);
+  const text = out.summary.map((b) => b.text).join("\n");
+  if (!text.includes("## 目标")) throw new Error(`规则摘要结构不对：\n${text.slice(0, 300)}`);
+  if (!ctx.warns.some((w) => w.includes("退回规则摘要"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);
+};
+
+tests["llm 模式下摘要模型全挂 ⇒ 直接抛错（用户明确要模型输出，不悄悄降级）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-llm-strict" });
+  const ctx = makeCtx({ failModels: new Set(["m", "ima/deepseek-v4.1-flash"]) });
+  const engine = new Engine(ctx, {
+    graphDir,
+    auto: false,
+    summaryMode: "llm",
+    summarizationProvider: "magpie",
+    summarizationModel: "ima/deepseek-v4.1-flash",
+  });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  let threw = false;
+  try {
+    await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  } catch {
+    threw = true;
+  }
+  if (!threw) throw new Error("llm 模式不该悄悄降级");
 };

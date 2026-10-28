@@ -438,24 +438,40 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     //   而 magpie provider 的模型表里没有它 ⇒ 每次 fold 都抛
     //   `pi-ai provider "magpie" has no configured model "ima/deepseek-v4.1-flash"`，
     //   当前会话连试 8 次全失败（上下文只会继续涨 —— 和 P0 的后果一样，只是原因不同）。
-    //   摘要模型不可用**不该让整条压缩链失败**：退回「当前路由的模型」再试一次。
+    //   摘要模型不可用**不该让整条压缩链失败**：
+    //     ① 退回「当前路由的模型」再试一次；
+    //     ② 还不行且是 hybrid ⇒ **退回规则摘要（零模型调用）**，fold 必须能落地 ——
+    //        压缩失败 = 上下文只增不减，比摘要质量下降严重得多。
     let used = target;
     try {
-      await runStream(target, assembler);
+      try {
+        await runStream(target, assembler);
+      } catch (error) {
+        const routed = routedTarget(session);
+        const differs = routed !== undefined && (routed.provider !== target.provider || routed.model !== target.model);
+        if (!differs || signal?.aborted) throw error;
+        this.ctx.logger?.warn?.(
+          `chess-context: 摘要模型 ${target.provider}/${target.model} 不可用（${String(error?.message ?? error)}），改用当前路由 ${routed.provider}/${routed.model} 重试一次`,
+        );
+        const retry = new BlockAssembler();
+        await runStream(routed, retry);
+        used = routed;
+        assembler.chunks.length = 0;
+        for (const chunk of retry.chunks) assembler.push(chunk);
+        assembler.finish = retry.finish;
+        assembler.usage = retry.usage;
+      }
     } catch (error) {
-      const routed = routedTarget(session);
-      const differs = routed !== undefined && (routed.provider !== target.provider || routed.model !== target.model);
-      if (!differs || signal?.aborted) throw error;
+      if (mode !== "hybrid" || signal?.aborted) throw error;
       this.ctx.logger?.warn?.(
-        `chess-context: 摘要模型 ${target.provider}/${target.model} 不可用（${String(error?.message ?? error)}），改用当前路由 ${routed.provider}/${routed.model} 重试一次`,
+        `chess-context: 摘要模型全部不可用（${String(error?.message ?? error)}）——退回规则摘要（零模型调用），保证 fold 能落地`,
       );
-      const retry = new BlockAssembler();
-      await runStream(routed, retry);
-      used = routed;
-      assembler.chunks.length = 0;
-      for (const chunk of retry.chunks) assembler.push(chunk);
-      assembler.finish = retry.finish;
-      assembler.usage = retry.usage;
+      return {
+        summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
+        rawOutput: undefined,
+        llmStreamCall: false,
+        degraded: "rules",
+      };
     }
     const raw = assembler.blocks();
     if (contentHasImage(raw)) throw new LlmError("chess summary cannot contain image output", "UNSUPPORTED_CONTENT");
