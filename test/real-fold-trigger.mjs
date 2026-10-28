@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
-const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-kifu-context", "modules");
+const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-gokifu-compact", "modules");
 const OUT = nodePath.join(ROOT, "evidence");
 const BASE = process.env.MAGPIE_URL ?? "http://127.0.0.1:3425/v1";
 const MODEL = process.env.MAGPIE_MODEL ?? "group/deepseek-v4.1-flash1017";

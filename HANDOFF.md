@@ -1,4 +1,4 @@
-# dsh-kifu-context · 当前状态
+# dsh-gokifu-compact · 当前状态
 
 > 更新于 2026-10-28 07:2x（本会话）
 
@@ -23,7 +23,7 @@
 - 插件包：`src/`（engine + 8 个纯函数模块）、`test/`（81 项全绿）、`evidence/模拟结果.md`
 - 文档：`README.md`、`docs/方案书.md`、`docs/市场对标.md`（452 行）、`docs/DSH-技术测绘.md`（1303 行）、
   `docs/最终报告.md`、`docs/重启后验证清单.md`
-- **已安装**：junction → `profiles/desktop/node_modules/dsh-kifu-context`；
+- **已安装**：junction → `profiles/desktop/node_modules/dsh-gokifu-compact`；
   `profiles/desktop/package.json` 加 link 依赖；`preset-bundles/personal-assistant/cordis.patch.yml`
   的 `compaction-basic` 行已换成 `chess-context`（备份 `*.bak-before-chess-context-*`）
 - 数字（模拟口径，`node test/evidence.mjs`）：累计计费比官方低 **19%–35%**，峰值上下文低 37.7%–43.2%，

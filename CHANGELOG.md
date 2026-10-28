@@ -1,8 +1,39 @@
 # 更新记录
 
+## 0.4.0 — 2026-10-28
+
+### 破坏性变更：包名 `dsh-kifu-context` → `dsh-gokifu-compact`
+
+命名拆开看：**Go（围棋）+ kifu（棋谱）+ compact（压缩）**。
+
+- **Go**：棋种
+- **kifu**：棋谱（围棋/将棋的记谱方式：一局棋的完整记录 + 每手评语）
+- **compact**：这个插件实际做的事（上下文压缩）
+
+比 `kifu-context` 更明确：`context` 只说明「上下文」没说明「压缩」；`gokifu` 把棋种和棋谱都标出来。
+
+### 术语澄清：`transposition` 不是核心
+
+- `transposition`（转置检测）是**国际象棋引擎**的概念（同一局面经不同路径到达时不重复搜索）。
+- 围棋有等价情形（棋界叫「同形」/「同型」），但没有这个术语。
+- 本插件里它只是**优化**：命中历史节点时不新建分支，加一条回边。
+- **核心是「失败记忆 + 增量 fold」**：
+  - 失败记忆负责**明确否定走错的着法**（`failureEdges` + 热清单 + 节点 `errorSnippet`）
+  - 增量 fold 负责**每段历史只摘要一次**（不重压、不 ρ^k 衰减）
+
+README 已按这个口径改写：卖点从「转置检测」改为「失败记忆 + 评语可复盘」。
+
+### 升级步骤
+
+```bash
+node test/rollback.mjs     # 卸旧名
+node test/install.mjs      # 装新名
+# 重启 DSH
+```
+
 ## 0.3.0 — 2026-10-28
 
-### 破坏性变更：包名 `dsh-chess-context` → `dsh-kifu-context`
+### 破坏性变更：包名 `dsh-chess-context` → `dsh-gokifu-compact`
 
 `chess` 在英文里是国际象棋，而这个插件的隐喻是**围棋棋谱（kifu）**。改名原因见下。
 

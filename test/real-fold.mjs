@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
-const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-kifu-context", "modules");
+const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-gokifu-compact", "modules");
 
 if (!nodeFs.existsSync(nodePath.join(WORK, "src", "engine.mjs"))) {
   console.log("! 先跑 node test/real-modules.mjs（提取依赖闭包）");

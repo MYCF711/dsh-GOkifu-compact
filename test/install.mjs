@@ -1,12 +1,12 @@
 /**
- * install.mjs —— 把 dsh-kifu-context 装进本机 DSH profile（可回滚）
+ * install.mjs —— 把 dsh-gokifu-compact 装进本机 DSH profile（可回滚）
  *
  * 做四件事，每件都留备份：
- *   ① 把包链接进 <profile>/node_modules/dsh-kifu-context（junction，不需要管理员）
+ *   ① 把包链接进 <profile>/node_modules/dsh-gokifu-compact（junction，不需要管理员）
  *   ② profile/package.json 的 dependencies 加一条 link（供 pnpm 感知；不改 bundles，
  *      —— 否则 bundle patch 会在顶层再挂一份，与 preset 内那份形成双实例）
  *   ③ preset 的 cordis.patch.yml 里把 compaction group 的 `compaction-basic`
- *      换成 `dsh-kifu-context`（preset 内才是真正生效的那一份，见 profile patch 注释）
+ *      换成 `dsh-gokifu-compact`（preset 内才是真正生效的那一份，见 profile patch 注释）
  *   ④ 打印 diff 摘要 + 回滚命令
  *
  * 用法：
@@ -27,7 +27,7 @@ const getArg = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-const PKG_NAME = "dsh-kifu-context";
+const PKG_NAME = "dsh-gokifu-compact";
 const PROJECT_DIR = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const DSH_HOME = process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
 const PROFILE = getArg("profile", "desktop");
@@ -95,7 +95,7 @@ function patchPreset() {
   const startAnchor = "              - id: compaction-basic";
   const start = text.indexOf(startAnchor);
   if (start < 0) {
-    if (text.includes("name: 'dsh-kifu-context'") || text.includes(`name: "${PKG_NAME}"`)) {
+    if (text.includes("name: 'dsh-gokifu-compact'") || text.includes(`name: "${PKG_NAME}"`)) {
       log(`  · preset 已是 chess-context，跳过`);
       return;
     }
@@ -147,12 +147,12 @@ function verify() {
   if (!pkg.dependencies?.[PKG_NAME]) problems.push("profile/package.json 缺 dependency");
   if (pkg.dsh?.profile?.bundles?.includes(PKG_NAME)) problems.push("bundles 里不该有它（会顶层双挂载）");
   const preset = nodeFs.readFileSync(PRESET_FILE, "utf8");
-  if (!preset.includes(PKG_NAME)) problems.push("preset 未引用 dsh-kifu-context");
+  if (!preset.includes(PKG_NAME)) problems.push("preset 未引用 dsh-gokifu-compact");
   if (preset.includes("- id: compaction-basic")) problems.push("preset 里仍有 compaction-basic（会双实例）");
   return problems;
 }
 
-log("== install dsh-kifu-context ==");
+log("== install dsh-gokifu-compact ==");
 log(`profile: ${PROFILE_DIR}`);
 log(`preset : ${PRESET_FILE}`);
 log(dryRun ? "模式: dry-run\n" : "");

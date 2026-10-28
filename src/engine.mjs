@@ -56,7 +56,7 @@ const BASE_KEYS = new Set([
 
 const SUMMARY_MODE = new Set(["hybrid", "rules", "llm"]);
 
-export const name = "dsh-kifu-context";
+export const name = "dsh-gokifu-compact";
 
 export const Config = z.object({
   /* —— 与官方后端的同名键（语义一致，默认值不同） —— */

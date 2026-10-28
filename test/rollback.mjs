@@ -7,7 +7,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 
-const PKG_NAME = "dsh-kifu-context";
+const PKG_NAME = "dsh-gokifu-compact";
 const DSH_HOME = process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
 const profileArg = process.argv.indexOf("--profile");
 const PROFILE = profileArg >= 0 ? process.argv[profileArg + 1] : "desktop";

@@ -1,4 +1,4 @@
-# dsh-kifu-context · 项目规范
+# dsh-gokifu-compact · 项目规范
 
 ## 这是什么
 DSH（DeepSeek Harness）的上下文压缩后端插件。核心不是「把历史缩成一段摘要」，
