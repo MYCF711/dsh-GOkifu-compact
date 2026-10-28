@@ -508,7 +508,14 @@ export function renderNodeMd(g, nodeId) {
     lines.push("## 原话", "", ...String(n.text ?? "").split("\n").map((l) => `> ${l}`), "");
     if (n.constraints?.length) lines.push("## 约束", "", ...n.constraints.map((c) => `- ${c}`), "");
   } else {
-    if (n.goal) lines.push("## 评语（LLM 当时的目标）", "", n.goal, "");
+    // 缺陷 2：goal 常常为空（200 节点只有 7 个有）——用入边的 intent/action 兜底
+    if (n.goal) {
+      lines.push("## 评语（LLM 当时的目标）", "", n.goal, "");
+    } else if (n.via && g.edges[n.via]) {
+      const via = g.edges[n.via];
+      const text = via.intent || via.action;
+      if (text) lines.push(`## 评语（来自入边 ${n.via}）`, "", text, "");
+    }
     lines.push("## 状态", "", `- worldHash: \`${cut(n.worldHash, 12)}\``, `- constraintHash: \`${cut(n.constraintHash, 12)}\``, "");
   }
   const ins = Object.values(g.edges).filter((e) => e.to === nodeId);
@@ -519,7 +526,7 @@ export function renderNodeMd(g, nodeId) {
   const outs = Object.values(g.edges).filter((e) => e.from === nodeId);
   lines.push("## 出边", "");
   if (outs.length === 0) lines.push("（无）");
-  else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 400)}` : ""}`);
+  else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.result === "failure" ? ` [verify:${e.verify?.kind ?? "none"}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 400)}` : ""}`);
   lines.push("");
   lines.push("## 原始记录", "", `../raw/${n.seq}.md`, "");
   return lines.join("\n");
@@ -576,7 +583,7 @@ export function renderIndexMd(g) {
     const from = e.from ?? "?";
     const to = e.to ?? "(未结算)";
     lines.push(
-      `- ${e.id} ${from} → ${to}: ${cut(e.intent || e.action, 60)} — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 160)}`,
+      `- ${e.id} ${from} → ${to}: ${cut(e.intent || e.action, 60)} — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 160)} [verify:${e.verify?.kind ?? "none"}]`,
     );
   }
   if (failCount === 0) lines.push("（无）");
