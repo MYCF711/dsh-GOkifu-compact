@@ -17,7 +17,7 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm } from "./graph.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis } from "./graph.mjs";
 
 /** 保守 token 估算（CJK 1 字≈1 token，英文 ~4 字/token；取 3 折中偏保守）。 */
 export function estimateTokens(text) {
@@ -38,14 +38,17 @@ function seqSpan(edge) {
 }
 
 /** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
-export function renderFailureLine(edge, level = 0) {
+export function renderFailureLine(edge, level = 0, tewari = null) {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   const reasonLen = [90, 60, 36, 20][Math.min(level, 3)];
   const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
   const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
   const seq = seqSpan(edge);
   const showReason = level <= 2;
-  return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}`;
+  // 手割标记：纯亏 = 同起点有成功路径且不经过它；绕路 = 成功路径也能到它的终点
+  const tag =
+    tewari?.kind === "pure_loss" ? " [纯亏]" : tewari?.kind === "detour" ? " [绕路]" : "";
+  return `- ${edge.id} "${intent}"${showReason ? ` → ${reason}` : ""}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
 }
 
 /**
@@ -108,7 +111,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 50 } = {}) {
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text in graph.md / by seq in the session log`,
         );
       }
-      for (const e of shown) lines.push(renderFailureLine(e, level));
+      // 手割分析（tewari）：只对**当前显示**的失败边做，且最多 30 条（每条一次 BFS，防 O(E²)）
+      const tewariOf = (e) => (shown.length <= 30 ? tewariAnalysis(g, e) : null);
+      for (const e of shown) lines.push(renderFailureLine(e, level, tewariOf(e)));
     }
     if (open.length && level <= 1) {
       lines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");

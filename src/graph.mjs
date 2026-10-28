@@ -354,3 +354,71 @@ export function validate(g) {
   }
   return problems;
 }
+
+/**
+ * 手割分析（tewari）—— 围棋的复盘方法：把多出的着法拿掉，还原标准定式，看谁亏谁赚。
+ *
+ * 这里做的是同一件事：给定一条失败边，看**同一起点**是否存在不经过它的成功路径。
+ *   - pure_loss     ：同起点有成功路径，且完全不经过失败边的终点 → 这一步纯亏
+ *   - detour        ：成功路径能到达失败边的终点，但绕了路 → 可能是必要绕路
+ *   - no_alternative：同起点没有成功路径可比 → 无法判断
+ *
+ * @param {object} g    棋谱
+ * @param {object} edge 要分析的边（必须 result === "failure"）
+ * @returns {{kind: string, alternatives: number, note: string}|null}
+ */
+export function tewariAnalysis(g, edge) {
+  if (!edge || edge.result !== "failure") return null;
+  const from = edge.from;
+  const to = edge.to;
+  if (!from || !g.nodes[from]) return null;
+
+  // 同一起点的成功出边（排除自身）
+  const alts = Object.values(g.edges).filter(
+    (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && g.nodes[e.to],
+  );
+  if (alts.length === 0) {
+    return {
+      kind: "no_alternative",
+      alternatives: 0,
+      note: "同起点没有成功路径可比，无法手割",
+    };
+  }
+
+  // 失败边没有终点节点（尝试没走到任何状态）：只要有成功替代路径，就是纯亏
+  if (!to) {
+    return {
+      kind: "pure_loss",
+      alternatives: alts.length,
+      note: "失败边没有终点节点；同起点存在不经过它的成功路径",
+    };
+  }
+
+  // 从成功后继出发做 BFS，看能否到达失败边的终点
+  const reachable = new Set();
+  const queue = alts.map((e) => e.to);
+  const seen = new Set(queue);
+  while (queue.length > 0) {
+    const id = queue.shift();
+    reachable.add(id);
+    for (const e of Object.values(g.edges)) {
+      if (e.from === id && e.to && !seen.has(e.to)) {
+        seen.add(e.to);
+        queue.push(e.to);
+      }
+    }
+  }
+
+  if (to && reachable.has(to)) {
+    return {
+      kind: "detour",
+      alternatives: alts.length,
+      note: "失败终点在成功路径上，可能是绕路",
+    };
+  }
+  return {
+    kind: "pure_loss",
+    alternatives: alts.length,
+    note: "把这一步拿掉，同起点有成功路径且不经过它",
+  };
+}
