@@ -385,7 +385,7 @@ PROVEN DEAD ENDS (1 total; do not retry blind):
 
 ### 破坏性变更：包名 `dsh-kifu-context` → `dsh-gokifu-compact`
 
-命名拆开看：**Go（围棋）+ kifu（棋谱）+ compact（压缩）**。
+命名拆开看：**GO（围棋）+ kifu（棋谱）+ compact（压缩）**。
 
 - **Go**：棋种
 - **kifu**：棋谱（围棋/将棋的记谱方式：一局棋的完整记录 + 每手评语）
