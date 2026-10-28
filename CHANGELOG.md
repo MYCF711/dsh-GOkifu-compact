@@ -1,5 +1,53 @@
 # 更新记录
 
+## 1.2.0 — 2026-10-28
+
+### 三层文件树（index / nodes / raw）
+
+**问题**：`graph.md` 是整篇 177KB，人无法浏览，模型无法按需加载。
+
+**改法**：每次 flush 额外写三层：
+
+```
+sessions/<id>/
+├── index.md          落子顺序（每个节点一行 + 出边状态）
+├── nodes/n1.md       单节点：评语 / 状态 / 入边 / 出边 / raw 链接
+├── raw/1.md          原始记录（节点 JSON 全文）
+└── graph.json / graph.md  （保留兼容）
+```
+
+**index.md**：
+
+```markdown
+- [n1](./nodes/n1.md) USER seq=1 目标：把构建跑通
+  - e1 ✓ 跑 npm install
+- [n2](./nodes/n2.md) STATE seq=2 装依赖
+```
+
+**nodes/n2.md**：
+
+```markdown
+# n2 · AGENT  seq=2
+## 评语（LLM 当时的目标）
+装依赖
+## 状态
+- worldHash: `W1`
+- constraintHash: `C1`
+## 入边
+- e1 ← n1: 跑 npm install [success]
+## 出边
+（无）
+## 原始记录
+../raw/2.md
+```
+
+**设计依据**：`evidence/棋谱有效性实验.md` —— 干净子代理实验证明三层缺一不可：
+索引让模型看到全部死路，节点给详情，原始补抽取的漏。
+
+### 测试
+
+**87 项**（+2：index.md / 单节点 md）
+
 ## 1.1.0 — 2026-10-28
 
 ### 失败三态（子代理 A/B 实验驱动）

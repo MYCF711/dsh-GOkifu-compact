@@ -235,3 +235,32 @@ tests["tewari：探出标准定式没走过的节点 → probes 非空（有价�
   if (r.kind !== "different") throw new Error(`应判 different，实际 ${r.kind}`);
   if (r.probes.length === 0) throw new Error("应探出新节点");
 };
+
+// ── 三层文件树（v1.2.0）：index / nodes / raw ──
+tests["三层文件树：index.md 含所有节点链接与出边状态"] = async () => {
+  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderIndexMd } = await import("../src/graph.mjs");
+  const g = createGraph({ sessionId: "tree" });
+  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const e1 = addEdge(g, { from: u, intent: "跑测试", action: "test()" });
+  const n1 = addAgentNode(g, { seq: 2, turn: 1, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e1 });
+  settleEdge(g, e1, { to: n1.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  const md = renderIndexMd(g);
+  if (!md.includes("[n1](./nodes/n1.md)")) throw new Error("缺 n1 链接");
+  if (!md.includes("[n2](./nodes/n2.md)")) throw new Error("缺 n2 链接");
+  if (!md.includes("e1 ✓")) throw new Error("缺出边状态");
+};
+
+tests["三层文件树：单节点 md 含评语 / 入边 / 出边 / raw 链接"] = async () => {
+  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderNodeMd } = await import("../src/graph.mjs");
+  const g = createGraph({ sessionId: "tree2" });
+  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const e1 = addEdge(g, { from: u, intent: "跑测试", action: "test()" });
+  const n1 = addAgentNode(g, { seq: 2, turn: 1, goal: "跑测试这个目标", worldHash: "W1", constraintHash: "C1", via: e1 });
+  settleEdge(g, e1, { to: n1.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  const md = renderNodeMd(g, n1.id);
+  if (!md.includes("跑测试这个目标")) throw new Error("缺评语");
+  if (!md.includes("## 入边")) throw new Error("缺入边");
+  if (!md.includes("e1 ← n1")) throw new Error("入边内容不对");
+  if (!md.includes("## 出边")) throw new Error("缺出边");
+  if (!md.includes("../raw/2.md")) throw new Error("缺 raw 链接");
+};

@@ -497,3 +497,56 @@ export function failureClass(edge, tewari) {
   // 3) 其余 → failed（可重试性未知）
   return { kind: "failed", reason: "retryability unknown" };
 }
+
+/** 单节点 md（三层文件树：index / nodes / raw 的第二层） */
+export function renderNodeMd(g, nodeId) {
+  const n = g.nodes[nodeId];
+  if (!n) return "";
+  const cut = (x, k) => String(x ?? "").slice(0, k);
+  const lines = [`# ${nodeId} · ${n.kind.toUpperCase()}  seq=${n.seq}`, ""];
+  if (n.kind === "user") {
+    lines.push("## 原话", "", ...String(n.text ?? "").split("\n").map((l) => `> ${l}`), "");
+    if (n.constraints?.length) lines.push("## 约束", "", ...n.constraints.map((c) => `- ${c}`), "");
+  } else {
+    if (n.goal) lines.push("## 评语（LLM 当时的目标）", "", n.goal, "");
+    lines.push("## 状态", "", `- worldHash: \`${cut(n.worldHash, 12)}\``, `- constraintHash: \`${cut(n.constraintHash, 12)}\``, "");
+  }
+  const ins = Object.values(g.edges).filter((e) => e.to === nodeId);
+  lines.push("## 入边", "");
+  if (ins.length === 0) lines.push("（无）");
+  else for (const e of ins) lines.push(`- ${e.id} ← ${e.from}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}`);
+  lines.push("");
+  const outs = Object.values(g.edges).filter((e) => e.from === nodeId);
+  lines.push("## 出边", "");
+  if (outs.length === 0) lines.push("（无）");
+  else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 100)}` : ""}`);
+  lines.push("");
+  lines.push("## 原始记录", "", `../raw/${n.seq}.md`, "");
+  return lines.join("\n");
+}
+
+/** 索引 md（三层文件树的第一层，替代整篇 graph.md） */
+export function renderIndexMd(g) {
+  const cut = (x, k) => String(x ?? "").slice(0, k);
+  const lines = [
+    `# 棋谱 ${g.sessionId}`,
+    "",
+    `> 节点 ${g.order.length} · 边 ${Object.keys(g.edges).length} · fold ${g.foldCount} 次`,
+    "",
+    "## 落子顺序",
+    "",
+  ];
+  for (const id of g.order) {
+    const n = g.nodes[id];
+    if (!n) continue;
+    const label = n.kind === "user" ? "USER" : "STATE";
+    const title = n.kind === "user" ? cut(n.text, 40) : n.goal ? cut(n.goal, 40) : "(无目标)";
+    lines.push(`- [${id}](./nodes/${id}.md) ${label} seq=${n.seq} ${title}`);
+    const outs = Object.values(g.edges).filter((e) => e.from === id);
+    for (const e of outs) {
+      const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
+      lines.push(`  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}`);
+    }
+  }
+  return lines.join("\n");
+}

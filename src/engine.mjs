@@ -28,6 +28,8 @@ import {
   fromJSON,
   toJSON,
   renderMd,
+  renderIndexMd,
+  renderNodeMd,
   sha,
   hashSet,
   validate,
@@ -185,6 +187,28 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       }
       nodeFs.writeFileSync(tmp, toJSON(g), "utf8");
       nodeFs.renameSync(tmp, this.#graphPath(session));
+      // 三层文件树（v1.2.0）：index.md + nodes/*.md + raw/*.md
+      // 与 graph.md 并存：graph.md 是整篇人读视图，三层树是可浏览/可 grep/可 diff 的结构
+      const nodesDir = nodePath.join(dir, "nodes");
+      const rawDir = nodePath.join(dir, "raw");
+      nodeFs.mkdirSync(nodesDir, { recursive: true });
+      nodeFs.mkdirSync(rawDir, { recursive: true });
+      nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
+      for (const id of g.order) {
+        const n = g.nodes[id];
+        if (!n) continue;
+        nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
+        nodeFs.writeFileSync(
+          nodePath.join(rawDir, `${n.seq}.md`),
+          `# raw seq=${n.seq}
+
+\`\`\`json
+${JSON.stringify(n, null, 2)}
+\`\`\`
+`,
+          "utf8",
+        );
+      }
       nodeFs.writeFileSync(nodePath.join(dir, "graph.md"), renderMd(g), "utf8");
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${String(error)}`);
