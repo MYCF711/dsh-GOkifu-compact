@@ -14,7 +14,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, renderMd, toJSON } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, renderMd, toJSON } from "./graph-fixtures.mjs";
 import { observeEvent } from "../src/keeper.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
 import { selectIncrementalRange } from "../src/range.mjs";
@@ -32,7 +32,7 @@ function timed(fn, iterations = 1) {
 
 function buildLargeGraph(edgeCount) {
   const g = createGraph({ sessionId: "bench", cwd: process.cwd() });
-  const u = addUserNode(g, {
+  const u = addUserNodeId(g, {
     seq: 1,
     text: "必须保持公开 API 响应字段不变，不要动 prod 配置。把 sessions 服务日志改成流式，并让测试全绿。",
   });

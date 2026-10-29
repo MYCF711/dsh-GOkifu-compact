@@ -11,7 +11,7 @@
  */
 
 import { classify, weakKindOf, shellWeakVetoHits, SHELL_WEAK_VETO_RULES } from "../src/verifier.mjs";
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
@@ -19,7 +19,7 @@ import { renderLedger, renderFacts } from "../src/ledger.mjs";
 /** 一条 bash 边 + 一个 agent 节点，settle 成 unverified/shell-weak。 */
 function shellWeakGraph({ text = "12 passing", weak = null, sessionId = "fx-shell" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "把测试跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把测试跑通。" });
   const e = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)" });
   const a = addAgentNode(g, { seq: 3, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e }).id;
   g.edges[e].to = a;
@@ -156,7 +156,7 @@ export const tests = {
     t.eq(renderFacts(g), factsBefore, "renderFacts 必须逐字不变");
     // tewari 只吃 failure 边：给 weak 不影响任何 failure 边的分析
     const g2 = createGraph({ sessionId: "fx-tewari" });
-    const u = addUserNode(g2, { seq: 1, text: "目标" });
+    const u = addUserNodeId(g2, { seq: 1, text: "目标" });
     const f1 = addEdge(g2, { from: u, intent: "失败", action: "bash(x)" });
     settleEdge(g2, f1, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "boom" });
     const before = JSON.stringify(tewariAnalysis(g2, g2.edges[f1]));
@@ -189,7 +189,7 @@ export const tests = {
 
   "S2b-13 预算：40 条 shell 弱边 + 长路径在 500 预算内仍渲染且不超预算"(t) {
     const g = createGraph({ sessionId: "fx-budget" });
-    const u = addUserNode(g, { seq: 1, text: "把构建跑通，别动 prod。" });
+    const u = addUserNodeId(g, { seq: 1, text: "把构建跑通，别动 prod。" });
     let cursor = u;
     for (let i = 0; i < 12; i += 1) {
       const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步`, action: "bash(npm test)" });

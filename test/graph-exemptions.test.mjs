@@ -18,7 +18,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
 import { checkGraph, checkGraphs, checkGraphsWithExemptions, DEFAULT_LIMITS } from "./graph-invariants.mjs";
 import {
   graphFingerprint,
@@ -60,7 +60,7 @@ function withRoot(label, fn) {
  */
 function stormGraph({ agents = 8, perAgent = 12, sessionId = "fx-storm" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   for (let i = 0; i < agents; i += 1) {
     const e = addEdge(g, { from: u, intent: `成功 ${i}`, action: "bash(ls)" });
     const a = addAgentNode(g, { seq: 3 + i, goal: "", worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
@@ -77,7 +77,7 @@ function stormGraph({ agents = 8, perAgent = 12, sessionId = "fx-storm" } = {}) 
 /** 自环图：`loops` 条 from===to 的边 + `normal` 条正常边。 */
 function loopGraph({ loops = 3, normal = 10, sessionId = "fx-loop" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标" });
   for (let i = 0; i < normal; i += 1) {
     const e = addEdge(g, { from: u, intent: `正常 ${i}`, action: "bash(ls)" });
     settleEdge(g, e, { to: u, result: "unverified", verify: { kind: "no-exit", summary: "" } });
@@ -345,7 +345,7 @@ export const tests = {
     withRoot("cli-args", (root) => {
       writeGraph(root, "fx-ok", (() => {
         const g = createGraph({ sessionId: "ok" });
-        addUserNode(g, { seq: 1, text: "目标" });
+        addUserNodeId(g, { seq: 1, text: "目标" });
         return g;
       })());
       const manifestPath = nodePath.join(root, "exemptions.json");

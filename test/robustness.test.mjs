@@ -12,7 +12,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createGraph, toJSON, fromJSON, addUserNode, addEdge, settleEdge, failureEdges, currentPath, validate } from "../src/graph.mjs";
+import { createGraph, toJSON, fromJSON, addUserNodeId, addEdge, settleEdge, failureEdges, currentPath, validate } from "./graph-fixtures.mjs";
 import { observeEvent } from "../src/keeper.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
 import { classify } from "../src/verifier.mjs";
@@ -67,7 +67,7 @@ tests["半截 tool-call（没有 result）不会卡住后续事件"] = () => {
 
 tests["1MB 单条消息不会打爆渲染"] = () => {
   const g = createGraph({ sessionId: "huge" });
-  const u = addUserNode(g, { seq: 1, text: `必须保持接口不变。${"长".repeat(1_000_000)}` });
+  const u = addUserNodeId(g, { seq: 1, text: `必须保持接口不变。${"长".repeat(1_000_000)}` });
   const e = addEdge(g, { from: u, intent: "处理一个超大消息", action: "bash(cat huge.txt)" });
   settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: out of memory" });
   const ledger = renderLedger(g, { maxTokens: 500 });
@@ -78,7 +78,7 @@ tests["1MB 单条消息不会打爆渲染"] = () => {
 
 tests["约束抽取遇到空/非字符串不崩"] = () => {
   const g = createGraph({ sessionId: "weird" });
-  addUserNode(g, { seq: 1, text: "必须保持接口不变。" });
+  addUserNodeId(g, { seq: 1, text: "必须保持接口不变。" });
   const cons = collectConstraints(g);
   if (!Array.isArray(cons)) throw new Error("应返回数组");
   if (cons.some((c) => typeof c !== "string")) throw new Error("应全是字符串");

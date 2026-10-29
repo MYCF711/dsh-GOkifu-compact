@@ -8,14 +8,14 @@
  *   · 无论多少条：根用户的约束必须在
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
 
 export const tests = {};
 
 function buildGraph(n) {
   const g = createGraph({ sessionId: "scale" });
-  const u = addUserNode(g, { seq: 1, text: "必须保持公开 API 响应字段不变，不要动 prod 配置。把测试跑绿。" });
+  const u = addUserNodeId(g, { seq: 1, text: "必须保持公开 API 响应字段不变，不要动 prod 配置。把测试跑绿。" });
   let last = u;
   for (let i = 0; i < n; i += 1) {
     const e = addEdge(g, { from: last, intent: `第 ${i} 次尝试：换一种缓存策略`, action: `bash(npm test -- case${i})`, evidence: { start: i * 10 + 2, end: i * 10 + 5 } });

@@ -14,7 +14,7 @@
  *   4. renderFacts 不受影响。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts, fallbackStatusOf, _internal } from "../src/ledger.mjs";
 
 const { pickFallback } = _internal;
@@ -24,7 +24,7 @@ const { pickFallback } = _internal;
 /** 长路径 + 大量失败边：必然落到 L4/L5 兜底。 */
 function fatGraph({ hops = 10, failures = 3000, sessionId = "fx-fat" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "目标".repeat(400) });
+  const u = addUserNodeId(g, { seq: 1, text: "目标".repeat(400) });
   let cursor = u;
   const ids = [u];
   for (let i = 0; i < hops; i += 1) {
@@ -45,7 +45,7 @@ function fatGraph({ hops = 10, failures = 3000, sessionId = "fx-fat" } = {}) {
 /** 长路径但内容不大：用来测「路径行额度」。 */
 function longChain({ hops = 200, sessionId = "fx-long" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   let cursor = u;
   const ids = [u];
   for (let i = 0; i < hops; i += 1) {
@@ -67,7 +67,7 @@ const pathLines = (text) => text.split("\n").filter((l) => /^(CURRENT PATH:|WORK
 export const tests = {
   "P5-1 正常图：fallback=\"none\"，overBudgetBy=0，budgetMax=请求值"(t) {
     const g = createGraph({ sessionId: "fx-ok" });
-    addUserNode(g, { seq: 1, text: "hi" });
+    addUserNodeId(g, { seq: 1, text: "hi" });
     const r = renderLedger(g, { maxTokens: 500 });
     t.eq(r.fallback, "none", "正常图必须 none");
     t.eq(r.overBudgetBy, 0, "不得有超出量");

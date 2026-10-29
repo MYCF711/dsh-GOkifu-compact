@@ -1,6 +1,6 @@
 import {
   createGraph,
-  addUserNode,
+  addUserNodeId,
   addAgentNode,
   addEdge,
   settleEdge,
@@ -13,13 +13,13 @@ import {
   fromJSON,
   toJSON,
   hashSet,
-} from "../src/graph.mjs";
+} from "./graph-fixtures.mjs";
 
 export const tests = {
   "用户节点的原话逐字保存（不被 norm 改写）"() {
     const g = createGraph({ sessionId: "s1" });
     const text = "必须 用   两个空格\n\n\n不许改配色";
-    const id = addUserNode(g, { seq: 1, text });
+    const id = addUserNodeId(g, { seq: 1, text });
     if (g.nodes[id].text !== text) throw new Error(`原话被改写：${JSON.stringify(g.nodes[id].text)}`);
   },
 
@@ -35,7 +35,7 @@ export const tests = {
 
   "状态哈希相同 ⇒ 置换：不新建节点，返回命中"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "目标：修好测试" });
+    const u = addUserNodeId(g, { seq: 1, text: "目标：修好测试" });
     const e1 = addEdge(g, { from: u, intent: "先试 A", action: "bash(test)" });
     const n1 = addAgentNode(g, { seq: 5, goal: "A 完成", worldHash: "W1", constraintHash: "C1", via: e1 });
     settleEdge(g, e1, { to: n1.id, result: "failure", errorSnippet: "AssertionError: x" });
@@ -50,7 +50,7 @@ export const tests = {
 
   "不同状态 ⇒ 两个节点"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "x" });
+    const u = addUserNodeId(g, { seq: 1, text: "x" });
     const e1 = addEdge(g, { from: u, action: "a" });
     const n1 = addAgentNode(g, { seq: 3, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 });
     const e2 = addEdge(g, { from: u, action: "b" });
@@ -60,7 +60,7 @@ export const tests = {
 
   "pending 状态不入置换表（回填前不误判）"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "x" });
+    const u = addUserNodeId(g, { seq: 1, text: "x" });
     const e1 = addEdge(g, { from: u, action: "a" });
     const n1 = addAgentNode(g, { seq: 3, goal: "", worldHash: "pending", constraintHash: "pending", via: e1 });
     const e2 = addEdge(g, { from: u, action: "b" });
@@ -71,7 +71,7 @@ export const tests = {
 
   "置换合并：from 节点的入边改指向 into，节点移除"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "x" });
+    const u = addUserNodeId(g, { seq: 1, text: "x" });
     const e1 = addEdge(g, { from: u, action: "a" });
     const n1 = addAgentNode(g, { seq: 3, goal: "", worldHash: "pending", constraintHash: "pending", via: e1 });
     const e2 = addEdge(g, { from: n1.id, action: "b" });
@@ -86,7 +86,7 @@ export const tests = {
 
   "currentPath 沿 via 从根走到当前"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "root" });
+    const u = addUserNodeId(g, { seq: 1, text: "root" });
     const e1 = addEdge(g, { from: u, action: "a" });
     const n1 = addAgentNode(g, { seq: 3, goal: "g1", worldHash: "W1", constraintHash: "C1", via: e1 });
     settleEdge(g, e1, { to: n1.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
@@ -99,7 +99,7 @@ export const tests = {
 
   "failureEdges 只返回失败，按 id 数字序"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "x" });
+    const u = addUserNodeId(g, { seq: 1, text: "x" });
     const ids = [];
     for (let i = 0; i < 12; i += 1) {
       const e = addEdge(g, { from: u, intent: `i${i}`, action: `a${i}` });
@@ -114,7 +114,7 @@ export const tests = {
 
   "validate 抓到「失败边没有原因」与「user 原话为空」"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "" });
+    const u = addUserNodeId(g, { seq: 1, text: "" });
     const e = addEdge(g, { from: u, action: "x" });
     settleEdge(g, e, { result: "failure", verify: { kind: "none", summary: "" }, errorSnippet: "" });
     const problems = validate(g);
@@ -124,7 +124,7 @@ export const tests = {
 
   "序列化往返后图等价"() {
     const g = createGraph({ sessionId: "s1", cwd: "/tmp" });
-    const u = addUserNode(g, { seq: 1, text: "必须保持" });
+    const u = addUserNodeId(g, { seq: 1, text: "必须保持" });
     const e = addEdge(g, { from: u, action: "bash(ls)" });
     settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
     const back = fromJSON(toJSON(g));
@@ -133,7 +133,7 @@ export const tests = {
 
   "renderMd 出人读棋谱（含节点、边、结果、置换标记）"() {
     const g = createGraph({ sessionId: "s-demo" });
-    const u = addUserNode(g, { seq: 1, text: "把压缩改成增量" });
+    const u = addUserNodeId(g, { seq: 1, text: "把压缩改成增量" });
     const e = addEdge(g, { from: u, intent: "先改范围选择", action: "edit(range.mjs)" });
     const n = addAgentNode(g, { seq: 4, goal: "改完范围", worldHash: "abc123", constraintHash: "def456", via: e });
     settleEdge(g, e, { to: n.id, result: "failure", errorSnippet: "TypeError: x is undefined" });
@@ -151,9 +151,9 @@ export const tests = {
 
 // ── P0（审查发现）：合并非叶子节点时出边也要改指向 ──
 tests["mergeNodeInto 合并非叶子节点：入边与出边都改指向，不留悬空"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, mergeNodeInto, validate } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, mergeNodeInto, validate } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "merge-mid" });
-  const u = addUserNode(g, { seq: 1, text: "必须保持接口不变。" });
+  const u = addUserNodeId(g, { seq: 1, text: "必须保持接口不变。" });
   const e1 = addEdge(g, { from: u, intent: "第一步", action: "bash(a)" });
   const mid = addAgentNode(g, { seq: 2, turn: 1, goal: "中间节点", worldHash: "W1", constraintHash: "C1", via: e1.id });
   settleEdge(g, e1, { to: mid.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
@@ -174,9 +174,9 @@ tests["mergeNodeInto 合并非叶子节点：入边与出边都改指向，不�
 
 // ── 手割分析（tewari）：判断一条失败边是不是纯亏 ──
 tests["tewari：同型判定 —— 失败终点不在标准定式上 → different"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tewari" });
-  const u = addUserNode(g, { seq: 1, text: "把数据算出来" });
+  const u = addUserNodeId(g, { seq: 1, text: "把数据算出来" });
   const eBad = addEdge(g, { from: u, intent: "直接改 prod 配置", action: "edit(prod.yml)" });
   settleEdge(g, eBad, { result: "failure", verify: { kind: "host-error", summary: "EACCES" }, errorSnippet: "EACCES: permission denied" });
   const eGood = addEdge(g, { from: u, intent: "改测试环境配置", action: "edit(staging.yml)" });
@@ -191,9 +191,9 @@ tests["tewari：同型判定 —— 失败终点不在标准定式上 → differ
 };
 
 tests["tewari：没有标准定式可比 → different(unknown)"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, tewariAnalysis } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, tewariAnalysis } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tewari2" });
-  const u = addUserNode(g, { seq: 1, text: "唯一尝试" });
+  const u = addUserNodeId(g, { seq: 1, text: "唯一尝试" });
   const e = addEdge(g, { from: u, intent: "唯一的路", action: "try()" });
   settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "boom" });
   const r = tewariAnalysis(g, g.edges[e]);
@@ -202,9 +202,9 @@ tests["tewari：没有标准定式可比 → different(unknown)"] = async () => 
 };
 
 tests["tewari：标准定式能到但绕路 → vsBaseline=longer"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tewari3" });
-  const u = addUserNode(g, { seq: 1, text: "目标 C" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标 C" });
   // 失败路：u -> X -> C
   const eBad = addEdge(g, { from: u, intent: "绕路尝试", action: "x()" });
   const nX = addAgentNode(g, { seq: 2, turn: 1, goal: "X", worldHash: "WX", constraintHash: "C1", via: eBad.id });
@@ -222,9 +222,9 @@ tests["tewari：标准定式能到但绕路 → vsBaseline=longer"] = async () =
 };
 
 tests["tewari：探出标准定式没走过的节点 → probes 非空（有价值）"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, tewariAnalysis } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tewari4" });
-  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标" });
   const eBad = addEdge(g, { from: u, intent: "先试错的方案", action: "try_x()" });
   const nX = addAgentNode(g, { seq: 2, turn: 1, goal: "X", worldHash: "WX", constraintHash: "C1", via: eBad });
   settleEdge(g, eBad, { to: nX.id, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "boom" });
@@ -238,9 +238,9 @@ tests["tewari：探出标准定式没走过的节点 → probes 非空（有价�
 
 // ── 三层文件树（v1.2.0）：index / nodes / raw ──
 tests["三层文件树：index.md 含所有节点链接与出边状态"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderIndexMd } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, renderIndexMd } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tree" });
-  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标" });
   const e1 = addEdge(g, { from: u, intent: "跑测试", action: "test()" });
   const n1 = addAgentNode(g, { seq: 2, turn: 1, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e1 });
   settleEdge(g, e1, { to: n1.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });
@@ -251,9 +251,9 @@ tests["三层文件树：index.md 含所有节点链接与出边状态"] = async
 };
 
 tests["三层文件树：单节点 md 含评语 / 入边 / 出边 / raw 链接"] = async () => {
-  const { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderNodeMd } = await import("../src/graph.mjs");
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, renderNodeMd } = await import("./graph-fixtures.mjs");
   const g = createGraph({ sessionId: "tree2" });
-  const u = addUserNode(g, { seq: 1, text: "目标" });
+  const u = addUserNodeId(g, { seq: 1, text: "目标" });
   const e1 = addEdge(g, { from: u, intent: "跑测试", action: "test()" });
   const n1 = addAgentNode(g, { seq: 2, turn: 1, goal: "跑测试这个目标", worldHash: "W1", constraintHash: "C1", via: e1 });
   settleEdge(g, e1, { to: n1.id, result: "success", verify: { kind: "exit", summary: "exit 0" } });

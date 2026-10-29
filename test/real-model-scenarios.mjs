@@ -19,7 +19,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createGraph, addUserNode, addEdge, settleEdge } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge } from "./graph-fixtures.mjs";
 import { renderFacts, renderLedger } from "../src/ledger.mjs";
 import { extractConstraintsBlock } from "../src/summary-prompt.mjs";
 
@@ -76,7 +76,7 @@ const SCENARIOS = [
 function buildGraph(scenario) {
   const g = createGraph({ sessionId: scenario.id });
   const cons = CONSTRAINT_POOL.slice(0, scenario.constraints).join(" ");
-  const u = addUserNode(g, { seq: 1, text: `把 data.jsonl 里的有效记录数算出来，并修好解析器。${cons}` });
+  const u = addUserNodeId(g, { seq: 1, text: `把 data.jsonl 里的有效记录数算出来，并修好解析器。${cons}` });
   let last = u;
   for (let i = 0; i < scenario.failures; i += 1) {
     const [intent, err] = FAIL_KINDS[i % FAIL_KINDS.length];
