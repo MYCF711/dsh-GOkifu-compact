@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T19:20:08.126Z",
+  "generatedAt": "2026-10-29T09:53:20.453Z",
   "edges": 2000,
   "nodes": 2001,
   "failures": 1201,
@@ -8,13 +8,13 @@
   "ledgerOmitted": 1191,
   "factsChars": 81167,
   "mdChars": 386945,
-  "jsonBytes": 1477526,
+  "jsonBytes": 1477550,
   "ms": {
     "observePair": 0.008,
-    "renderLedger": 0.478,
-    "renderFacts": 1.143,
-    "renderMd": 1.162,
-    "serialize": 3.426,
+    "renderLedger": 0.465,
+    "renderFacts": 1.054,
+    "renderMd": 1.199,
+    "serialize": 3.407,
     "selectRange": 0.007
   }
 }

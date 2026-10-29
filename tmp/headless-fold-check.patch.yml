@@ -1,0 +1,18 @@
+# 自动生成（test/real-headless-fold.mjs）：用 dsh-gokifu-compact 替换 compaction-basic，阈值压到很小
+- id: compaction-basic
+  disabled: true
+- id: compaction-tool-result-pruner
+  disabled: true
+- insert:
+    - id: chess-context
+      name: 'dsh-gokifu-compact/engine'
+      config:
+        thresholdRatio: 0.002
+        headroomTokens: 1000
+        retainRatio: 0.001
+        growthFloorTokens: 0
+        minFoldTokens: 100
+        summaryMode: rules
+        maxTokens: 1024
+        hotLedger: true
+        auto: true

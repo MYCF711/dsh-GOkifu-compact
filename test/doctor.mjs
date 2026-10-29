@@ -198,6 +198,11 @@ let lastFold = null;
 let todayFolds = 0;
 let todayShadow = 0;
 let todaySessions = 0;
+// ★ 2026-10-29：图结构健康度（自环 = 图坍缩；它会让 dead/redundant 标记全错）
+let graphEdges = 0;
+let graphNodes = 0;
+let selfLoops = 0;
+let collapsedGraphs = 0;
 const todayStart = new Date();
 todayStart.setHours(0, 0, 0, 0);
 const today0 = todayStart.getTime();
@@ -211,6 +216,16 @@ if (nodeFs.existsSync(chessRoot)) {
     newestFlush = Math.max(newestFlush, mtime);
     try {
       const g = fromJSON(nodeFs.readFileSync(f, "utf8"));
+      {
+        const es = Object.values(g.edges ?? {});
+        const ns = Object.keys(g.nodes ?? {}).length;
+        let sl = 0;
+        for (const e of es) if (e.from && e.to && e.from === e.to) sl += 1;
+        graphEdges += es.length;
+        graphNodes += ns;
+        selfLoops += sl;
+        if (es.length > 0 && sl / es.length >= 0.05) collapsedGraphs += 1;
+      }
       for (const node of Object.values(g.nodes ?? {})) {
         if (node?.kind !== "agent") continue;
         agents += 1;
@@ -235,6 +250,18 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+{
+  const rate = graphEdges > 0 ? (selfLoops / graphEdges) * 100 : 0;
+  const ratio = graphNodes > 0 ? graphEdges / graphNodes : 0;
+  add(
+    "图结构（自环）",
+    collapsedGraphs === 0 ? "ok" : "warn",
+    `边 ${graphEdges} / 节点 ${graphNodes} / 自环 ${selfLoops} = ${rate.toFixed(1)}% / 边节点比 ${ratio.toFixed(2)}` +
+      (collapsedGraphs === 0
+        ? "（0 个坍缩图）"
+        : `（${collapsedGraphs} 个图坍缩 —— 旧版遗留边；热清单的 dead/redundant 标记在这些会话上不可信）`),
+  );
+}
 const cost = lastFold ?? (logUsage === null ? null : { ...logUsage, source: "会话日志" });
 add(
   "今天 fold 的总量",

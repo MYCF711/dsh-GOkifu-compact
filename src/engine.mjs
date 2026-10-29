@@ -71,7 +71,11 @@ export const Config = z.object({
   retainTokens: z.number().description("逐字保留的近期尾部（绝对 token）；与 retainRatio 互斥"),
   summarizationProvider: z.string().default("").description("摘要模型 provider；留空=跟随最近一次路由"),
   summarizationModel: z.string().default("").description("摘要模型 model；留空=跟随最近一次路由"),
-  maxTokens: z.number().default(4096).description("摘要输出上限"),
+  // ★ 2026-10-29：默认值统一到 8192。旧的三处默认互相矛盾（Config 4096 / resolveChess 2048 /
+  //   安装配置 8192），而 3072~4096 在真实会话里会贴边触发 MAX_TOKENS
+  //   （实测 10-28 有 82 次 `summarization truncated at the token cap`）。
+  //   8192 与桌面 preset 实际使用的值一致，Kimi 评估的 5/15/30 条失败边抽样全部通过。
+  maxTokens: z.number().default(8192).description("摘要输出上限"),
   compactionRetries: z.number().default(1),
   maxOverflowRetries: z.number().default(1),
   modelPolicies: z.array(z.any()).default([]),
@@ -169,6 +173,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       lastLedgerDigest: "",
       events: 0,
       legacyElided: false,
+      // ★ 2026-10-29：压缩连续失败计数（热清单告警用）。成功一次清零。
+      foldFailures: 0,
+      lastFoldError: "",
     };
     const g = this.#graph(session);
     // 从磁盘恢复触碰集合与最后节点
@@ -305,16 +312,23 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           if (n > 0) ctx.logger?.info?.(`chess-context: 清理历史清单 ${n} 条（换成一行占位，surface 不再背旧账）`);
         }
         const g = this.#graph(session);
-        if (failureEdges(g).length === 0) return decision;
+        // ★ 2026-10-29（三份评估共同的 P0-2）：压缩「连续失败」必须被看见。
+        //   实测今天：摘要模型配错 ⇒ 856 次失败 / 5.5 小时，全程只写 logger.warn，
+        //   人靠上下文涨到 85 万才发现。热清单是唯一必然进 prompt 的位置，警告写在这里。
+        //   一条失败边都没有时也要注入 —— 「没有失败边 + 压缩坏了」才是最危险的组合。
+        const warning = foldFailureWarning(st);
+        if (failureEdges(g).length === 0 && warning === "") return decision;
         const ledger = renderLedger(g, {
           maxTokens: this.chess.hotLedgerMaxTokens,
           markers: this.chess.hotLedgerMarkers,
           treeDir: this.#sessionDir(session),
         });
-        if (!ledger.text || ledger.tokens === 0) return decision;
+        const ledgerText = warning === "" ? ledger.text : `${warning}
+${ledger.text}`;
+        if (!ledgerText) return decision;
         // digest 只算「骨架」：失败边集合 + 根目标 + 约束。
         // 不含 CURRENT PATH / CURRENT GOAL —— 它们每步都变，会让清单每步重注入一次（实测 6 条/轮）。
-        const digest = ledgerDigest(g);
+        const digest = warning === "" ? ledgerDigest(g) : `${ledgerDigest(g)}|fold-fail-${st.foldFailures}`;
         // ★ P1-4 彻底修法（2026-10-29）：surface 上**只留一条**热清单。
         //   旧版每次都**追加**一条新 user 消息、旧的不替换 —— 实测真实会话累积 131 条 / 508,308 字符
         //   （约 20 万 token）：一个压缩插件自己的热上下文成了最大的上下文消费者。
@@ -323,21 +337,22 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         //   用的就是这个机制，真实包上的行为见 test/real-ledger-replace.mjs）。
         const existing = currentLedgerNode(session);
         // 内容一字不差：不动（既不写日志，也不碰 surface 的 contentGeneration）
-        if (existing && messageTextOf(existing.message) === ledger.text) return decision;
+        if (existing && messageTextOf(existing.message) === ledgerText) return decision;
 
         // 限流（与旧版一致：两次注入至少隔 40 个事件、失败边至少多 5 条）——
         // 替换不占额外 prompt，但会写一条日志事件并推进 surface 的 contentGeneration，
         // 所以节奏保持原样，只把「累积」这一条去掉。
         // 唯一例外：清单被 fold 压掉了（surface 上没有它）却又和上次同源 ⇒ 必须补回来。
         const lostToFold = existing === null && st.lastLedgerDigest === digest && st.lastLedgerFailureCount !== undefined;
-        if (!lostToFold) {
+        // 告警不走限流：它出现的那一刻就是必须被看见的那一刻。
+        if (!lostToFold && warning === "") {
           if (typeof st.lastLedgerInjectSeq === "number" && session.seq - st.lastLedgerInjectSeq < 40) return decision;
           if (typeof st.lastLedgerFailureCount === "number" && ledger.failureCount < st.lastLedgerFailureCount + 5) return decision;
           if (st.lastLedgerDigest === digest && existing) return decision;
         }
 
         const message = createUserMessage({
-          content: [{ type: "text", text: ledger.text }],
+          content: [{ type: "text", text: ledgerText }],
           source: { kind: "chess-context", form: "ledger", digest },
         });
 
@@ -618,6 +633,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     } catch (error) {
       // fold 真的抛错：恢复图，保证「foldCount 没变 ⇒ 图也没变」
       restore();
+      st.foldFailures += 1;
+      st.lastFoldError = String(error?.message ?? error).slice(0, 180);
       this.#flush(session);
       throw error;
     } finally {
@@ -629,6 +646,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       return null;
     }
     const after = meter.measure(session);
+    // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
+    st.foldFailures = 0;
+    st.lastFoldError = "";
     g.foldCount += 1;
     g.lastFoldTotalTokens = after.totalTokens;
     // 记「checkpoint 消息的 seq」，不是被遮蔽区间的起点 —— 后者 fold 之后已不在 surface 上，
@@ -653,7 +673,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       totalAfter: after.totalTokens,
     });
     this.#tier2(session, g);
-    this.#flush(session, { md: true });
+    // ★ 2026-10-29 修复：这里原来传的是 `{ md: true }`，而 `#flush(session, { tree = false })`
+    //   只认 `tree` —— 参数名不匹配 ⇒ fold 后**从不**重写 `nodes/*.md`，
+    //   压缩后的节点详情停在第一次落盘的样子（Kimi 评估实测发现）。
+    this.#flush(session, { tree: true });
     this.ctx.logger?.info?.(
       `chess-context: fold #${g.foldCount} 遮蔽 ${range.end - range.start >= 0 ? `${range.start}-${range.end}` : "?"} (~${range.shadowedTokens} tokens) → 总 ${after.totalTokens} tokens（死路 ${failureEdges(g).length} 条，节点 ${g.order.length}）`,
     );
@@ -715,6 +738,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
 /* ────────────────────────────── 辅助 ────────────────────────────── */
 
+/**
+ * 热清单里的「压缩失效」告警行。
+ * 只有当前确实连续失败时才出现（成功一次就清零）—— 它是状态，不是历史账本。
+ */
+function foldFailureWarning(st) {
+  if (typeof st?.foldFailures !== "number" || st.foldFailures <= 0) return "";
+  const err = String(st.lastFoldError ?? "").replace(/\s+/g, " ").trim().slice(0, 150);
+  return (
+    `⚠ CONTEXT COMPRESSION IS FAILING (${st.foldFailures} consecutive folds failed${err ? `; last error: ${err}` : ""}). ` +
+    "The conversation above was NOT compacted — context keeps growing and will keep costing more. " +
+    "Tell the user once, then continue; do not retry the failing summarizer yourself."
+  );
+}
+
 function resolveChess(config) {
   const c = config ?? {};
   const mode = SUMMARY_MODE.has(c.summaryMode) ? c.summaryMode : "hybrid";
@@ -726,7 +763,7 @@ function resolveChess(config) {
     retainTokens: numberOrUndefined(c.retainTokens),
     summarizationProvider: str(c.summarizationProvider, ""),
     summarizationModel: str(c.summarizationModel, ""),
-    maxTokens: num(c.maxTokens, 2048),
+    maxTokens: num(c.maxTokens, 8192),
     growthFloorTokens: num(c.growthFloorTokens, 40000),
     minFoldTokens: num(c.minFoldTokens, 8000),
     hotLedger: c.hotLedger !== false,

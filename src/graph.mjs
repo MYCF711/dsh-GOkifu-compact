@@ -104,9 +104,14 @@ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintH
   // 落账阶段还没有真实状态哈希（要 stat 文件，成本高）——先占位，fold 前回填。
   const pending = worldHash === "pending" || constraintHash === "pending";
   const key = `${worldHash}/${constraintHash}`;
+  // ★ 2026-10-29 修复（自环，全库 60.9%）：置换只应命中**更早的**状态，
+  //   绝不该命中本步的起点。`via` 边的 from 就是本步起点；命中它 = 原地打转，
+  //   不是「殊途同归」。旧版无条件复用 ⇒ `step/end` 把边的 to 指回起点 ⇒ `from === to`，
+  //   图坍缩成自环（a0d03648: 530 边 / 23 节点），并让 tewari 的 dead 判定 109/109 全错。
+  const originId = via && g.edges[via] ? g.edges[via].from ?? null : null;
   if (!pending) {
     const existing = g.stateIndex[key];
-    if (existing !== undefined) {
+    if (existing !== undefined && existing !== originId && g.nodes[existing]) {
       return { id: existing, transposition: { nodeId: existing, hops: hopsBetween(g, via, existing) } };
     }
   }
@@ -386,6 +391,35 @@ function appendEdgeLine(lines, e) {
 }
 
 /**
+ * 图健康度（2026-10-29）—— 自环与边/节点比。
+ *
+ * 自环边（`from === to`）意味着「这一步没有移动」：DAG 的每条边本应让局面前进。
+ * 全库实测（修复前）**60.9%** 是自环，直接把棋谱塌成一堆原地打转的边：
+ *   · `tewariAnalysis` 的同终点判定恒真 ⇒ `dead` 109/109 全错、`redundant` 135 条全假
+ *   · 三层树的缩进深度不再前进
+ * 健康阈值只看**自环率 < 5%**。边/节点比只作信息：一个 step 若有 K 次工具调用，
+ * 就产生 K 条边 + 1 个节点，K=2~5 是常态（实测健康会话 1.5~3.4），不能当缺陷。
+ *
+ * @returns {{edges:number, nodes:number, selfLoops:number, selfLoopRate:number, edgePerNode:number, healthy:boolean}}
+ */
+export function graphHealth(g) {
+  const edges = Object.values(g?.edges ?? {});
+  const nodes = Object.keys(g?.nodes ?? {}).length;
+  let selfLoops = 0;
+  for (const e of edges) if (e.from && e.to && e.from === e.to) selfLoops += 1;
+  const edgePerNode = nodes > 0 ? edges.length / nodes : 0;
+  const selfLoopRate = edges.length > 0 ? selfLoops / edges.length : 0;
+  return {
+    edges: edges.length,
+    nodes,
+    selfLoops,
+    selfLoopRate,
+    edgePerNode,
+    healthy: selfLoopRate < 0.05,
+  };
+}
+
+/**
  * 校验不变量，返回问题清单（空数组=健康）。
  * 这些不变量是「棋谱可回溯」的底线，任何一条破了，热上下文就不该相信这张图。
  */
@@ -426,10 +460,15 @@ export function tewariAnalysis(g, edge) {
   const from = edge.from;
   const to = edge.to;
   if (!from || !g.nodes[from]) return null;
+  // ★ 2026-10-29：自环边（from === to）不代表任何移动 —— 它不是「走到某个局面」，
+  //   谈不上「殊途同归」或「绕路」。历史图里 60.9% 的边是这种（旧版 stateIndex 复用起点导致），
+  //   必须在这里挡掉；否则同一步的兄弟命令会互相成为「替代路径」，
+  //   dead 判定实测 109/109 全错（把「同一步另一条命令成功了」说成「有工作路径避开它」）。
+  if (from === to) return null;
 
-  // 同一起点的成功出边（排除自身）
+  // 同一起点的成功出边（排除自身；自环成功边不算替代路径 —— 它没有离开起点）
   const alts = Object.values(g.edges).filter(
-    (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && g.nodes[e.to],
+    (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && e.to !== e.from && g.nodes[e.to],
   );
 
   // ★ 多参照点（v1.0.0）：对**每条**成功出边单独判定，而不是取并集。
@@ -544,7 +583,16 @@ export function failureClass(edge, tewari) {
 
   // 2) 有证据的 dead：同起点有成功路径，失败**有终点**且终点不在任何成功路径上。
   //    to 为 null（没走到任何节点）不算证据 —— 只说明试过没成，不能证明「有替代」。
-  if (tewari && tewari.alternatives > 0 && edge?.to && tewari.probes?.length === 0 && tewari.vsBaseline !== "longer") {
+  //    ★ 2026-10-29：`to !== from` 必查 —— 自环边没有离开起点，不存在「绕开它的路径」
+  //      （旧版漏了这一条，实测 109/109 条 dead 全是同一步兄弟命令的伪影）。
+  if (
+    tewari &&
+    tewari.alternatives > 0 &&
+    edge?.to &&
+    edge.to !== edge.from &&
+    tewari.probes?.length === 0 &&
+    tewari.vsBaseline !== "longer"
+  ) {
     return { kind: "dead", reason: "a-working-path-avoids-it", revisitIf: "working path fails" };
   }
 

@@ -22,7 +22,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
-import { fromJSON, toJSON } from "../src/graph.mjs";
+import { fromJSON, toJSON, graphHealth } from "../src/graph.mjs";
 import { renderFacts, renderLedger } from "../src/ledger.mjs";
 
 function defaultRoot() {
@@ -56,6 +56,12 @@ for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
     stateIndexAfter: 0,
     factsChars: 0,
     ledgerTokens: 0,
+    edges: 0,
+    nodes: 0,
+    selfLoops: 0,
+    selfLoopRate: 0,
+    edgePerNode: 0,
+    warnings: [],
     problems: [],
   };
 
@@ -116,6 +122,18 @@ for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
     row.problems.push(`renderLedger 抛错：${String(error)}`);
   }
 
+  const h = graphHealth(g);
+  row.edges = h.edges;
+  row.nodes = h.nodes;
+  row.selfLoops = h.selfLoops;
+  row.selfLoopRate = h.selfLoopRate;
+  row.edgePerNode = h.edgePerNode;
+  if (h.selfLoopRate >= 0.05) {
+    row.warnings.push(`自环 ${h.selfLoops}/${h.edges} = ${(h.selfLoopRate * 100).toFixed(1)}% 图已坍缩，手割结论不可信`);
+  }
+  // 边/节点比只是信息：一步 K 次工具调用 ⇒ K 条边 + 1 节点。>8 才可能是异常（重试风暴）。
+  if (h.edgePerNode > 8) row.warnings.push(`边/节点 ${h.edgePerNode.toFixed(2)} 大于 8，疑似重试风暴`);
+
   const round = JSON.parse(toJSON(g));
   const objectAfterRound = agentsOf(round).filter((n) => typeof n.worldHash === "object" && n.worldHash !== null).length;
   if (objectAfterRound > 0) row.problems.push(`重新序列化后仍有 ${objectAfterRound} 个对象`);
@@ -132,11 +150,30 @@ const total = rows.reduce(
     after: acc.after + r.objectWorldHashAfter,
     idxBefore: acc.idxBefore + r.stateIndexBefore,
     idxAfter: acc.idxAfter + r.stateIndexAfter,
+    edges: acc.edges + r.edges,
+    nodes: acc.nodes + r.nodes,
+    selfLoops: acc.selfLoops + r.selfLoops,
+    unhealthyGraphs: acc.unhealthyGraphs + (r.selfLoopRate >= 0.05 ? 1 : 0),
   }),
-  { sessions: 0, agents: 0, before: 0, after: 0, idxBefore: 0, idxAfter: 0 },
+  { sessions: 0, agents: 0, before: 0, after: 0, idxBefore: 0, idxAfter: 0, edges: 0, nodes: 0, selfLoops: 0, unhealthyGraphs: 0 },
 );
 
-const summary = { root, sessions: total.sessions, agents: total.agents, objectWorldHash: { before: total.before, after: total.after }, stateIndex: { before: total.idxBefore, after: total.idxAfter }, unhealthySessions: bad };
+const summary = {
+  root,
+  sessions: total.sessions,
+  agents: total.agents,
+  objectWorldHash: { before: total.before, after: total.after },
+  stateIndex: { before: total.idxBefore, after: total.idxAfter },
+  unhealthySessions: bad,
+  graphHealth: {
+    edges: total.edges,
+    nodes: total.nodes,
+    selfLoops: total.selfLoops,
+    selfLoopRate: total.edges > 0 ? total.selfLoops / total.edges : 0,
+    edgePerNode: total.nodes > 0 ? total.edges / total.nodes : 0,
+    collapsedGraphs: total.unhealthyGraphs,
+  },
+};
 
 if (asJson) {
   console.log(JSON.stringify({ summary, rows }, null, 1));
@@ -157,7 +194,19 @@ if (asJson) {
       `对象 worldHash ${summary.objectWorldHash.before} → ${summary.objectWorldHash.after} / ` +
       `stateIndex ${summary.stateIndex.before} → ${summary.stateIndex.after}`,
   );
-  console.log(bad === 0 ? "\n== 全部健康 ==" : `\n== ${bad} 个会话不健康 ==`);
+  const gh = summary.graphHealth;
+  console.log(
+    "图结构：边 " + gh.edges + " / 节点 " + gh.nodes + " / 自环 " + gh.selfLoops +
+      " = " + (gh.selfLoopRate * 100).toFixed(1) + "% / 边节点比 " + gh.edgePerNode.toFixed(2) +
+      " / 坍缩图 " + gh.collapsedGraphs + " 个",
+  );
+  console.log(bad === 0 ? "== 全部健康 ==" : bad + " 个会话不健康");
+  if (gh.collapsedGraphs > 0) {
+    console.log("");
+    console.log("⚠ " + gh.collapsedGraphs + " 个图存在自环坍缩（修复前版本产生的历史边）；新产生的边已不再自环。");
+    console.log("  历史边可用：node test/rewash-selfloop.mjs --apply（默认 dry-run）");
+  }
+
 }
 
 process.exitCode = bad === 0 ? 0 : 1;

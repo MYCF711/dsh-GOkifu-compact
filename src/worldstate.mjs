@@ -28,8 +28,17 @@ export function createWorldTracker({ cwd = "", maxFiles = MAX_STAT_FILES } = {})
     },
     /** 记录一次触碰（写类/命令类工具的参数或结果里出现的路径）。 */
     touch(paths) {
-      for (const p of paths ?? []) {
-        const abs = nodePath.isAbsolute(String(p)) ? String(p) : nodePath.resolve(cwd || process.cwd(), String(p));
+      // ★ 2026-10-29 修复（全库自环 60.9% 的根因之一）：调用点 `engine.mjs:195`
+      //   `st.touchPath = (p) => world.touch(p)` 传的是**单个路径字符串**，
+      //   而这里按可迭代对象遍历 ⇒ 一个路径被拆成逐字符的 20 多个「路径」。
+      //   后果链：触碰集合变成 {'.','D',':','/','m','a'…}（set 去重后只剩十来个字符）
+      //   ⇒ `hash()` 对所有会话、所有步骤返回**同一个哈希** ⇒ `stateIndex` 命中同一节点
+      //   ⇒ `step/end` 的边 to 指回本步起点 ⇒ 自环。
+      //   兼容 string 与 array 两种入参；单字符丢弃（旧数据里混进来的就是这类）。
+      const list = typeof paths === "string" ? [paths] : Array.isArray(paths) ? paths : [];
+      for (const p of list) {
+        if (typeof p !== "string" || p.length < 2) continue;
+        const abs = nodePath.isAbsolute(p) ? p : nodePath.resolve(cwd || process.cwd(), p);
         if (touched.size < 2000) touched.add(abs);
       }
     },

@@ -33,7 +33,9 @@ export const DEFAULTS = Object.freeze({
   growthFloorTokens: 40000,
   minFoldTokens: 8000,
   summaryMode: "hybrid",
-  maxTokens: 4096,
+  // ★ 2026-10-29：与 engine.mjs 的 Config 默认值、桌面 preset 的实际配置统一到 8192。
+  //   旧的三处不一致（4096 / 2048 / 8192），而 3072~4096 在真实会话里贴边触发 MAX_TOKENS。
+  maxTokens: 8192,
   summarizationProvider: "",
   summarizationModel: "",
   hotLedger: true,

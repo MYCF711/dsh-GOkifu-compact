@@ -6,6 +6,36 @@
 > 代码已在工作区、单测全绿，但**插件在 DSH 启动时加载，必须重启才生效**。
 > 重启后第一件事：`node test/verify-graphs.mjs`（见 `evidence/P0-worldhash-修复验证.md`）。
 
+## ⚠ 最新状态（2026-10-29 · 1.9.1）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.9.1**（工作区 = 已安装 junction 指向的源码，npm latest 仍是 1.8.1 —— 未发布） |
+| 单测 | **134 passed / 0 failed**（新增 `test/selfloop.test.mjs` 8 项 + harness 端到端 1 项） |
+| 全库自环 | **6,172 → 0**（`node test/rewash-selfloop.mjs --apply` 已执行） |
+| 未生效 | **必须重启 DSH**：正在跑的进程仍加载旧代码，会持续把自环写回（实测每分钟 +100 条） |
+
+### 这一版修了什么（三份独立评估共同指向的那个洞）
+
+`worldstate.touch()` 收到单个路径字符串却按可迭代对象遍历 ⇒ 路径被逐字符拆开 ⇒
+`worldHash` 对所有步骤恒定 ⇒ `addAgentNode` 每步命中同一 `stateIndex` 节点 ⇒
+`step/end` 把边的 `to` 指回 `from` ⇒ **全库 61.3% 的边是自环** ⇒
+`dead` 判定 109/109 全错、`redundant` 135 条全假 ⇒ 热清单告诉模型「这条路永远别试」。
+
+四处修复：`touch` 兼容 string/array、`addAgentNode` 禁止命中本步起点、
+`tewariAnalysis` 排除自环边、`failureClass` 要求 `to !== from`。
+另修：`#flush({md:true})` 键名写错（fold 后 nodes 从不刷新）、maxTokens 三处默认不一致（→8192）、
+压缩连续失败告警进热清单。
+
+**重启后的验收**：
+```bash
+node test/doctor.mjs          # 「图结构（自环）」应为 ✓（0 个坍缩图）
+node test/verify-graphs.mjs   # 图结构：自环 0 = 0.0%
+node test/rewash-selfloop.mjs # 若运行期又写出自环，说明修复没生效 —— 先查 worldstate.touch
+```
+
+---
+
 ## 一句话
 
 DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成

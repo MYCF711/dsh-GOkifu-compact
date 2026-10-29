@@ -1,0 +1,22 @@
+import fs from "node:fs";
+import { fromJSON, toJSON } from "../src/graph.mjs";
+import { renderFacts } from "../src/ledger.mjs";
+const file = "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-b85b-4e06-845a-65428b43d7c0/graph.json";
+const raw = fs.readFileSync(file, "utf8");
+const before = JSON.parse(raw);
+const agents = Object.values(before.nodes).filter(n => n && n.kind === "agent");
+const objCount = agents.filter(n => typeof n.worldHash === "object").length;
+console.log("原始 file bytes:", raw.length, " agent 节点:", agents.length, " worldHash 为对象的:", objCount);
+let crashed = null;
+try { renderFacts(before); } catch (e) { crashed = String(e); }
+console.log("修复前 renderFacts:", crashed ? "抛错 → " + crashed : "正常");
+const g = fromJSON(raw);
+const after = Object.values(g.nodes).filter(n => n && n.kind === "agent" && typeof n.worldHash === "object").length;
+console.log("fromJSON 修复后 worldHash 为对象的:", after, " stateIndex 条目:", Object.keys(g.stateIndex).length);
+const facts = renderFacts(g);
+console.log("修复后 renderFacts: 正常, 输出", facts.length, "字符");
+const m = facts.match(/CURRENT_STATE_KEY: [^\n]*/);
+console.log("CURRENT_STATE_KEY 行:", m ? m[0] : "(无)");
+const round = JSON.parse(toJSON(g));
+const remain = Object.values(round.nodes).filter(n => n && n.kind === "agent" && typeof n.worldHash === "object").length;
+console.log("重新序列化后对象残留:", remain);

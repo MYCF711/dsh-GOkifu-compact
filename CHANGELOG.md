@@ -1,5 +1,48 @@
 # 更新记录
 
+## 1.9.1 — 2026-10-29
+
+### 修图坍缩：全库 61.3% 的边是自环（三份独立评估共同指向）
+
+事故：`worldstate.touch(paths)` 收到的是**单个路径字符串**（`engine.mjs` 的
+`st.touchPath = (p) => world.touch(p)`），却按可迭代对象遍历 ⇒ 一个路径被拆成逐字符的
+20 多个「路径」⇒ 触碰集合是十来个字符 ⇒ `hash()` 对所有会话、所有步骤返回**同一个哈希**
+⇒ `addAgentNode` 每步命中同一 `stateIndex` 节点 ⇒ `step/end` 把边的 `to` 指回 `from`。
+
+实测：全库 **6,172 / 10,059 = 61.3%** 自环，边/节点 3.36，极端会话 530 边 / 23 节点。
+连锁后果：`tewariAnalysis` 的同终点判定恒真 ⇒ **`dead` 判定 109/109 全错**、
+`redundant` 135 条全假 ⇒ 热清单告诉模型「这条路永远别试」，真相只是「同一步里另一条命令成功了」。
+
+四处修复：
+- `worldstate.touch()`：兼容 string / array 入参，单字符丢弃
+- `addAgentNode()`：置换命中**本步起点**时强制新建节点（真正的置换——回到更早状态——照旧复用）
+- `tewariAnalysis()`：自环边不入手割；自环成功边不算替代路径
+- `failureClass()`：`edge.to !== edge.from` 才能判 `dead`
+
+### 修两个真 bug（评估中发现）
+
+- **fold 后 `nodes/*.md` 从不刷新**：`#flush(session, { md: true })` 的键名写错（签名是 `tree`）
+- **摘要上限三处默认互相矛盾**：Config 4096 / resolveChess 2048 / 安装配置 8192 ⇒ 统一 8192
+  （3072~4096 在真实会话里会贴边触发 `MAX_TOKENS`，历史 82 次）
+
+### 压缩失败不再静默
+
+- 连续失败计数进热清单：`⚠ CONTEXT COMPRESSION IS FAILING (N consecutive folds failed; last error: …)`，
+  成功一次即清零。此前只写 `logger.warn`，实测 856 次失败 / 5.5 小时无人知晓。
+
+### 诊断与清理工具
+
+- `graphHealth(g)`（`src/graph.mjs`）：自环数 / 自环率 / 边节点比
+- `doctor`：新增「图结构（自环）」一项
+- `verify-graphs`：报告图健康度，自环 ≥5% 标 ⚠
+- `test/rewash-selfloop.mjs`：清洗历史自环边（保留边与结果，只把 `to` 置 null），dry-run 默认、带备份
+- 已对全库执行：自环 **6,172 → 0**，坍缩图 **42 → 0**
+
+### 测试
+
+- 新增 `test/selfloop.test.mjs`（8 项）+ `engine-harness` 端到端 1 项 = **134 项全绿**
+- 之前的 125 项无一覆盖 `from === to` —— 这正是这个回归能躲过所有自测的原因
+
 ## 1.9.0 — 2026-10-29
 
 ### 「上下文压缩」详情页（DSH 原生 GUI 里的第三方插件页）

@@ -775,3 +775,44 @@ tests["llm 模式下摘要模型全挂 ⇒ 直接抛错（用户明确要模型�
   }
   if (!threw) throw new Error("llm 模式不该悄悄降级");
 };
+
+/**
+ * ★ 2026-10-29 自环回归（端到端）。
+ *
+ * 事故：`worldstate.touch()` 收到的是单个路径字符串却按可迭代对象遍历 ⇒ 触碰集合
+ * 变成十来个单字符 ⇒ `worldHash` 对所有步骤恒定 ⇒ `addAgentNode` 每步命中同一个
+ * `stateIndex` 节点 ⇒ `step/end` 把边的 `to` 指回 `from`（自环）。
+ * 全库 6,158/10,045 = 61.3%，并让 `dead` 判定 109/109 全错。
+ *
+ * 这条用例必须走 **keeper → engine → addAgentNode** 的真实路径：
+ * 纯函数单测传的是手工构造的哈希，正是它把「同一 stateKey 连续命中」这个场景藏住的。
+ */
+tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to 的边"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-selfloop" });
+  const ctx = makeCtx();
+  new Engine(ctx, { graphDir, auto: false });
+
+  await ctx.emitRaw("session/event", session, userEvent("只读核对一遍，不要改任何文件。", 1));
+  let seq = 2;
+  for (let step = 1; step <= 3; step += 1) {
+    const callId = `c${step}`;
+    await ctx.emitRaw("session/event", session, assistantEvent(callId, "bash", { command: "ls -la" }, seq++));
+    await ctx.emitRaw("session/event", session, resultEvent(callId, "a.txt\nb.txt\n[exit code: 0]", seq++));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: seq++, data: { turn: 1, step } });
+  }
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const g = readGraph(graphDir, "sess-selfloop");
+  const agents = Object.values(g.nodes).filter((n) => n.kind === "agent");
+  const selfLoops = Object.values(g.edges).filter((e) => e.from && e.to && e.from === e.to);
+  if (selfLoops.length > 0) {
+    throw new Error(
+      `端到端产生 ${selfLoops.length} 条自环边（${selfLoops.map((e) => `${e.id}:${e.from}→${e.to}`).join(",")}）—— ` +
+        "这就是热清单 dead 标记全错的根源",
+    );
+  }
+  if (agents.length < 3) throw new Error(`3 个只读 step 应产生 3 个状态节点（每步一个新局面），实际 ${agents.length}`);
+  const health = Object.values(g.edges).length / agents.length;
+  if (health > 2) throw new Error(`边/节点 ${health.toFixed(2)} > 2：图在原地打转`);
+};
