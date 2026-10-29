@@ -195,6 +195,12 @@ let objectHash = 0;
 let indexStale = 0;
 let newestFlush = 0;
 let lastFold = null;
+let todayFolds = 0;
+let todayShadow = 0;
+let todaySessions = 0;
+const todayStart = new Date();
+todayStart.setHours(0, 0, 0, 0);
+const today0 = todayStart.getTime();
 if (nodeFs.existsSync(chessRoot)) {
   for (const d of nodeFs.readdirSync(chessRoot, { withFileTypes: true })) {
     if (!d.isDirectory()) continue;
@@ -210,6 +216,11 @@ if (nodeFs.existsSync(chessRoot)) {
         agents += 1;
         if (node.worldHash && typeof node.worldHash === "object") objectHash += 1;
       }
+      const marks = g.foldMarks ?? [];
+      const todayMarks = marks.filter((m) => (m.at ?? 0) >= today0);
+      if (todayMarks.length > 0) todaySessions += 1;
+      todayFolds += todayMarks.length;
+      todayShadow += todayMarks.reduce((sum, m) => sum + (m.shadowedTokens ?? 0), 0);
       const u = g.lastFoldUsage;
       if (u && typeof u.at === "number" && (lastFold === null || u.at > lastFold.at)) {
         lastFold = { ...u, session: d.name, foldCount: g.foldCount ?? 0, mark: (g.foldMarks ?? []).at(-1) ?? null };
@@ -225,6 +236,13 @@ if (nodeFs.existsSync(chessRoot)) {
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
 const cost = lastFold ?? (logUsage === null ? null : { ...logUsage, source: "会话日志" });
+add(
+  "今天 fold 的总量",
+  todayFolds === 0 ? "warn" : "ok",
+  todayFolds === 0
+    ? "今天还没有 fold"
+    : `${todayFolds} 次（${todaySessions} 个会话）· 合计遮蔽 ${todayShadow.toLocaleString()} tokens`,
+);
 add(
   "上次 fold 的成本（真实 usage）",
   cost === null ? "warn" : "ok",
