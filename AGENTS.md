@@ -12,6 +12,7 @@ DSH（DeepSeek Harness）的上下文压缩后端插件。核心不是「把历�
 - **不删除任何非本会话创建的文件**；要清只进 `.trash/<date>/`。
 - 提交前必须跑：`node test/run.mjs`（全部单测）+ `node test/verify-install.mjs`（挂载校验）。
 - 不把任何密钥写进代码或文档。本插件不需要密钥。
+- **npm 只发稳定版**（`x.y.z`，不带 `-rc` / `-beta` / `-stage` 后缀）；预发布只走 GitHub tag / Release。
 - 压缩后端**只能是单实例**：挂载本插件时必须 disable `@deepseek-ai/dsh-compaction-basic`，
   否则两个 `ctx.compaction` 冲突。
 

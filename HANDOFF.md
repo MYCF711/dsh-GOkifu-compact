@@ -15,12 +15,12 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.8.0**（1.7.1 已发布；1.8.0 待发）|
+| 版本 | **1.8.0**（已发布：npm `dsh-gokifu-compact@1.8.0` · [Release v1.8.0](https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.8.0)）|
 | 单测 | **118 passed, 0 failed** |
 | 挂载校验 | 13/13 |
 | GitHub | https://github.com/MYCF711/dsh-GOkifu-compact |
 | npm | `dsh-gokifu-compact@1.7.0`（`dsh plugin --profile <name> add dsh-gokifu-compact`）|
-| 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.7.0 |
+| 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.8.0 |
 | 本地路径 | `D:\主工作区\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
 | 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `dsh-GOkifu-compact` |
 | 运行期生效 | ✅ 10:0x 已重启：GUI 里**第一次真实 fold 成功**（遮蔽 440,847 tok → surface 1391→373，面板 81%→约 16%）|
