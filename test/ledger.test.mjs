@@ -96,3 +96,105 @@ tests["collectConstraints 去重"] = () => {
   const cons = collectConstraints(g);
   if (cons.filter((c) => c === "必须保持 API 不变。").length !== 1) throw new Error("没去重");
 };
+
+/* ═════════════════════ L4/L5 兜底裁决（task-33 补） ═════════════════════
+ *
+ * 为什么另立夹具：降级链里 L0–L3 每档都列**全部**失败边，只有 L4 列 tailFailures(20) 条、L5 列 10 条；
+ * 而要走到 L4/L5，必须「L0–L3 全装不下」。上面 `buildGraph({failures:60})` 那种图在预算 300 下落的是
+ * L2/L3，压根碰不到裁决分支 —— reviewer 的 M2 变异（把 L4/L5 裁决改回「走进哪档就返回哪档」）
+ * 因此在 ledger/markers 上 0 红，只在 c17 上 3 红。这一组就是堵这个盲区。
+ */
+
+/** 胖夹具：长 root + 长约束 + 8 跳成功链 + N 条长原因失败边 ⇒ 小预算必然落到兜底档。 */
+function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" } = {}) {
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const g = createGraph({ sessionId, cwd: "/tmp" });
+  const u = addUserNode(g, {
+    seq: 1,
+    text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}`,
+  });
+  let cursor = u.id;
+  for (let i = 0; i < hops; i += 1) {
+    const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
+    const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
+    g.edges[e].to = node;
+    settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    cursor = node;
+  }
+  for (let i = 0; i < failures; i += 1) {
+    const e = addEdge(g, { from: u.id, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
+    settleEdge(g, e, {
+      result: "failure",
+      verify: { kind: "exit", summary: "exit 1" },
+      errorSnippet: `AssertionError: case${i} expected 1 got 2 at tests/case${i}.test.js:42`,
+    });
+  }
+  return g;
+}
+
+/** 预算扫描：收集所有落到兜底档（level ≥ 4）的渲染结果。 */
+function fallbackRuns(g) {
+  const full = renderLedger(g, { maxTokens: 1e9 });
+  const rows = [];
+  for (let budget = full.tokens; budget >= 1; budget -= 1) {
+    const r = renderLedger(g, { maxTokens: budget });
+    if (r.level >= 4) rows.push({ budget, level: r.level, tokens: r.tokens, shown: r.shownFailures, omitted: r.omittedEdges, text: r.text });
+  }
+  return { full, rows };
+}
+
+tests["L4/L5 兜底裁决：必须择优（L5 的 10 条比 L4 的 20 条省），不许「走进哪档就返回哪档」"] = () => {
+  const g = fallbackGraph();
+  const { rows } = fallbackRuns(g);
+  if (rows.length === 0) throw new Error("夹具没有落到 L4/L5 —— 本用例什么也证明不了（图不够胖？）");
+  // L4 与 L5 的每行格式完全相同（同为 LEVEL_LEN[3] + n1 路径形态），差别只有条数：
+  //   L4 列最近 tailFailures(20) 条，L5 列最近 10 条 ⇒ L5 的文本必然更短。
+  // 裁决规则（src/ledger.mjs pickFallback）：预算内优先 → tokens 小者胜 → 平手时列得多的胜。
+  // 所以在 40 条失败边的图上，兜底一旦被选中就只能是 L5。出现 L4 = 退回旧行为
+  //（旧版 L4 只要渲染出来就无条件返回，即使它比 L5 更费）。
+  for (const r of rows) {
+    if (r.level !== 5) throw new Error(`预算 ${r.budget}：兜底选中了 L${r.level}（应择优选更省的 L5；L4 的 20 条更费）`);
+    if (r.shown !== 10) throw new Error(`预算 ${r.budget}：L5 契约是「最近 10 条」，实际 ${r.shown}`);
+    if (r.omitted !== 30) throw new Error(`预算 ${r.budget}：省略数必须是真实省略 30，实际 ${r.omitted}`);
+  }
+  // 「预算内优先」这一层必须真的起作用：预算够时必须装下
+  const within = rows.filter((r) => r.tokens <= r.budget);
+  if (within.length === 0) throw new Error("没有任何兜底预算装得下 L5 —— 夹具或预算假设有误");
+  const lowest = within.reduce((a, b) => (a.budget < b.budget ? a : b));
+  if (lowest.tokens > lowest.budget) throw new Error(`预算 ${lowest.budget} 装了 ${lowest.tokens} tokens（超预算）`);
+};
+
+tests["L4/L5 兜底：连 L5 都超预算时也必须给完整清单（不空转、不假装装下、省略数真实）"] = () => {
+  const g = fallbackGraph();
+  const r = renderLedger(g, { maxTokens: 1 });
+  if (r.level !== 5) throw new Error(`预算 1 应落到 L5，实际 L${r.level}`);
+  if (r.text.length === 0) throw new Error("超预算时不许返回空清单（宁可超预算也不能静默省略）");
+  if (!r.text.trimEnd().endsWith("</chess-ledger>")) throw new Error(`兜底清单必须闭合：\n${r.text.slice(-200)}`);
+  if (r.tokens <= 1) throw new Error("这里本来就该超预算：诚实超限 > 静默省略");
+  if (r.shownFailures !== 10) throw new Error(`L5 的条数契约是最近 10 条，实际 ${r.shownFailures}`);
+  if (r.omittedEdges !== 30) throw new Error(`省略数必须真实：期望 30，实际 ${r.omittedEdges}`);
+  const lines = r.text.split("\n");
+  const summary = lines.find((l) => l.includes("earlier dead ends omitted for budget"));
+  if (!summary) throw new Error(`缺「还有多少条没列」的汇总行（不许假装那些失败边不存在）：\n${r.text}`);
+  if (!summary.includes(`… ${r.omittedEdges} earlier`)) throw new Error(`汇总行的省略数与 omittedEdges 不一致：${summary}`);
+  const failureLines = lines.filter((l) => /^- e\d+ /.test(l));
+  if (failureLines.length !== 10) throw new Error(`失败边行数应为 10，实际 ${failureLines.length}`);
+  for (const l of failureLines) if (!l.includes(" → ")) throw new Error(`兜底档不许丢失败原因：${l}`);
+  // 路径不许被整块吞掉（C-17 契约）：至少要有一行说明当前位置
+  if (!lines.some((l) => l.startsWith("# path: ") || l.startsWith("CURRENT PATH: ") || l.startsWith("WORKING: "))) {
+    throw new Error(`兜底档把路径整块吞掉了：\n${r.text}`);
+  }
+};
+
+tests["L4/L5 边界：失败边 ≤10 时两档同文，必须全列，且不许印省略汇总行"] = () => {
+  const g = fallbackGraph({ failures: 10, sessionId: "ledger-fallback-small" });
+  const { rows } = fallbackRuns(g);
+  if (rows.length === 0) throw new Error("夹具没有落到 L4/L5 —— 用例无效");
+  for (const r of rows) {
+    if (r.shown !== 10) throw new Error(`只有 10 条失败边时兜底必须全列，实际 ${r.shown}（预算 ${r.budget}）`);
+    if (r.omitted !== 0) throw new Error(`没有边被省略时省略数必须是 0，实际 ${r.omitted}（预算 ${r.budget}）`);
+    if (r.text.includes("earlier dead ends omitted")) throw new Error(`没有省略却印了省略汇总行（预算 ${r.budget}）：\n${r.text}`);
+    const failureLines = r.text.split("\n").filter((l) => /^- e\d+ /.test(l));
+    if (failureLines.length !== 10) throw new Error(`兜底必须列全 10 条，实际 ${failureLines.length}（预算 ${r.budget}）`);
+  }
+};

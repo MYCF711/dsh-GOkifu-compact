@@ -22,7 +22,10 @@ const command = argv[0] ?? "";
 if (command === "install" || command === "revert") {
   process.exitCode = run(argv);
 } else if (command === "doctor") {
-  const doctor = nodePath.join(HERE, "..", "test", "doctor.mjs");
+  // doctor 与 cli 同目录（scripts/）：它本来就是 CLI 子命令，不是测试夹具。
+  // 早先放在 test/ 下 ⇒ test/ 不在 package.json 的 files 里 ⇒ 从 npm 装的用户
+  // 跑 `npx dsh-gokifu-compact doctor` 必 ENOENT。1.9.1 迁移到 scripts/。
+  const doctor = nodePath.join(HERE, "doctor.mjs");
   try {
     execFileSync(process.execPath, [doctor, ...argv.slice(1)], { stdio: "inherit" });
   } catch (error) {

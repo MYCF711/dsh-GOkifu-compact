@@ -38,9 +38,160 @@
 - `test/rewash-selfloop.mjs`：清洗历史自环边（保留边与结果，只把 `to` 置 null），dry-run 默认、带备份
 - 已对全库执行：自环 **6,172 → 0**，坍缩图 **42 → 0**
 
+### 只读工具的「成功」只进 WORKING，不进已验证事实（S2a）
+
+根因：`read` / `grep` / `glob` 这类只读工具执行成功，只能说明「读到了」，不能说明「任务往前走了」。
+旧实现把它一律计为 `unverified` ⇒ 纯只读会话的热清单里**没有 WORKING 路径**（实测 106 个会话里
+只有 21 张图能渲染出 WORKING），模型看不到「我刚才走到哪」。
+
+- `verifier.classify()`：只读类工具（`read` / `mcp-read`）+ 输出非空 + 无任何失败信号 ⇒ 额外给
+  `weak: "read"`，**`result` 仍是 `unverified`**（不改既有语义，避免 `failureEdges` / `openEdges` /
+  `tewari` 的判定漂移）
+- keeper 落账 `edge.weak`；`renderLedger` **只在没有强 success 锚点时才**用弱边建 WORKING，
+  渲染时标 `[weak k/n]` + 图例；旧图按 settle 时已写的 `verify.kind === "read"` 识别
+- `renderFacts` 的 `UNVERIFIED_CLAIMS` 段**继续列**这些边 —— 弱成功不会被当成已验证事实
+- 实测（活库 106 会话）：有 WORKING 的会话 **21 → 39**（+18，回退 0、既有行变化 0）；
+  日志回放 106 份：**25 → 44**（+19，丢失 0）；`dead` / `redundant` / `longer` 增量 **0**；
+  `renderFacts` 逐字不同 **0**；热清单仍 ≤500 tokens
+
+### 可选严格不变量门禁 + 历史图豁免（S1a / S1c / C-13）
+
+- `test/graph-invariants.mjs`（新）：纯判定层，四条判据 —— `degenerate-graph`（节点 0 但有边）、
+  `self-loop`（`from === to`）、`edge-per-node`（默认 >8）、`collapsed-graph`（自环率 ≥5%）
+- `test/verify-graphs.mjs` 增 `--strict` 与三个阈值参数（`--max-self-loops` / `--max-edge-per-node` /
+  `--max-self-loop-rate`）。**默认模式（无参 / `<目录>` / `--json`）一行代码都没改行为**：
+  实测用 HEAD 版本与本版对同一份冻结夹具（132 张 `graph.json`）跑文本与 JSON 两种默认模式，
+  **stdout / stderr 逐字节一致（`cmp` 无差异）、退出码一致**
+- 为什么不设默认门禁：全库 `--strict` 下 **15 / 132 张图红** —— 2 张历史自环坍缩图
+  （`session-1331683e…` 509/628 = 81.1%、`session-69dd787e…` 115/153 = 75.2%）+ 13 张旧版节点
+  冻结造成的高 ratio（13 张全部 >8，最高 530 边 / 23 节点 = **23.04**）。这 13 张不可修（`to` 不可知、节点冻结不可逆），
+  设默认会永久红 ⇒ 保留阈值 8、`--strict` 保持可选
+- `test/graph-exemptions.mjs`（新）+ `test/fixtures/history-exemptions.json`：**显式、可审计、可过期的
+  历史违规豁免清单**（C-13），只在 `--strict --exemptions=<文件>` 下生效。每条记录
+  `sessionId` / 判据代号 / `E,N,L` 数值 / 理由 / 登记人 / 登记日期 / 有效期 / 指纹（由该图
+  node+edge 全字段派生的 sha256）
+  - **精确而非宽松**：一条豁免只吸收「同一张图 + 同一判据 + 同一组数值 + 同一指纹」。
+    同一张图的 ratio 继续增长、或新加一条自环 ⇒ **照样红**
+  - **豁免 ≠ 通过**：被豁免的 17 条逐条打印（⊘ 带登记值与理由），并单独报告
+    「豁免前 N 张违规 → 豁免后 M 张」
+  - **实测**（同上冻结夹具）：`--strict` 15 张红 →加 `--exemptions` 后 **0 张红、退出码 0**
+    （17 条违规被已登记条目吸收）
+  - 到期日（默认 2027-06-30）过后自动失效恢复判红，且不是静默的 —— 输出会打「已过期 N 条」
+- 测试：`test/graph-invariants.test.mjs` 31 项（含 CLI 端到端退出码、逐图 ✓/✗ 与退出码同口径）；
+  C-13 另有已登记图绿 / 未登记坏图红 / 数值变化仍红 / 部分豁免 / 空清单 / 清单格式错误 / 过期失效等用例
+
+### 安装判据统一 + 打包后 `doctor` 真的能跑（S10a / B3）
+
+- `scripts/link-path.mjs`（新）：`link:` / `file:` 依赖规格的**唯一**判据来源 —— `parseSpec` /
+  `resolveSpecPath` / `samePath`（Windows 大小写不敏感）/ `statLink`（区分「没有 / 断链 / 指向别处」，
+  不用 `existsSync`）/ `inspectProfileInstall` / `createDirLink`（Node junction，免 shell 引号，
+  中文与空格安全）/ `removeDirLink`（只删链接，真目录拒删）
+- `scripts/install.mjs` 改用它：断链与「指向别处」的 junction 会重建，不再「存在即跳过」；
+  `mklink` 兜底实测中文 + 空格路径可用
+- `test/verify-install.mjs` 修掉「读不到 package.json」式假绿：目标目录不存在时说「目标目录不存在」，
+  不再给误导性措辞
+- 🔴 **`doctor` 从 `test/doctor.mjs` 迁到 `scripts/doctor.mjs`**：`test/` 不在 `files` 里 ⇒
+  1.9.0 及更早从 npm 装的用户跑 `npx dsh-gokifu-compact doctor` 会 **ENOENT**（README 的安装第 3 步
+  就是这条命令）。1.9.1 起 doctor 与 `cli.mjs` 同在 `scripts/`，随包发布
+- `test/install-link.test.mjs`（新）29 项，含 4 组变异自检（判据退回字符串比较 / 安装器退回
+  「键在就跳过」/ junction 退回「存在即跳过」/ 入口判据退回字符串比较，各自必须变红）
+
+### 安装验证的诊断措辞、占位红与入口判据（S10c / S10e / C-12）
+
+- `test/verify-install.mjs`：目标目录不存在 / `package.json` 缺失 / 坏 JSON / 没有 `name` **各给各的措辞**，
+  不再一律写「读不到 package.json」（实测：坏状态的根因是 `link:` 指向的目录不存在，
+  旧文案会把人引到错的排查方向）。`manifestError` 现在进 ✗ 详情
+- 检查项总数**恒为 16**：`profile/package.json` 缺失时补 5 条占位红（首条带路径）、`preset` 缺失时补
+  4 条占位红 —— 缺文件不再让总数缩水（缩水等于悄悄少查）
+- `test/ab-render.mjs` 的入口判据改成 `fileURLToPath` + `realpath` 等价判定：
+  旧判据「`import.meta.url` 结尾等于 basename」在**非 ASCII 文件名**下静默不执行（exit 0、零输出 = 假绿），
+  新判据对等价路径 / Windows 大小写 / junction / 非 ASCII 都判真，被 import 时零副作用
+- `scripts/link-path.mjs` 与 `test/verify-install.mjs` 补末尾换行（`wc -l == awk NR`）
+- 测试：`test/ws-install.test.mjs` **13 项**（S10c-1..5 / S10e-1..3 / C-12-1..5），16 个变异体自证不是假绿
+
+### 版本号在中文路径下读成 `v?`（S10′）
+
+`src/ui.mjs` 的 `HERE` 用 `new URL(import.meta.url).pathname` —— 得到的是**百分号编码串**
+（`/D:/%E4%B8%BB%E5%B7%A5%E4%BD%9C%E5%8C%BA/…`），Windows 上交给 `readFileSync` 直接 ENOENT，
+被 `readVersion()` 的 `catch` 吞成 `null` ⇒ 页面标题渲染成 `v?`。改用 `fileURLToPath`（Node 官方解码入口，
+空格 `%20`、中文、`%7E` 一并还原）。测试用**派生值**而不是字面量：
+① 当前真实中文路径读到的版本 === `package.json` 的 `version`；② 模块搬到「空格 + 非 ASCII」目录后读到的是那份
+`package.json`；③ `fileURLToPath` 能还原、`pathname` 直读必失败（附 ASCII 对照组，证明断言不是常量）；
+④ `package.json` 缺失时仍返回 `null`（保留既有容错接口）。`test/version-path.test.mjs` 4 项
+
+### `/gokifu/api` 同源校验与备份轮转（A1 / A2 · 安全）
+
+审计实测的原始缺陷：`/gokifu/api` 接受**跨站** `text/plain` POST —— `Origin: http://evil.example`
++ `content-type: text/plain` 得到 **200 且 preset 被改写**（`text/plain` 属 CORS 简单请求，
+不触发预检，`OPTIONS` 上不返 `Access-Control-Allow-Origin` 挡不住写）。M2 的密钥字段一落地，
+这条就升级成「任意网页可换掉你的摘要模型密钥」。
+
+三段校验（全部在 `readBody` **之前**）：
+
+| # | 规则 | 为什么是这条 |
+|---|---|---|
+| ① | `Host` 必须存在、合法、且为回环（`127/8` / `::1` / `localhost` / `*.localhost`） | 防 DNS rebinding —— 那种情况下 `Origin == Host == evil.example` 也自洽，只比同源挡不住。`webServer` 绑 `0.0.0.0` 时自动放开，其它非回环主机走 `DSH_GOKIFU_ALLOWED_HOSTS` 显式放行 |
+| ② | 带 `Origin` ⇒ 必须与 `Host` 同协议 + 同主机 + 同端口 | 浏览器 POST 必带 `Origin` |
+| ③ | 带 `Sec-Fetch-Site` ⇒ 只允许 `same-origin` / `none`，**`same-site` 也拒** | 实测本机 `127.0.0.1:19401 → 127.0.0.1:19400` 的来源报的是 `same-site` 而不是 `cross-site`，只拒 `cross-site` 会漏 |
+| ④ | `content-type` 必须是 `application/json`（允许 `; charset=`） | HTML 表单发不出 JSON ⇒ 非 JSON 一律 415 |
+| ⑤ | **缺 `Origin` ⇒ 允许，但 `Host` 必须回环** | 浏览器对 POST 一定带 `Origin`，缺它只可能是 curl / node / 本项目测试；这条是回归护栏，不能把本机工具一起拒掉 |
+
+- 备份轮转：每个 preset 最多保留 **5** 份 `.bak-before-ui-<ms>`，超出的删最旧的；同毫秒多次保存用
+  `-2`/`-3` 后缀防覆盖
+- 密钥守卫：新配置块里出现密钥（键名以 `key`/`secret`/`password`/`credential`/`token` 结尾，或值形如
+  `sk-…`/`ghp_…`/PEM 私钥头）**直接抛错不落盘**；源文件原本就有密钥时**跳过备份**并返回
+  `backupSkipped`（否则每个备份都是明文副本）。密钥识别只回**键名**，绝不回值
+- 测试：`test/ui-security.test.mjs` 25 项 —— 跨站 `text/plain` / 外站 `Origin` / `Origin: null` /
+  同 IP 异端口（`same-site`）/ DNS rebinding 形状 / 缺 Host / 非 JSON content-type 全部 403 或 415 且
+  preset 一字不变；同源浏览器请求与无 Origin 的本机调用仍 200（防止把功能改坏）
+- ⚠ **已上线的 DSH 进程没有重启，跑着的仍是旧代码** —— 本修复要在重启后才生效
+
+### 性能：热清单渲染与三层树渲染的索引化（P1 / P2）
+
+**P1 · `tewariAnalysis` 记忆化 + transposition 索引化**（`src/graph.mjs`、`src/ledger.mjs`）
+
+热清单渲染的热点在 `tewariAnalysis`：一次 `renderLedger` 会在每个档位各算一遍手割，全库一轮调用
+3,523 次而必要只有约 800 次；置换提示对每条路径做 `Object.values(g.edges).some(...)`，是 O(path×E)。
+「无缓存」的代价实测是 **234ms/次**（`session-c328440a`，158 节点路径）。
+
+- 每张图维护 `tewariIndex`（`byFrom` 邻接表 + 每节点可达集 + 失败边结论缓存），挂在 WeakMap / 非枚举
+  Symbol 上，**不进 `graph.json`**；缓存键 = 结构修订号 + `updatedAt` + 边/节点数 + `to`/`from` 数字和
+  （数字和专门兜住「同毫秒两次 settle」与「绕过 bump 直接改边」两种撞键）
+- 旧实现把同一份「baseline 可达集 BFS」在两处各算一遍 → 合并成一次
+- 置换提示改成预建 `Set`（`from>to`），`has()` 取代全表扫描
+
+实测（133 张真实图）：`renderLedger` / `renderFacts` 输出**逐字节相同**；全库一轮渲染
+**487.4ms → 70.5ms（6.9×）**，最差单图 **150.82ms → 8.99ms（16.8×）**；tewari 调用
+**3,523 → 804（−77%）**。新增 `test/tewari-perf.test.mjs` 7 项（含「关掉记忆化必须退化」变异自检）。
+
+**P2 · `renderIndexMd` / `renderNodeMd` 的 O(N×E) 索引化**（`src/graph.mjs`）
+
+三层树的 index/node md 每次 debounce flush 都要重写：`renderIndexMd` 每轮 BFS 都 `Object.values(g.edges)`
+全表扫，`renderNodeMd` 每个节点各做一次入边/出边全表 filter —— 节点数一多就是 O(N×E)。
+5000 边合成图上 `renderIndexMd` 要 **3,506.8ms**、`renderNodeMd` 要 **7,208ms**。
+
+- `graphIndex(g)` 增加 `byTo`（入边表）；`renderIndexMd` 的 BFS / 根判定 / 出边查询与 `renderNodeMd` 的
+  入出边查询全部走 `byFrom` / `byTo`；`renderNodeMd` 每次调用只取一次索引
+- `renderIndex(g)` 用便宜键（`rev|updatedAt|nextEdge|order.length`）判缓存，不命中才算完整结构签名
+  （否则逐节点调用会把 O(E) 签名乘 N 次：5000 边实测会从 6.4ms 退化到 14.9s）
+
+实测：133 张真实图输出**逐字节不变**（index **133/133**、node md **7,843/7,843**）；真实最大图
+**49.39ms → 0.54ms（91×）** / **51.46ms → 0.60ms（86×）**；5000 边合成图 **3,506.8ms → 4.26ms（823×）** /
+**7,208ms → 6.37ms（1,132×）**。新增 `test/render-index-perf.test.mjs` 6 项。
+
+> 两项都不改任何输出文本 —— 这是硬验收：性能优化若改变了模型看到的热清单，就不是优化。
+
 ### 测试
 
-- 新增 `test/selfloop.test.mjs`（8 项）+ `engine-harness` 端到端 1 项 = **134 项全绿**
+- 新增 `test/selfloop.test.mjs`（8 项）+ `engine-harness` 端到端 1 项（自环回归）
+- 新增测试文件与项数：
+  `test/weak-success.test.mjs`（22 · S2a）、`test/graph-invariants.test.mjs`（31 · S1a）、
+  `test/install-link.test.mjs`（29 · S10a）、`test/ws-install.test.mjs`（13 · S10c/S10e/C-12）、
+  `test/version-path.test.mjs`（4 · S10′）、`test/c17-path-at-every-level.test.mjs`（15 · C17）、
+  `test/graph-exemptions.test.mjs`（12 · C-13）、`test/ui-security.test.mjs`（25 · A1/A2）、
+  `test/ui-config.test.mjs`（13 · 配置写入正确性）、`test/tewari-perf.test.mjs`（7 · P1）、
+  `test/render-index-perf.test.mjs`（6 · P2）
+- `test/run.mjs`：**316 passed / 0 failed**（24 个测试文件，`EXIT 0`；2026-10-30 02:31 实测）
 - 之前的 125 项无一覆盖 `from === to` —— 这正是这个回归能躲过所有自测的原因
 
 ## 1.9.0 — 2026-10-29

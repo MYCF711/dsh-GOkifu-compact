@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 已发布：npm [`dsh-gokifu-compact@1.7.1`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Release v1.7.1](https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.7.1)
+> 当前版本：**`1.9.1`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 323 tokens 的热清单」。**
 
@@ -8,7 +8,7 @@
 热清单     323 tokens       （2000 边压力测试；旧版全量渲染 28,800）
 失败保留   8 / 8            （真实模型对照；官方 8 段模板 4.67 / 8）
 清单开销   0.2% of prompt   （v1.3.1 起；事故会话的旧版是 21.3%）
-验证       118 项单测 · 真实包 8/8 · 真实进程 fold 3~6/6
+验证       316 项单测 · 真实包 8/8 · 真实进程 fold 3~6/6
 ```
 
 GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不只有落子顺序，还有每一手的评语。
@@ -152,8 +152,9 @@ node test/rollback.mjs            # 回滚
 和摘要本身。典型形状是**锯齿**：涨到阈值（窗口 45%）→ 压到约 20% → 再涨。如果你看到「只涨不降」，
 先跑 `npx dsh-gokifu-compact doctor` 看压缩是不是在失败（`compaction/end` 的错误会直接列出来）。
 
-**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。重启后跑 `node test/doctor.mjs`，
-它会告诉你四件事：装没装上、摘要模型能不能解析、最近的压缩成功/失败、棋谱与树健不健康。
+**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。重启后跑 `npx dsh-gokifu-compact doctor`
+（在源码仓库里是 `node scripts/doctor.mjs`），它会告诉你四件事：装没装上、摘要模型能不能解析、
+最近的压缩成功/失败、棋谱与树健不健康。
 
 **会不会把失败记忆弄丢？** 不会。失败边由规则抽取并逐字注入摘要 prompt，模型输出后还会机械追加约束段；
 模型没有「决定丢掉某条」的权限。真实模型对照里本插件保留 8/8，官方 8 段模板平均 4.67/8。
@@ -189,7 +190,8 @@ node test/rollback.mjs            # 回滚
 - [性能与成本](docs/性能与成本.md) · [真实计费核对](evidence/真实计费核对.md)
 - [最终报告](docs/最终报告.md) · [P0 修复记录](docs/P0-worldhash-死循环-根因与修复方案.md)
 
-> 更新记录：[CHANGELOG.md](./CHANGELOG.md)（发版流程见 `scripts/release.mjs` 与 HANDOFF）
+> 更新记录：[CHANGELOG.md](./CHANGELOG.md)（发版流程见 `scripts/release.mjs`；维护侧的 `HANDOFF.md`
+> 不随 npm 包发布，在 GitHub 仓库根目录）
 
 ## 许可
 

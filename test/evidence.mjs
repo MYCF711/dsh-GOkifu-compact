@@ -152,7 +152,8 @@ md.push("");
 md.push("## 四 · 复跑");
 md.push("");
 md.push("```bash");
-md.push("cd D:/主工作区/projects/dsh-gokifu-compact");
+// 项目根从本文件位置推导：写死目录名正是 S10a 修的缺陷（会随改名悄悄变成不存在的路径）
+md.push(`cd ${nodePath.resolve(HERE, "..").replace(/\\/g, "/")}`);
 md.push("node test/evidence.mjs   # 重算本文件与 模拟结果.json");
 md.push("node test/run.mjs        # 全部单测（含本文件所用的不变量）");
 md.push("```");

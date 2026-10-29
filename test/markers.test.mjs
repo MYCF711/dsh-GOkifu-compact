@@ -178,3 +178,58 @@ tests["标记的 token 成本可控：图例不超过 10 行"] = () => {
   const legend = r.text.split("\n").filter((l) => l.startsWith("# "));
   if (legend.length > 10) throw new Error(`图例 ${legend.length} 行，太贵`);
 };
+
+/* ═════════════════════ L4/L5 兜底档的标记契约（task-33 补） ═════════════════════
+ *
+ * 缺口：上面所有用例都跑在 L0–L3（预算够）或 L3（manyFailuresGraph + 500），
+ * 兜底档（L4/L5）从来没被断言过 —— reviewer 的 M2 变异（L4/L5 裁决退回旧行为）在
+ * ledger/markers 上 0 红。这里补的是「兜底档里 markers 三态仍生效，且标记不影响裁决」。
+ */
+
+/** 胖夹具：小预算必然落到兜底档；失败原因是 EACCES ⇒ semantic 档标 `[blocked:permission]`。 */
+function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const g = createGraph({ sessionId, cwd: "/tmp" });
+  const u = addUserNode(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
+  let cursor = u.id;
+  for (let i = 0; i < 8; i += 1) {
+    const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
+    const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
+    g.edges[e].to = node;
+    settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    cursor = node;
+  }
+  for (let i = 0; i < failures; i += 1) {
+    const e = addEdge(g, { from: u.id, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
+    settleEdge(g, e, {
+      result: "failure",
+      verify: { kind: "exit", summary: "EACCES" },
+      errorSnippet: `Error: EACCES: permission denied, open '/usr/lib/node_modules/x${i}'`,
+    });
+  }
+  return g;
+}
+
+tests['L4/L5 兜底档：markers 三态仍生效，且标记不改变兜底裁决'] = () => {
+  const g = fallbackGraph();
+  // 预算 1000：L0–L3 都装不下（图纸够胖），而 L4(20 条)/L5(10 条) 都装得下 ——
+  // 这正是「裁决必须择优」的判别窗口：退回旧行为（走进 L4 就返回）时这里会拿到 L4。
+  const sem = renderLedger(g, { maxTokens: 1000, markers: "semantic" });
+  const terse = renderLedger(g, { maxTokens: 1000, markers: "terse" });
+  const off = renderLedger(g, { maxTokens: 1000, markers: "off" });
+  for (const [name, r] of [["semantic", sem], ["terse", terse], ["off", off]]) {
+    if (r.level !== 5) throw new Error(`markers=${name} 应落到 L5（兜底择优；L4 的 20 条更费），实际 L${r.level}`);
+    if (r.shownFailures !== 10 || r.omittedEdges !== 30) {
+      throw new Error(`markers=${name} 不许改变兜底列多少条：shown=${r.shownFailures} omitted=${r.omittedEdges}`);
+    }
+  }
+  if (!sem.text.includes("[blocked:permission]")) throw new Error(`semantic 兜底档应带原因：\n${sem.text}`);
+  if (!sem.text.includes("blocked:permission =")) throw new Error(`semantic 兜底档缺图例：\n${sem.text}`);
+  if (!terse.text.includes("[blocked]") || terse.text.includes("[blocked:")) throw new Error(`terse 兜底档只该写三态：\n${terse.text}`);
+  if (!terse.text.includes("# markers:")) throw new Error(`terse 兜底档也要给图例：\n${terse.text}`);
+  if (/\[(blocked|dead|redundant|longer|novel|failed|unverified)/.test(off.text)) throw new Error(`off 兜底档不许有任何标记：\n${off.text}`);
+  if (off.text.includes("# markers:")) throw new Error("off 兜底档不许有图例");
+  if (!(off.tokens < terse.tokens && terse.tokens <= sem.tokens)) {
+    throw new Error(`标记应逐级更省：off=${off.tokens} terse=${terse.tokens} semantic=${sem.tokens}`);
+  }
+};
