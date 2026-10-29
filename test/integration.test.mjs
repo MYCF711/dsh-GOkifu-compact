@@ -1,4 +1,4 @@
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges } from "./graph-fixtures.mjs";
 import { renderFacts, renderLedger } from "../src/ledger.mjs";
 import { planFold } from "../src/range.mjs";
 import { runPolicy } from "./sim.mjs";
@@ -41,7 +41,7 @@ export const tests = {
 
   "折叠后仍能从图里重建全部失败边（压缩不丢失败记忆）"() {
     const g = createGraph({ sessionId: "it1" });
-    const u = addUserNode(g, { seq: 1, text: "必须让测试变绿；不要动 prod。" });
+    const u = addUserNodeId(g, { seq: 1, text: "必须让测试变绿；不要动 prod。" });
     let last = u;
     const N = 6;
     for (let i = 0; i < N; i += 1) {

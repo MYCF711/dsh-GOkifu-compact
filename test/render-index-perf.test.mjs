@@ -8,7 +8,7 @@
  *   4. 图变了（新增边）必须重建索引，输出要反映新边。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderIndexMd, renderNodeMd, _graphIndexStats, _graphIndexOptions } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, renderIndexMd, renderNodeMd, _graphIndexStats, _graphIndexOptions } from "./graph-fixtures.mjs";
 
 export const tests = {};
 
@@ -98,7 +98,7 @@ function legacyRenderIndexMd(g) {
 /** 分支 + 失败 + 置换边的混合图。 */
 function mixedGraph() {
   const g = createGraph({ sessionId: "render-index-perf" });
-  const u = addUserNode(g, { seq: 1, text: "把 sessions 日志改成流式。不要动 prod。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把 sessions 日志改成流式。不要动 prod。" });
   const a = addAgentNode(g, { seq: 10, goal: "第一步", worldHash: "W1", constraintHash: "C1" }).id;
   const e1 = addEdge(g, { from: u, intent: "第一步", action: "bash(echo 1)" });
   settleEdge(g, e1, { to: a, result: "success", verify: { kind: "exit", summary: "exit 0" } });
@@ -163,7 +163,7 @@ tests["缓存失效：新增边后必须重建并反映到输出"] = (t) => {
 
 tests["规模：2000 边渲染不退化（索引版应远低于 200ms）"] = (t) => {
   const g = createGraph({ sessionId: "render-index-scale" });
-  let last = addUserNode(g, { seq: 1, text: "root" });
+  let last = addUserNodeId(g, { seq: 1, text: "root" });
   for (let i = 0; i < 2000; i += 1) {
     const eid = addEdge(g, { from: last, intent: `step ${i}`, action: `bash(npm test ${i})` });
     settleEdge(g, eid, { to: null, result: i % 4 === 0 ? "failure" : "success", verify: { kind: "exit", summary: "exit" }, errorSnippet: i % 4 === 0 ? `Error ${i}` : "" });

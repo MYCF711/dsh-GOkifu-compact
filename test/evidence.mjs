@@ -7,7 +7,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { runPolicy } from "./sim.mjs";
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, renderMd } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, renderMd } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts, estimateTokens } from "../src/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +60,7 @@ function pct(a, b) {
 /* ── 热上下文成本 ── */
 function bigGraph(n) {
   const g = createGraph({ sessionId: "evidence" });
-  const u = addUserNode(g, { seq: 1, text: "必须保持公开接口不变；不要动 prod 配置；测试要全绿。先把压缩改成增量。" });
+  const u = addUserNodeId(g, { seq: 1, text: "必须保持公开接口不变；不要动 prod 配置；测试要全绿。先把压缩改成增量。" });
   let last = u;
   for (let i = 0; i < n; i += 1) {
     const e = addEdge(g, {

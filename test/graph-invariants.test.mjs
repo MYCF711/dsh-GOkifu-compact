@@ -34,12 +34,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   createGraph,
-  addUserNode,
+  addUserNodeId,
   addAgentNode,
   addEdge,
   settleEdge,
   graphHealth,
-} from "../src/graph.mjs";
+} from "./graph-fixtures.mjs";
 import { DEFAULT_LIMITS, checkGraph, checkGraphs, measureGraph, parseArgs } from "./graph-invariants.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -82,14 +82,14 @@ function emptyGraph() {
 /** 单节点：1 个 user 节点、0 条边。 */
 function singleNodeGraph() {
   const g = createGraph({ sessionId: "fx-single" });
-  addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   return g;
 }
 
 /** 正常链：user + steps 步，每步 1 条边 + 1 个 agent 节点。edgePerNode = steps/(steps+1)。 */
 function chainGraph(steps = 3, sessionId = "fx-chain") {
   const g = createGraph({ sessionId });
-  let prev = addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  let prev = addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   for (let i = 1; i <= steps; i += 1) {
     const edge = addEdge(g, { from: prev, intent: `第 ${i} 步`, action: "bash(ls)" });
     const agent = addAgentNode(g, { seq: i * 3, goal: `第 ${i} 步`, worldHash: `w${i}`, constraintHash: "c1", via: edge });
@@ -102,7 +102,7 @@ function chainGraph(steps = 3, sessionId = "fx-chain") {
 /** 正常分支：user + 1 个 agent，从 user 发出 branches 条边（一步 K 次工具调用）。 */
 function branchGraph(branches = 3, sessionId = "fx-branch") {
   const g = createGraph({ sessionId });
-  const user = addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  const user = addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   let first = null;
   for (let i = 0; i < branches; i += 1) {
     const edge = addEdge(g, { from: user, intent: `工具 ${i}`, action: "bash(ls)" });
@@ -120,7 +120,7 @@ function branchGraph(branches = 3, sessionId = "fx-branch") {
  */
 function loopRateGraph({ selfLoops = 0, totalEdges = 10, agents = 1, sessionId = "fx-loop" } = {}) {
   const g = createGraph({ sessionId });
-  const user = addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  const user = addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   const agentIds = [];
   for (let i = 0; i < agents; i += 1) {
     const edge = addEdge(g, { from: user, intent: `正常 ${i}`, action: "bash(ls)" });
@@ -146,8 +146,8 @@ function loopRateGraph({ selfLoops = 0, totalEdges = 10, agents = 1, sessionId =
  */
 function degenerateGraph({ edges = 2, sessionId = "fx-degenerate" } = {}) {
   const g = createGraph({ sessionId });
-  const a = addUserNode(g, { seq: 1, text: "目标：跑绿" });
-  const b = addUserNode(g, { seq: 2, text: "重申" });
+  const a = addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
+  const b = addUserNodeId(g, { seq: 2, text: "重申" });
   for (let i = 0; i < edges; i += 1) {
     const edge = addEdge(g, { from: a, intent: `悬空 ${i}`, action: "bash(x)" });
     settleEdge(g, edge, { to: b, result: "success", verify: { kind: "exit", summary: "exit 0" } });
@@ -235,7 +235,7 @@ export const tests = {
 
   "边界：未结算边（to=null）不算自环"(t) {
     const g = createGraph({ sessionId: "fx-open" });
-    const user = addUserNode(g, { seq: 1, text: "目标" });
+    const user = addUserNodeId(g, { seq: 1, text: "目标" });
     const edge = addEdge(g, { from: user, intent: "没结算", action: "bash(x)" });
     // 故意不 settleEdge ⇒ to 仍是 null
     const m = measureGraph(g);

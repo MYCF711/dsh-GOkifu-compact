@@ -19,7 +19,7 @@
  * 预算上限、无工作路径时的退化、markers:off 不省安全标记、与 S2a weak 标识共存。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
 import { renderLedger, estimateTokens } from "../src/ledger.mjs";
 
 export const tests = {};
@@ -29,7 +29,7 @@ export const tests = {};
 /** 一条成功链：user → n2 → … → n(hops+1)，每跳一条 exit 0 的成功边。 */
 function chainGraph({ hops = 6, sessionId = "c17-chain", rootText = "把构建跑通。" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: rootText }); // addUserNode 返回 id 字符串
+  const u = addUserNodeId(g, { seq: 1, text: rootText }); // addUserNodeId 返回 id 字符串
   let cursor = u;
   const ids = [u];
   for (let i = 0; i < hops; i += 1) {
@@ -46,7 +46,7 @@ function chainGraph({ hops = 6, sessionId = "c17-chain", rootText = "把构建�
 /** 只有弱锚点（S2a）：user → n2 一条只读弱成功边 + 若干失败边。 */
 function weakOnlyGraph({ failures = 10, sessionId = "c17-weak" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "看下这个仓库怎么跑。" });
+  const u = addUserNodeId(g, { seq: 1, text: "看下这个仓库怎么跑。" });
   const e1 = addEdge(g, { from: u, intent: "先看一眼 README", action: "read(file_path=README.md)" });
   const n2 = addAgentNode(g, { seq: 3, goal: "读过 README", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
   g.edges[e1].to = n2;
@@ -62,7 +62,7 @@ function weakOnlyGraph({ failures = 10, sessionId = "c17-weak" } = {}) {
 function fatRootGraph({ hops = 6, constraints = 10, sessionId = "c17-fat" } = {}) {
   const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(6);
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 4 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉。`).join(" ")}` });
+  const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 4 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉。`).join(" ")}` });
   let cursor = u;
   const ids = [u];
   for (let i = 0; i < hops; i += 1) {
@@ -133,7 +133,7 @@ function levelsReachable(g) {
  */
 function mixedGraph({ hops = 12, failures = 12, sessionId = "c17-mixed" } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   let cursor = u;
   const pathIds = [u];
   for (let i = 0; i < hops; i += 1) {
@@ -168,13 +168,13 @@ function mixedGraph({ hops = 12, failures = 12, sessionId = "c17-mixed" } = {}) 
  */
 function mergedTailGraph({ sessionId = "c17-merged" } = {}) {
   const g = createGraph({ sessionId });
-  const u1 = addUserNode(g, { seq: 1, text: "先看现状。" });
+  const u1 = addUserNodeId(g, { seq: 1, text: "先看现状。" });
   const e1 = addEdge(g, { from: u1, intent: "第一步", action: "bash(ls)" });
   const a1 = addAgentNode(g, { seq: 3, goal: "第一步", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
   g.edges[e1].to = a1;
   settleEdge(g, e1, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
   const e2 = addEdge(g, { from: a1, intent: "用户补充约束", action: "user(msg)" });
-  const u2 = addUserNode(g, { seq: 4, text: "再补一句：别动 prod。" });
+  const u2 = addUserNodeId(g, { seq: 4, text: "再补一句：别动 prod。" });
   g.edges[e2].to = u2;
   settleEdge(g, e2, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
   const e3 = addEdge(g, { from: u2, intent: "继续", action: "bash(npm test)" });
@@ -296,7 +296,7 @@ ${tiny.text}`);
 tests["C17-5 预算上限：500 预算下，失败边 ≤20 条的会话必须装进去（含路径行）"] = () => {
   // 12 跳 + 10 条失败边：这就是「不该超预算」的常规形态
   const g = createGraph({ sessionId: "c17-budget" });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通，别动 prod。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通，别动 prod。" });
   let cursor = u;
   for (let i = 0; i < 12; i += 1) {
     const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步`, action: `bash(step${i})` });
@@ -353,7 +353,7 @@ ${on.text}`);
 
 tests["C17-8 没有工作路径时的退化：L3+ 说清「没有」，L0–L2 维持旧行为（不出这一行）"] = () => {
   const g = createGraph({ sessionId: "c17-nopath" });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   let cursor = u;
   for (let i = 0; i < 14; i += 1) {
     // 全部失败边照常推进节点（to 有效）—— 但**没有任何**成功/弱成功边 ⇒ 没有工作路径

@@ -17,7 +17,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
 import { buildChessInstruction } from "../src/summary-prompt.mjs";
 
@@ -55,7 +55,7 @@ const ROOT = "把 sessions 服务的日志改成流式输出，并把测试恢�
 
 function buildSyntheticGraph() {
   const g = createGraph({ sessionId: "real-model-probe" });
-  const u = addUserNode(g, { seq: 1, text: ROOT });
+  const u = addUserNodeId(g, { seq: 1, text: ROOT });
   let last = u;
   let seq = 10;
   for (const f of FAILURES) {

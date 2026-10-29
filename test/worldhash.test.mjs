@@ -13,7 +13,7 @@
  *   3. renderLedger 对脏数据不抛错（防御性 = 双保险）
  */
 
-import { createGraph, addUserNode, addAgentNode, addEdge, fromJSON, toJSON, hashText } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addAgentNode, addEdge, fromJSON, toJSON, hashText } from "./graph-fixtures.mjs";
 import { renderFacts } from "../src/ledger.mjs";
 
 export const tests = {
@@ -27,7 +27,7 @@ export const tests = {
 
   "addAgentNode：worldHash 传对象时落库为字符串"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "目标：修好测试" });
+    const u = addUserNodeId(g, { seq: 1, text: "目标：修好测试" });
     const e = addEdge(g, { from: u, intent: "试 A", action: "bash(test)" });
     const node = addAgentNode(g, {
       seq: 5,
@@ -92,7 +92,7 @@ export const tests = {
 
   "renderFacts：worldHash 是对象时不抛错（防御层）"() {
     const g = createGraph({ sessionId: "s1" });
-    const u = addUserNode(g, { seq: 1, text: "目标：修好测试" });
+    const u = addUserNodeId(g, { seq: 1, text: "目标：修好测试" });
     const e = addEdge(g, { from: u, intent: "试 A", action: "bash(test)" });
     const node = addAgentNode(g, { seq: 5, goal: "A 完成", worldHash: "aaa111", constraintHash: "ccc333", via: e });
     // 绕过 addAgentNode 直接注入脏对象，模拟旧数据未经 fromJSON 的情况

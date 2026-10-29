@@ -15,7 +15,7 @@
  * 以及「把 live_unsettled 也排除」的变异必须被抓到。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, failureClass } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, failureClass } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts, classifyDangling, danglingStats, isDanglingResidue, DANGLING_STALE_MS } from "../src/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
@@ -25,7 +25,7 @@ const TEN_MIN = DANGLING_STALE_MS;
 
 function baseGraph(sessionId = "fx-dangling") {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   const e0 = addEdge(g, { from: u, intent: "起点", action: "bash(ls)" });
   const a = addAgentNode(g, { seq: 3, goal: "起点", worldHash: "W0", constraintHash: "C1", via: e0 }).id;
   g.edges[e0].to = a;

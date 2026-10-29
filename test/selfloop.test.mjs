@@ -19,14 +19,14 @@
 
 import {
   createGraph,
-  addUserNode,
+  addUserNodeId,
   addAgentNode,
   addEdge,
   settleEdge,
   tewariAnalysis,
   failureClass,
   graphHealth,
-} from "../src/graph.mjs";
+} from "./graph-fixtures.mjs";
 import { createWorldTracker } from "../src/worldstate.mjs";
 
 const W = "w1";
@@ -55,7 +55,7 @@ function oneStep(g, { fromEdgeId = null, hash = W, actions = ["bash(ls)"], resul
 export const tests = {
   "★ 自环禁止：同一个 stateKey 连续两步不能把边指回起点"() {
     const g = createGraph({ sessionId: "sl1" });
-    addUserNode(g, { seq: 1, text: "目标：跑绿" });
+    addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
     const s1 = oneStep(g);
     // 第二步：世界状态没变（只读命令），stateKey 与第一步完全相同
     const s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1) });
@@ -69,7 +69,7 @@ export const tests = {
 
   "真正的置换仍然生效：回到**更早**的状态才复用节点"() {
     const g = createGraph({ sessionId: "sl2" });
-    addUserNode(g, { seq: 1, text: "目标：跑绿" });
+    addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
     const s1 = oneStep(g, { hash: "A" });          // 状态 A
     const s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1), hash: "B" }); // 状态 B
     // 从 B 再走一步，回到状态 A —— 这是真正的置换（换一条路回到之前卡住的地方）
@@ -80,7 +80,7 @@ export const tests = {
 
   "tewariAnalysis：自环边不参与手割（返回 null）"() {
     const g = createGraph({ sessionId: "sl3" });
-    addUserNode(g, { seq: 1, text: "目标" });
+    addUserNodeId(g, { seq: 1, text: "目标" });
     const s1 = oneStep(g);
     const id = addEdge(g, { from: s1.node, intent: "读文件", action: "read(x)" });
     settleEdge(g, id, { to: s1.node, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: boom" });
@@ -89,7 +89,7 @@ export const tests = {
 
   "failureClass：自环边不得判 dead"() {
     const g = createGraph({ sessionId: "sl4" });
-    addUserNode(g, { seq: 1, text: "目标" });
+    addUserNodeId(g, { seq: 1, text: "目标" });
     const s1 = oneStep(g); // 同起点有一条成功边
     const id = addEdge(g, { from: s1.node, intent: "读文件", action: "read(x)" });
     settleEdge(g, id, { to: s1.node, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: boom" });
@@ -117,7 +117,7 @@ export const tests = {
 
   "graphHealth：识别自环与边/节点比"() {
     const g = createGraph({ sessionId: "sl5" });
-    addUserNode(g, { seq: 1, text: "目标" });
+    addUserNodeId(g, { seq: 1, text: "目标" });
     const s1 = oneStep(g);
     for (let i = 0; i < 3; i += 1) {
       const id = addEdge(g, { from: s1.node, intent: `圈${i}`, action: "read(y)" });
@@ -131,7 +131,7 @@ export const tests = {
 
   "graphHealth：干净 DAG 判健康"() {
     const g = createGraph({ sessionId: "sl6" });
-    addUserNode(g, { seq: 1, text: "目标" });
+    addUserNodeId(g, { seq: 1, text: "目标" });
     let prev = null;
     for (const h of ["A", "B", "C"]) prev = oneStep(g, { fromEdgeId: prev?.edges.at(-1), hash: h });
     const health = graphHealth(g);
@@ -155,7 +155,7 @@ export const tests = {
  */
 function workingFixture(loopPlacement) {
   const g = createGraph({ sessionId: `sl7-${loopPlacement}` });
-  addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  addUserNodeId(g, { seq: 1, text: "目标：跑绿" });
   const s1 = oneStep(g);
   let s2;
   let loop;

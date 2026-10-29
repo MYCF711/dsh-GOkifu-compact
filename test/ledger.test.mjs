@@ -1,16 +1,16 @@
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints } from "../src/ledger.mjs";
 
 export const tests = {};
 
 function buildGraph({ failures = 0, constraints = [], extraUser = null } = {}) {
   const g = createGraph({ sessionId: "ledger", cwd: "/tmp" });
-  const u = addUserNode(g, { seq: 1, text: `把 data.jsonl 算出来。${constraints.join(" ")}` });
+  const u = addUserNodeId(g, { seq: 1, text: `把 data.jsonl 算出来。${constraints.join(" ")}` });
   for (let i = 0; i < failures; i += 1) {
-    const e = addEdge(g, { from: u.id, intent: `第 ${i + 1} 次：换个解析方式`, action: `bash(npm test ${i})`, evidence: { start: 10 + i * 4, end: 13 + i * 4 } });
+    const e = addEdge(g, { from: u, intent: `第 ${i + 1} 次：换个解析方式`, action: `bash(npm test ${i})`, evidence: { start: 10 + i * 4, end: 13 + i * 4 } });
     settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: `SyntaxError: bad json at line ${i}` });
   }
-  if (extraUser) addUserNode(g, { seq: 99, text: extraUser });
+  if (extraUser) addUserNodeId(g, { seq: 99, text: extraUser });
   return g;
 }
 
@@ -109,11 +109,11 @@ tests["collectConstraints 去重"] = () => {
 function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" } = {}) {
   const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
-  const u = addUserNode(g, {
+  const u = addUserNodeId(g, {
     seq: 1,
     text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}`,
   });
-  let cursor = u; // addUserNode 返回 id 字符串
+  let cursor = u; // addUserNodeId 返回 id 字符串
   for (let i = 0; i < hops; i += 1) {
     const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
     const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;

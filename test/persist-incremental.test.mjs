@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   createGraph,
-  addUserNode,
+  addUserNodeId,
   addAgentNode,
   addEdge,
   settleEdge,
@@ -30,7 +30,7 @@ import {
   decodeDeltaFrames,
   checksum31,
   renderIndexAppend,
-} from "../src/graph.mjs";
+} from "./graph-fixtures.mjs";
 
 export const tests = {};
 
@@ -41,7 +41,7 @@ const STUBS = nodePath.join(SRC, ".harness-stubs");
 /** 建一张小图（user + 2 个 agent + 成功/失败边）。 */
 function smallGraph(sessionId = "p3") {
   const g = createGraph({ sessionId, cwd: "D:/x" });
-  const u = addUserNode(g, { seq: 1, text: "必须保持接口不变。把测试跑绿。" });
+  const u = addUserNodeId(g, { seq: 1, text: "必须保持接口不变。把测试跑绿。" });
   const e1 = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)" });
   const n1 = addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e1 });
   settleEdge(g, e1, { to: n1.id, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "AssertionError: boom" });

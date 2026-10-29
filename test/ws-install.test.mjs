@@ -554,6 +554,8 @@ function runRealAbRenderNonAscii() {
   nodeFs.copyFileSync(nodePath.join(REPO_DIR, "package.json"), nodePath.join(mirror, "package.json"));
   const script = nodePath.join(mirror, "test", "ab 渲染.mjs");
   nodeFs.copyFileSync(nodePath.join(REPO_DIR, "test", "ab-render.mjs"), script);
+  // task-59：ab-render 的 addUserNodeId 从 test/graph-fixtures.mjs 来，镜像必须一起带上
+  nodeFs.copyFileSync(nodePath.join(REPO_DIR, "test", "graph-fixtures.mjs"), nodePath.join(mirror, "test", "graph-fixtures.mjs"));
   const outDir = nodePath.join(dir, "out");
   const result = runNode([script, "--dir", outDir]);
   return { ...result, outDir, cleanup: () => rmrf(dir) };

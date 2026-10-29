@@ -12,7 +12,7 @@
  *   5. 多参照点：同一条失败边相对 e10 是 redundant、相对 e20 是 longer —— 两个结论都要在。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "./graph-fixtures.mjs";
 import { renderLedger, renderFailureLine, failureTags } from "../src/ledger.mjs";
 
 export const tests = {};
@@ -20,7 +20,7 @@ export const tests = {};
 /** 只有资源类失败、没有任何成功路径的会话（旧版在这里让 [blocked] 裸奔）。 */
 function blockedOnlyGraph() {
   const g = createGraph({ sessionId: "markers-blocked" });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。不要动 prod 配置。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。不要动 prod 配置。" });
   const e1 = addEdge(g, { from: u, intent: "直接改 prod 配置", action: "write(file_path=prod.yml)" });
   // ★ P6-A：失败边必须有真实终点，否则会被当 rewash 残留过滤（本夹具要测「只有 blocked 失败」的图例）
   settleEdge(g, e1, { to: u, result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "Error: EACCES: permission denied, open 'prod.yml'" });
@@ -35,7 +35,7 @@ function blockedOnlyGraph() {
  */
 function multiBaselineGraph() {
   const g = createGraph({ sessionId: "markers-tewari" });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   const mk = (from, id, to, goal) => {
     const node = addAgentNode(g, { seq: 10 + g.order.length, goal, worldHash: `W${to}`, constraintHash: "C1", via: id }).id;
     g.edges[id].to = node;
@@ -62,7 +62,7 @@ function multiBaselineGraph() {
 /** 40 条失败边（超过「只对前 30 条算手割」的旧门槛）。 */
 function manyFailuresGraph(n = 40) {
   const g = createGraph({ sessionId: "markers-many" });
-  const u = addUserNode(g, { seq: 1, text: "把测试跑绿。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿。" });
   const e0 = addEdge(g, { from: u, intent: "改对缓存键", action: "edit(file_path=cache.js)" });
   const n2 = addAgentNode(g, { seq: 3, goal: "缓存键改好", worldHash: "W1", constraintHash: "C1", via: e0 }).id;
   g.edges[e0].to = n2;
@@ -197,8 +197,8 @@ tests["标记的 token 成本可控：图例不超过 10 行"] = () => {
 function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
   const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
-  const u = addUserNode(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
-  let cursor = u; // addUserNode 返回 id 字符串（u.id 是 undefined）
+  const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
+  let cursor = u; // addUserNodeId 返回 id 字符串（u.id 是 undefined）
   for (let i = 0; i < 8; i += 1) {
     const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
     const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;

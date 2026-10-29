@@ -11,7 +11,7 @@
  * 这里用夹具锁语义边界，跑得快、能回归。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, _tewariStats, _tewariOptions } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, _tewariStats, _tewariOptions } from "./graph-fixtures.mjs";
 import { renderLedger } from "../src/ledger.mjs";
 
 export const tests = {};
@@ -25,7 +25,7 @@ function resetStats() {
 /** u -eS1-> n1 成功；u -eS2-> n2 成功；u -eF-> n2 失败（同终点 ⇒ redundant）。 */
 function tewariGraph() {
   const g = createGraph({ sessionId: "tewari-perf" });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   const n1 = addAgentNode(g, { seq: 10, goal: "A", worldHash: "W1", constraintHash: "C1" }).id;
   const n2 = addAgentNode(g, { seq: 11, goal: "B", worldHash: "W2", constraintHash: "C1" }).id;
   const s1 = addEdge(g, { from: u, intent: "走到 A", action: "bash(echo A)" });
@@ -40,7 +40,7 @@ function tewariGraph() {
 /** 40 条失败边 + 若干成功边，用来逼出多个渲染档位。 */
 function manyFailuresGraph(n = 40) {
   const g = createGraph({ sessionId: "tewari-many" });
-  const u = addUserNode(g, { seq: 1, text: "别动 prod 配置。" });
+  const u = addUserNodeId(g, { seq: 1, text: "别动 prod 配置。" });
   let last = u;
   for (let i = 0; i < n; i += 1) {
     const ok = addEdge(g, { from: u, intent: `成功路 ${i}`, action: `bash(echo ok${i})` });
@@ -126,7 +126,7 @@ tests["变异自检：关闭记忆化必须退化（每次重算）"] = (t) => {
 
 tests["置换：索引化后提示仍按 path 上的换位边计数"] = (t) => {
   const g = createGraph({ sessionId: "tewari-transposition" });
-  const u = addUserNode(g, { seq: 1, text: "把缓存换成 LRU。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把缓存换成 LRU。" });
   // 节点必须带 via（currentPath 沿 via 链回溯，不是沿边）
   const e1 = addEdge(g, { from: u, intent: "第一步", action: "bash(echo 1)" });
   const n1 = addAgentNode(g, { seq: 10, goal: "A", worldHash: "W1", constraintHash: "C1", via: e1 }).id;

@@ -38,14 +38,17 @@ function rewire(text) {
   const out = [];
   let rewired = 0;
   for (const line of lines) {
-    const m = /^import (\{[^}]*\}) from "(\.\.\/[^"]+)";$/.exec(line);
+    const m = /^import (\{[^}]*\}) from "(\.\.?\/[^"]+)";$/.exec(line);
     if (!m) {
       out.push(line);
       if (line === 'import nodePath from "node:path";') out.push(PREAMBLE);
       continue;
     }
     const [, names, spec] = m;
-    const rel = nodePath.posix.normalize(spec.replace(/^\.\.\//, "")).replace(/^\.\.\//, "");
+    // task-59：夹具源也可以引 test/ 下的夹具层（"./graph-fixtures.mjs"）
+    const rel = spec.startsWith("./")
+      ? `test/${spec.slice(2)}`
+      : nodePath.posix.normalize(spec.replace(/^\.\.\//, "")).replace(/^\.\.\//, "");
     if (!/^(src|scripts|lib|test)\//.test(rel)) throw new Error(`意外的相对导入：${spec}（夹具只支持仓库内模块）`);
     out.push(`const ${names} = __pick__(${JSON.stringify(rel)});`);
     rewired += 1;
@@ -74,9 +77,19 @@ function mirrorSelf() {
 }
 
 const jobs = [
-  // C-12：旧判据（HEAD 原文）与修好后（工作区原文）各一份
-  ["ab-old.mjs", rewire(git("HEAD:test/ab-render.mjs"))],
+  // C-12：旧判据（**必须是历史版本**）与修好后（工作区原文）各一份。
+  // ★ task-59 发现：原写法用 `git("HEAD:...")`，但 HEAD 自 571a994（1.9.1 发布）起已经是
+  //   修好的 judgeEntry —— 再跑生成器会把「负例」悄悄换成「正例」，C-12-1 变成假绿。
+  //   旧判据（import.meta.url.endsWith(basename(...))）最后存在于 21be900；这里钉死。
+  ["ab-old.mjs", rewire(git("21be900:test/ab-render.mjs"))],
   ["ab-now.mjs", rewire(nodeFs.readFileSync(nodePath.join(REPO, "test", "ab-render.mjs"), "utf8"))],
 ];
 for (const [name, text] of jobs) console.log(name, writeIfChanged(nodePath.join(OUT, name), text));
+// 负例保险：ab-old 里必须还能看到**旧判据**，否则 C-12-1 就不是负例了（会静默假绿）
+{
+  const oldText = nodeFs.readFileSync(nodePath.join(OUT, "ab-old.mjs"), "utf8");
+  if (!/import\.meta\.url\.endsWith\(nodePath\.basename\(/.test(oldText)) {
+    throw new Error("ab-old.mjs 里没有旧判据（import.meta.url.endsWith(...)）—— 负例失效，检查 OLD 基线 commit");
+  }
+}
 console.log("gen.mjs", mirrorSelf());

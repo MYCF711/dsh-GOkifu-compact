@@ -15,7 +15,7 @@
 
 import {
   createGraph,
-  addUserNode,
+  addUserNodeId,
   addEdge,
   addAgentNode,
   settleEdge,
@@ -26,7 +26,7 @@ import {
   validate,
   toJSON,
   fromJSON,
-} from "../src/graph.mjs";
+} from "./graph-fixtures.mjs";
 import { classify, weakKindOf } from "../src/verifier.mjs";
 import { observeEvent } from "../src/keeper.mjs";
 import { renderLedger, renderFacts } from "../src/ledger.mjs";
@@ -230,7 +230,7 @@ tests["只读工具但 step 结束仍没有结果（no-result）⇒ 不标 weak�
 
 tests["settleEdge：重新结算成 success 时清掉 weak；addEdge 不预置 weak 字段"] = () => {
   const g = createGraph({ sessionId: "s" });
-  const u = addUserNode(g, { seq: 1, text: "x" });
+  const u = addUserNodeId(g, { seq: 1, text: "x" });
   const e = addEdge(g, { from: u, intent: "读", action: "read(file_path=a)" });
   if (Object.hasOwn(g.edges[e], "weak")) throw new Error("addEdge 不该预置 weak");
   settleEdge(g, e, { result: "unverified", verify: { kind: "read", summary: "10 chars" }, weak: "read" });
@@ -302,7 +302,7 @@ tests["弱成功不进 tewari：同起点的弱边不是「成功替代路径」
   // 手写图的原因：要让「失败边」和「弱边」指向同一个节点（keeper 每步一个节点，构造不出同终点）。
   function build(weakAsSuccess) {
     const g = createGraph({ sessionId: "tewari" });
-    const u = addUserNode(g, { seq: 1, text: "把测试跑绿" });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
     const eWeak = addEdge(g, { from: u, intent: "先读测试文件", action: "read(file_path=tests/case7.test.js)" });
     const eFail = addEdge(g, { from: u, intent: "再跑一遍看看", action: "bash(npm test)" });
     const n = addAgentNode(g, { seq: 8, goal: "看过了", worldHash: "W1", constraintHash: "C1", via: eWeak }).id;
@@ -379,7 +379,7 @@ tests["热清单预算：弱成功夹具仍 ≤500 tokens（含图例）"] = () 
 
 tests["旧图兼容：没有 weak 字段、只有 verify.kind===\"read\" 的边仍被识别为弱锚点"] = () => {
   const g = createGraph({ sessionId: "legacy" });
-  const u = addUserNode(g, { seq: 1, text: "读一下配置文件" });
+  const u = addUserNodeId(g, { seq: 1, text: "读一下配置文件" });
   const e = addEdge(g, { from: u, intent: "读 config", action: "read(file_path=config.json)" });
   const n2 = addAgentNode(g, { seq: 4, goal: "看过配置", worldHash: "W1", constraintHash: "C1", via: e }).id;
   settleEdge(g, e, { result: "unverified", verify: { kind: "read", summary: "1234 chars" } });
@@ -390,7 +390,7 @@ tests["旧图兼容：没有 weak 字段、只有 verify.kind===\"read\" 的边�
   if (Object.hasOwn(g.edges[e], "weak")) throw new Error("渲染不该给旧图写 weak 字段");
   // 旧图里的「空输出」read（summary=empty）不算弱锚点
   const g2 = createGraph({ sessionId: "legacy-empty" });
-  const u2 = addUserNode(g2, { seq: 1, text: "读一下" });
+  const u2 = addUserNodeId(g2, { seq: 1, text: "读一下" });
   const e2 = addEdge(g2, { from: u2, intent: "读", action: "read(file_path=empty.txt)" });
   const n2b = addAgentNode(g2, { seq: 4, goal: "", worldHash: "W1", constraintHash: "C1", via: e2 }).id;
   settleEdge(g2, e2, { result: "unverified", verify: { kind: "read", summary: "empty" } });
@@ -400,7 +400,7 @@ tests["旧图兼容：没有 weak 字段、只有 verify.kind===\"read\" 的边�
 
 tests["旧图兼容：只有强 success 的图，WORKING 行逐字不变（不许出现 weak 标记）"] = () => {
   const g = createGraph({ sessionId: "strong-only" });
-  const u = addUserNode(g, { seq: 1, text: "把缓存键修好" });
+  const u = addUserNodeId(g, { seq: 1, text: "把缓存键修好" });
   const e1 = addEdge(g, { from: u, intent: "改 cache.js", action: "edit(file_path=src/cache.js)" });
   const n2 = addAgentNode(g, { seq: 5, goal: "改完", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
   g.edges[e1].to = n2;
@@ -432,7 +432,7 @@ tests["弱成功不改变既有事件语义：openEdges / failureEdges / validat
 
 tests["图不变量：weak 挂在非 unverified 上是问题，挂在 unverified 上不是"] = () => {
   const g = createGraph({ sessionId: "inv" });
-  const u = addUserNode(g, { seq: 1, text: "x" });
+  const u = addUserNodeId(g, { seq: 1, text: "x" });
   const e = addEdge(g, { from: u, intent: "读", action: "read(file_path=a)" });
   settleEdge(g, e, { result: "unverified", verify: { kind: "read", summary: "9 chars" }, weak: "read" });
   if (validate(g).some((p) => p.includes("weak"))) throw new Error("合法 weak 被误报");
@@ -461,7 +461,7 @@ tests["标记档位 markers:off 时，weak 标记与图例仍然出现（安全�
 
 tests["WORKING 锚点不取失败边 / 不取自环边 / 不取无 to 的边"] = () => {
   const g = createGraph({ sessionId: "anchors" });
-  const u = addUserNode(g, { seq: 1, text: "x" });
+  const u = addUserNodeId(g, { seq: 1, text: "x" });
   const eSelf = addEdge(g, { from: u, intent: "自环", action: "read(a)" });
   settleEdge(g, eSelf, { result: "success", verify: { kind: "exit", summary: "exit 0" }, to: u });
   const eFail = addEdge(g, { from: u, intent: "失败", action: "bash(x)" });
@@ -472,7 +472,7 @@ tests["WORKING 锚点不取失败边 / 不取自环边 / 不取无 to 的边"] =
   if (workingLine(text)) throw new Error(`不该有 WORKING：\n${text}`);
   // 弱边但 to 悬空（节点不存在）⇒ 同样不能当锚点
   const g2 = createGraph({ sessionId: "dangling" });
-  const u2 = addUserNode(g2, { seq: 1, text: "x" });
+  const u2 = addUserNodeId(g2, { seq: 1, text: "x" });
   const e2 = addEdge(g2, { from: u2, intent: "弱但悬空", action: "read(a)" });
   settleEdge(g2, e2, { result: "unverified", verify: { kind: "read", summary: "9 chars" }, weak: "read", to: "n99" });
   if (workingLine(renderLedger(g2, { maxTokens: 500 }).text)) throw new Error("悬空 to 的弱边被当成锚点");

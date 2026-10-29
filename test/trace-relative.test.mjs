@@ -14,7 +14,7 @@
  *   4. renderFacts 不受影响。
  */
 
-import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts, traceRelativeDir, _internal } from "../src/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
@@ -22,7 +22,7 @@ import { renderLedger, renderFacts, traceRelativeDir, _internal } from "../src/l
 /** 有失败边的图（TRACE 只在有 LEARNED 时出现）。 */
 function failingGraph({ sessionId = "fx-trace", failures = 3 } = {}) {
   const g = createGraph({ sessionId });
-  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
   const ok = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)" });
   const a = addAgentNode(g, { seq: 3, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: ok }).id;
   g.edges[ok].to = a;

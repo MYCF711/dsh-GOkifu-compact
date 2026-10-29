@@ -19,14 +19,14 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { createGraph, addUserNode, addAgentNode, addEdge, settleEdge } from "../src/graph.mjs";
+import { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } from "./graph-fixtures.mjs";
 import { renderLedger } from "../src/ledger.mjs";
 
 const WIN = process.platform === "win32";
 
 export function scenario() {
   const g = createGraph({ sessionId: "ab-svc-4021", cwd: "/home/dev/work/svc-4021" });
-  const u = addUserNode(g, { seq: 1, text: "把 tests/case*.test.js 跑绿：缓存键算错了。不要动 prod 配置。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把 tests/case*.test.js 跑绿：缓存键算错了。不要动 prod 配置。" });
 
   // ── 成功路径：把缓存键改成「规范化后的参数」（唯一走通的做法）──
   const eWork = addEdge(g, { from: u, intent: "把缓存键改成规范化参数", action: "edit(file_path=src/cache.js)" });
@@ -71,7 +71,7 @@ export function scenario() {
  */
 export function scenarioTrap() {
   const g = createGraph({ sessionId: "ab-trap", cwd: "/home/dev/work/svc-4021" });
-  const u = addUserNode(g, { seq: 1, text: "把 tests/case*.test.js 跑绿：缓存键算错了。不要动 prod 配置。" });
+  const u = addUserNodeId(g, { seq: 1, text: "把 tests/case*.test.js 跑绿：缓存键算错了。不要动 prod 配置。" });
   const eWin = addEdge(g, { from: u, intent: "把缓存键改成参数去重、排序后再序列化", action: "edit(file_path=src/cache.js)" });
   const n2 = addAgentNode(g, { seq: 6, goal: "缓存键修好，全部用例通过", worldHash: "W-key-dedup", constraintHash: "C1", via: eWin }).id;
   g.edges[eWin].to = n2;
