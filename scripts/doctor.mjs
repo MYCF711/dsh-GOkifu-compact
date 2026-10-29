@@ -290,6 +290,40 @@ add(
 );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
+/* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──
+   engine 每次 renderLedger 后会把 {none, over-budget, impossible, maxOverBudgetBy} 落到
+   `<DSH_HOME>/chess-context/ledger-budget.json`。没有这个文件 = 从未采集（旧版本或还没跑过）
+   —— 必须明确写「未采集」，不能假装健康。 */
+{
+  const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
+  let stats = null;
+  let parseError = "";
+  if (nodeFs.existsSync(budgetFile)) {
+    try {
+      stats = JSON.parse(nodeFs.readFileSync(budgetFile, "utf8"));
+    } catch (err) {
+      parseError = err?.message ?? String(err);
+    }
+  }
+  if (!nodeFs.existsSync(budgetFile)) {
+    add("热清单预算（fallback）", "warn", "未采集（还没有 ledger-budget.json —— 插件尚未产生新的热清单，或版本 < 1.9.2）");
+  } else if (parseError) {
+    add("热清单预算（fallback）", "warn", `未采集（ledger-budget.json 读不出：${parseError}）`);
+  } else {
+    const none = Number(stats.none ?? 0);
+    const over = Number(stats["over-budget"] ?? 0);
+    const impossible = Number(stats.impossible ?? 0);
+    const maxOver = Number(stats.maxOverBudgetBy ?? 0);
+    const total = none + over + impossible;
+    add(
+      "热清单预算（fallback）",
+      impossible > 0 ? "error" : over > 0 ? "warn" : "ok",
+      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}` +
+        `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
+    );
+  }
+}
+
 /* ── 输出 ── */
 const bad = checks.filter((c) => c.status === "error").length;
 const warn = checks.filter((c) => c.status === "warn").length;

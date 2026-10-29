@@ -174,17 +174,22 @@ tests["普通成功（exit 0）⇒ success，不是 weak"] = () => {
   if (r.weak !== undefined) throw new Error("成功边被标了 weak");
 };
 
-tests["普通无退出码（shell no-exit）⇒ 仍是 unverified，不算 weak（S2b 不在本切片）"] = () => {
+tests["普通无退出码（shell no-exit）⇒ unverified + weak:\"shell\"（S2b 已实现），且能形成 WORKING"] = () => {
+  // ★ 2026-10-30 S2b：本用例原是「S2b 不在本切片」的守门断言（要求 weak 不存在）。
+  //   S2b 落地后契约变了：no-exit 且未命中 N1 八条失败特征 ⇒ weak:"shell"（result 仍 unverified）。
   const r = classify({ tool: "bash", text: "ls: 有一堆输出但没有退出码" });
   if (r.result !== "unverified") throw new Error(`result=${r.result}`);
   if (r.verify.kind !== "no-exit") throw new Error(`kind=${r.verify.kind}`);
-  if (r.weak !== undefined) throw new Error("S2b 的 shell 弱成功被提前打开了");
-  // 会话里只有这种边 ⇒ 不许出现 WORKING
+  if (r.weak !== "shell") throw new Error(`S2b 应给 weak:"shell"，实际 ${JSON.stringify(r.weak)}`);
+  // 会话里只有这种边 ⇒ 现在应当出现 WORKING（弱锚点）
   const s = session();
   userMessage(s, "跑一条命令");
   step(s, { calls: [{ name: "bash", args: { command: "ls" }, text: "a.txt\nb.txt" }] });
   const text = renderLedger(s.g, { maxTokens: 500 }).text;
-  if (workingLine(text)) throw new Error(`shell no-exit 不该当弱锚点：\n${text}`);
+  if (!workingLine(text)) throw new Error(`shell no-exit 应当作为弱锚点出现 WORKING：\n${text}`);
+  // 但命中 N1 的 no-exit 不许给 weak（否则就是把真失败当进展）
+  const bad = classify({ tool: "bash", text: "Error: boom\n    at file:///D:/x.mjs:1:1" });
+  if (bad.result !== "unverified" || bad.weak !== undefined) throw new Error(`N1 命中不得给 weak：${JSON.stringify(bad)}`);
 };
 
 /* ─────────────────── ③ keeper 落账 + 图结构 ─────────────────── */

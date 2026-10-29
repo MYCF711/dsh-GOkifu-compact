@@ -29,12 +29,20 @@ import {
   toJSON,
   renderMd,
   renderIndexMd,
+  renderIndexAppend,
   renderNodeMd,
   sha,
   hashSet,
   validate,
   mergeNodeInto,
   failureEdges,
+  // ★ P3（增量落盘）：dirty 跟踪 + delta 帧编解码/回放
+  peekDirty,
+  clearDirty,
+  deltaFromDirty,
+  encodeDeltaFrame,
+  decodeDeltaFrames,
+  applyDelta,
 } from "./graph.mjs";
 import { observeEvent } from "./keeper.mjs";
 import { createWorldTracker } from "./worldstate.mjs";
@@ -60,6 +68,53 @@ const SUMMARY_MODE = new Set(["hybrid", "rules", "llm"]);
 
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 const MARKER_MODES = new Set(["semantic", "terse", "off"]);
+
+/* ───────────────── P7：fallback 仪表盘（engine 侧） ───────────────── */
+
+/**
+ * ★ P7（task-58）：把 `renderLedger` 的预算状态变成可记录、可测试的指标对象。
+ *
+ * 为什么必须做：task-54/55 复核指出 —— `renderLedger` 已经返回 `fallback/overBudgetBy/budgetMax`，
+ * 但 **engine/ui/doctor 一个都不读**。死开关等于没有：超预算的会话照旧静默交付。
+ *
+ * `fallback` 三态（ledger.mjs 的 `fallbackStatusOf`）：
+ *   none / over-budget（兜底超限，已是最省）/ impossible（连文本都构造不出 ⇒ 必须 error）。
+ */
+export function ledgerBudgetMetrics(ledger) {
+  const fallback = ledger && typeof ledger.fallback === "string" ? ledger.fallback : "未采集";
+  return {
+    fallback,
+    level: Number.isFinite(ledger?.level) ? ledger.level : null,
+    tokens: Number.isFinite(ledger?.tokens) ? ledger.tokens : null,
+    budgetMax: Number.isFinite(ledger?.budgetMax) ? ledger.budgetMax : null,
+    overBudgetBy: Number.isFinite(ledger?.overBudgetBy) ? ledger.overBudgetBy : 0,
+  };
+}
+
+/** 预算状态对应的日志级别：impossible 必须 error，over-budget 至少 warn，其余 info。 */
+export function ledgerBudgetLogLevel(metrics) {
+  if (!metrics || metrics.fallback === "impossible") return "error";
+  if (metrics.fallback === "over-budget") return "warn";
+  return "info";
+}
+
+/** 一行可读的日志文案（含 overBudgetBy —— 验收明确要求）。 */
+export function ledgerBudgetLogLine(metrics, sessionId = "") {
+  const who = sessionId ? ` session=${sessionId}` : "";
+  if (metrics.fallback === "over-budget") {
+    return `chess-context: 热清单兜底超限（over-budget）${who} tokens=${metrics.tokens} budget=${metrics.budgetMax} overBudgetBy=${metrics.overBudgetBy} level=L${metrics.level}`;
+  }
+  if (metrics.fallback === "impossible") {
+    return `chess-context: 热清单无解（impossible）${who} level=L${metrics.level} —— 连最省兜底都构造不出，这是 bug，不是预算问题`;
+  }
+  return `chess-context: 热清单预算正常（${metrics.fallback}）${who} tokens=${metrics.tokens}/${metrics.budgetMax}`;
+}
+
+/** 预算统计文件的相对位置（相对 graphDir）：`<graphDir>/ledger-budget.json`。 */
+const LEDGER_BUDGET_FILE = "ledger-budget.json";
+
+/** ★ P3：index.md 超过这个大小就全量重建（否则只追加增量段）。92KB 的大图允许涨到 ~2.8×。 */
+const INDEX_APPEND_LIMIT = 256 * 1024;
 
 export const name = "dsh-gokifu-compact";
 
@@ -88,6 +143,7 @@ export const Config = z.object({
   hotLedger: z.boolean().default(true).description("每轮注入失败清单（热上下文）"),
   hotLedgerMaxTokens: z.number().default(500).description("失败清单的 token 上限"),
   hotLedgerMarkers: z.string().default("semantic").description("失败边标记档位：semantic=带语义（blocked:permission）+动态图例；terse=只写三态；off=不打标记"),
+  hotLedgerTraceRoot: z.string().default("sessions").description("TRACE 行相对路径的根前缀（默认 sessions ⇒ `sessions/<sid>/index.md`；空串 = 只写 `<sid>/index.md`）"),
   hotLedgerReplace: z.boolean().default(true).description("热清单就地替换 surface 上的旧节点（surface 永远只有一条）；false=退回追加（长会话会累积）"),
   transposition: z.boolean().default(true).description("置换检测：同一状态再次到达时不新建节点"),
   tier2After: z.number().default(8).description("checkpoint 超过这么多时合并最老的两段（tier-2）"),
@@ -124,9 +180,60 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.treeWritten = new Set();
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */
     this.flushTimers = new Map();
+    /** ★ P3：每会话基线 graph.json 的内容哈希（16 位）；delta 帧用它做 generation 保护。 */
+    this.baseHash = new Map();
+    /** ★ P3：已进入 graph.json/delta 但还没写过 nodes/<id>.md 的节点（fold 时补写）。 */
+    this.nodesPendingMd = new Map();
     this.runtime = new Map();
+    /** ★ P7：热清单预算统计（跨会话累计；doctor 从这里读）。 */
+    this.ledgerBudget = { none: 0, "over-budget": 0, impossible: 0, 未采集: 0, maxOverBudgetBy: 0, updatedAt: 0, samples: 0 };
     if (this.chess.hotLedger) this.#bindLedger();
     this.#bindKeeper();
+  }
+
+  /* ────────────────────────── P7：预算消费 ────────────────────────── */
+
+  /**
+   * 消费一次 `renderLedger` 的预算状态：累计统计 → 记日志 → 落盘指标 → 回调钩子。
+   * 返回值同时给出 metrics，便于测试直接断言（不依赖日志实现）。
+   */
+  consumeLedgerBudget(ledger, session = null) {
+    const metrics = ledgerBudgetMetrics(ledger);
+    this.ledgerBudget[metrics.fallback] = (this.ledgerBudget[metrics.fallback] ?? 0) + 1;
+    this.ledgerBudget.samples += 1;
+    this.ledgerBudget.maxOverBudgetBy = Math.max(this.ledgerBudget.maxOverBudgetBy, metrics.overBudgetBy);
+    this.ledgerBudget.updatedAt = Date.now();
+    const level = ledgerBudgetLogLevel(metrics);
+    const line = ledgerBudgetLogLine(metrics, session?.id ?? "");
+    try {
+      this.ctx?.logger?.[level]?.(line);
+    } catch {
+      /* 日志实现坏掉不许影响压缩 */
+    }
+    try {
+      this.chess?.onLedgerBudget?.(metrics, session);
+    } catch {
+      /* 用户钩子异常不许影响压缩 */
+    }
+    this.#persistLedgerBudget();
+    return metrics;
+  }
+
+  /** 供 doctor / 上层查询的浅拷贝。 */
+  getLedgerBudgetStats() {
+    return { ...this.ledgerBudget };
+  }
+
+  #persistLedgerBudget() {
+    try {
+      const file = nodePath.join(this.#dir(), LEDGER_BUDGET_FILE);
+      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
+      const tmp = `${file}.tmp-${process.pid}`;
+      nodeFs.writeFileSync(tmp, JSON.stringify(this.ledgerBudget, null, 1), "utf8");
+      nodeFs.renameSync(tmp, file);
+    } catch {
+      /* 指标落盘失败不影响压缩（doctor 会显示「未采集」） */
+    }
   }
 
   /* ────────────────────────── 棋谱状态 ────────────────────────── */
@@ -150,8 +257,23 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (g !== undefined) return g;
     const file = this.#graphPath(session);
     try {
-      g = fromJSON(nodeFs.readFileSync(file, "utf8"));
-      // 恢复后把 checkpoint 位置与 fold 计数接上
+      const text = nodeFs.readFileSync(file, "utf8");
+      g = fromJSON(text);
+      // ★ P3：基线内容哈希（16 位）—— delta 帧都带它；基线重写后旧帧自然失效。
+      this.baseHash.set(key, sha(text).slice(0, 16));
+      // 重放增量：坏帧/半写帧就地停止，并把文件截到最后一个好帧（防止后续追加接在半帧后面）
+      const deltaFile = `${file}.delta.jsonl`;
+      if (nodeFs.existsSync(deltaFile)) {
+        const dtext = nodeFs.readFileSync(deltaFile, "utf8");
+        const base = this.baseHash.get(key);
+        const { frames, badTail } = decodeDeltaFrames(dtext, base);
+        for (const f of frames) applyDelta(g, f);
+        if (badTail) {
+          const good = frames.map((f) => encodeDeltaFrame(base, f)).join("");
+          nodeFs.writeFileSync(deltaFile, good, "utf8");
+          this.ctx.logger?.warn?.(`chess-context: delta 尾部有坏帧，已截断到第 ${frames.length} 帧（半写不污染图）`);
+        }
+      }
     } catch {
       g = createGraph({ sessionId: key, cwd: session.cwd ?? process.cwd() });
     }
@@ -204,47 +326,101 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     return st;
   }
 
-  #flush(session, { tree = false } = {}) {
+  #flush(session, { tree = false, full = false } = {}) {
     const g = this.#graph(session);
     const dir = nodePath.dirname(this.#graphPath(session));
+    const file = this.#graphPath(session);
+    const deltaFile = `${file}.delta.jsonl`;
+    const key = session.id;
     try {
       nodeFs.mkdirSync(dir, { recursive: true });
-      const tmp = `${this.#graphPath(session)}.tmp`;
       // P1-11：落盘前校验图不变量（悬空边 / 失败边没原因 / agent 缺哈希）。
       // 审查实测 live graph 155 条边里 115 条 from 悬空而无人发现 —— 校验结果至少进日志。
       const problems = validate(g);
       if (problems.length > 0) {
         this.ctx.logger?.warn?.(`chess-context: 棋谱不变量告警 ${problems.length} 条：${problems.slice(0, 3).join("; ")}`);
       }
-      // 三层文件树（v1.2.0）：index.md + nodes/*.md（raw/ 已砍，见 v1.2.4）
-      //
-      // ★ 2026-10-29（goal ⑤ 的实测副作用）：`index.md` 是模型读的入口（`TRACE:` 就指向它），
-      //   旧版只在「首次 / fold 后」写 ⇒ 长会话里它**落后于 graph.json**。
-      //   盲测里的子代理当场发现了这点（「index.md 仅 350 边/17 失败，graph.json 才是 447 边/23 失败」）。
-      //   现在：**每次 flush 都重写 index.md**（单文件 ~50KB，渲染 1.3ms；debounce 后每 1.2s 最多一次），
-      //   `nodes/*.md` 仍只在「首次 / fold 后」写（2000 边时是 2000 个文件，不能每步来一遍）。
-      const firstWrite = !this.treeWritten.has(session.id);
+
+      const dirty = peekDirty(g);
+      const firstWrite = !this.treeWritten.has(key);
       const nodesDir = nodePath.join(dir, "nodes");
-      nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
-      if (tree || firstWrite) {
-        this.treeWritten.add(session.id);
+      const indexFile = nodePath.join(dir, "index.md");
+
+      // ── index.md ────────────────────────────────────────────────
+      // ★ P3：稳态 flush 不再整篇重写（13–92KB/次），改为**追加**本帧增量；
+      //   fold / 首次 / 文件缺失 / 膨胀超阈值时才全量重建（重建后追加段自然被覆盖）。
+      const needFullIndex = tree || firstWrite || !nodeFs.existsSync(indexFile) || nodeFs.statSync(indexFile).size > INDEX_APPEND_LIMIT;
+      if (needFullIndex) {
+        nodeFs.writeFileSync(indexFile, renderIndexMd(g), "utf8");
+        this.treeWritten.add(key);
+      } else if (!dirty.empty) {
+        const append = renderIndexAppend(g, dirty);
+        if (append) nodeFs.appendFileSync(indexFile, `${append}\n`, "utf8");
+      }
+
+      // ── nodes/<id>.md ───────────────────────────────────────────
+      // ★ P3：稳态 flush 只记账「待写 md 的节点」；fold 时只写这些 + 本帧 dirty（通常个位数），
+      //   不再全量重写 361–415 个文件（实测 429–836ms）。
+      let pending = this.nodesPendingMd.get(key);
+      if (pending === undefined) {
+        pending = new Set();
+        this.nodesPendingMd.set(key, pending);
+      }
+      if (firstWrite) {
         nodeFs.mkdirSync(nodesDir, { recursive: true });
-        // 写**所有**节点（g.nodes），不只是 g.order —— 被合并且仍被边引用的节点也要有文件
         for (const id of Object.keys(g.nodes)) {
-          const n = g.nodes[id];
-          if (!n) continue;
+          if (g.nodes[id]) nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
+        }
+        pending.clear();
+      } else if (tree || pending.size > 0) {
+        nodeFs.mkdirSync(nodesDir, { recursive: true });
+        const writeSet = new Set([...pending, ...dirty.nodes]);
+        for (const id of writeSet) {
+          if (!g.nodes[id]) continue;
           nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
         }
-        // raw/ 不写：节点 JSON 与 graph.json 完全重复（190 文件 / 417KB 浪费）。
-        // 真正的「原始记录」应该是事件原文，等以后从 session 日志接。
+        pending.clear();
+      } else {
+        for (const id of dirty.nodes) pending.add(id);
       }
-      // graph.md 不再自动写（177KB/次是纯 IO 浪费；三层文件树已是人读视图）
-      // 需要时：node test/build-md.mjs <sessionDir>
 
-      // ★ JSON 最后写（原子 rename = 提交点）：md 先就绪，读者以 graph.json 的 updatedAt 为准
-      nodeFs.writeFileSync(tmp, toJSON(g), "utf8");
-      nodeFs.renameSync(tmp, this.#graphPath(session));
+      // ── graph.json + delta ──────────────────────────────────────
+      // 提交点 = 基线 rename。顺序刻意如此：
+      //   ① 需要压缩时：写 tmp → rename 成基线（新哈希）→ 再清 delta；
+      //      崩溃在「rename 之后、清 delta 之前」⇒ 旧帧的 baseHash 与新基线不符，加载时整体忽略，图仍正确；
+      //   ② 稳态：只 append 一帧（~1KB），append 半写 ⇒ 解码时校验失败、就地停止并截断。
+      const baseExists = nodeFs.existsSync(file);
+      if (!baseExists) {
+        const text = toJSON(g);
+        const tmp = `${file}.tmp`;
+        nodeFs.writeFileSync(tmp, text, "utf8");
+        nodeFs.renameSync(tmp, file);
+        nodeFs.writeFileSync(deltaFile, "", "utf8");
+        this.baseHash.set(key, sha(text).slice(0, 16));
+      } else {
+        let base = this.baseHash.get(key);
+        if (base === undefined) {
+          base = sha(nodeFs.readFileSync(file, "utf8")).slice(0, 16);
+          this.baseHash.set(key, base);
+        }
+        const baseBytes = nodeFs.statSync(file).size;
+        const deltaBytes = nodeFs.existsSync(deltaFile) ? nodeFs.statSync(deltaFile).size : 0;
+        // 合并阈值：delta 超过基线的 20% 或 64KB 就压缩（摊销后每步只多写 baseBytes/帧数）
+        const compactLimit = Math.max(64 * 1024, Math.floor(baseBytes * 0.2));
+        if (full || deltaBytes > compactLimit) {
+          const text = toJSON(g);
+          const tmp = `${file}.tmp`;
+          nodeFs.writeFileSync(tmp, text, "utf8");
+          nodeFs.renameSync(tmp, file); // 提交点
+          nodeFs.writeFileSync(deltaFile, "", "utf8");
+          this.baseHash.set(key, sha(text).slice(0, 16));
+        } else if (!dirty.empty) {
+          nodeFs.appendFileSync(deltaFile, encodeDeltaFrame(base, deltaFromDirty(g, dirty)), "utf8");
+        }
+      }
+      clearDirty(g);
     } catch (error) {
+      // 写失败**不清 dirty**：下次 flush 会把这一轮变更一起写下去（宁可重复写，不可丢变更）
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${String(error)}`);
     }
   }
@@ -284,7 +460,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     ctx.on("agent/status", ({ agent, status }) => {
       if (status === "idle") {
         try {
-          this.#flush(agent.session);
+          // 回合边界 = 提交点：落一份完整的 graph.json（外部读者/doctor/verify 直接读它）
+          this.#flush(agent.session, { full: true });
         } catch {
           /* 落盘失败不阻塞 */
         }
@@ -322,7 +499,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           maxTokens: this.chess.hotLedgerMaxTokens,
           markers: this.chess.hotLedgerMarkers,
           treeDir: this.#sessionDir(session),
+          // ★ P7（task-58）：生产必须传 traceRoot —— 否则 TRACE 走 ledger 默认 ""，热清单只剩 `<sid>/index.md`
+          //   （虽然仍是相对路径，但少了 sessions 根，模型拼不回去）。可配置，默认 sessions。
+          traceRoot: this.chess.hotLedgerTraceRoot,
         });
+        // ★ P7：消费 fallback（over-budget 记 warn + overBudgetBy；impossible 记 error），并落盘给 doctor。
+        this.consumeLedgerBudget(ledger, session);
         const ledgerText = warning === "" ? ledger.text : `${warning}
 ${ledger.text}`;
         if (!ledgerText) return decision;
@@ -769,7 +951,10 @@ function resolveChess(config) {
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, 500),
     hotLedgerMarkers: MARKER_MODES.has(c.hotLedgerMarkers) ? c.hotLedgerMarkers : "semantic",
+    hotLedgerTraceRoot: str(c.hotLedgerTraceRoot, "sessions"),
     hotLedgerReplace: c.hotLedgerReplace !== false,
+    /** ★ P7：测试/宿主用的预算回调（不写进 preset schema —— 函数没法序列化）。 */
+    onLedgerBudget: typeof c.onLedgerBudget === "function" ? c.onLedgerBudget : null,
     transposition: c.transposition !== false,
     tier2After: num(c.tier2After, 8),
     graphDir: str(c.graphDir, ""),

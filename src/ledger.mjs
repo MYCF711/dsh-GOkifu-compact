@@ -20,6 +20,67 @@
 import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./graph.mjs";
 import { weakKindOf } from "./verifier.mjs";
 
+/* ───────────────── P6-A：悬空边（to=null）的分类与排除 ───────────────── */
+
+/**
+ * ★ P6-A（2026-10-30，task-56）：悬空边的两类，必须**只排除残留、保留未结算**。
+ *
+ * 数据事实（ws-dangling 全库测量，133 会话 / 18,038 边）：
+ *   · `to=null` 5,567 条：unverified 4,815 + success 481 + failure 268 + untested 3；
+ *   · 5,564 条是 1.9.1 rewash 清自环时把 `to` 抹掉的**历史残留**（已结算却无终点 = 不可能）；
+ *   · 3 条 untested 也是 18 小时前的陈旧 in-flight 残留；
+ *   · 另有 214 条 `from` 悬空（全在 session-5acafe42，mergeNodeInto 老 bug）——**另一类**，
+ *     判据必须以 `to == null` 开头，绝不能写成「任一端为空」（会误删）。
+ *
+ * 不变量（报告 §2）：
+ *   residue(e)        := e.to == null && (e.result !== "untested" || age > 10min)
+ *   live_unsettled(e) := e.to == null && e.result === "untested" && age <= 10min
+ *
+ * 为什么安全：结算过（success/failure/unverified）的边必须有终点；`untested` 是唯一合法的
+ * 「未结算」状态，且只应出现在当前正在执行的 step（时间戳新鲜）。超 10 分钟仍是 untested
+ * ⇒ 进程崩溃/中断留下的死边。
+ */
+export const DANGLING_STALE_MS = 10 * 60 * 1000;
+
+/**
+ * @returns {"residue"|"live-unsettled"|"from-broken"|"none"}
+ */
+export function classifyDangling(edge, { graph = null, now = Date.now() } = {}) {
+  if (!edge) return "none";
+  if (edge.from != null && graph && !graph.nodes?.[edge.from]) return "from-broken";
+  if (edge.to != null) return "none";
+  // ★ 年龄护栏（实现比报告公式更保守一层）：报告公式是
+  //   `to==null && (result!=="untested" || age>10min)` —— 但「已结算」不等于「一定是旧残留」：
+  //   keeper 是「工具结果到达时先 settle、step/end 才回填 to」，所以**刚结算的失败边也可能 to=null**。
+  //   按字面公式会把这种新鲜失败当场当残留隐藏掉（本仓库多组单测夹具正是这个形态，实测 10+ 用例变红）。
+  //   ⇒ 统一要求 age > 10min 才算 residue；≤10min 一律按 live 保留（宁可多显示）。
+  //   生产数字不受影响：全库 5,564 条 settled 残留的 ts 全部是 10-29 的老边，远超 10 分钟。
+  const ts = Number(edge.ts);
+  if (Number.isFinite(ts) && now - ts <= DANGLING_STALE_MS) return "live-unsettled";
+  if (!Number.isFinite(ts)) return edge.result === "untested" ? "live-unsettled" : "residue";
+  return "residue";
+}
+
+/** 全图悬空统计：{residue, liveUnsettled, fromBroken}。只读，不改图。 */
+export function danglingStats(g, { now = Date.now() } = {}) {
+  let residue = 0;
+  let liveUnsettled = 0;
+  let fromBroken = 0;
+  for (const e of Object.values(g?.edges ?? {})) {
+    const kind = classifyDangling(e, { graph: g, now });
+    if (kind === "residue") residue += 1;
+    else if (kind === "live-unsettled") liveUnsettled += 1;
+    else if (kind === "from-broken") fromBroken += 1;
+  }
+  return { residue, liveUnsettled, fromBroken };
+}
+
+/** 该边是否应从「失败边分析 / 热清单」排除。live_unsettled 永远保留。 */
+export function isDanglingResidue(edge, { graph = null, now = Date.now() } = {}) {
+  return classifyDangling(edge, { graph, now }) === "residue";
+}
+
+
 /**
  * 弱成功图例（S2a）。只要 WORKING 行出现 `[weak k/n]`，这一行解释就一定在同一条清单里 ——
  * 标记裸奔 = 模型把「读了一眼」当成已验证。措辞刻意不说 "verified / done"。
@@ -34,9 +95,49 @@ export function estimateTokens(text) {
   return Math.ceil(String(text ?? "").length / 3);
 }
 
+/**
+ * ★ P5（2026-10-30）：渲染结果的预算状态三态。**必须显式**，不许把超预算内容静默返回。
+ *
+ *   · `"none"`         —— tokens ≤ maxTokens，正常交付。
+ *   · `"over-budget"`  —— 兜底档已是最省的一份，但仍超预算（`overBudgetBy` 给出超出量）。
+ *     这是**可观测**的降级：调用方/doctor/审计可以单独统计「兜底超限」的会话数。
+ *   · `"impossible"`   —— 连一份非空文本都构造不出来（`attempts` 为空）。
+ *     实践上只在极端输入/内部异常出现；仍然显式标注，绝不返回空字符串假装成功。
+ *
+ * 为什么需要它：旧 `pickFallback` 在没有预算内候选时直接返回最省的超预算文本，
+ * 调用方拿到的 `tokens` 大于 `maxTokens` 却没有任何标记 ——「已经尽力」和「出了 bug」不可区分。
+ */
+export function fallbackStatusOf(best, maxTokens) {
+  if (!best || typeof best.text !== "string" || best.text.length === 0) return "impossible";
+  return best.tokens > maxTokens ? "over-budget" : "none";
+}
+
 function clip(text, n) {
   const t = norm(text);
   return t.length <= n ? t : `${t.slice(0, Math.max(0, n - 1))}…`;
+}
+
+/**
+ * ★ P6a（2026-10-30）：把 `treeDir` 变成**相对** TRACE 路径（默认挂在 `sessions/` 下）。
+ *
+ * 为什么：生产口径实测 94/133 个会话带 TRACE 行，绝对路径平均 137.7 字符 ——
+ *   ① 把本机盘符/用户名泄漏进热清单（模型不需要，也不该看到）；
+ *   ② 白烧 token（task-36 对账：TRACE 绝对路径净 +2318 token = avg +17.43/图）。
+ *
+ * 规则：
+ *   · 路径里含 `sessions/<sid>` ⇒ `sessions/<sid>`（最常见的生产形态，正反斜杠都吃）；
+ *   · 否则取最后一段目录名 ⇒ `<root>/<basename>`（仍然不泄漏绝对路径）；
+ *   · 空 ⇒ `<root>`。
+ * **永远不会**返回以盘符/`/` 开头的绝对路径。
+ */
+export function traceRelativeDir(treeDir, root = "") {
+  const p = String(treeDir ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const m = /(?:^|\/)sessions\/([^/]+)$/.exec(p);
+  let sid = m ? m[1] : (p.split("/").filter(Boolean).at(-1) ?? "");
+  // 盘符本身不是会话名（`treeDir = "D:\\"` ⇒ 最后一段是 "D:"）——不许把 "D:" 印成相对路径。
+  if (/^[A-Za-z]:$/.test(sid) || sid.includes(":")) sid = "";
+  if (!sid) return root || ".";
+  return root ? `${root}/${sid}` : sid;
 }
 
 /**
@@ -310,9 +411,19 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
  * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
-export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "" } = {}) {
-  const failures = failureEdges(g);
-  const open = openEdges(g);
+export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
+  // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
+  //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
+  //   留在清单里只是噪声。**live_unsettled（新产生、≤10min 的 untested）必须保留**，否则会把
+  //   「正在执行、还没结算」误判成不存在。
+  const allFailures = failureEdges(g);
+  const failures = allFailures.filter((e) => !isDanglingResidue(e, { graph: g, now }));
+  const omittedResidue = allFailures.length - failures.length;
+  const dangling = danglingStats(g, { now });
+  // ★ P6-A：UNVERIFIED_CLAIMS 里的 rewash 残留（to=null 的 unverified）同样是噪声 ——
+  //   它们既没有终点、也不可能再被结算（result 已写死 unverified），展示出来只会占行数。
+  //   live_unsettled 必须保留（正在执行、还没结算）。
+  const open = openEdges(g).filter((e) => !isDanglingResidue(e, { graph: g, now }));
   const latest = latestAgentNode(g);
   const path = latest ? currentPath(g, latest.id) : [];
   const root = g.rootNode ?? g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
@@ -431,11 +542,18 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       omitted = failures.length - shown.length;
     }
     const tailLines = [];
+    // ★ P6-A：被排除的残留必须**说一句**（不能静默消失）。一行、带计数，模型知道「有东西被省了」。
+    // 残留省略不单独站一行（每行都是 token）：renderFacts 里有 DANGLING_RESIDUE 计数，热清单只求不展示。
     if (failures.length) {
       tailLines.push(`LEARNED (${failures.length} failed attempts):`);
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
-      if (treeDir) tailLines.push(`TRACE: ${treeDir}/index.md  (per-node detail: nodes/<id>.md)`);
+      // ★ P6a（2026-10-30）：TRACE 只给**相对路径**（`sessions/<sid>/index.md`）。
+      //   旧版把 `treeDir` 的绝对路径整条写进去（`D:\DeepSeek Harness\home\chess-context\sessions\<sid>`，
+      //   实测 137.7 字符/行）——既把本机用户名/盘符泄漏给模型，又白烧 token（生产口径 94/133 个会话
+      //   带 TRACE 行，平均 +45 token）。相对路径对模型足够定位（会话根 = DSH_HOME/chess-context），
+      //   且 `traceRoot` 可配置（默认 "sessions"）。
+      if (treeDir) tailLines.push(`TRACE: ${traceRelativeDir(treeDir, traceRoot)}/index.md`);
       // 手割分析（tewari）：每条边一次 BFS，防 O(E²) —— 只对**最近 30 条**做。
       // ★ 2026-10-29：旧版是「显示条数 ≤30 才算」⇒ 一次有 40 条失败边的会话里，
       //   手割标记**一条都没有**（而模型永远只对最近几步做决策）。改成对尾部 30 条算，
@@ -584,12 +702,28 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
     //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
     //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。
-    if (level < 4 && tokens <= maxTokens) return attempts.at(-1);
+    if (level < 4 && tokens <= maxTokens) return { ...attempts.at(-1), fallback: "none", budgetMax: maxTokens, overBudgetBy: 0 };
   }
   const best = pickFallback(attempts, maxTokens, failures.length);
-  if (best) return best;
+  if (best) {
+    // ★ P5（2026-10-30）：`pickFallback` 不得**静默**返回超预算内容。
+    //   `fallback` 三态：none（预算内）/ over-budget（兜底超限，但已是最省的那份）/ impossible（连兜底都构造不出）。
+    //   `overBudgetBy` 给指标系统单独统计，调用方（engine/doctor/审计）不需要自己再算一遍。
+    const over = Math.max(0, best.tokens - maxTokens);
+    return { ...best, fallback: fallbackStatusOf(best, maxTokens), budgetMax: maxTokens, overBudgetBy: over };
+  }
   /* istanbul ignore next -- 循环必然返回 */
-  return { text: "", tokens: 0, level: 5, omittedEdges: failures.length, failureCount: failures.length, shownFailures: 0 };
+  return {
+    text: "",
+    tokens: 0,
+    level: 5,
+    omittedEdges: failures.length,
+    failureCount: failures.length,
+    shownFailures: 0,
+    fallback: "impossible",
+    budgetMax: maxTokens,
+    overBudgetBy: 0,
+  };
 }
 
 /**
@@ -639,7 +773,7 @@ export function collectConstraints(g) {
  * 这些内容由规则抽取、逐字保留，模型只负责压缩表达，不负责决定丢什么。
  * ★ 这里**全量**（不降级）—— 摘要是一次性成本，且失败边正是压缩必须保住的东西。
  */
-export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = null } = {}) {
+export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = null, now = Date.now() } = {}) {
   let allFailures = failureEdges(g);
   // ★ P1-8：增量 fold 只应把**本段**失败边塞进摘要。旧版取全量 → 摘要体积随全局失败数增长，
   //   真实会话的 fold 摘要已 13,953 字符；再涨会触发官方「summary 不小于被遮蔽内容」，fold 永久失败。
@@ -709,6 +843,23 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     if (latest?.goal) lines.push(`CURRENT_GOAL: ${latest.goal}`);
     lines.push(`CURRENT_STATE_KEY: ${shortHash(latest?.worldHash)}/${shortHash(latest?.constraintHash)}`);
   }
+  // ★ P6-A（task-56）：硬事实仍列**全部**失败边（失败记忆不能丢），但必须显式区分
+  //   「无终点残留」—— 否则读者会把 rewash 残留当成真失败，或反过来以为清单被裁剪过。
+  {
+    const stats = danglingStats(g, { now });
+    const residueFailures = allFailures.filter((e) => classifyDangling(e, { graph: g, now }) === "residue");
+    if (residueFailures.length > 0) {
+      lines.push(
+        `DANGLING_RESIDUE: ${residueFailures.length} of the failed attempts above have no endpoint (to=null; 1.9.1 rewash residue) — excluded from hot-list analysis, data kept in graph.json.`,
+      );
+    }
+    if (stats.fromBroken > 0) {
+      lines.push(`FROM_DANGLING: ${stats.fromBroken} edges point from a non-existent node (separate corruption class; NOT residue; do not prune with to-null).`);
+    }
+    if (stats.liveUnsettled > 0) {
+      lines.push(`LIVE_UNSETTLED: ${stats.liveUnsettled} edges are newly unsettled (untested, <=10min) — kept visible on purpose.`);
+    }
+  }
   const open = openEdges(g);
   if (open.length) {
     lines.push("UNVERIFIED_CLAIMS (no external verification signal):");
@@ -723,3 +874,6 @@ export function renderTranspositionWarning(result) {
   const { nodeId, hops } = result.transposition;
   return `⚠ 置换：你回到了节点 ${nodeId}${hops ? `（经过 ${hops} 条边）` : ""}——这里试过的路都已经记在 LEARNED 里，换一条没试过的。`;
 }
+
+/** 仅供测试的内部控制面（不在包导出面里；改这些等于改行为，必须有测试）。 */
+export const _internal = { pickFallback, fitPaths };

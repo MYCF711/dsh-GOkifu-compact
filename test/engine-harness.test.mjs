@@ -166,9 +166,11 @@ function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = n
   const listeners = new Map();
   const overlay = {};
   const ctx = {
-    logger: { info: () => {}, warn: (m) => ctx.warns.push(String(m)), debug: () => {}, error: () => {} },
+    logger: { info: () => {}, warn: (m) => ctx.warns.push(String(m)), debug: () => {}, error: (m) => ctx.errors.push(String(m)) },
     /** 记录 warn 文案（用于断言「摘要模型不可用时退回了路由」） */
     warns: [],
+    /** ★ P7：记录 error 文案（impossible 必须是 error 级） */
+    errors: [],
     /** 摘要（llm.stream）收到的 options，供断言 prompt 内容 */
     streamCalls: [],
     on(name, fn) {
@@ -815,4 +817,107 @@ tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to
   if (agents.length < 3) throw new Error(`3 个只读 step 应产生 3 个状态节点（每步一个新局面），实际 ${agents.length}`);
   const health = Object.values(g.edges).length / agents.length;
   if (health > 2) throw new Error(`边/节点 ${health.toFixed(2)} > 2：图在原地打转`);
+};
+
+/* ═════════════════════════ P7：仪表盘接线（task-58） ═════════════════════════
+ *
+ * task-54/55 复核指出「仪表盘无消费者」：renderLedger 已经返回 fallback/overBudgetBy，
+ * 但 engine/doctor 都不读 —— 死开关。这里用假 DSH 证明三件事真的接上了：
+ *   ① 生产调用 TRACE 是相对路径且能拼回 index.md；
+ *   ② over-budget 触发 warn（含 overBudgetBy）并落盘指标；
+ *   ③ impossible 触发 error 级日志。
+ */
+
+const P7_GRAPH = () => nodePath.join(GRAPHS, "p7-instrument");
+
+/** 跑一次热清单注入，返回注入文本。 */
+async function runLedgerInjection({ id, config = {} } = {}) {
+  const { Engine } = await load();
+  nodeFs.rmSync(P7_GRAPH(), { recursive: true, force: true });
+  const session = makeSession({ id });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { auto: false, graphDir: P7_GRAPH(), ...config });
+  await ctx.emitRaw("session/event", session, userEvent("必须保持接口不变。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "npm ERR! EACCES: permission denied\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  const claimed = [{ id: "claimed-p7", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const agent = { session, options: { provider: "p", model: "m" } };
+  const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1, signal: undefined }, () => ({ kind: "enter", messages: claimed }));
+  const text = decision.messages.filter((m) => m.source?.kind === "chess-context")[0]?.content[0]?.text ?? "";
+  return { text, ctx, engine, session };
+}
+
+tests["P7-1 生产调用：TRACE 是 `sessions/<sid>/index.md`，不泄漏绝对路径"] = async () => {
+  const { text } = await runLedgerInjection({ id: "sess-p7-trace" });
+  if (!text.includes("LEARNED")) throw new Error(`没有注入热清单：\n${text}`);
+  if (!text.includes("TRACE: sessions/sess-p7-trace/index.md")) throw new Error(`TRACE 不是相对路径：\n${text}`);
+  if (/(?:[A-Za-z]:[\/]|\/d\/|\/Users\/|DeepSeek Harness)/.test(text.split("\n").find((l) => l.startsWith("TRACE:")) ?? "")) {
+    throw new Error(`TRACE 泄漏绝对路径：${text.split("\n").find((l) => l.startsWith("TRACE:"))}`);
+  }
+  // 可配置：traceRoot 显式传空串 ⇒ 退回 `<sid>/index.md`（用来证明开关真的生效）
+  const { text: bare } = await runLedgerInjection({ id: "sess-p7-bare", config: { hotLedgerTraceRoot: "" } });
+  if (!bare.includes("TRACE: sess-p7-bare/index.md")) throw new Error(`traceRoot="" 应输出无前缀路径：\n${bare}`);
+};
+
+tests["P7-2 over-budget：warn 日志含 overBudgetBy，且指标落盘可查"] = async () => {
+  const { text, ctx, engine } = await runLedgerInjection({ id: "sess-p7-over", config: { hotLedgerMaxTokens: 1 } });
+  if (!text) throw new Error("预算 1 也必须交付清单（兜底超限，不是消失）");
+  const warn = ctx.warns.find((w) => w.includes("over-budget"));
+  if (!warn) throw new Error(`over-budget 必须打 warn，实际 warns=${JSON.stringify(ctx.warns)}`);
+  if (!warn.includes("overBudgetBy=")) throw new Error(`warn 必须含 overBudgetBy：${warn}`);
+  if (!warn.includes("budget=1")) throw new Error(`warn 必须含预算值：${warn}`);
+  const stats = engine.getLedgerBudgetStats();
+  if ((stats["over-budget"] ?? 0) < 1) throw new Error(`统计里必须有 over-budget：${JSON.stringify(stats)}`);
+  if (stats.maxOverBudgetBy <= 0) throw new Error(`maxOverBudgetBy 必须 > 0：${JSON.stringify(stats)}`);
+  const file = nodePath.join(P7_GRAPH(), "ledger-budget.json");
+  if (!nodeFs.existsSync(file)) throw new Error(`指标文件没落盘：${file}`);
+  const disk = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  if ((disk["over-budget"] ?? 0) < 1) throw new Error(`磁盘统计里必须有 over-budget：${JSON.stringify(disk)}`);
+};
+
+tests["P7-3 impossible：必须 error 级，不许静默"] = async () => {
+  const { Engine, graphDir } = await load();
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir, auto: false, graphDir: P7_GRAPH() });
+  const metrics = engine.consumeLedgerBudget(
+    { text: "", tokens: 0, level: 5, fallback: "impossible", budgetMax: 500, overBudgetBy: 0 },
+    { id: "sess-p7-impossible" },
+  );
+  if (metrics.fallback !== "impossible") throw new Error(`metrics.fallback=${metrics.fallback}`);
+  const err = ctx.errors.find((e) => e.includes("impossible"));
+  if (!err) throw new Error(`impossible 必须打 error，实际 errors=${JSON.stringify(ctx.errors)}`);
+  if ((engine.getLedgerBudgetStats().impossible ?? 0) !== 1) throw new Error("统计里必须记 1 次 impossible");
+};
+
+tests["P7-4 doctor：展示 fallback 分布与最大 overBudgetBy；缺文件写「未采集」"] = async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = nodePath.join(GRAPHS, "p7-home");
+  nodeFs.rmSync(home, { recursive: true, force: true });
+  nodeFs.mkdirSync(nodePath.join(home, "chess-context"), { recursive: true });
+  const file = nodePath.join(home, "chess-context", "ledger-budget.json");
+  nodeFs.writeFileSync(file, JSON.stringify({ none: 3, "over-budget": 2, impossible: 1, maxOverBudgetBy: 42, updatedAt: 1_800_000_000_000 }), "utf8");
+  const doctor = nodePath.join(HERE, "..", "scripts", "doctor.mjs");
+  const run = (env) => {
+    try {
+      const out = execFileSync(process.execPath, [doctor, "--json"], { encoding: "utf8", env: { ...process.env, DSH_HOME: env }, timeout: 30000 });
+      return JSON.parse(out);
+    } catch (err) {
+      // doctor 有 error 时 exit 1，但 --json 仍会输出完整 JSON
+      return JSON.parse(String(err.stdout ?? "{}"));
+    }
+  };
+  const withStats = run(home);
+  const check = withStats.checks.find((c) => c.name === "热清单预算（fallback）");
+  if (!check) throw new Error(`doctor 缺少 fallback 检查项：${JSON.stringify(withStats.checks.map((c) => c.name))}`);
+  if (!check.detail.includes("none=3") || !check.detail.includes("over-budget=2") || !check.detail.includes("impossible=1")) {
+    throw new Error(`分布不对：${check.detail}`);
+  }
+  if (!check.detail.includes("最大 overBudgetBy=42")) throw new Error(`最大 overBudgetBy 缺失：${check.detail}`);
+  if (check.status !== "error") throw new Error(`有 impossible 时必须 error，实际 ${check.status}`);
+  // 缺文件 ⇒ 明确「未采集」
+  nodeFs.rmSync(file, { force: true });
+  const empty = run(home);
+  const emptyCheck = empty.checks.find((c) => c.name === "热清单预算（fallback）");
+  if (!emptyCheck || !emptyCheck.detail.includes("未采集")) throw new Error(`缺文件必须写「未采集」：${JSON.stringify(emptyCheck)}`);
 };

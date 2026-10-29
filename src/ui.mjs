@@ -44,6 +44,12 @@
  *     非十进制字面量（`0x10`/`1e3`/`true`）→ 400「必须是数字」；越界 → 400「超出范围」。
  *     错误信息一律用中文字段名（{@link FIELD_LABELS}）。
  *   · **B6 不静默丢**：`save` 带白名单外的键 → **不写任何东西**，400 且响应体带 `skipped` 列表。
+ *
+ * 性能（2026-10-30 实装，P4）：
+ *   · 首屏 `state` 原本对 133 个 `graph.json`（33MB）**全量 parse**，实测 342~400ms。
+ *     现按 `(绝对路径, mtimeMs, size)` 缓存「聚合摘要」（只存 foldMarks / 计数，不存整图）；
+ *     同一次请求里 `latest` 与 `today` 共用一次目录扫描；热路径 = 一次 readdir + N 次 stat。
+ *   · 失效规则：mtime 或 size 任一变化即重读；坏图缓存「坏」；会话目录消失时清对应缓存。
  */
 
 import nodeFs from "node:fs";
@@ -127,43 +133,99 @@ export function findPresetFiles(home = resolveHome()) {
   return out;
 }
 
-/** 最近活跃的棋谱（按 graph.json mtime）。 */
-function latestGraph(home = resolveHome()) {
+/* ─────────────────── 棋谱扫描/解析缓存（P4：首屏 state 性能） ───────────────────
+ *
+ * 现场（perf task-26）：live 132~133 个 graph.json / 33MB，首屏 state 一次要把它们**全部** parse 一遍
+ * （todayAggregate），耗时 342~400ms，分解为 existsSync 76.5 + readFile 160.3 + JSON.parse 20.3 + 聚合 2.7。
+ * 但 state 只在页面打开/保存后调用，绝大多数文件自上次调用以来根本没变 ⇒ 按 (path, mtimeMs, size) 缓存
+ * 「解析后真正被用到的字段」，热路径只剩一次目录扫描 + 133 次 stat。
+ *
+ * 三条纪律：
+ *   · 缓存值**只存聚合用得到的字段**（foldMarks / 计数），不存整张图 —— 133 张图全留会占上百 MB。
+ *   · 坏图（JSON.parse 失败）也缓存"坏"这个事实，否则一个坏文件会每次被重新读一遍。
+ *   · 同一个请求里 latestGraph 与 todayAggregate **共用一次扫描**（否则 readdir+stat 要跑两遍）。
+ */
+const GRAPH_CACHE = new Map();
+const GRAPH_CACHE_MAX = 2000;
+
+/** 目录扫描：{root, files:[{dir,file,mtimeMs,size}]}（不读文件内容）。 */
+function collectGraphFiles(home = resolveHome()) {
   const root = nodePath.join(home, "chess-context", "sessions");
-  if (!nodeFs.existsSync(root)) return null;
-  let best = null;
-  for (const d of nodeFs.readdirSync(root, { withFileTypes: true })) {
-    if (!d.isDirectory()) continue;
-    const file = nodePath.join(root, d.name, "graph.json");
-    if (!nodeFs.existsSync(file)) continue;
-    const mtime = nodeFs.statSync(file).mtimeMs;
-    if (best === null || mtime > best.mtime) best = { dir: d.name, file, mtime };
-  }
-  if (best === null) return null;
+  const files = [];
+  let entries;
   try {
-    const g = JSON.parse(nodeFs.readFileSync(best.file, "utf8"));
-    const marks = g.foldMarks ?? [];
-    const failures = Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
-    return {
-      session: best.dir,
-      updatedAt: best.mtime,
+    entries = nodeFs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return { root, files };
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const file = nodePath.join(root, entry.name, "graph.json");
+    // throwIfNoEntry:false 比 existsSync+statSync 少一次系统调用（这条在 133 个会话上是真金白银）
+    const stat = nodeFs.statSync(file, { throwIfNoEntry: false });
+    if (stat === undefined) continue;
+    files.push({ dir: entry.name, file, mtimeMs: stat.mtimeMs, size: stat.size });
+  }
+  return { root, files };
+}
+
+/** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
+function graphSummary(entry) {
+  const cached = GRAPH_CACHE.get(entry.file);
+  if (cached !== undefined && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) return cached;
+  let summary = null;
+  try {
+    const g = JSON.parse(nodeFs.readFileSync(entry.file, "utf8"));
+    summary = {
+      foldMarks: g.foldMarks ?? [],
       foldCount: g.foldCount ?? 0,
-      totalAfter: g.lastFoldTotalTokens ?? 0,
+      lastFoldTotalTokens: g.lastFoldTotalTokens ?? 0,
       checkpointSeq: g.checkpointSeq ?? null,
-      lastFold: marks.length > 0 ? marks[marks.length - 1] : null,
-      lastUsage: g.lastFoldUsage ?? null,
-      failures,
+      lastFoldUsage: g.lastFoldUsage ?? null,
+      failures: Object.values(g.edges ?? {}).filter((edge) => edge?.result === "failure").length,
       nodes: Object.keys(g.nodes ?? {}).length,
       edges: Object.keys(g.edges ?? {}).length,
     };
   } catch {
-    return null;
+    summary = null; // 坏图：缓存「坏」这个事实，别每次重读
+  }
+  const row = { mtimeMs: entry.mtimeMs, size: entry.size, summary };
+  if (GRAPH_CACHE.size >= GRAPH_CACHE_MAX) GRAPH_CACHE.clear();
+  GRAPH_CACHE.set(entry.file, row);
+  return row;
+}
+
+/** 丢掉已消失会话的缓存条目（只清当前 root 下的，别的 home 不动）。 */
+function pruneGraphCache(root, files) {
+  const alive = new Set(files.map((f) => f.file));
+  const prefix = root.endsWith(nodePath.sep) ? root : `${root}${nodePath.sep}`;
+  for (const key of GRAPH_CACHE.keys()) {
+    if (key.startsWith(prefix) && !alive.has(key)) GRAPH_CACHE.delete(key);
   }
 }
 
+/** 最近活跃的棋谱（按 graph.json mtime）。 */
+export function latestGraphFrom(scan) {
+  const best = scan.files.reduce((acc, file) => (acc === null || file.mtimeMs > acc.mtimeMs ? file : acc), null);
+  if (best === null) return null;
+  const summary = graphSummary(best).summary;
+  if (summary === null) return null;
+  return {
+    session: best.dir,
+    updatedAt: best.mtimeMs,
+    foldCount: summary.foldCount,
+    totalAfter: summary.lastFoldTotalTokens,
+    checkpointSeq: summary.checkpointSeq,
+    lastFold: summary.foldMarks.length > 0 ? summary.foldMarks[summary.foldMarks.length - 1] : null,
+    lastUsage: summary.lastFoldUsage,
+    failures: summary.failures,
+    nodes: summary.nodes,
+    edges: summary.edges,
+  };
+}
+
 /** 今天的 fold 汇总（按 foldMarks.at，不按文件 mtime）。 */
-function todayAggregate(home = resolveHome()) {
-  const root = nodePath.join(home, "chess-context", "sessions");
+export function todayAggregateFrom(scan) {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const from = start.getTime();
@@ -172,31 +234,40 @@ function todayAggregate(home = resolveHome()) {
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
-  if (!nodeFs.existsSync(root)) return { folds, shadowed, sessions: 0, totalSessions, totalFailures };
-  for (const d of nodeFs.readdirSync(root, { withFileTypes: true })) {
-    if (!d.isDirectory()) continue;
-    const file = nodePath.join(root, d.name, "graph.json");
-    if (!nodeFs.existsSync(file)) continue;
+  for (const file of scan.files) {
     totalSessions += 1;
-    try {
-      const g = JSON.parse(nodeFs.readFileSync(file, "utf8"));
-      const marks = (g.foldMarks ?? []).filter((m) => (m.at ?? 0) >= from);
-      if (marks.length > 0) {
-        folds += marks.length;
-        sessions.add(d.name);
-        shadowed += marks.reduce((sum, m) => sum + (m.shadowedTokens ?? 0), 0);
-      }
-      totalFailures += Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
-    } catch {
-      /* 坏图跳过 */
+    const summary = graphSummary(file).summary;
+    if (summary === null) continue;
+    const marks = summary.foldMarks.filter((mark) => (mark.at ?? 0) >= from);
+    if (marks.length > 0) {
+      folds += marks.length;
+      sessions.add(file.dir);
+      shadowed += marks.reduce((sum, mark) => sum + (mark.shadowedTokens ?? 0), 0);
     }
+    totalFailures += summary.failures;
   }
   return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures };
 }
 
+/** 一次扫描 + 清缓存，给同一个请求里的两个聚合用。 */
+function scanGraphs(home = resolveHome()) {
+  const scan = collectGraphFiles(home);
+  pruneGraphCache(scan.root, scan.files);
+  return scan;
+}
+
+/** 兼容旧调用点（单独调用 = 自己扫一次）。 */
+function latestGraph(home = resolveHome()) {
+  return latestGraphFrom(scanGraphs(home));
+}
+
+/** 兼容旧调用点（单独调用 = 自己扫一次）。 */
+function todayAggregate(home = resolveHome()) {
+  return todayAggregateFrom(scanGraphs(home));
+}
+
 /** 安装/单实例/摘要模型 三项体检（比 test/doctor.mjs 轻，够页面用）。 */
-function health(home = resolveHome()) {
-  const presets = findPresetFiles(home);
+function health(home = resolveHome(), presets = findPresetFiles(home)) {
   const withOurs = presets.filter((p) => p.text.includes(ENTRY_ID));
   const withNative = presets.filter((p) => /^\s*- id: compaction-basic\s*$/m.test(p.text));
   const profilePkgFile = nodePath.join(home, "profiles", "desktop", "package.json");
@@ -681,10 +752,13 @@ export function apply(ctx) {
         const action = String(body.action ?? "state");
         if (action === "state") {
           const home = resolveHome();
-          const presets = findPresetFiles(home).filter((p) => p.text.includes(ENTRY_ID));
+          const allPresets = findPresetFiles(home);
+          const presets = allPresets.filter((p) => p.text.includes(ENTRY_ID));
           const parsed = presets.length > 0 ? parseEngineBlock(presets[0].text) : null;
           const presetConfig = parsed?.config ?? {};
           const described = describeConfig(presetConfig);
+          // ★ P4：两个聚合共用一次目录扫描；解析结果按 (path, mtime, size) 命中缓存。
+          const scan = scanGraphs(home);
           return sendJson(res, 200, {
             ok: true,
             version: readVersion(),
@@ -698,9 +772,9 @@ export function apply(ctx) {
             defaults: DEFAULTS,
             fieldLabels: FIELD_LABELS,
             configFile: presets[0]?.file ?? null,
-            latest: latestGraph(home),
-            today: todayAggregate(home),
-            health: health(home),
+            latest: latestGraphFrom(scan),
+            today: todayAggregateFrom(scan),
+            health: health(home, allPresets),
           });
         }
         if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS, fieldLabels: FIELD_LABELS });
@@ -708,7 +782,11 @@ export function apply(ctx) {
           const result = saveConfig(body.patch ?? {}, { home: resolveHome() });
           return sendJson(res, 200, { ok: true, ...result });
         }
-        if (action === "health") return sendJson(res, 200, { ok: true, health: health(resolveHome()), latest: latestGraph(resolveHome()), today: todayAggregate(resolveHome()) });
+        if (action === "health") {
+          const home = resolveHome();
+          const scan = scanGraphs(home);
+          return sendJson(res, 200, { ok: true, health: health(home), latest: latestGraphFrom(scan), today: todayAggregateFrom(scan) });
+        }
         return sendJson(res, 400, { error: `未知 action: ${action}` });
       } catch (error) {
         const payload = { error: String(error?.message ?? error) };
