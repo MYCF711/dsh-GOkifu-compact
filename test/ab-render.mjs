@@ -18,8 +18,11 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { createGraph, addUserNode, addAgentNode, addEdge, settleEdge } from "../src/graph.mjs";
 import { renderLedger } from "../src/ledger.mjs";
+
+const WIN = process.platform === "win32";
 
 export function scenario() {
   const g = createGraph({ sessionId: "ab-svc-4021", cwd: "/home/dev/work/svc-4021" });
@@ -95,7 +98,46 @@ export function renderArm(markers = "semantic", maxTokens = 500, which = "basic"
   return renderLedger(g, { maxTokens, markers });
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url.endsWith(nodePath.basename(process.argv[1]));
+/**
+ * 入口判据（C-12）—— 不许拿 import.meta.url 直接与 argv[1] 的 basename 比结尾。
+ * 旧写法假设 URL 里带**未编码**的文件名；本机实测改成 `ab 渲染.mjs` 后
+ * `import.meta.url` 是 `…/ab%20%E6%B8%B2%E6%9F%93.mjs` ⇒ 旧判据 false
+ * ⇒ 脚本「成功」退出 0 却什么都不打印（与 S10a 第 3 条同一种假绿）。
+ * 正确判据：两边都归一成**文件系统路径**再比 —— argv[1] 允许是普通路径或 file:// URL，
+ * import.meta.url 一律经 fileURLToPath（它负责把 %XX 解码回真实文件名）。
+ * Windows 大小写不敏感，所以两边都先 realpath（拿不到真实路径时退化为 resolve 后小写比）。
+ */
+function judgeEntry(argv1, selfUrl) {
+  if (typeof argv1 !== "string" || argv1.length === 0) return false;
+  let selfPath;
+  try {
+    selfPath = fileURLToPath(selfUrl);
+  } catch {
+    return false;
+  }
+  let argPath = argv1;
+  if (/^file:/i.test(argv1)) {
+    try {
+      argPath = fileURLToPath(argv1);
+    } catch {
+      return false;
+    }
+  }
+  const norm = (p) => {
+    try {
+      return nodeFs.realpathSync.native(p);
+    } catch {
+      return nodePath.resolve(p);
+    }
+  };
+  const a = norm(argPath);
+  const b = norm(selfPath);
+  return WIN ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+export { judgeEntry };
+
+const invokedDirectly = judgeEntry(process.argv[1], import.meta.url);
 if (invokedDirectly) {
   const which = process.argv.includes("--scenario=trap") ? "trap" : "basic";
   const dirIndex = process.argv.indexOf("--dir");

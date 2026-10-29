@@ -144,20 +144,55 @@ export const tests = {
  * ★ 2026-10-29：热清单的 WORKING 行不能拿自环成功边当锚点。
  * 实测渲染成「WORKING: n22 → n22」—— 一句没有任何信息的废话，还让模型以为
  * 工作路径就是原地打转。
+ *
+ * ★ 2026-10-30（task-33 · 修假绿）：原来这条用例写着 `if (!line) return;` ——
+ * 「没有 WORKING 行也算通过」。这正是 reviewer 记的「早退 return 计 pass」：
+ *   · 渲染回归成不印 WORKING 行（S2a 之前就是这个状态）⇒ 用例仍然绿；
+ *   · 正则不匹配（行格式变了）⇒ 也静默通过。
+ * 现在改成显式断言，并用**两种自环位置**覆盖真实事故形态：
+ *   形态 1 自环加在前进边之前；形态 2 自环加在前进边之后（最后一条 success 边就是自环
+ *   —— 只有这一形态能重现「WORKING: n22 → n22」，因为锚点是「最后一条成功边」）。
  */
-tests["热清单：自环成功边不参与 WORKING 路径"] = async () => {
-  const { renderLedger } = await import("../src/ledger.mjs");
-  const g = createGraph({ sessionId: "sl7" });
+function workingFixture(loopPlacement) {
+  const g = createGraph({ sessionId: `sl7-${loopPlacement}` });
   addUserNode(g, { seq: 1, text: "目标：跑绿" });
   const s1 = oneStep(g);
-  // 一条自环「成功」边（旧版数据里到处都是）
-  const loop = addEdge(g, { from: s1.node, intent: "原地读", action: "read(x)" });
-  settleEdge(g, loop, { to: s1.node, result: "success", verify: { kind: "read", summary: "ok" } });
-  // 一条真实前进的成功边
-  const s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1), hash: "NEXT" });
-  const out = renderLedger(g, { maxTokens: 3000, treeDir: "/tmp/t" });
-  const line = out.text.split("\n").find((l) => l.startsWith("WORKING:"));
-  if (!line) return; // 没有 WORKING 行也算通过（信息不足时不显示）
-  const m = /WORKING:\s*(n\d+)\s*→\s*(n\d+)/.exec(line);
-  if (m && m[1] === m[2]) throw new Error(`WORKING 行是自环：${line}`);
+  let s2;
+  let loop;
+  if (loopPlacement === "before") {
+    loop = addEdge(g, { from: s1.node, intent: "原地读", action: "read(x)" });
+    settleEdge(g, loop, { to: s1.node, result: "success", verify: { kind: "read", summary: "ok" } });
+    s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1), hash: "NEXT" });
+  } else {
+    s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1), hash: "NEXT" });
+    loop = addEdge(g, { from: s2.node, intent: "原地读", action: "read(x)" });
+    settleEdge(g, loop, { to: s2.node, result: "success", verify: { kind: "read", summary: "ok" } });
+  }
+  return { g, s1, s2, loop };
+}
+
+tests["热清单：自环成功边不参与 WORKING 路径"] = async () => {
+  const { renderLedger } = await import("../src/ledger.mjs");
+  for (const placement of ["before", "after"]) {
+    const { g, s2, loop } = workingFixture(placement);
+    if (g.edges[loop].from !== g.edges[loop].to) throw new Error("前置：夹具里的那条边必须是自环");
+    const out = renderLedger(g, { maxTokens: 3000, treeDir: "/tmp/t" });
+    const line = out.text.split("\n").find((l) => l.startsWith("WORKING:"));
+    // ① 必须有 WORKING 行（旧写法在这里 `return` ⇒ 渲染回归时静默变绿）
+    if (!line) throw new Error(`热清单必须给出 WORKING 行（形态 ${placement}）：\n${out.text}`);
+    // ② 行里必须真的有节点 id（旧写法在正则不匹配时也静默通过）
+    if (!/WORKING:\s*\S+\s*→\s*\S+/.test(line)) throw new Error(`WORKING 行格式不对（形态 ${placement}）：${line}`);
+    const ids = line
+      .slice("WORKING:".length)
+      .split(" → ")
+      .map((s) => s.replace(/ \(.*\)$/, "").trim())
+      .filter(Boolean);
+    if (ids.length < 2) throw new Error(`WORKING 行至少要有两个节点（形态 ${placement}）：${line}`);
+    // ③ 相邻两跳不许是同一节点 —— 自环进链就是这个形态（「WORKING: n22 → n22」）
+    for (let i = 1; i < ids.length; i += 1) {
+      if (ids[i] === ids[i - 1]) throw new Error(`WORKING 路径里出现自环跳 ${ids[i]} → ${ids[i]}（形态 ${placement}）：${line}`);
+    }
+    // ④ 必须真的指到「前进一步」的终点：锚点不许落在自环边上
+    if (ids.at(-1) !== s2.node) throw new Error(`WORKING 的终点应是真实前进的 ${s2.node}，实际 ${ids.at(-1)}（形态 ${placement}）：${line}`);
+  }
 };

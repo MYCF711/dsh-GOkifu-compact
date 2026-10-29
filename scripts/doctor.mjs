@@ -10,7 +10,7 @@
  *   4. 棋谱健康：worldHash 对象残留 / stateIndex / 最近 flush 时间
  *   5. 树新鲜度：index.md 是否落后于 graph.json（v1.6.1 修过，但值得盯）
  *
- * 用法：node test/doctor.mjs [--json]
+ * 用法：node scripts/doctor.mjs [--json]   （装好的包里是 npx dsh-gokifu-compact doctor）
  * 退出码：0 全绿；1 有警告或错误。
  */
 
@@ -19,6 +19,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fromJSON } from "../src/graph.mjs";
+import { inspectProfileInstall } from "./link-path.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -30,9 +31,16 @@ const sessionsRoot = nodePath.join(home, "sessions");
 const checks = [];
 const add = (name, status, detail) => checks.push({ name, status, detail });
 
-/* ── 1. 安装态 ── */
-const linkPath = nodePath.join(home, "profiles", "desktop", "node_modules", "dsh-gokifu-compact");
-add("插件已链接进 profile", nodeFs.existsSync(linkPath) ? "ok" : "error", linkPath);
+/* ── 1. 安装态 ──
+   以前这里只 `existsSync(node_modules/<pkg>)`：junction 在就报 ok，而依赖声明可能指向
+   一个**不存在的目录**（重装即坏）。判据与 verify-install 共用 scripts/link-path.mjs。 */
+const installState = inspectProfileInstall({ dshHome: home, profile: "desktop", pkgName: "dsh-gokifu-compact" });
+const installOk = Object.values(installState.checks).every(Boolean);
+add(
+  "插件已链接进 profile",
+  installOk ? "ok" : "error",
+  installOk ? `${installState.declared} → ${installState.linked.realPath}` : installState.failure ?? installState.linkedPath,
+);
 add(
   "preset 引用了 dsh-gokifu-compact",
   nodeFs.existsSync(presetPatch) && nodeFs.readFileSync(presetPatch, "utf8").includes("dsh-gokifu-compact") ? "ok" : "error",

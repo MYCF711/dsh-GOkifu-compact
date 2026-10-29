@@ -20,6 +20,17 @@
  *     ⑤ 写类成功（diff / 写入回执）          → success
  *     ⑥ 其余                              → unverified
  *
+ * ★ S2a（2026-10-30）：⑥ 里「只读类工具 + 输出非空 + 无任何失败信号」的那部分，
+ *   额外打一个 `weak: "read"` 标记（**result 仍是 unverified**）。
+ *   它只用于热清单的 WORKING 路径（ledger），不进 success / failureEdges / facts / tewari。
+ *   为什么改这里而不是新加判据：`verify.kind === "read"` 就是 classify 自己给出的
+ *   「只读工具、没抓到外部验证信号」的判定（toolClass 的显式表 + MCP query/mutate 词形），
+ *   旧图里已经落盘了这个字段 —— 复用它，就不必在渲染阶段重新猜工具名。
+ *   ⚠ 已知局限（实测）：toolClass 的只读表里混着 `todo_write` / `hindsight_ingest_document`
+ *   这类「实际会改本地状态」的工具（25 个最新会话 641 条只读结果里 48 条，7.5%）。
+ *   它们被标 weak 的语义仍然成立（工具自报无错、但无外部验证），但标记文案只用 `[weak]`，
+ *   不说 "read-only"，避免把写操作说成读。
+ *
  * 纯函数，零依赖，可单测。
  */
 
@@ -188,7 +199,29 @@ export function classify({ tool, text, isError = false }) {
     result: "unverified",
     verify: { kind: readOnly ? "read" : "none", summary: body ? `${body.length} chars` : "empty" },
     errorSnippet: "",
+    // S2a：只读工具返回了非空内容，且 ①isError ②退出码 ③测试计数 ④行首错误行 ⑤行首硬错误都没命中。
+    // 这是「工具自报无错」，**不是**「有外部验证」⇒ 只给 WORKING 路径用，result 一个字不动。
+    ...(readOnly && body.trim().length > 0 ? { weak: "read" } : {}),
   };
+}
+
+/**
+ * 一条边算不算「弱成功」，以及是哪一种。**只在热清单的 WORKING 路径里使用。**
+ *
+ *   · 新图：settle 时由 classify 写入 `edge.weak = "read"`（keeper 透传）；
+ *   · 旧图：settle 时已落盘 `verify.kind === "read"`（同一个 readOnly 判定的产物）——
+ *     不需要 weak 字段也能识别，读旧图不会少一行 WORKING；
+ *   · 只看 `result === "unverified"`：success / failure 上出现 weak 是脏数据（`validate()` 会报）。
+ *
+ * @returns {"read"|"shell"|null}  S2a 只产生 "read"；"shell" 预留给 S2b。
+ */
+export function weakKindOf(edge) {
+  if (!edge || edge.result !== "unverified") return null;
+  if (edge.weak === "read" || edge.weak === "shell") return edge.weak;
+  // 旧图兼容：classify 的只读兜底分支会写 kind="read" + summary="N chars"（空输出是 "empty"）
+  const summary = edge.verify?.summary;
+  if (edge.verify?.kind === "read" && typeof summary === "string" && summary !== "empty") return "read";
+  return null;
 }
 
 function firstLine(text) {

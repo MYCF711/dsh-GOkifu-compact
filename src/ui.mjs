@@ -14,12 +14,53 @@
  *     因为 preset 里那一块前后都有别的行；用 YAML 库整份重写会丢注释与顺序。
  *   · 保存后必须重启才生效（插件在 boot 时读 preset），所以返回值带 `restartRequired`。
  *
- * 安全：服务器默认只绑 127.0.0.1；这里不做额外鉴权（本机工具），但只接受本机来源。
+ * 安全（2026-10-30 实装，WS-UIAUDIT A1/A2）：
+ *   · **CSRF**：DSH 的 webServer 不做任何 Origin 校验（`asar/webserver.js` 全文无 origin 字样），
+ *     路由 handler 自己负责。这里对每个 POST 校验三件事：
+ *       ① Host 必须是回环地址（防 DNS rebinding）——**fail closed**：绑到 `0.0.0.0` 也不放行，
+ *          非回环 Host 只有出现在 `DSH_GOKIFU_ALLOWED_HOSTS`（逗号分隔）里才通过
+ *          （「绑 0.0.0.0」只表示监听所有网卡，不等于「信任任意域名解析到本机」）
+ *       ② 带 Origin 时必须是同源（协议+主机+端口与 Host 一致）
+ *       ③ 带 Sec-Fetch-Site 时只允许 same-origin / none（**same-site 也不行**：
+ *          127.0.0.1:19401 → 127.0.0.1:19400 的跨站简单请求实测就是 `same-site`）
+ *     再要求 `content-type: application/json` —— 表单与 `text/plain` 都进不来。
+ *   · **真实调用方核对**（不是凭猜）：唯一的浏览器调用方是 `lib/client.js` 的
+ *     `fetch("/gokifu/api", {method:"POST", headers:{"content-type":"application/json"}})`。
+ *     本机 Chromium 实测（`tmp/dsh-gokifu-compact/ws-csrf/browser-origin-probe.mjs`）：
+ *     同源 POST 必带 `origin: http://127.0.0.1:<port>` + `sec-fetch-site: same-origin`；
+ *     跨站 `text/plain` 简单请求带 `origin: <攻击者源>` + `sec-fetch-site: same-site`。
+ *     ⇒ 浏览器永远不会「不带 Origin」发 POST，所以**缺 Origin 只可能是非浏览器本机调用**
+ *     （curl / node / 测试），策略是「允许，但只允许打回环 Host」。
+ *   · **备份**：每次 save 的 `.bak-before-ui-<ts>` 轮转到最多 {@link BACKUP_KEEP} 份；
+ *     preset 里一旦出现密钥样式（键名以 key/secret/token/password/credential 结尾，
+ *     或值形如 `sk-…` / PEM 私钥），**不生成明文备份**，返回 `backupSkipped` 说明原因。
+ *
+ * 配置正确性（2026-10-30 实装，WS-UIAUDIT B4/B5/B6）：
+ *   · **B4 不许撒谎**：`state.config` 与 `save.effectiveConfig` 给的是**引擎生效值**
+ *     （缺失键补默认、非法值按 `engine.mjs` 规则净化、`retainRatio ≥ thresholdRatio` 那条修正也照做），
+ *     文件里实际写了什么另走 `presetConfig`；每键来源在 `configOrigins`（preset/default/sanitized/adjusted），
+ *     没写的键在 `unconfiguredKeys`。
+ *   · **B5 空串不是 0**：数字字段收到 `""`/空白/`null` → 400「…不能为空」；
+ *     非十进制字面量（`0x10`/`1e3`/`true`）→ 400「必须是数字」；越界 → 400「超出范围」。
+ *     错误信息一律用中文字段名（{@link FIELD_LABELS}）。
+ *   · **B6 不静默丢**：`save` 带白名单外的键 → **不写任何东西**，400 且响应体带 `skipped` 列表。
  */
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "../scripts/install.mjs";
+
+/**
+ * 本文件所在目录（真实路径）。
+ *
+ * 为什么不用 `new URL(import.meta.url).pathname`：pathname 是**百分号编码**串
+ * （`/D:/%E4%B8%BB%E5%B7%A5%E4%BD%9C%E5%8C%BA/…`），拼出来的路径在磁盘上不存在 ⇒
+ * `readFileSync` ENOENT ⇒ `readVersion()` 的 catch 吞成 `null` ⇒ 页面标题渲染成 `v?`
+ * （`lib/client.js:197` 的 `v${state?.version ?? "?"}`）。
+ * `fileURLToPath` 是 Node 官方解码入口（空格 `%20`、中文、`~` 的 `%7E` 一并还原）。
+ */
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 export const name = "dsh-gokifu-compact/ui";
 export const inject = ["webServer"];
@@ -211,7 +252,290 @@ function sendJson(res, status, payload) {
   res.end(body);
 }
 
-/** 校验并规整页面提交的 patch；非法键/值直接报错（不静默丢）。 */
+/* ───────────────────────── 请求可信度（CSRF 防护） ───────────────────────── */
+
+/** 每个 preset 最多保留几份 `.bak-before-ui-*`（轮转上限）。 */
+export const BACKUP_KEEP = 5;
+/** 备份文件名标记（保持旧命名，旧备份会被同一轮转逻辑收编）。 */
+export const BACKUP_MARK = ".bak-before-ui-";
+
+/** 键名以这些词结尾 ⇒ 视为密钥载体（注意 `headroomTokens` 之类复数不会被误判）。 */
+const SECRET_KEY_RE = /(key|secret|password|passwd|credential|token)$/i;
+/** 值层面的密钥样式（常见 token 前缀 + PEM 私钥头）。 */
+const SECRET_VALUE_RE = /(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpsr]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
+
+/** 去掉 IPv6 的方括号并转小写，便于比较 Host 与 Origin。 */
+function normalizeHostname(value) {
+  return String(value ?? "").toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+}
+
+/** 补零到 4 位（IPv6 分组比较用）。 */
+const pad16 = (part) => (part === "" ? "0" : part.padStart(4, "0"));
+
+/**
+ * 把主机名归一到可比较的形式：大小写不敏感 + IPv6 展开成 8 组定长。
+ * `[::1]` 与 `[0:0:0:0:0:0:0:1]` 必须被当成同一台机器，否则 Host/Origin 比对会误判成跨源。
+ * （只处理字面量，不做 DNS；内嵌 IPv4 的 `::ffff:1.2.3.4` 形式不展开，够用即可。）
+ */
+export function canonicalHostname(value) {
+  const h = normalizeHostname(value);
+  if (!h.includes(":")) return h;
+  const [headText, tailText] = h.split("::");
+  const head = headText === "" ? [] : headText.split(":");
+  if (tailText === undefined) return head.map(pad16).join(":");
+  const tail = tailText === "" ? [] : tailText.split(":");
+  const zeros = Math.max(0, 8 - head.length - tail.length);
+  return [...head, ...new Array(zeros).fill("0"), ...tail].map(pad16).join(":");
+}
+
+/** `::1` 的规范形（回环 IPv6）。 */
+const LOOPBACK_V6 = canonicalHostname("::1");
+
+/** `host:port` / `[::1]:port` → { hostname, port }；缺端口按 http 的 80 算。非法返回 null。 */
+export function parseAuthority(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const m = /^(\[[0-9a-fA-F:.]+\]|[^:[\]]+)(?::(\d{1,5}))?$/.exec(trimmed);
+  if (m === null) return null;
+  const hostname = canonicalHostname(m[1]);
+  if (hostname === "") return null;
+  const port = m[2] === undefined ? "80" : String(Number(m[2]));
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) return null;
+  return { hostname, port };
+}
+
+/**
+ * 回环主机名（含 localhost 子域、IPv4 127/8、IPv6 ::1 的各种写法）。
+ * 注意：`[::1]`、`[0:0:0:0:0:0:0:1]`、`[::0:1]` 经 {@link canonicalHostname} 都归一到同一串。
+ */
+export function isLoopbackHostname(hostname) {
+  const h = canonicalHostname(hostname);
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h === LOOPBACK_V6) return true;
+  const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  return m !== null && m.slice(1).every((part) => Number(part) <= 255);
+}
+
+/** content-type 必须是 application/json（允许带 charset 等参数）。 */
+export function isJsonContentType(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return false;
+  return /^application\/json\s*(;|$)/i.test(raw.trim());
+}
+
+/**
+ * 判断一个 POST 是否来自可信调用方。
+ *
+ * 顺序：Host（防 rebinding）→ Sec-Fetch-Site（浏览器自报跨站直接拒）→ Origin（同源比对）。
+ * 返回 `{ ok, status?, reason?, mode }`；`mode` 用于区分「浏览器同源」与「本机无 Origin 调用」。
+ *
+ * ⚠ **fail closed**（task-34）：服务器绑到 `0.0.0.0` 时**不会**因此放行任何 Host ——
+ *   非回环 Host 只有在 `allowedHosts`（`DSH_GOKIFU_ALLOWED_HOSTS`）里显式列过才通过。
+ *   否则「绑 0.0.0.0」就等于「任何域名只要解析到本机就能打这个写配置接口」（DNS rebinding）。
+ *
+ * @param {{headers?: Record<string, unknown>}} req
+ * @param {{allowedHosts?: string[], boundAllInterfaces?: boolean}} [options]
+ */
+export function checkRequestTrust(req, options = {}) {
+  const headers = req?.headers ?? {};
+  const hostRaw = headers.host;
+  const host = parseAuthority(hostRaw);
+  if (host === null) return { ok: false, status: 403, reason: "缺少或非法的 Host 头", mode: "bad-host" };
+
+  const allowedHosts = (options.allowedHosts ?? []).map(canonicalHostname);
+  const explicitlyAllowed = allowedHosts.includes(host.hostname);
+  const loopback = isLoopbackHostname(host.hostname);
+  if (!loopback && !explicitlyAllowed) {
+    const hint = options.boundAllInterfaces === true
+      ? `服务器绑在 0.0.0.0 也不无条件放行：要放行请显式设 DSH_GOKIFU_ALLOWED_HOSTS=${host.hostname}`
+      : "需要时设 DSH_GOKIFU_ALLOWED_HOSTS";
+    return { ok: false, status: 403, reason: `拒绝非本机 Host：${host.hostname}（防 DNS rebinding；${hint}）`, mode: "untrusted-host" };
+  }
+
+  const site = Array.isArray(headers["sec-fetch-site"]) ? headers["sec-fetch-site"][0] : headers["sec-fetch-site"];
+  if (site !== undefined && site !== "same-origin" && site !== "none") {
+    return { ok: false, status: 403, reason: `拒绝跨站请求（sec-fetch-site: ${site}）`, mode: "cross-site" };
+  }
+
+  const originRaw = headers.origin;
+  if (originRaw === undefined) {
+    // 浏览器对 POST 必带 Origin（本机 Chromium 实测见文件头注释）⇒ 走到这里的是本机工具。
+    return { ok: true, mode: "local-no-origin" };
+  }
+  const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
+  if (typeof origin !== "string" || origin === "" || origin === "null") {
+    return { ok: false, status: 403, reason: `拒绝非法 Origin：${String(origin)}`, mode: "bad-origin" };
+  }
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return { ok: false, status: 403, reason: `非法 Origin：${origin}`, mode: "bad-origin" };
+  }
+  const originPort = parsed.port === "" ? (parsed.protocol === "https:" ? "443" : "80") : String(Number(parsed.port));
+  const originHost = canonicalHostname(parsed.hostname);
+  if (explicitlyAllowed) {
+    // 运营者显式放行的主机（DSH_GOKIFU_ALLOWED_HOSTS）：只比主机名 ——
+    // 因为这种部署通常是「本机 http 被反代/隧道包成 https」，端口与协议在插件这侧看不到真值。
+    if (originHost !== host.hostname) {
+      return { ok: false, status: 403, reason: `跨源请求被拒（origin=${origin}，host=${String(hostRaw)}）`, mode: "cross-origin" };
+    }
+    return { ok: true, mode: "allowlisted-host" };
+  }
+  // DSH 的 webServer 是纯 node:http（无 TLS），所以默认路径只接受 http 同源。
+  if (parsed.protocol !== "http:") {
+    return { ok: false, status: 403, reason: `只接受 http 同源调用，收到 ${parsed.protocol}`, mode: "bad-origin" };
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return { ok: false, status: 403, reason: "Origin 不得带凭据", mode: "bad-origin" };
+  }
+  if (originHost !== host.hostname || originPort !== host.port) {
+    return { ok: false, status: 403, reason: `跨源请求被拒（origin=${origin}，host=${String(hostRaw)}）`, mode: "cross-origin" };
+  }
+  return { ok: true, mode: "same-origin" };
+}
+
+/**
+ * 找出一段 YAML 文本里的密钥样式内容。
+ * **只返回键名，不回传值** —— 这个结果会进 HTTP 响应，值绝不能外泄。
+ *
+ * @param {string} text
+ * @returns {string[]} 命中的键名（值层面的命中记为 `<value-pattern>`）
+ */
+export function findSecretLike(text) {
+  const hits = [];
+  const src = String(text ?? "");
+  for (const line of src.split(/\r?\n/)) {
+    const m = /^\s*(?:-\s*)?([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(line);
+    if (m === null) continue;
+    if (!SECRET_KEY_RE.test(m[1])) continue;
+    const value = m[2].replace(/\s+#.*$/, "").trim();
+    if (value === "" || value === "''" || value === '""' || value === "null" || value === "~") continue;
+    hits.push(m[1]);
+  }
+  if (SECRET_VALUE_RE.test(src)) hits.push("<value-pattern>");
+  return hits;
+}
+
+/** 列出某 preset 的备份（按时间戳升序）。 */
+export function listBackups(presetFile) {
+  const dir = nodePath.dirname(presetFile);
+  const prefix = `${nodePath.basename(presetFile)}${BACKUP_MARK}`;
+  let names;
+  try {
+    names = nodeFs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names.filter((n) => n.startsWith(prefix)).sort().map((n) => nodePath.join(dir, n));
+}
+
+/** 只保留最近 `keep` 份备份，返回被删掉的文件名。 */
+export function pruneBackups(presetFile, keep = BACKUP_KEEP) {
+  const backups = listBackups(presetFile);
+  const removed = [];
+  while (backups.length > keep) {
+    const file = backups.shift();
+    try {
+      nodeFs.rmSync(file);
+      removed.push(nodePath.basename(file));
+    } catch {
+      /* 删不掉就留着，下一次再试 */
+    }
+  }
+  return removed;
+}
+
+/**
+ * 中文键名 —— 错误信息里必须出现用户认得的名字，而不是 `tier2After` 这种配置键。
+ * 与 `lib/client.js` 的 `FIELDS[].label` 保持一致（host 侧不能 import 浏览器半，只能各留一份；
+ * `test/ui-config.test.mjs` 有一致性断言钉住这两份）。
+ */
+export const FIELD_LABELS = Object.freeze({
+  auto: "自动压缩",
+  thresholdRatio: "触发阈值（占窗口）",
+  headroomTokens: "压力余量（tokens）",
+  retainRatio: "逐字保留尾部",
+  growthFloorTokens: "增长闸（tokens）",
+  minFoldTokens: "最小 fold 量（tokens）",
+  summaryMode: "摘要方式",
+  maxTokens: "摘要输出上限（tokens）",
+  hotLedger: "热清单",
+  hotLedgerMaxTokens: "热清单预算（tokens）",
+  hotLedgerReplace: "就地替换旧清单",
+  hotLedgerMarkers: "清单标记档位",
+  transposition: "置换检测",
+  tier2After: "checkpoint 合并阈值",
+  summarizationProvider: "摘要 provider",
+  summarizationModel: "摘要 model",
+});
+
+/** 布尔键（引擎侧用 `!== false` 语义，但 preset 里必须是真布尔，写进去的也必须是）。 */
+const BOOLEAN_KEYS = new Set(["auto", "hotLedger", "hotLedgerReplace", "transposition"]);
+/** 引擎 `resolveChess()` 认识的枚举值（用它做「生效值」净化，不认的值一律回默认）。 */
+const SUMMARY_MODES = new Set(["hybrid", "rules", "llm"]);
+const MARKER_MODES = new Set(["semantic", "terse", "off"]);
+
+const label = (key) => FIELD_LABELS[key] ?? key;
+
+/**
+ * 把 preset 里「实际写了什么」翻译成「引擎实际生效什么」。
+ *
+ * 为什么需要它（WS-UIAUDIT B4）：真实 preset 只有 14 个键，而引擎会给缺失键补默认值
+ * （`engine.mjs` 的 `Config` 默认 + `resolveChess()` 兜底）。页面按「文件里有没有」渲染，
+ * 就会把生效中的 `hotLedgerReplace: true` 显示成未勾选 —— 页面在撒谎。
+ * 这里按引擎的规则算出生效值，并逐键标注来源（preset / default / sanitized / adjusted）。
+ *
+ * ⚠ 这是 `src/engine.mjs`（`Config` 默认值 + `resolveChess()`）的**镜像**，不是真实调用：
+ *    ui.mjs 不能 import engine.mjs（那会拉起 dsh-compaction/llm 等 peer 依赖）。
+ *    `test/ui-config.test.mjs` 有一条静态断言逐键比对 `DEFAULTS` 与 engine.mjs 的 schema 默认值，
+ *    规则若有变动（例如再出现 4096/2048/8192 那种三处不一致）必须同步这里与那条测试。
+ *
+ * @param {Record<string, unknown>} presetConfig 从 preset 文本解析出来的原始键值
+ * @returns {{effective: Record<string, unknown>, origins: Record<string, string>, unconfiguredKeys: string[]}}
+ */
+export function describeConfig(presetConfig = {}) {
+  const src = presetConfig ?? {};
+  const effective = {};
+  const origins = {};
+  for (const [key, fallback] of Object.entries(DEFAULTS)) {
+    const raw = src[key];
+    if (raw === undefined) {
+      effective[key] = fallback;
+      origins[key] = "default";
+      continue;
+    }
+    let valid = true;
+    if (NUM_RANGES[key] !== undefined) valid = typeof raw === "number" && Number.isFinite(raw);
+    else if (key === "summaryMode") valid = SUMMARY_MODES.has(raw);
+    else if (key === "hotLedgerMarkers") valid = MARKER_MODES.has(raw);
+    else if (BOOLEAN_KEYS.has(key)) valid = typeof raw === "boolean";
+    else valid = typeof raw === "string";
+    effective[key] = valid ? raw : fallback;
+    origins[key] = valid ? "preset" : "sanitized";
+  }
+  // engine.mjs resolveChess() 结尾那条修正：保留尾部不得 ≥ 触发阈值。
+  if (typeof effective.retainRatio === "number" && typeof effective.thresholdRatio === "number" && effective.retainRatio >= effective.thresholdRatio) {
+    effective.retainRatio = Math.max(0.05, effective.thresholdRatio - 0.05);
+    origins.retainRatio = "adjusted";
+  }
+  const unconfiguredKeys = Object.keys(DEFAULTS)
+    .filter((key) => src[key] === undefined)
+    .sort();
+  return { effective, origins, unconfiguredKeys };
+}
+
+/**
+ * 校验并规整页面提交的 patch。
+ *
+ * 两条硬规则（WS-UIAUDIT B5/B6）：
+ *   · 数字字段：空串 / 空白 / null **不是 0** —— 直接报错，绝不静默写成 0（`Number("")===0` 的坑）。
+ *     非十进制字面量（`0x10`、`1e3`、`true`）也拒。
+ *   · 白名单外的键**不静默丢**：这里仍然只是收集到 `skipped`（纯函数好测），
+ *     真正「不许静默」由 `saveConfig`（默认 strictKeys）与路由的 400 保证。
+ */
 export function sanitizePatch(patch) {
   const out = {};
   const skipped = [];
@@ -221,20 +545,27 @@ export function sanitizePatch(patch) {
       continue;
     }
     if (NUM_RANGES[key] !== undefined) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) throw new Error(`${key} 必须是数字`);
+      const raw = typeof value === "string" ? value.trim() : value;
+      if (raw === null || raw === undefined || raw === "") throw new Error(`${label(key)} 不能为空`);
+      let n;
+      if (typeof raw === "number") n = raw;
+      else if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw)) n = Number(raw);
+      else throw new Error(`${label(key)} 必须是数字（收到 ${JSON.stringify(value)}）`);
+      if (!Number.isFinite(n)) throw new Error(`${label(key)} 必须是有限数字`);
       const [min, max] = NUM_RANGES[key];
-      if (n < min || n > max) throw new Error(`${key} 超出范围 [${min}, ${max}]`);
+      if (n < min || n > max) throw new Error(`${label(key)} 超出范围 [${min}, ${max}]（收到 ${n}）`);
       out[key] = key === "thresholdRatio" || key === "retainRatio" ? Math.round(n * 1000) / 1000 : Math.round(n);
       continue;
     }
     if (ENUMS[key] !== undefined) {
-      if (!ENUMS[key].includes(value)) throw new Error(`${key} 必须是 ${ENUMS[key].join(" | ")}`);
+      if (!ENUMS[key].includes(value)) throw new Error(`${label(key)} 必须是 ${ENUMS[key].join(" | ")}`);
       out[key] = value;
       continue;
     }
-    if (typeof value === "boolean") {
-      out[key] = value;
+    if (BOOLEAN_KEYS.has(key)) {
+      if (typeof value === "boolean") out[key] = value;
+      else if (value === "true" || value === "false") out[key] = value === "true";
+      else throw new Error(`${label(key)} 必须是 true / false（收到 ${JSON.stringify(value)}）`);
       continue;
     }
     out[key] = String(value ?? "");
@@ -242,30 +573,98 @@ export function sanitizePatch(patch) {
   return { patch: out, skipped };
 }
 
-/** 把 patch 写进 preset（带备份）；返回改动清单。 */
+/**
+ * 把 patch 写进 preset（带轮转备份；含密钥时不落明文备份）；返回改动清单 + 生效值。
+ *
+ * `strictKeys`（默认开） = WS-UIAUDIT B6 的修法：白名单外的键**不许静默丢弃**。
+ * 抛出的错误对象上挂 `.skipped`，路由据此回 400 并把键名带回给页面 ——
+ * 这样「提交了不支持的键」在现有页面（`client.js` 只渲染 `error` 文本）里也一定看得见。
+ * 只有显式传 `{strictKeys:false}` 才退回旧行为（保留给离线批处理，仓库内无调用方）。
+ */
 export function saveConfig(patch, options = {}) {
   const home = options.home ?? resolveHome();
   const { patch: clean, skipped } = sanitizePatch(patch);
+  if (skipped.length > 0 && options.strictKeys !== false) {
+    const error = new Error(`不支持的配置键：${skipped.join("、")}（只有 ${Object.keys(DEFAULTS).length} 个已知键可以通过页面写入，这些键一个都没写）`);
+    error.skipped = skipped;
+    throw error;
+  }
+  for (const key of Object.keys(clean)) {
+    if (SECRET_KEY_RE.test(key)) throw new Error(`含密钥的键不允许通过页面写入：${label(key)}`);
+  }
   const presets = findPresetFiles(home).filter((p) => p.text.includes(ENTRY_ID));
   if (presets.length === 0) throw new Error(`没有找到含 ${ENTRY_ID} 的 preset（先跑 install）`);
   const changed = [];
+  const pruned = [];
   let backup = null;
+  let backupSkipped = null;
+  let lastConfig = null;
   for (const preset of presets) {
     const parsed = parseEngineBlock(preset.text);
     if (parsed === null) continue;
     const next = { ...parsed.config, ...clean };
+    lastConfig = next;
     const block = renderEngineBlock(next, parsed.indent, parsed.commentLines);
     const text = preset.text.replace(parsed.raw, block);
     if (text === preset.text) continue;
-    backup = `${preset.file}.bak-before-ui-${Date.now()}`;
-    nodeFs.copyFileSync(preset.file, backup);
+    // 密钥面：源文件里已有密钥样式 ⇒ 不复制整份文件（否则每个备份都是明文副本）。
+    // 新块里出现源文件没有的密钥样式 ⇒ 直接拒绝写（防止页面把密钥带进来）。
+    const secretInSource = findSecretLike(preset.text);
+    const secretInNew = findSecretLike(block).filter((key) => !secretInSource.includes(key));
+    if (secretInNew.length > 0) {
+      throw new Error(`拒绝写入疑似密钥（${secretInNew.join("、")}）：密钥不得进 preset，也不得进备份`);
+    }
+    if (secretInSource.length > 0) {
+      backupSkipped = {
+        file: preset.file,
+        keys: [...new Set(secretInSource)],
+        reason: "preset 含疑似密钥，已跳过明文备份（旧备份也不会被这份密钥覆盖）",
+      };
+    } else {
+      // 同一毫秒内多次保存（或一次保存命中多个 preset）时也不能互相覆盖。
+      const stamp = `${Date.now()}`;
+      let candidate = `${preset.file}${BACKUP_MARK}${stamp}`;
+      let n = 1;
+      while (nodeFs.existsSync(candidate)) {
+        n += 1;
+        candidate = `${preset.file}${BACKUP_MARK}${stamp}-${n}`;
+      }
+      backup = candidate;
+      nodeFs.copyFileSync(preset.file, backup);
+      pruned.push(...pruneBackups(preset.file, options.backupKeep ?? BACKUP_KEEP));
+    }
     nodeFs.writeFileSync(preset.file, text, "utf8");
     changed.push(preset.file);
   }
-  return { changed, skipped, backup, restartRequired: changed.length > 0 };
+  const described = describeConfig(lastConfig ?? {});
+  return {
+    changed,
+    skipped,
+    backup,
+    backupSkipped,
+    prunedBackups: pruned,
+    restartRequired: changed.length > 0,
+    // 写完之后「引擎会拿到的生效值」（关闭缺口 B4：页面据此显示真实生效值，而不是文件里有没有）
+    effectiveConfig: described.effective,
+    configOrigins: described.origins,
+    unconfiguredKeys: described.unconfiguredKeys,
+  };
 }
 
 export function apply(ctx) {
+  // 绑定 0.0.0.0 = 本机之外也能访问。**这不构成放行理由**（task-34）：
+  // 非回环 Host 仍然必须出现在 DSH_GOKIFU_ALLOWED_HOSTS 里，否则一律按不可信拒绝（fail closed）。
+  // 这里的 boundAllInterfaces 只用于把 403 的文案写得更可操作。
+  let boundAllInterfaces = false;
+  try {
+    boundAllInterfaces = String(ctx?.webServer?.host ?? "") === "0.0.0.0";
+  } catch {
+    boundAllInterfaces = false;
+  }
+  const allowedHosts = String(process.env.DSH_GOKIFU_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const route = {
     kind: "prefix",
     path: "/gokifu/api",
@@ -273,24 +672,38 @@ export function apply(ctx) {
       try {
         if (req.method === "OPTIONS") return sendJson(res, 204, {});
         if (req.method !== "POST") return sendJson(res, 405, { error: "只接受 POST" });
+        const trust = checkRequestTrust(req, { allowedHosts, boundAllInterfaces });
+        if (!trust.ok) return sendJson(res, trust.status ?? 403, { error: trust.reason, code: trust.mode });
+        if (!isJsonContentType(req.headers?.["content-type"])) {
+          return sendJson(res, 415, { error: "只接受 content-type: application/json", code: "bad-content-type" });
+        }
         const body = await readBody(req);
         const action = String(body.action ?? "state");
         if (action === "state") {
           const home = resolveHome();
           const presets = findPresetFiles(home).filter((p) => p.text.includes(ENTRY_ID));
           const parsed = presets.length > 0 ? parseEngineBlock(presets[0].text) : null;
+          const presetConfig = parsed?.config ?? {};
+          const described = describeConfig(presetConfig);
           return sendJson(res, 200, {
             ok: true,
             version: readVersion(),
-            config: parsed?.config ?? {},
+            // ★ B4：`config` 给的是**引擎生效值**（缺失键补默认、非法值按引擎规则净化）。
+            //   页面直接渲染它就不会再把 true/semantic 显示成「未配置/空」。
+            config: described.effective,
+            // 文件里实际写了哪些键（诊断用；也是「哪些是用户显式设过」的事实来源）
+            presetConfig,
+            configOrigins: described.origins,
+            unconfiguredKeys: described.unconfiguredKeys,
             defaults: DEFAULTS,
+            fieldLabels: FIELD_LABELS,
             configFile: presets[0]?.file ?? null,
             latest: latestGraph(home),
             today: todayAggregate(home),
             health: health(home),
           });
         }
-        if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS });
+        if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS, fieldLabels: FIELD_LABELS });
         if (action === "save") {
           const result = saveConfig(body.patch ?? {}, { home: resolveHome() });
           return sendJson(res, 200, { ok: true, ...result });
@@ -298,7 +711,10 @@ export function apply(ctx) {
         if (action === "health") return sendJson(res, 200, { ok: true, health: health(resolveHome()), latest: latestGraph(resolveHome()), today: todayAggregate(resolveHome()) });
         return sendJson(res, 400, { error: `未知 action: ${action}` });
       } catch (error) {
-        return sendJson(res, 400, { error: String(error?.message ?? error) });
+        const payload = { error: String(error?.message ?? error) };
+        // B6：白名单外的键必须可见 —— 键名跟着 400 回给页面。
+        if (Array.isArray(error?.skipped) && error.skipped.length > 0) payload.skipped = error.skipped;
+        return sendJson(res, 400, payload);
       }
     },
   };
@@ -307,7 +723,7 @@ export function apply(ctx) {
 
 function readVersion() {
   try {
-    const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(nodePath.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(HERE, "..", "package.json"), "utf8"));
     return pkg.version ?? null;
   } catch {
     return null;

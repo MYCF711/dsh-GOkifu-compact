@@ -133,6 +133,9 @@ export function observeEvent(g, event, state) {
         result: verdict.result,
         verify: verdict.verify,
         errorSnippet: verdict.errorSnippet,
+        // S2a：只读弱成功（verdict.weak = "read"）原样落进边，供热清单的 WORKING 路径使用。
+        // result 仍是 verdict.result（unverified）—— 失败集 / 事实块 / 手割一律看不到它。
+        weak: verdict.weak ?? null,
       });
       if (edge.evidence && typeof edge.evidence === "object") edge.evidence.end = event.seq;
       return { changed: true, note: `${edgeId} → ${verdict.result}` };

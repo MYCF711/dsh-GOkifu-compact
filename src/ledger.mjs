@@ -18,6 +18,16 @@
  */
 
 import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./graph.mjs";
+import { weakKindOf } from "./verifier.mjs";
+
+/**
+ * 弱成功图例（S2a）。只要 WORKING 行出现 `[weak k/n]`，这一行解释就一定在同一条清单里 ——
+ * 标记裸奔 = 模型把「读了一眼」当成已验证。措辞刻意不说 "verified / done"。
+ */
+// ★ C-17 rev6：图例必须**短**。它每条 weak 清单都要出现一次，旧文案 108 字符 ≈ 36 token，
+//   单这一行就吃掉「L3+ 路径行净增 ≤50 token」额度的大半。压到 61 字符，信息不丢：
+//   「k of n hops 未验证 = 不构成进展证据」。
+const WEAK_LEGEND = "# weak k/n = k of n hops unverified — not proof of progress";
 
 /** 保守 token 估算（CJK 1 字≈1 token，英文 ~4 字/token；取 3 折中偏保守）。 */
 export function estimateTokens(text) {
@@ -130,6 +140,172 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
 }
 
 /**
+ * 路径行（CURRENT PATH / WORKING）的形态。★ C-17（2026-10-30）。
+ *
+ * 背景（实测）：渲染链原本是 `path.length > 1 && level <= 2` —— **L3 起整块路径段不渲染**。
+ * S2a 的 `WORKING:` 行让 3 个会话多出 28~46 tokens，从 L2 掉到 L3，于是「为了显示工作路径」
+ * 反而把路径（连同工作位置）一起挤没了：
+ *   session-569f9cd0 L2=453 → L3=376 / session-8bfe7040 L2=438 → L3=356 / session-e02194c6 L2=489 → L3=394。
+ *
+ * 修法：**按档位决定路径行的形态 —— 越高越省，而不是越高越没有。**
+ *   · `full` —— L0–L2：与 1.9.1 **逐字相同**（不省一个字符，行为不变）。
+ *   · `head` —— L3：按**剩余预算**折叠（见 fitPaths）。折叠掉的永远是「同一个前缀被重述两遍」
+ *     的那部分：WORKING 的尾节点就是当前位置时，WORKING 一个字符都不用写，只在 CURRENT PATH
+ *     末尾标 `(working)`，不让模型误以为「工作位置」与「当前位置」不一致。
+ *   · `n1`   —— L4/L5（兜底）：两条路径行合成一行 —— `路径（working）`，折叠掉中段；
+ *     CURRENT PATH 省不出来时改写成 `# path:` 摘要行（当前位置 + 起点 + 折叠数），**当前位置永在**。
+ * 任何形态都必须含**最后一个节点**（当前位置）；`[weak k/n]`、图例、置换提示一律不省。
+ * 「折叠数」永远等于真实省略的节点数 —— 不印 `… +0`，也不凭空造节点。
+ */
+const PATH_SHAPE = ["full", "full", "full", "head", "n1", "n1"];
+/** 折叠时头尾各至少保留几个节点。 */
+const KEEP_HEAD = 2;
+const KEEP_TAIL = 2;
+/**
+ * 路径行的**固定额度**（字符）。★ C-17 rev6（2026-10-30，Lead 定稿验收线②）：
+ * 「L3+ 路径行相对 HEAD 净增 ≤50 tokens/会话」是硬额度。
+ *
+ * 为什么不能用「剩余预算」：`maxTokens×3 − 已用` 在多数会话里是 1000+ 字符，于是整条
+ * n1→…→n177 的路径（1064 字符）会被判「放得下」，路径行把预算吃光 —— 实测 500 预算下
+ * 超预算会话 7 → 29、avg 比 S2a 基线高 22 token。按固定 150 字符（≈50 token）封顶后，
+ * 路径行永远只花一小份，档位越高折得越狠。
+ */
+const PATH_QUOTA_CHARS = 150;
+
+const pathBody = (line, prefix) => (line ? line.slice(prefix.length + 2) : null);
+
+/**
+ * 把一串节点 id 按「头 head + 尾 tail」折叠成 `CURRENT PATH: …` 形态的行。
+ * 短到折不出东西时原样返回（绝不印 `… +0`）。
+ * @param {(id:string)=>string} [label] 节点 id → 显示名（默认原样）
+ */
+function foldIds(ids, label = (x) => x, head = KEEP_HEAD, tail = KEEP_TAIL) {
+  if (ids.length <= head + tail + 1) return ids.map(label).join(" → ");
+  const headIds = ids.slice(0, head);
+  const tailIds = ids.slice(ids.length - tail);
+  const omitted = ids.length - head - tail;
+  return `${headIds.map(label).join(" → ")} → … +${omitted} → ${tailIds.map(label).join(" → ")}`;
+}
+
+/**
+ * 生成两条路径行的 `full` 形态文本（L0–L2 用它，逐字不变）。
+ * WORKING 为 null（没有工作路径）时 workingLine 也是 null。
+ */
+function foldPaths(currentIds, workingIds, sameAsWorking, pathLabel, workingLabel) {
+  // 当前路径 === 工作路径：只显示 WORKING 一份（旧行为；S2a 定稿：打 weak 标 + 图例）
+  return {
+    droppedCurrent: sameAsWorking,
+    currentLine: sameAsWorking || currentIds.length === 0 ? null : `CURRENT PATH: ${currentIds.map(pathLabel).join(" → ")}`,
+    workingLine: workingIds === null || workingIds.length === 0 ? null : `WORKING: ${workingIds.map(workingLabel).join(" → ")}`,
+  };
+}
+
+/** 一行折叠摘要：保住「起点 + 当前位置 + 折了几个」（比整条路径短一个数量级）。 */
+function pathDigestLine(ids) {
+  if (ids.length <= KEEP_HEAD + KEEP_TAIL + 1) return `# path: ${ids.join(" → ")}`;
+  return `# path: ${foldIds(ids, (x) => x, 1, 1)} (current: ${ids.at(-1)})`;
+}
+
+/**
+ * 按**剩余预算**（字符）把两条路径行折到装得下。L3(`head`) / L4-L5(`n1`) 都用它。
+ *
+ * `budget` = `maxTokens × 3 - 已用字符 - 余量`。为什么按剩余预算而不是固定配比：
+ * 实测 session-c328440a 的 CURRENT PATH 有 158 个节点，各砍一半仍超预算（整条 708 tokens）；
+ * 按剩余预算折才有上界。
+ *
+ * 规则：
+ *  1. WORKING 尾节点 === CURRENT PATH 尾节点 ⇒ 当前路径本身就是工作路径的延续，
+ *     不重述 WORKING —— CURRENT PATH 末尾标 `(working edge: <id>)`，保住那条边的 id（weak 标记也在）。
+ *  2. 两条行都放得下就不折（`… +` 只在真的省下字符时才出现）。
+ *  3. 放不下：先折 WORKING（它通常很短、本来就折不动），再折 CURRENT PATH；
+ *     仍不行 ⇒ CURRENT PATH 退化成 `# path:` 摘要行，**当前位置永远在**。
+ *  4. 预算为负（连标题都放不下）时也要给出一行 `# path: <当前位置>` —— 路径行不是可选项。
+ */
+function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { allowMerge = true } = {}) {
+  const curBody = pathBody(currentLine, "CURRENT PATH");
+  const workBody = pathBody(workingLine, "WORKING");
+  if (curBody === null && workBody === null) return { currentLine, workingLine };
+  const curIds = curBody === null ? null : curBody.split(" → ");
+  const workIds = workBody === null ? null : workBody.split(" → ");
+
+  // 规则 1：WORKING 尾节点 === 当前位置 ⇒ 工作路径就是当前路径的延续，不重述；
+  //   改在其后标 `(working edge eN)`，这样「工作位置」和「哪条边算工作」（含 weak）都保住了。
+  // allowMerge=false：即使两条路径同尾也**分开写**（L3+ 优先给显式的 `WORKING:` 行，
+  // 模型不该靠 `(working edge e74)` 这种括号标记去猜工作位置）。预算不够时才允许合并。
+  const sameTail = allowMerge && curIds !== null && workIds !== null && curIds.at(-1) === workIds.at(-1);
+  const work = sameTail ? null : workIds;
+  const tag = sameTail ? (workingTag ? ` (working edge ${workingTag})` : " (working)") : "";
+
+  const curFull = curIds === null ? null : `CURRENT PATH: ${curIds.join(" → ")}${tag}`;
+  const workFull = work === null ? null : `WORKING: ${work.join(" → ")}`;
+
+  // 规则 2：整条清单放得下 ⇒ 原样（L0–L2 就是这个形态，逐字不变；L3 短路径也走这里）
+  if ((curFull?.length ?? 0) + (workFull?.length ?? 0) <= budget) return { currentLine: curFull, workingLine: workFull };
+
+  // 三种能省字符的形态，按「省得多、保得多」取第一个装得下的：
+  //   A 两条行各折中段（保 CURRENT PATH 完整头尾 + WORKING 完整）
+  //   B WORKING 折成 1+1，CURRENT PATH 完整 —— 工作位置的锚点（头尾）比中段重要
+  //   C CURRENT PATH 退化成 `# path:` 摘要，WORKING 完整 —— 兜底：当前位置与工作位置都还在
+  const shapes = [];
+  if (curIds === null) {
+    // ★ 只有 WORKING（当前路径 === 工作路径，foldPaths 已把 CURRENT PATH 省掉）。
+    //   C17 初版在这里直接落进下面的 `else` 分支读 `curIds.length` ⇒
+    //   `TypeError: Cannot read properties of null (reading 'length')`（实测崩在原 line 244，
+    //   全量测试 C17-11/12/13 三红、runner 只打印到崩溃点）。这个形态必须自己折 WORKING。
+    //   语义不变：WORKING 的尾节点就是当前位置；头 1 + 尾 1 起步，`… +N` 只在真省得下时出现。
+    for (let keep = work.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
+      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+      const line = `WORKING: ${foldIds(work, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}`;
+      shapes.push({ currentLine: null, workingLine: line });
+      if (line.length <= budget) return shapes.at(-1);
+    }
+    const workShortest = `WORKING: ${foldIds(work, (x) => x, 1, 1)}`;
+    shapes.push({ currentLine: null, workingLine: workShortest });
+    if (workShortest.length <= budget) return shapes.at(-1);
+  } else if (work === null) {
+    // 只有 CURRENT PATH：折中段
+    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
+      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+      shapes.push({ currentLine: line, workingLine: null });
+      if (line.length <= budget) return shapes.at(-1);
+    }
+  } else {
+    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
+      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+      shapes.push({ currentLine: line, workingLine: workFull });
+      if (line.length + (workFull?.length ?? 0) <= budget) return shapes.at(-1);
+    }
+    // ★ C-17 rev6：`head` 形态的正解是「两条都折、都保留可读头尾」，而不是直接退到 `# path:` 摘要
+    //   （摘要是 L4/L5 `n1` 形态的兜底）。上方循环只把 WORKING 当整条配对，长 WORKING 会让每次配对都
+    //   放不下，于是 L3 直接跳到摘要 —— 实测 mixed(40,6) 在 L3 只拿到 `# path: n1(user) → … +45 → n47`，
+    //   路径形态全丢了。这里补「折 CURRENT PATH（头 3 尾 3）+ 折 WORKING（头 2 尾 2）」这一档。
+    if (shape === "head") {
+      const curHead = `CURRENT PATH: ${foldIds(curIds, (x) => x, 3, 3)}${tag}`;
+      const workHead = `WORKING: ${foldIds(work, (x) => x, 2, 2)}`;
+      shapes.push({ currentLine: curHead, workingLine: workHead });
+      if (curHead.length + workHead.length <= budget) return shapes.at(-1);
+    }
+    const workShort = `WORKING: ${foldIds(work, (x) => x, 1, 1)}`;
+    shapes.push({ currentLine: curFull, workingLine: workShort });
+    if ((curFull?.length ?? 0) + workShort.length <= budget) return shapes.at(-1);
+    shapes.push({ currentLine: `${pathDigestLine(curIds)}${tag}`, workingLine: workShort });
+    if (`${pathDigestLine(curIds)}${tag}`.length + workShort.length <= budget) return shapes.at(-1);
+    shapes.push({ currentLine: `${pathDigestLine(curIds)}${tag}`, workingLine: workFull });
+    if (`${pathDigestLine(curIds)}${tag}`.length + (workFull?.length ?? 0) <= budget) return shapes.at(-1);
+  }
+  // 规则 3：一条都装不下 ⇒ 取最短的那条（绝不返回空 → 路径行不是可选项）
+  shapes.sort((a, b) => (a.currentLine?.length ?? 0) + (a.workingLine?.length ?? 0) - ((b.currentLine?.length ?? 0) + (b.workingLine?.length ?? 0)));
+  if (shapes.length > 0) return shapes[0];
+  return {
+    currentLine: curIds === null ? null : `${pathDigestLine(curIds)}${tag}`,
+    workingLine: workFull,
+  };
+}
+
+
+/**
  * 渲染热上下文。
  * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
@@ -148,23 +324,88 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const tewariMap = new Map();
   for (const e of failures.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
 
+  // ★ P1（2026-10-30）：置换索引，一次建好。
+  //   旧写法在**每个档位**里、对**每个 path hop** 都做一次 `Object.values(g.edges).some(...)`
+  //   ⇒ O(档位 × path × E)：真实最大图 852 边 / 16 跳实测 0.92–1.17ms/档位（索引化后 0.06ms）。
+  const transpositionKeys = new Set();
+  for (const e of Object.values(g.edges)) {
+    if (e.transposition && e.from && e.to) transpositionKeys.add(`${e.from}>${e.to}`);
+  }
+
   // ★ 便宜的降级：某一档**注定装不下**时不要白渲染（2000 边时要为 L0–L3 各拼 1201 行字符串，
   //   实测渲染 7.6ms/步；跳过装不下的档位后回到 ~5ms）。判据是每行的**下界**长度
   //   （id + 意图上限 + 原因上限 + 标记余量），再乘条数 —— 比真实输出小，所以只会跳过
   //   铁定不合规的档位，不会误伤。
   const LEVEL_LEN = [[70, 90], [50, 60], [34, 36], [22, 25]];
 
-  for (let level = 0; level <= 5; level += 1) {
-    if (level < 5 && failures.length > 0) {
-      const shownCount = level === 4 ? Math.min(failures.length, tailFailures) : level === 5 ? Math.min(failures.length, 10) : failures.length;
-      const [intentLen, reasonLen] = LEVEL_LEN[Math.min(level, 3)];
-      const lowerBound = Math.ceil((shownCount * (25 + intentLen + reasonLen) + 300) / 3);
-      if (lowerBound > maxTokens && level < 4) continue; // L4/L5 是兜底，必须真的渲染一遍
-      if (lowerBound > maxTokens && shownCount > 0 && level === 4 && failures.length > tailFailures) continue;
+  // ★ C-17（2026-10-30）：路径行按档位**变省**，而不是 L3 起消失。
+  //   旧版 `path.length > 1 && level <= 2` ⇒ S2a 的 WORKING 行让 3 个会话多出 ~28~46 tokens
+  //   从 L2 掉到 L3，于是「唯一的新信息」（工作路径）反而消失（实测见 docs 与
+  //   test/c17-path-at-every-level.test.mjs 头部）。现在每档都渲染，形态见 PATH_SHAPE。
+  //
+  //   WORKING 的锚点规则（2026-10-30 S2a 定稿，C-17 **不变**）：有强 success 就只用强 success；
+  //   一条都没有时才退到弱成功（prefer-strong）。为什么不是 union 见下；旧图没有 weak 字段时
+  //   由 weakKindOf 用 settled 的 verify.kind === "read" 识别（读旧图不掉行）。
+  //   这段计算与档位无关 ⇒ 提到循环外，每档只做一次字符串折叠（省 CPU，也保证各档看到同一条链）。
+  const navigable = (e) => Boolean(e.to && e.from !== e.to && g.nodes[e.to]);
+  const strongAnchors = Object.values(g.edges).filter((e) => e.result === "success").filter(navigable);
+  const anchorEdges = strongAnchors.length > 0 ? strongAnchors : Object.values(g.edges).filter((e) => weakKindOf(e)).filter(navigable);
+  let workingIds = null;
+  let workingTail = null;
+  let workingWeak = 0;
+  if (anchorEdges.length > 0) {
+    const last = anchorEdges[anchorEdges.length - 1];
+    const ids = [last.from, last.to];
+    const chainEdges = [last];
+    const seen = new Set(ids);
+    let cur = last.from;
+    for (;;) {
+      const prev = anchorEdges.find((e) => e.to === cur && e.from !== e.to && g.nodes[e.from] && !seen.has(e.from));
+      if (!prev) break;
+      ids.unshift(prev.from);
+      chainEdges.unshift(prev);
+      seen.add(prev.from);
+      cur = prev.from;
     }
+    workingIds = ids;
+    workingTail = last;
+    workingWeak = chainEdges.filter((e) => weakKindOf(e)).length;
+  }
+  const currentIds = path.map((n) => n.id);
+  // 「当前路径 === 工作路径」就只显示一份（旧行为，S2a 定稿：行内容打标 + 图例，省 20~40 tokens）
+  const sameAsWorking =
+    workingIds !== null && workingIds.length === currentIds.length && workingIds.every((id, i) => id === currentIds[i]);
+  const pathLabel = (id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}`;
+  const workingLabel = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
+  // 两条待渲染的路径行（full 形态）；L3+ 再按剩余预算折叠（见 fitPaths）
+  const { currentLine, workingLine } = foldPaths(currentIds, workingIds, sameAsWorking, pathLabel, workingLabel);
+  // WORKING 尾部那条边的 id：L3+ 把 WORKING 合并进 CURRENT PATH 时用它保住「哪条边算工作」
+  const workingTailId = workingTail?.id ?? "";
+
+  /** 各档渲染结果（L4/L5 比过再定，见循环末尾）。 */
+  const attempts = [];
+
+  /** 某一档「注定装不下」的下界（只会跳过铁定超预算的档，不误伤）。 */
+  const doomed = (lv) => {
+    if (failures.length === 0) return false;
+    const shownCount = lv === 4 ? Math.min(failures.length, tailFailures) : lv === 5 ? Math.min(failures.length, 10) : failures.length;
+    const [intentLen, reasonLen] = LEVEL_LEN[Math.min(lv, 3)];
+    return Math.ceil((shownCount * (25 + intentLen + reasonLen) + 300) / 3) > maxTokens;
+  };
+
+  for (let level = 0; level <= 5; level += 1) {
+    if (level < 4 && doomed(level)) continue; // L0–L3：装不下的档不必白渲染（旧行为）
+    // L4：只有**连 L5 都装不下**时才跳过 —— 否则「装不下也必须渲染一遍再比」（旧版语义：兜底要有下文）。
+    //   旧条件是 `failures.length > tailFailures`（20），而 L5 的 shownCount 用 10 ⇒ 预算只够 L3 时
+    //   L5 的下界变小、L4 被跳过 —— 实测 6 张图因此从「L3 全量」直接落成「L5 只列 10 条」并超预算。
+    if (level === 4 && doomed(4) && doomed(5)) continue;
     const lines = [];
     lines.push("<chess-ledger>");
-    if (root) lines.push(`ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 180)}`);
+    // ★ C-17 rev6：L3+ 的 root 裁剪从 180 收到 168 —— 给「最小路径行」预留 12 字符。
+    //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 5b38b355 HEAD=497/1490 字符）
+    //   只要多一行 `# path: n185` 就 501，成为唯一一个「新增超预算」。路径信息优先于
+    //   root 尾部 12 个字符（root 本来就已被 clip，且 L0–L2 逐字不变）。
+    if (root) lines.push(`ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`);
     // 始终收集**所有** user 节点的约束：旧版只要 root 有约束就只看 root，
     // 后续用户消息里的约束（"不要动 prod 配置"）在热清单里消失（审查 P1-6）。
     const cons = collectConstraints(g);
@@ -172,65 +413,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       lines.push("CONSTRAINTS (verbatim):");
       for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c, level <= 1 ? 220 : 120)}`);
     }
-    if (path.length > 1 && level <= 2) {
-      // 先算完整成功路径（WORKING）—— 和 CURRENT PATH 相同就只显示一个，避免重复
-      // ★ 2026-10-29：自环成功边（from === to）不能当工作路径的锚点 —— 它没让局面前进，
-      //   实测会让 WORKING 行渲染成「n22 → n22」，等于给模型一句废话。
-      const successEdges = Object.values(g.edges).filter(
-        (e) => e.result === "success" && e.to && e.from !== e.to && g.nodes[e.to],
-      );
-      let workingIds = null;
-      let workingTail = null;
-      if (successEdges.length > 0) {
-        const last = successEdges[successEdges.length - 1];
-        const ids = [last.from, last.to];
-        const seen = new Set(ids);
-        let cur = last.from;
-        for (;;) {
-          const prev = Object.values(g.edges).find(
-            (e) => e.result === "success" && e.to === cur && e.from !== e.to && g.nodes[e.from] && !seen.has(e.from),
-          );
-          if (!prev) break;
-          ids.unshift(prev.from);
-          seen.add(prev.from);
-          cur = prev.from;
-        }
-        workingIds = ids;
-        workingTail = last;
-      }
-
-      const currentIds = path.map((n) => n.id);
-      const sameAsWorking =
-        workingIds !== null &&
-        workingIds.length === currentIds.length &&
-        workingIds.every((id, i) => id === currentIds[i]);
-
-      // 只有「当前路径 ≠ 成功路径」时才额外显示 CURRENT PATH（否则 WORKING 已经说了）
-      if (!sameAsWorking) {
-        lines.push(`CURRENT PATH: ${path.map((n) => `${n.id}${n.kind === "user" ? "(user)" : ""}`).join(" → ")}`);
-      }
-      const goal = latest?.goal;
-      if (goal) lines.push(`CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}`);
-      if (workingIds !== null) {
-        const label = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
-        lines.push(
-          `WORKING: ${workingIds.map(label).join(" → ")}${workingTail?.verify?.summary ? ` (${clip(workingTail.verify.summary, 40)})` : ""}`,
-        );
-      }
-      // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
-      //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
-      const hops = path.length - 1;
-      let transposed = 0;
-      for (let i = 1; i < path.length; i += 1) {
-        const fromId = path[i - 1].id;
-        const toId = path[i].id;
-        if (Object.values(g.edges).some((e) => e.from === fromId && e.to === toId && e.transposition)) transposed += 1;
-      }
-      if (transposed > 0) {
-        lines.push(`⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${hops} 跳）——那些状态上试过的做法都记在下面的死路清单里，别重复。`);
-      }
-    }
-
+    // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
+    //   这样路径行的预算能扣掉它的**真实长度**。
+    //   旧写法只扣 header/root/constraints ⇒ pathBudget 恒 ≈ 1360 字符 ⇒ L3 把整条 177 节点路径
+    //   原样塞进去（e3820651 一图 331→742 tokens）。实测 500 预算下超预算会话 7 → 25，全是这条。
+    //   先算后扣 ⇒ 折出来的路径行才是「整条清单真的装得下」，而不是「路径自己装得下」。
     let shown = failures;
     let omitted = 0;
     if (level === 4 && failures.length > tailFailures) {
@@ -243,40 +430,180 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       shown = failures.slice(-10);
       omitted = failures.length - shown.length;
     }
-
+    const tailLines = [];
     if (failures.length) {
-      lines.push(`LEARNED (${failures.length} failed attempts):`);
+      tailLines.push(`LEARNED (${failures.length} failed attempts):`);
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
-      if (treeDir) lines.push(`TRACE: ${treeDir}/index.md  (per-node detail: nodes/<id>.md)`);
+      if (treeDir) tailLines.push(`TRACE: ${treeDir}/index.md  (per-node detail: nodes/<id>.md)`);
       // 手割分析（tewari）：每条边一次 BFS，防 O(E²) —— 只对**最近 30 条**做。
       // ★ 2026-10-29：旧版是「显示条数 ≤30 才算」⇒ 一次有 40 条失败边的会话里，
       //   手割标记**一条都没有**（而模型永远只对最近几步做决策）。改成对尾部 30 条算，
       //   无论总数多少，最近这批边都有标记。
-      const tewariMap = new Map();
-      for (const e of shown.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
+      // ★ P1（2026-10-30）：直接复用本函数开头算好的 tewariMap（失败边尾部 30 条，覆盖所有档位），
+      //   不再每个档位重算一遍 —— 旧写法 6 个档位 × 30 条 = 180 次重复手割，是渲染耗时的主因。
       const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)));
-      for (const line of markerLines) lines.push(line);
+      for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
-        lines.push(
+        tailLines.push(
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${treeDir ? `${treeDir}/index.md` : "index.md"} (per node: nodes/<id>.md) / by seq in the session log`,
         );
       }
-      for (const e of shown) lines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
+      for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
     }
     if (open.length && level <= 1) {
-      lines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
-      for (const e of open.slice(-6)) lines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"`);
+      tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
+      for (const e of open.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"`);
     }
+    if (path.length > 1) {
+      const shape = PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)];
+      // ★ C-17（2026-10-30，第二轮修）：路径行预算必须扣掉**这一档除路径以外的全部行** ——
+      //   header / root / constraints **以及已经算好的 tailLines（失败边块）**、还要 push 的
+      //   CURRENT GOAL / weak 图例 / `# WORKING: none` / 置换提示 / `</chess-ledger>`。
+      //   第一版只扣了 header 那几行 ⇒ pathBudget 恒 ≈ maxTokens×3 ⇒「整条路径放得下就原样」，
+      //   于是 L3 把 n1→…→n177 共 1064 字符原样塞进去：实测 500 预算下超预算会话 7 → 25
+      //   （verifier 复验抓到；e3820651 331→742、6f90bd1d 453→810 …）。
+      //   现在 prePathChars 是**精确字符数**，`available` 才是路径行真正能用的额度。
+      const goal = latest?.goal;
+      const goalLine = goal ? `CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}` : null;
+      const transpositionNote = (() => {
+        let transposed = 0;
+        for (let i = 1; i < path.length; i += 1) {
+          const fromId = path[i - 1].id;
+          const toId = path[i].id;
+          if (transpositionKeys.has(`${fromId}>${toId}`)) transposed += 1;
+        }
+        if (transposed === 0) return null;
+        return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里，别重复。`;
+      })();
+      const sizeOf = (arr) => arr.reduce((n, l) => n + l.length + 1, 0);
+      const fixedLines = [
+        ...(goalLine ? [goalLine] : []),
+        ...(workingWeak > 0 ? [WEAK_LEGEND] : []),
+        ...(workingIds === null && shape !== "full" ? ["# WORKING: none"] : []),
+        ...(transpositionNote ? [transpositionNote] : []),
+      ];
+      // ★ 行尾后缀（` (exit 0)` / ` [weak k/n]`）也要算进路径行的字符：它是拼在路径行尾巴上的，
+      //   但 fitPaths 看不到它。漏扣的实测后果：「498 字符的整条路径在 525 额度内放得下」成立、
+      //   加上 43 字符后缀就超了 ⇒ 每张图稳定落在 518~519 tokens（超预算会话 7 → 29）。
+      const tailWeak = workingIds !== null && weakKindOf(workingTail);
+      // 尾部是弱边时**不出** verify 摘要：弱边的 summary 是「1234 chars」，放在这里会被读成验证信号
+      const workSummary = workingIds !== null && !tailWeak && workingTail?.verify?.summary ? ` (${clip(workingTail.verify.summary, 40)})` : "";
+      const weakTag = workingIds !== null && workingWeak > 0 ? ` [weak ${workingWeak}/${workingIds.length - 1}]` : "";
+      const suffixChars = workSummary.length + weakTag.length;
+      // 精确口径：正文由各 line 用换行拼成 ⇒ 总字符 = Σ(len+1) − 1；结尾行 `</chess-ledger>` 也要算。
+      const prePathChars = sizeOf(lines) + sizeOf(tailLines) + sizeOf(fixedLines) + "</chess-ledger>".length; // sizeOf 已含各行 +1，join 少 1 由这里抵掉
+      /** 两条路径行真正能用的字符额度（已扣掉后缀）。 */
+      // 再减 2：`actual = prePathChars + pathChars − suffixChars − 1`，而 fitPaths 只看行长度、
+      // 不含每行换行（最多 2 行）—— 不扣这 2 个字符就会稳定超 1~2 字符（实测 501 tokens 就是这么来的）。
+      // ★ rev6：额度 = min(固定 150 字符, 真实剩余)，并且**这 150 字符要含 weak 图例与行尾后缀** ——
+      //   它们都由路径块引起，不能只算路径行本身。实测漏算时单会话净增 90 token（04538c62 346→436：
+      //   路径行 159 字符 + 图例 109 字符），直接突破「≤50 token/会话」的硬额度。
+      const legendChars = workingWeak > 0 ? WEAK_LEGEND.length + 1 : 0;
+      const quota = Math.max(0, PATH_QUOTA_CHARS - suffixChars - legendChars - 2);
+      const available = Math.max(0, Math.min(quota, maxTokens * 3 - prePathChars - suffixChars - 2));
+      /** 两条路径行占用的字符数（含各自的行尾换行 + 后缀）。 */
+      const pathChars = (f) =>
+        (f.currentLine ? f.currentLine.length + 1 : 0) + (f.workingLine ? f.workingLine.length + 1 : 0) + (f.currentLine || f.workingLine ? suffixChars : 0);
+      let folded;
+      /** 极端兜底：路径降到「一行最小形态」时为 true（此时不挂 weak 标记，见下）。 */
+      let minimalPath = false;
+      if (shape === "full") {
+        folded = { currentLine, workingLine };
+      } else {
+        // ① 先按**分开写**折（显式 `WORKING:` 行）：模型不该靠 `(working edge e74)` 猜工作位置。
+        folded = fitPaths(currentLine, workingLine, available, shape, workingTailId, { allowMerge: false });
+        // ② 分开写装不下 ⇒ 允许把同尾的 WORKING 并进 CURRENT PATH（省一整行）
+        if (Math.ceil((prePathChars + pathChars(folded)) / 3) > maxTokens) {
+          const mergedTry = fitPaths(currentLine, workingLine, available, shape, workingTailId, { allowMerge: true });
+          if (pathChars(mergedTry) < pathChars(folded)) folded = mergedTry;
+        }
+        // ③ 折完**实测**一次：`estimateTokens` 数的是整条文本，`(user)` 后缀等会让「路径字符串长度」
+        //    与真实占用对不上。装不下就按真实剩余重折，仍装不下再退到摘要形态；折不动了就停（不空转）。
+        for (let pass = 0; pass < 3; pass += 1) {
+          if (Math.ceil((prePathChars + pathChars(folded)) / 3) <= maxTokens) break;
+          const remaining = Math.max(0, Math.min(quota, maxTokens * 3 - prePathChars - suffixChars - 2));
+          const next = fitPaths(currentLine, workingLine, remaining, pass >= 1 ? "n1" : shape, workingTailId, { allowMerge: true });
+          if (pathChars(next) >= pathChars(folded)) break;
+          folded = next;
+        }
+        // ★ 最后兜底（C-17 第四轮修）：正文（root/约束/失败边）本身已经把预算吃满时，任何带路径的形态
+        //   都可能装不下。**但 L3+ 绝不允许静默省略路径**（verifier 实测有 19 个会话一行路径都没有，
+        //   其中 06698df9 pathLen=134、195ca61a 211、c4e44fab 151）——至少必须给出一行「当前位置」。
+        //   阶梯：`# path: current <cur> working <work>` → `# path: current <cur>` → `# path: <cur>`。
+        //   ★ 这一档不挂 `[weak k/n]`：标记必须与图例同行，图例（~108 字符）在这个预算下放不下；
+        //     要么「标记 + 图例」一起有，要么都没有 —— 不许让标记裸奔。
+        if (Math.ceil((prePathChars + pathChars(folded)) / 3) > maxTokens) {
+          const curTail = currentIds.at(-1) ?? "?";
+          const workTail = workingIds !== null ? workingIds.at(-1) : null;
+          const ladder = [
+            `# path: current ${curTail}${workTail && workTail !== curTail ? ` working ${workTail}` : ""}`,
+            `# path: current ${curTail}`,
+            `# path: ${curTail}`,
+          ];
+          const pick = ladder.find((line) => Math.ceil((prePathChars + line.length + 1) / 3) <= maxTokens);
+          // ★ 连最短一行都装不下也**照样输出最短那行**：宁可这一档超预算（会落到 L4/L5 由 pickFallback 择优），
+          //   也不允许「路径整块消失」——静默省略比超预算更危险（模型会以为没有路径）。
+          folded = { currentLine: pick ?? ladder[ladder.length - 1], workingLine: null };
+          minimalPath = true;
+        }
+      }
+      // ★ C-17 修（2026-10-30）：WORKING 可能被**并进** CURRENT PATH（同尾 ⇒ fitPaths 规则 1，
+      //   workingLine 返回 null）。旧写法直接 `${folded.workingLine}${summary}${weakTag}` ⇒
+      //   实测 session-569f9cd0 输出一行字面量 `null [weak 1/1]`：
+      //   既印了 "null"，又把「工作位置」藏了。现在把摘要与 weak 标记挂到**合并后的那一行**上。
+      const mergedIntoCurrent = workingIds !== null && folded.workingLine === null;
+      // 最小形态/整块省略时，摘要与 weak 标记必须一起压掉（否则标记裸奔、或又超预算）
+      const suffixSummary = minimalPath ? "" : workSummary;
+      const suffixWeak = minimalPath ? "" : weakTag;
+      // 只有「当前路径 ≠ 成功路径」时才额外显示 CURRENT PATH（否则 WORKING 已经说了）
+      if (folded.currentLine) lines.push(`${folded.currentLine}${mergedIntoCurrent ? `${suffixSummary}${suffixWeak}` : ""}`);
+      if (goalLine) lines.push(goalLine);
+      if (workingIds !== null) {
+        if (!mergedIntoCurrent) lines.push(`${folded.workingLine}${suffixSummary}${suffixWeak}`);
+        if (workingWeak > 0 && !minimalPath) lines.push(WEAK_LEGEND);
+      } else if (shape !== "full") {
+        // 没有工作路径（没有强 success、也没有弱锚点）时的退化：只说一句「这一行缺失是有原因的」，
+        // 不给模型留「路径被省掉了、去别处找」的错觉。L0–L2 维持旧行为（不出这一行）。
+        lines.push("# WORKING: none — no step in this session reached a new position yet");
+      }
+      // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
+      //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
+      if (transpositionNote) lines.push(transpositionNote);
+    } else if (PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)] !== "full") {
+      // ★ C-17：L3+ 连「路径」本身都不存在时也要留一行说明 —— 「没有路径」和「路径被省掉了」
+      //   对模型是两件事，静默省略会让它以为路径藏起来了。L0–L2 保持旧行为（不出这一行）。
+      lines.push("# path: none — no navigable path from the root yet (no step has reached a position)");
+    }
+
+    for (const tailLine of tailLines) lines.push(tailLine);
     lines.push("</chess-ledger>");
     const text = lines.join("\n");
     const tokens = estimateTokens(text);
-    if (tokens <= maxTokens || level === 5) {
-      return { text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length };
-    }
+    attempts.push({ text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length });
+    // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
+    //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
+    //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。
+    if (level < 4 && tokens <= maxTokens) return attempts.at(-1);
   }
+  const best = pickFallback(attempts, maxTokens, failures.length);
+  if (best) return best;
   /* istanbul ignore next -- 循环必然返回 */
   return { text: "", tokens: 0, level: 5, omittedEdges: failures.length, failureCount: failures.length, shownFailures: 0 };
+}
+
+/**
+ * L4/L5 的裁决（C-17）。两个兜底档都可能越过预算，选的时候按三层优先：
+ *   1. 预算内优先（`tokens <= maxTokens`）；
+ *   2. 可比时 tokens 小者胜 —— 预算内、预算外分别比；
+ *   3. 平手时列得多的胜（L4 的 20 条 > L5 的 10 条）：能多给一条真实失败原因，就多给一条。
+ */
+function pickFallback(attempts, maxTokens, failureCount) {
+  if (attempts.length === 0) return null;
+  const within = attempts.filter((a) => a.tokens <= maxTokens);
+  const pool = within.length > 0 ? within : attempts;
+  pool.sort((a, b) => a.tokens - b.tokens || b.shownFailures - a.shownFailures);
+  return pool[0] ?? { text: "", tokens: 0, level: 5, omittedEdges: failureCount, failureCount, shownFailures: 0 };
 }
 
 /**

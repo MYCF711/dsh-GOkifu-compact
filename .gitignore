@@ -2,3 +2,9 @@ src/.harness-stubs/
 src/.engine-under-test.mjs
 test/.harness/
 node_modules/
+
+# 临时/证据目录：本轮实测 478 文件 / 3.94 MB（含整仓变异副本），
+# `git add -A` 会把它们全收进提交。已跟踪的 8 个 tmp/ 文件（add.js、
+# find-project.mjs、replay.mjs、scan-graphs.mjs、verify-*.mjs、
+# worldhash.test.mjs、headless-fold-check.patch.yml）不受影响，仍是跟踪状态。
+tmp/

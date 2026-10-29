@@ -88,6 +88,7 @@ export function addUserNode(g, { seq, turn = null, text, constraints }) {
   g.order.push(id);
   if (g.rootUserNodeIds.length === 0) g.rootUserNodeIds.push(id);
   g.updatedAt = Date.now();
+  bumpRev(g);
   return id;
 }
 
@@ -130,6 +131,7 @@ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintH
   g.order.push(id);
   if (!pending) g.stateIndex[key] = id;
   g.updatedAt = Date.now();
+  bumpRev(g);
   return { id, transposition: null };
 }
 
@@ -164,6 +166,7 @@ export function mergeNodeInto(g, fromId, intoId) {
   g.order = g.order.filter((id) => id !== fromId);
   for (const [key, value] of Object.entries(g.stateIndex)) if (value === fromId) delete g.stateIndex[key];
   g.updatedAt = Date.now();
+  bumpRev(g);
   return [...redirected];
 }
 
@@ -217,18 +220,29 @@ export function addEdge(g, { from, intent = "", action = "", evidence = null }) 
     ts: Date.now(),
   };
   g.updatedAt = Date.now();
+  bumpRev(g);
   return id;
 }
 
-export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet = "" }) {
+/**
+ * 结算一条边。
+ *
+ * `weak`（S2a, 2026-10-30）：只读工具的「弱成功」标记（当前只有 "read"）。
+ * 它**不改 result**（仍是 unverified）—— 只给热清单的 WORKING 路径当锚点用。
+ * 只有在值非空时写字段：非弱边保持磁盘上的旧形状（图 JSON 不因本切片多出 `weak: null`）。
+ */
+export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet = "", weak = null }) {
   const edge = g.edges[edgeId];
   if (!edge) throw new Error(`settleEdge: unknown edge ${edgeId}`);
   edge.to = to ?? edge.to;
   edge.result = result;
   edge.verify = verify ?? { kind: "none", summary: "" };
   edge.errorSnippet = String(errorSnippet ?? "").slice(0, 600);
+  if (weak) edge.weak = weak;
+  else delete edge.weak; // 重新结算成 success/failure 时清掉陈旧标记（弱成功只能挂在 unverified 上）
   if (to && edge.transposition === undefined) edge.transposition = false;
   g.updatedAt = Date.now();
+  bumpRev(g);
   return edge;
 }
 
@@ -431,6 +445,11 @@ export function validate(g) {
     if (edge.result === "failure" && !edge.errorSnippet && !edge.verify?.summary) {
       problems.push(`edge ${id}: 失败边既无 errorSnippet 也无 verify.summary（失败记忆会丢）`);
     }
+    // S2a：弱成功只能挂在 unverified 上 —— 一旦被写成 success/failure，
+    // 它就会被 failureEdges / tewari / 统计当成真验证（实测 dead +8 / redundant +9 就是这么来的）
+    if (edge.weak && edge.result !== "unverified") {
+      problems.push(`edge ${id}: weak=${edge.weak} 却 result=${edge.result}（弱成功必须保持 unverified）`);
+    }
   }
   for (const id of g.order) {
     const node = g.nodes[id];
@@ -455,7 +474,158 @@ export function validate(g) {
  * @param {object} edge 要分析的边（必须 result === "failure"）
  * @returns {{kind: string, alternatives: number, note: string}|null}
  */
+
+/* ─────────────── 手割缓存的索引（P1 性能，2026-10-30） ─────────────── */
+
+/**
+ * 图的结构修订号。
+ *
+ * 为什么不把 rev 写进 graph 对象：`graph.json` 的形状是契约（toJSON/fromJSON 与测试逐字节
+ * 比对），多一个字段就是 schema 漂移。用 WeakMap 挂在对象外部：不进 JSON、不影响 GC。
+ * 五个改图函数（addUserNode / addAgentNode / addEdge / settleEdge / mergeNodeInto）各 bump 一次。
+ */
+const GRAPH_REV = new WeakMap();
+function bumpRev(g) {
+  GRAPH_REV.set(g, (GRAPH_REV.get(g) ?? 0) + 1);
+}
+/** 只读：当前修订号（测试与诊断用）。 */
+export function graphRevision(g) {
+  return GRAPH_REV.get(g) ?? 0;
+}
+
+const TEWARI_CACHE = Symbol("tewariCache");
+
+/**
+ * 手割分析的调用/计算/命中计数（测试与诊断用；生产里只增三个整数）。
+ */
+export const _tewariStats = { calls: 0, computes: 0, hits: 0 };
+/** 只给测试用：memo=false 时必须退化成「每次重算」（语义与旧实现完全一致）。 */
+export const _tewariOptions = { memo: true };
+
+/**
+ * O(1) 的「便宜键」：只要图**结构**变过，这几个数就一定变。
+ *   · rev —— 五个改图函数各 bump 一次（keeper 里唯一绕过 mutator 的 `edge.to = node.id`
+ *     紧跟在 addAgentNode 之后，所以也被 rev 覆盖）；
+ *   · updatedAt —— 覆盖 engine 的 `Object.assign(g, fromJSON(snapshot))` 回滚；
+ *   · nextEdge / order.length —— 覆盖新增边/节点与合并删节点。
+ * 渲染器用它做快速命中判断；真正严格的结构签名（含 to/from 数字和）仍留在 graphIndex 里，
+ * 由手割分析那条路径承担（它调用次数少、对「同毫秒直接改边」更敏感）。
+ */
+function cheapKey(g) {
+  return `${graphRevision(g)}|${g.updatedAt ?? 0}|${g.nextEdge ?? 0}|${g.order?.length ?? 0}`;
+}
+
+/**
+ * 取（或重建）一张图的**结构索引**：入/出邻接表 + 每节点可达集 + 每条失败边的结论。
+ *
+ * 缓存键 = 结构修订号 + updatedAt + 边/节点数 + to/from 的数字和。
+ * 为什么要 to/from 数字和：`updatedAt` 是毫秒精度，同毫秒内的两次 settle 会撞键；
+ * 而节点 id 形如 `n123`，取数字累加是一趟 O(E) 的整数运算，任何一条边的端点变化都会让键变化。
+ * `Object.assign(g, fromJSON(snapshot))`（engine 的失败回滚）不改 rev，但会改 updatedAt ⇒ 也会失效。
+ *
+ * ★ P2（2026-10-30）：`byTo` 与 `byFrom` 一起建，供 renderNodeMd / renderIndexMd 使用 ——
+ *   那两个渲染器原来是 O(N×E)（每个节点都 `Object.values(g.edges).filter(...)`，BFS 每轮也是），
+ *   5000 边实测 3.6s / 7.0s；现在索引一次建好后是 O(E + N)。
+ */
+function graphIndex(g) {
+  const edges = Object.values(g.edges);
+  let toSum = 0;
+  let fromSum = 0;
+  for (const e of edges) {
+    if (e.to) toSum = (toSum + (Number(String(e.to).slice(1)) || 0)) | 0;
+    if (e.from) fromSum = (fromSum + (Number(String(e.from).slice(1)) || 0)) | 0;
+  }
+  const cheap = cheapKey(g);
+  const sig = `${cheap}|${edges.length}|${Object.keys(g.nodes).length}|${toSum}|${fromSum}`;
+  let cache = g[TEWARI_CACHE];
+  if (cache === undefined || cache.sig !== sig) {
+    const byFrom = new Map();
+    const byTo = new Map();
+    for (const e of edges) {
+      const f = byFrom.get(e.from);
+      if (f) f.push(e);
+      else byFrom.set(e.from, [e]);
+      if (e.to) {
+        const t = byTo.get(e.to);
+        if (t) t.push(e);
+        else byTo.set(e.to, [e]);
+      }
+    }
+    cache = { sig, cheap, byFrom, byTo, reach: new Map(), results: new Map() };
+    Object.defineProperty(g, TEWARI_CACHE, { value: cache, enumerable: false, configurable: true, writable: true });
+    _graphIndexStats.builds += 1;
+  } else {
+    cache.cheap = cheap; // 签名一致但便宜键更新过（例如回滚后结构复位）—— 记住它，让渲染器能走快路径
+  }
+  return cache;
+}
+
+/** 只读诊断：索引重建次数（测试用；证明缓存真的在复用）。 */
+export const _graphIndexStats = { builds: 0 };
+/** 只给测试用：memo=false 时每个渲染器各建一次临时索引（不再跨调用复用）。 */
+export const _graphIndexOptions = { memo: true };
+
+/** 建一份不入缓存的邻接索引（memo 关闭时的退化路径）。 */
+function buildIndexUncached(g) {
+  const byFrom = new Map();
+  const byTo = new Map();
+  for (const e of Object.values(g.edges)) {
+    const f = byFrom.get(e.from);
+    if (f) f.push(e);
+    else byFrom.set(e.from, [e]);
+    if (e.to) {
+      const t = byTo.get(e.to);
+      if (t) t.push(e);
+      else byTo.set(e.to, [e]);
+    }
+  }
+  return { sig: "", byFrom, byTo, reach: new Map(), results: new Map() };
+}
+
+/** 渲染器用的索引入口：memo 开则复用（跨调用，O(1) 快路径），关则每次现建。 */
+function renderIndex(g) {
+  if (!_graphIndexOptions.memo) {
+    _graphIndexStats.builds += 1;
+    return buildIndexUncached(g);
+  }
+  const cache = g[TEWARI_CACHE];
+  // ★ 快路径必须 O(1)：renderNodeMd 会被**每个节点**调一次（N 次），
+  //   若每次都算 O(E) 的结构签名，就等于把 O(N×E) 又请回来了（实测 5000 边 14.9s）。
+  if (cache !== undefined && cache.cheap === cheapKey(g)) return cache;
+  return graphIndex(g);
+}
+
+
+/** 某节点的可达集合（含自身），同一张图内记忆化。 */
+function tewariReach(index, start) {
+  const hit = index.reach.get(start);
+  if (hit !== undefined) return hit;
+  const set = new Set([start]);
+  const q = [start];
+  while (q.length > 0) {
+    const id = q.shift();
+    for (const e of index.byFrom.get(id) ?? []) {
+      if (e.to && !set.has(e.to)) {
+        set.add(e.to);
+        q.push(e.to);
+      }
+    }
+  }
+  index.reach.set(start, set);
+  return set;
+}
+
+/**
+ * 手割分析（tewari）—— 围棋的复盘方法：把多出的着法拿掉，还原标准定式，看谁亏谁赚。
+ *
+ * ★ P1（2026-10-30）：加记忆化。`renderLedger` 每次 pre-step 都跑，且会在 6 个降级档位里
+ *   重复分析同一批失败边（实测真实最差图 212ms/次，其中 tewari 占 87%；一次渲染 49 次调用
+ *   里只有 7 次是必要的）。现在同一张图、同一结构下，每条失败边只算一次，跨调用复用。
+ *
+ *   语义与逐字段输出**完全不变**：命中缓存时返回同一个对象（调用方只读，不写）。
+ */
 export function tewariAnalysis(g, edge) {
+  _tewariStats.calls += 1;
   if (!edge || edge.result !== "failure") return null;
   const from = edge.from;
   const to = edge.to;
@@ -466,27 +636,50 @@ export function tewariAnalysis(g, edge) {
   //   dead 判定实测 109/109 全错（把「同一步另一条命令成功了」说成「有工作路径避开它」）。
   if (from === to) return null;
 
+  if (!_tewariOptions.memo) {
+    _tewariStats.computes += 1;
+    return tewariCompute(g, edge, null);
+  }
+  const index = graphIndex(g);
+  const hit = index.results.get(edge.id);
+  if (hit !== undefined) {
+    _tewariStats.hits += 1;
+    return hit;
+  }
+  _tewariStats.computes += 1;
+  const result = tewariCompute(g, edge, index);
+  index.results.set(edge.id, result);
+  return result;
+}
+
+/**
+ * 真正的手割计算。`index === null` 时按旧写法现建临时邻接表（关缓存时走这条，
+ * 语义与旧版逐条 `Object.values(g.edges).filter/find` 完全等价）。
+ */
+function tewariCompute(g, edge, index) {
+  const from = edge.from;
+  const to = edge.to;
+  const idx = index ?? (() => {
+    const byFrom = new Map();
+    for (const e of Object.values(g.edges)) {
+      const list = byFrom.get(e.from);
+      if (list) list.push(e);
+      else byFrom.set(e.from, [e]);
+    }
+    return { byFrom, reach: new Map() };
+  })();
+  const outgoing = (id) => idx.byFrom.get(id) ?? [];
+  const reachOf = (start) => (index !== null ? tewariReach(idx, start) : tewariReach(idx, start));
+
   // 同一起点的成功出边（排除自身；自环成功边不算替代路径 —— 它没有离开起点）
-  const alts = Object.values(g.edges).filter(
-    (e) => e.from === from && e.id !== edge.id && e.result === "success" && e.to && e.to !== e.from && g.nodes[e.to],
+  const alts = outgoing(from).filter(
+    (e) => e.id !== edge.id && e.result === "success" && e.to && e.to !== e.from && g.nodes[e.to],
   );
 
   // ★ 多参照点（v1.0.0）：对**每条**成功出边单独判定，而不是取并集。
   //   同一条失败边相对 e5 可能是 redundant，相对 e7 可能是 novel —— 这正是「看第二个判优、看第三个判劣」。
   const baselines = alts.map((alt) => {
-    const reach = new Set();
-    const q = [alt.to];
-    const seen = new Set(q);
-    while (q.length > 0) {
-      const id = q.shift();
-      reach.add(id);
-      for (const e of Object.values(g.edges)) {
-        if (e.from === id && e.to && !seen.has(e.to)) {
-          seen.add(e.to);
-          q.push(e.to);
-        }
-      }
-    }
+    const reach = reachOf(alt.to);
     const sameEndpoint = Boolean(to && to === alt.to);
     const reachesEndpoint = Boolean(to && reach.has(to));
     return { edgeId: alt.id, sameEndpoint, reachesEndpoint };
@@ -497,21 +690,10 @@ export function tewariAnalysis(g, edge) {
   const longerVs = baselines.filter((b) => !b.sameEndpoint && b.reachesEndpoint).map((b) => b.edgeId);
 
   // 探新：失败边终点不在任何 baseline 的可达集合里
+  // （旧实现把这份 BFS 又完整算了一遍；现在直接并已被记忆化的 reach 集合，等价且只算一次）
   const anyReach = new Set();
-  for (const alt of alts) {
-    const q = [alt.to];
-    const seen = new Set(q);
-    while (q.length > 0) {
-      const id = q.shift();
-      anyReach.add(id);
-      for (const e of Object.values(g.edges)) {
-        if (e.from === id && e.to && !seen.has(e.to)) {
-          seen.add(e.to);
-          q.push(e.to);
-        }
-      }
-    }
-  }
+  for (const alt of alts) for (const id of reachOf(alt.to)) anyReach.add(id);
+
   const probes = [];
   if (to && g.nodes[to] && !anyReach.has(to)) {
     probes.push(to);
@@ -519,8 +701,8 @@ export function tewariAnalysis(g, edge) {
     const seen2 = new Set([to]);
     while (q2.length > 0 && probes.length < 8) {
       const id = q2.shift();
-      for (const e of Object.values(g.edges)) {
-        if (e.from !== id || !e.to || !g.nodes[e.to]) continue;
+      for (const e of outgoing(id)) {
+        if (!e.to || !g.nodes[e.to]) continue;
         if (anyReach.has(e.to) || seen2.has(e.to)) continue;
         seen2.add(e.to);
         probes.push(e.to);
@@ -620,12 +802,14 @@ export function renderNodeMd(g, nodeId) {
     }
     lines.push("## 状态", "", `- worldHash: \`${cut(n.worldHash, 12)}\``, `- constraintHash: \`${cut(n.constraintHash, 12)}\``, "");
   }
-  const ins = Object.values(g.edges).filter((e) => e.to === nodeId);
+  // ★ P2：索引只取一次（renderNodeMd 会被逐节点调用；每个节点再各取两次会把 O(1) 快路径走成 2N 次）
+  const idx = renderIndex(g);
+  const ins = idx.byTo.get(nodeId) ?? [];
   lines.push("## 入边", "");
   if (ins.length === 0) lines.push("（无）");
   else for (const e of ins) lines.push(`- ${e.id} ← ${e.from}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}`);
   lines.push("");
-  const outs = Object.values(g.edges).filter((e) => e.from === nodeId);
+  const outs = idx.byFrom.get(nodeId) ?? [];
   lines.push("## 出边", "");
   if (outs.length === 0) lines.push("（无）");
   else for (const e of outs) lines.push(`- ${e.id} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 80)}${e.result ? ` [${e.result}]` : ""}${e.result === "failure" ? ` [verify:${e.verify?.kind ?? "none"}]` : ""}${e.errorSnippet ? ` — ${cut(e.errorSnippet, 400)}` : ""}`);
@@ -640,16 +824,19 @@ export function renderIndexMd(g) {
 
   // 计算每个节点的深度（从**入度为 0 的节点**出发的最短路径；转置边不重复入队）
   // 用入度 0 而不是 rootUserNodeIds：后者每个 user 消息都是一个"根"，会导致所有节点深度都是 0
+  //
+  // ★ P2（2026-10-30）：BFS 与节点出边都走结构索引（byFrom/byTo），不再每个节点/每轮都
+  //   `Object.values(g.edges)` 全表扫 —— 旧写法是 O(N×E)：5000 边实测 3.6s。
+  const idx = renderIndex(g);
   const depth = new Map();
-  const hasIn = new Set(Object.values(g.edges).filter((e) => e.to).map((e) => e.to));
-  const roots = Object.keys(g.nodes).filter((id) => !hasIn.has(id));
+  const roots = Object.keys(g.nodes).filter((id) => !idx.byTo.has(id));
   const queue = roots.map((id) => [id, 0]);
   while (queue.length > 0) {
     const [id, d] = queue.shift();
     if (depth.has(id)) continue;
     depth.set(id, d);
-    for (const e of Object.values(g.edges)) {
-      if (e.from === id && e.to && !depth.has(e.to)) queue.push([e.to, d + 1]);
+    for (const e of idx.byFrom.get(id) ?? []) {
+      if (e.to && !depth.has(e.to)) queue.push([e.to, d + 1]);
     }
   }
 
@@ -669,7 +856,7 @@ export function renderIndexMd(g) {
     const label = n.kind === "user" ? "USER" : "STATE";
     const title = n.kind === "user" ? cut(n.text, 40) : n.goal ? cut(n.goal, 40) : "(无目标)";
     lines.push(`${indent}- [${id}](./nodes/${id}.md) ${label} seq=${n.seq} ${title}`);
-    const outs = Object.values(g.edges).filter((e) => e.from === id);
+    const outs = idx.byFrom.get(id) ?? [];
     for (const e of outs) {
       const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
       lines.push(`${indent}  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}${e.result === "failure" && e.verify?.kind === "text" ? " [text:?]" : ""}`);

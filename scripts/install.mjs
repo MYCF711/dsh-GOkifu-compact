@@ -11,8 +11,10 @@
  *   · 自动找 profile / preset（把 preset 里所有 `- id: compaction-basic` 块换掉）
  *   · 改之前备份（`*.bak-before-gokifu-<ts>`），`revert` 一键还原
  *   · `--dry-run` 只打印不写盘
- *   · 幂等：已经换过就跳过；旧版本残留（有我们的 name、id 还是旧名）只改名
- *   · 双模式：从仓库跑（会先建 junction + profile 依赖）/ 从已装的包跑（跳过链接）
+ *   · 幂等：判「链接解析后的真实目录是不是本目录」，不是判「字符串/键存不存在」；
+ *     指向别处、断链、指到不存在的目录 —— 一律重建 + 改写依赖声明（旧值先备份）
+ *   · 双模式：从仓库跑（建/修 junction + 依赖声明）/ 从已装的链接跑（判定为安装态，跳过链接）
+ *   · 复制安装（node_modules 里是真实目录，例如从 npm registry 装的）不动它的依赖声明
  *
  * 用法：
  *   dsh-gokifu-compact install [--profile desktop] [--preset personal-assistant] [--dry-run]
@@ -23,14 +25,23 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createDirLink, inspectSpec, realPathOrNull, removeDirLink, samePath, statLink, toLinkSpec } from "./link-path.mjs";
 
 export const PKG_NAME = "dsh-gokifu-compact";
 export const ENTRY_ID = "gokifu-compact";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
-export const PROJECT_DIR = nodePath.resolve(HERE, "..");
+/**
+ * 安装源目录 —— 只能来自**可靠事实**（脚本自己所在的真实目录），不许从包名猜目录名。
+ *
+ * 为什么写这段：v0.4.0 改名那次，profile 里被写成
+ * `link:D:/主工作区/projects/dsh-gokifu-compact` —— 那是**跟着包名猜出来的目录**，
+ * 真实目录一直叫 `dsh-chess-context`。重装时 pnpm 对不存在的 link 目标只打一行 WARN，
+ * **退出码 0、且不建任何链接** ⇒「重装即坏」是静默的（本轮实测见 docs/草稿 §S10a 证据）。
+ * realpath 同时解决两件事：从 junction 里跑（安装态）时拿回真身；路径大小写被规范化。
+ */
+export const PROJECT_DIR = realPathOrNull(nodePath.resolve(HERE, "..")) ?? nodePath.resolve(HERE, "..");
 
 export function parseArgs(argv) {
   const args = [...argv];
@@ -54,7 +65,10 @@ export function parseArgs(argv) {
 
 function installedLocation(dshHome, profile) {
   const profilePkg = nodePath.join(dshHome, "profiles", profile, "node_modules", PKG_NAME);
-  return nodePath.resolve(profilePkg) === PROJECT_DIR;
+  // 旧写法 `nodePath.resolve(profilePkg) === PROJECT_DIR` 不跟随链接：拿 junction 自己的路径
+  // 去比真实仓库路径，永远不相等 —— 判定必须用 realpath。
+  const real = realPathOrNull(profilePkg);
+  return real !== null && samePath(real, PROJECT_DIR);
 }
 
 function presetsWithCompaction(dshHome) {
@@ -353,31 +367,58 @@ export function run(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  /* ① 确保包装进 profile（已装好则跳过） */
-  if (!installedLocation(dshHome, profile)) {
-    const dest = nodePath.join(profileDir, "node_modules", PKG_NAME);
-    if (nodeFs.existsSync(dest)) {
-      log(`  · ${dest} 已存在（不是本目录），跳过链接`);
-    } else if (dryRun) {
-      log(`  [dry] 会建 junction ${dest} → ${PROJECT_DIR}`);
-    } else {
-      nodeFs.mkdirSync(nodePath.dirname(dest), { recursive: true });
-      execFileSync("cmd", ["/c", "mklink", "/J", dest, PROJECT_DIR], { stdio: "ignore" });
+  /* ① 确保包装进 profile（链接对就跳过；链接错就重建 —— 不许「存在即跳过」） */
+  const dest = nodePath.join(profileDir, "node_modules", PKG_NAME);
+  const destLink = statLink(dest);
+  /** 复制安装（node_modules 里是真实目录，例如从 npm registry 装的）—— 不是链接安装，不改它的依赖声明。 */
+  const copiedInstall = destLink.present && !destLink.isLink;
+
+  if (copiedInstall) {
+    log(`  ! ${dest} 是真实目录（复制 / npm 安装）—— 按复制安装处理，不改依赖声明`);
+  } else if (installedLocation(dshHome, profile)) {
+    log(`  · 链接已指向本目录：${dest} → ${PROJECT_DIR}`);
+  } else if (!destLink.present) {
+    if (dryRun) log(`  [dry] 会建 junction ${dest} → ${PROJECT_DIR}`);
+    else {
+      createDirLink(PROJECT_DIR, dest);
       log(`  ✓ junction: ${dest} → ${PROJECT_DIR}`);
     }
+  } else {
+    // 断链，或指向别的目录：旧代码在这里打印「已存在（不是本目录），跳过链接」然后 ✓ 完成 ——
+    // 装完的状态和声明仍然对不上，属于安装器自己的假绿。这里重建。
+    const now = destLink.targetExists ? destLink.realPath : "断链";
+    if (dryRun) log(`  [dry] 会重建 junction ${dest}（现在 → ${now}）`);
+    else {
+      removeDirLink(dest);
+      createDirLink(PROJECT_DIR, dest);
+      log(`  ✓ junction 已重建（原来 → ${now}）：${dest} → ${PROJECT_DIR}`);
+    }
+  }
+
+  /* 依赖声明：不能只看「有没有这个键」，必须解析到真实目标。
+     键存在但指向不存在的目录 = 重装即坏（pnpm 只 WARN、退出码 0、不建链接）。 */
+  if (!copiedInstall) {
     const pkgFile = nodePath.join(profileDir, "package.json");
     const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
-    if (!pkg.dependencies?.[PKG_NAME]) {
-      if (dryRun) log(`  [dry] 会在 package.json dependencies 加 ${PKG_NAME}`);
-      else {
-        nodeFs.copyFileSync(pkgFile, `${pkgFile}.bak-before-gokifu-${Date.now()}`);
-        pkg.dependencies = { ...(pkg.dependencies ?? {}), [PKG_NAME]: `link:${PROJECT_DIR.replace(/\\/g, "/")}` };
-        nodeFs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + "\n", "utf8");
-        log("  ✓ profile/package.json 已加 dependency");
-      }
-    } else log(`  · profile/package.json 已有 ${PKG_NAME}`);
-  } else {
-    log(`  · 已从 profile 的 node_modules 运行（安装态），跳过链接`);
+    const declared = pkg.dependencies?.[PKG_NAME] ?? null;
+    const want = toLinkSpec(PROJECT_DIR);
+    const spec = declared === null ? null : inspectSpec(declared, profileDir);
+    const correct =
+      spec !== null &&
+      (spec.kind === "link" || spec.kind === "file") &&
+      spec.ok &&
+      spec.target.packageName === PKG_NAME &&
+      samePath(spec.target.realPath, PROJECT_DIR);
+    if (correct) {
+      log(`  · profile/package.json 的 ${PKG_NAME} 已指向本目录：${declared}`);
+    } else if (dryRun) {
+      log(`  [dry] 会${declared === null ? "加" : "修"} profile/package.json 的 ${PKG_NAME}：${declared ?? "(无)"} → ${want}`);
+    } else {
+      nodeFs.copyFileSync(pkgFile, `${pkgFile}.bak-before-gokifu-${Date.now()}`);
+      pkg.dependencies = { ...(pkg.dependencies ?? {}), [PKG_NAME]: want };
+      nodeFs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + "\n", "utf8");
+      log(`  ✓ profile/package.json 已${declared === null ? "加" : "修"} ${PKG_NAME}：${declared ?? "(无)"} → ${want}`);
+    }
   }
 
   /* ② 换 preset 里的压缩后端 */
@@ -449,5 +490,8 @@ export function run(argv = process.argv.slice(2)) {
   return 0;
 }
 
-const invokedDirectly = process.argv[1] !== undefined && nodePath.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// 判「是不是被直接执行」必须用 realpath：经 junction 调用时（`node <profile>/node_modules/<pkg>/scripts/install.mjs`）
+// `import.meta.url` 已被 Node 解析成真身，而 argv[1] 还是链接路径 ⇒ 旧写法判 false ⇒ **静默什么都不做、退出码 0**。
+// 那正是最坏的一种假绿（命令「成功」了但没干活）。verify-install.mjs 末尾同一处也一并改。
+const invokedDirectly = process.argv[1] !== undefined && samePath(process.argv[1], fileURLToPath(import.meta.url));
 if (invokedDirectly) process.exitCode = run();

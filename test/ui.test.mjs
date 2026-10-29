@@ -164,6 +164,9 @@ tests["host 路由：POST /gokifu/api 返回 state（含 config/health/today）"
       new Promise((resolve, reject) => {
         const req = {
           method: "POST",
+          // 2026-10-30 CSRF 加固后：POST 必须带 JSON content-type，Host 必须是回环地址。
+          // 这里模拟的正是 lib/client.js 在真机里的请求形状（同源 fetch + application/json）。
+          headers: { host: "127.0.0.1:19387", "content-type": "application/json" },
           on: (event, cb) => {
             if (event === "data") cb(Buffer.from(JSON.stringify(body)));
             if (event === "end") cb();

@@ -1,17 +1,18 @@
 # 快速开始 · dsh-GOkifu-compact
 
-> 给「已经装好，现在要用」的人。安装/回滚细节见 [README](../README.md)。
+> 给「已经装好，现在要用」的人。安装/回滚细节见 [README](README.md)。
 
 ## 一 · 重启后先做这三步（3 分钟）
 
 ### 1. 确认插件已加载
 
 ```bash
-cd D:/主工作区/projects/dsh-gokifu-compact
+cd D:/主工作区/projects/dsh-chess-context
 node test/verify-install.mjs
 ```
 
-期望：**13 项全过**，最后一行 `== 全部通过 ==`。
+期望：**16 项全过**，最后一行 `== 全部通过 ==`。
+（S10a 起「依赖声明的 link 目标」是真检查：解析后的目录必须存在、包名必须是本包、node_modules 实际指向要一致 —— 以前只查字符串前缀，目标不存在也报 ✓）
 其中「运行期已产出棋谱」那条的 mtime 应该是**刚刚**（说明 keeper 在工作）。
 
 ### 2. 看一次真实会话的棋谱
