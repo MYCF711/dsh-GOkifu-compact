@@ -553,6 +553,24 @@ tests["超过阈值 ⇒ 选中「checkpoint 之后」的范围（增量语义）
   }
 };
 
+tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮蔽区间的起点"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-cpseq" });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: nodePath.join(GRAPHS, "g-cpseq"), auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  for (let i = 0; i < 19; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("应当 fold");
+  const call = engine.compactCalls[0];
+  const g = readGraph(nodePath.join(GRAPHS, "g-cpseq"), "sess-cpseq");
+  // 2026-10-29 实机 bug：这里曾写 range.start（fold 后已不在 surface 上，实机一直是 9）
+  if (g.checkpointSeq === call.start) {
+    throw new Error(`checkpointSeq 不该是被遮蔽区间起点 ${call.start}`);
+  }
+  if (g.foldCount !== 1) throw new Error(`foldCount 应为 1，得到 ${g.foldCount}`);
+  if (!Array.isArray(g.foldMarks) || g.foldMarks.length !== 1) throw new Error("foldMarks 应有 1 条");
+};
+
 tests["增长门控：fold 之后增量不足则不再次 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-growth" });

@@ -16,12 +16,13 @@ const PRESET = presetArg >= 0 ? process.argv[presetArg + 1] : "personal-assistan
 
 const PROFILE_DIR = nodePath.join(DSH_HOME, "profiles", PROFILE);
 const PRESET_FILE = nodePath.join(DSH_HOME, "preset-bundles", PRESET, "cordis.patch.yml");
-const PREFIX = ".bak-before-chess-context-";
+// 两代备份前缀都认：v1.7.x 之前是 .bak-before-chess-context-，之后安装器写 .bak-before-gokifu-
+const PREFIXES = [".bak-before-gokifu-", ".bak-before-chess-context-"];
 
 function latestBackup(dir, base) {
   const files = nodeFs
     .readdirSync(dir)
-    .filter((f) => f.startsWith(base + PREFIX))
+    .filter((f) => PREFIXES.some((prefix) => f.startsWith(base + prefix)))
     .sort();
   return files.length ? nodePath.join(dir, files[files.length - 1]) : null;
 }

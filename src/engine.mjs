@@ -71,7 +71,7 @@ export const Config = z.object({
   retainTokens: z.number().description("逐字保留的近期尾部（绝对 token）；与 retainRatio 互斥"),
   summarizationProvider: z.string().default("").description("摘要模型 provider；留空=跟随最近一次路由"),
   summarizationModel: z.string().default("").description("摘要模型 model；留空=跟随最近一次路由"),
-  maxTokens: z.number().default(2048).description("摘要输出上限"),
+  maxTokens: z.number().default(4096).description("摘要输出上限"),
   compactionRetries: z.number().default(1),
   maxOverflowRetries: z.number().default(1),
   modelPolicies: z.array(z.any()).default([]),
@@ -500,6 +500,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
 ## 约束（机械保留，逐字；不由模型改写）
 ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
+    // 记账：这次摘要调用了多少 token（provider 真实 usage）。#commit 会把它写进 graph.lastFoldUsage，
+    // doctor / 计费对账直接读，不用再翻会话日志里的 compaction/summary 事件。
+    if (assembler.usage !== undefined) {
+      this._lastSummaryUsage = assembler.usage;
+      this._lastSummaryProvider = used.provider;
+      this._lastSummaryModel = used.model;
+    }
     return {
       summary,
       rawOutput: raw,
@@ -624,7 +631,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const after = meter.measure(session);
     g.foldCount += 1;
     g.lastFoldTotalTokens = after.totalTokens;
-    g.checkpointSeq = range.start;
+    // 记「checkpoint 消息的 seq」，不是被遮蔽区间的起点 —— 后者 fold 之后已不在 surface 上，
+    // 任何读这个字段做判断的地方都会拿到一个不存在的 seq（2026-10-29 实机：值一直是 9）。
+    g.checkpointSeq = checkpointSeqs(session).at(-1) ?? null;
+    if (this._lastSummaryUsage !== undefined) {
+      g.lastFoldUsage = {
+        ...this._lastSummaryUsage,
+        provider: this._lastSummaryProvider ?? null,
+        model: this._lastSummaryModel ?? null,
+        at: Date.now(),
+      };
+      this._lastSummaryUsage = undefined;
+      this._lastSummaryProvider = undefined;
+      this._lastSummaryModel = undefined;
+    }
     g.foldMarks.push({
       at: Date.now(),
       seqStart: range.start,

@@ -1,5 +1,45 @@
 # 更新记录
 
+## 1.8.0 — 2026-10-29
+
+### 配置 id 统一 + 安装改成「两条命令、不用手改 YAML」
+
+- **配置项 id 改名**：preset 里的 `- id: chess-context` → `- id: gokifu-compact`，
+  与展示名 `dsh-GOkifu-compact` 对齐（注入消息的 `source.kind` 仍是 `chess-context` ——
+  那是跨版本的数据契约，改了会让历史会话里的旧清单认不出来）
+- **新增 CLI**：`dsh-gokifu-compact install | revert | doctor`
+  - `install` 自动找 profile/preset，把 preset 的 compaction group 里
+    `@deepseek-ai/dsh-compaction-basic` 那一行换成 `dsh-gokifu-compact`；
+    带备份（`.bak-before-gokifu-*`）、幂等、`--dry-run`、旧 id 自动纠偏
+  - `revert` 恢复最近一次备份；`doctor` 转发体检
+  - 逻辑只有一份（`scripts/install.mjs`），`test/install.mjs` 变成薄封装
+- **不再声明 `dsh.bundle`**：本插件是「agent preset 内的压缩后端」，不是 profile 级 bundle。
+  声明 bundle 会让 `dsh plugin add` 把它塞进 `dsh.profile.bundles`，于是顶层再挂一份，
+  与 preset 内那份形成双实例（`ctx.compaction` 只能注册一次 ⇒ 构造期抛错）
+- preset 示例默认写 `auto: true`：关掉原生 `compaction-basic` 不影响自动压缩 ——
+  本插件继承同一个 `BasicCompactionEngine`（同一套 between-step 压力触发与 context-overflow 兜底），
+  换的只是「压缩范围 = 上一个 checkpoint 之后」和「失败记忆逐字保留」
+- `doctor` 新增两项检查：压缩后端已接管 / 原生已让位
+- README 安装段重写为两步命令；新增 FAQ「关掉原生压缩，自动压缩还在吗？」
+
+### 真机首折实测 + 三处收尾修复
+
+- **GUI 里第一次真实 fold 成功**（重启后第一轮触发，`session-e16faf2b`）：
+  遮蔽 seq 9–3167 / **440,847 tok** → 摘要 2 块 4.2K 字符（输入 629,184 / 输出 2,902 tok，`magpie/group/deepseek-v4.1-flash1017`）；
+  surface 节点 1391 → 373，对话消息从 ~574K 降到 ~157K（面板 81% → 约 16%），热清单仍只有 1 条（就地替换生效）
+- **修 `graph.checkpointSeq` 记错**：原来写「被遮蔽区间起点」（fold 后已不在 surface 上，实机一直是 9），
+  改成写「checkpoint 消息的 seq」
+- **`doctor` 三处改进**：压缩统计改 **1 小时窗口 + 最近成功/失败时间**（历史失败不再吓人，
+  判定看「最新一条是不是成功」）；新增「上次 fold 的成本（真实 usage）」；树新鲜度支持批量修复
+- **`test/build-tree.mjs --all`**：一次性重建所有 index.md 落后于 graph.json 的会话（本次修了 48 个 / 1760 个节点文件）
+- **摘要输出上限抬高**：`maxTokens` 默认 2048 → 4096，preset 3072 → **8192** ——
+  实测一次 fold 用掉 2,902 tok，3072 太贴边，触顶会 MAX_TOKENS 截断（截断 = fold 失败）
+- **`graph.lastFoldUsage`**：每次 fold 的真实 usage（输入/输出/provider/model/时间）写进棋谱，计费对账不必再翻会话日志
+
+### 测试
+
+118 项单测全绿 · `verify-install` 13 项全过（含 isolate group 内仍是我们的引擎行）
+
 ## 1.7.1 — 2026-10-29
 
 ### 发布后收尾

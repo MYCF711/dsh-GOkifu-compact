@@ -63,6 +63,21 @@ function providerModels(name) {
   for (const m of slice.matchAll(/^\s+- id:\s*(\S+)/gm)) models.push(m[1]);
   return models;
 }
+/* ── 2.5 压缩后端接管：preset 里必须是我们的引擎，且没有 compaction-basic ── */
+const presetText = nodeFs.existsSync(presetPatch) ? nodeFs.readFileSync(presetPatch, "utf8") : "";
+const hasOurEngine = presetText.includes("dsh-gokifu-compact");
+const hasNative = /- id:\s*compaction-basic/.test(presetText);
+add(
+  "压缩后端已接管（preset 里是 gokifu-compact）",
+  hasOurEngine ? "ok" : "error",
+  hasOurEngine ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）" : "preset 里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install",
+);
+add(
+  "原生 compaction-basic 已让位（单实例）",
+  hasNative ? "error" : "ok",
+  hasNative ? "preset 里还有 compaction-basic ⇒ 两个 ctx.compaction 会冲突" : "没有 compaction-basic，不会双实例",
+);
+
 const sum = readPresetSummarizer();
 if (sum === null) {
   add("摘要模型配置", "warn", "读不到 preset（跳过）");
@@ -106,7 +121,13 @@ function recentSessionLogs(limit) {
 }
 let foldOk = 0;
 let foldFail = 0;
+let foldOkAll = 0;
+let foldFailAll = 0;
+let lastOkAt = 0;
+let lastFailAt = 0;
 const lastErrors = [];
+const WINDOW_MS = 60 * 60 * 1000; // 1 小时：只看「现在是不是还在坏」，历史失败是已修掉的旧账
+const since = Date.now() - WINDOW_MS;
 for (const { file, session } of recentSessionLogs(6)) {
   let events;
   try {
@@ -123,16 +144,32 @@ for (const { file, session } of recentSessionLogs(6)) {
       continue;
     }
     if (e.type !== "compaction/end") continue;
+    const at = typeof e.time === "number" ? e.time : 0;
     if (e.data?.error) {
-      foldFail += 1;
-      if (lastErrors.length < 3) lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}`);
-    } else foldOk += 1;
+      foldFailAll += 1;
+      lastFailAt = Math.max(lastFailAt, at);
+      if (at >= since) {
+        foldFail += 1;
+        if (lastErrors.length < 3) lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}`);
+      }
+    } else {
+      foldOkAll += 1;
+      lastOkAt = Math.max(lastOkAt, at);
+      if (at >= since) foldOk += 1;
+    }
   }
 }
+const inWindow = foldOk + foldFail > 0;
+const okN = inWindow ? foldOk : foldOkAll;
+const failN = inWindow ? foldFail : foldFailAll;
+const fmtAt = (ms) => (ms > 0 ? new Date(ms).toISOString().replace("T", " ").slice(0, 19) : "—");
+// 判定看「最新一条是谁」：成功在失败之后 ⇒ 当前是健康的，历史失败数只作背景。
+const healthyNow = lastOkAt > 0 && lastOkAt >= lastFailAt;
 add(
-  "最近的压缩尝试",
-  foldFail === 0 ? "ok" : foldOk === 0 ? "error" : "warn",
-  `成功 ${foldOk} / 失败 ${foldFail}${lastErrors.length ? `；最近错误：${lastErrors[0]}` : ""}`,
+  inWindow ? "最近的压缩尝试（1h）" : "最近的压缩尝试（全部历史）",
+  healthyNow ? "ok" : okN === 0 && failN > 0 ? "error" : "warn",
+  `成功 ${okN} / 失败 ${failN}（最近成功 ${fmtAt(lastOkAt)} · 最近失败 ${fmtAt(lastFailAt)}）` +
+    `${lastErrors.length ? `；最近错误：${lastErrors[0]}` : ""}`,
 );
 
 /* ── 4. 棋谱健康 ── */
@@ -141,6 +178,7 @@ let agents = 0;
 let objectHash = 0;
 let indexStale = 0;
 let newestFlush = 0;
+let lastFold = null;
 if (nodeFs.existsSync(chessRoot)) {
   for (const d of nodeFs.readdirSync(chessRoot, { withFileTypes: true })) {
     if (!d.isDirectory()) continue;
@@ -156,6 +194,10 @@ if (nodeFs.existsSync(chessRoot)) {
         agents += 1;
         if (node.worldHash && typeof node.worldHash === "object") objectHash += 1;
       }
+      const u = g.lastFoldUsage;
+      if (u && typeof u.at === "number" && (lastFold === null || u.at > lastFold.at)) {
+        lastFold = { ...u, session: d.name, foldCount: g.foldCount ?? 0, mark: (g.foldMarks ?? []).at(-1) ?? null };
+      }
     } catch {
       /* 坏图单独报 */
     }
@@ -166,6 +208,15 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+add(
+  "上次 fold 的成本（真实 usage）",
+  lastFold === null ? "warn" : "ok",
+  lastFold === null
+    ? "没有带 usage 记录的 fold（旧版本写的图）"
+    : `遮蔽 ${lastFold.mark?.shadowedTokens ?? "?"} tok（seq ${lastFold.mark?.seqStart ?? "?"}-${lastFold.mark?.seqEnd ?? "?"}）` +
+      ` → 摘要输入 ${lastFold.inputTokens ?? "?"} / 输出 ${lastFold.outputTokens ?? "?"} tok` +
+      `（${lastFold.provider ?? "?"}/${lastFold.model ?? "?"}，fold #${lastFold.foldCount}，${lastFold.session.slice(0, 24)}）`,
+);
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
 /* ── 输出 ── */

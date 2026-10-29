@@ -64,6 +64,7 @@ export function createGraph({ sessionId, cwd = "" }) {
     foldCount: 0,
     lastFoldTotalTokens: 0,
     foldMarks: [],      // 每次 fold 的 {at, seqStart, seqEnd, nodeIds, edgeIds}
+    lastFoldUsage: null,// 最近一次摘要调用的真实 usage {inputTokens, outputTokens, provider, model, at}
   };
 }
 
