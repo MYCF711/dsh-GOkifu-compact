@@ -1,5 +1,35 @@
 # 更新记录
 
+## 1.9.0 — 2026-10-29
+
+### 「上下文压缩」详情页（DSH 原生 GUI 里的第三方插件页）
+
+左侧栏「插件 / 自动化任务」那一列新增一条 **上下文压缩**，点开是整页（与「自动化任务」同一套
+`sidebar.panellist` + `main` 槽位，来自 asar 里的 `dsh-client-ui-schedule` 实现）。
+
+**页面内容（MVP）**
+- 状态：最近活跃会话（fold 后总量 / fold 次数 / 失败边 / 节点数 / 上次遮蔽）、今天汇总
+  （fold 次数 / 会话数 / 合计遮蔽 / 全库失败边）、上次摘要真实 usage（含 provider/model）
+- 参数（15 项）：自动压缩、触发阈值、增长闸、逐字保留、最小 fold 量、摘要方式、输出上限、
+  热清单开关/预算/标记档/就地替换、置换检测、checkpoint 合并阈值、摘要 provider/model
+- 操作：保存（写 preset + 自动备份，提示重启生效）、恢复默认、刷新；未保存改动会列出键名
+- 只读展示配置来源路径
+
+**结构（为什么这么切）**
+- 包根 `dsh-gokifu-compact` = UI host 半（`src/ui.mjs`，注册 `POST /gokifu/api`），
+  引擎挪到 `dsh-gokifu-compact/engine` —— 因为 `dsh-client-modules` 只对**包根说明符**做客户端发现，
+  子路径条目不会加载 `dsh.client`
+- 浏览器半 `lib/client.js`：`window.__ModuleLoader__.load` 形状、只 `require("react")`、
+  数据全走 host 路由（不用 Typert —— 那是 DSH 构建期生成的，第三方拿不到）
+- 安装器新增两步：preset 引擎名迁移（`dsh-gokifu-compact` → `/engine`）+ profile 的
+  `cordis.patch.yml` 挂 `gokifu-ui`（都带备份、幂等）
+
+### 测试
+
+125 项全绿（新增 6 项 UI 测试：块解析/渲染回环、sanitizePatch 拦非法值、saveConfig 写盘+备份+
+同值不重写、客户端 bundle 的 `__ModuleLoader__` 形状与两个 slot 注册、`POST /gokifu/api` 的
+state/save/未知 action）
+
 ## 1.8.1 — 2026-10-29
 
 ### doctor：一天的 fold 收益一眼可见

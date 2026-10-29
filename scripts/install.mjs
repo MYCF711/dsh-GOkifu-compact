@@ -115,7 +115,7 @@ export function engineBlock() {
     `#   替换掉原来的 @deepseek-ai/dsh-compaction-basic —— 两者会抢同一个 ctx.compaction。`,
     `#   回滚：dsh-gokifu-compact revert   （恢复 .bak-before-gokifu-* 备份）`,
     `- id: ${ENTRY_ID}`,
-    `  name: '${PKG_NAME}'`,
+    `  name: '${PKG_NAME}/engine'`,
     `  config:`,
     `    auto: true                # 自动压缩：继承基类的 between-step 压力触发`,
     `    thresholdRatio: 0.45      # 压力闸：min(窗口×0.45, 窗口−输出预留−64K)`,
@@ -133,6 +133,123 @@ export function engineBlock() {
     `    transposition: true`,
     `    tier2After: 8`,
   ];
+}
+
+/**
+ * 解析 preset 文本里我们那一块（`- id: gokifu-compact`）。
+ * raw 覆盖「紧贴 id 行的注释 + 整块」，这样替换时注释不会重复。
+ */
+export function parseEngineBlock(text) {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const idRe = new RegExp("^(\\s*)- id: " + ENTRY_ID + "\\s*$");
+  let start = -1;
+  let indent = "";
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = idRe.exec(lines[i]);
+    if (m) {
+      start = i;
+      indent = m[1];
+      break;
+    }
+  }
+  if (start < 0) return null;
+  // 往上吞掉同缩进的注释行（它们属于这一块）
+  let first = start;
+  while (first > 0 && /^\s*#/.test(lines[first - 1]) && /^(\s*)/.exec(lines[first - 1])[1].length === indent.length) first -= 1;
+  // 往下找块尾：同缩进的下一个条目，或更浅的层级
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim().length === 0) continue;
+    const lead = /^(\s*)/.exec(line)[1].length;
+    if (lead <= indent.length && /^-\s/.test(line.trim())) {
+      end = i;
+      break;
+    }
+    if (lead < indent.length) {
+      end = i;
+      break;
+    }
+  }
+  const raw = lines.slice(first, end).join("\n");
+  const config = {};
+  let inConfig = false;
+  for (const line of lines.slice(start + 1, end)) {
+    if (/^\s*config:\s*$/.test(line)) {
+      inConfig = true;
+      continue;
+    }
+    if (!inConfig) continue;
+    const m = /^\s+([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$/.exec(line);
+    if (!m) continue;
+    const value = parseScalar(m[2]);
+    if (value !== undefined) config[m[1]] = value;
+  }
+  return { indent, raw, config, commentLines: [] };
+}
+
+function parseScalar(raw) {
+  const text = String(raw).replace(/\s+#.*$/, "").trim();
+  if (text.length === 0) return undefined;
+  if (/^'.*'$/.test(text) || /^".*"$/.test(text)) return text.slice(1, -1);
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (text === "null" || text === "~") return null;
+  if (/^-?\d+(\.\d+)?$/.test(text)) return Number(text);
+  return text;
+}
+
+function formatScalar(value) {
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "number") return String(value);
+  if (value === null || value === undefined) return "''";
+  const text = String(value);
+  if (text.length === 0) return "''";
+  if (/^[A-Za-z0-9._/-]+$/.test(text)) return "'" + text + "'";
+  return "'" + text.replace(/'/g, "''") + "'";
+}
+
+/** 每个键后面带的短注释（写回 preset 时保留可读性）。 */
+export const KEY_COMMENTS = {
+  auto: "自动压缩（between-step 压力触发）",
+  thresholdRatio: "压力闸：min(窗口×该值, 窗口−输出预留−余量)",
+  headroomTokens: "路由输出预留之外的额外余量",
+  retainRatio: "逐字保留的近期尾部",
+  growthFloorTokens: "增长闸：距上次 fold 增至该值才再次 fold",
+  minFoldTokens: "被遮蔽内容少于该值不 fold",
+  summaryMode: "hybrid | rules（零模型调用）| llm",
+  summarizationProvider: "留空 = 跟随当前路由",
+  summarizationModel: "留空 = 跟随当前路由",
+  maxTokens: "摘要输出上限",
+  hotLedger: "每步注入失败清单",
+  hotLedgerMaxTokens: "清单 token 上限",
+  hotLedgerMarkers: "semantic | terse | off",
+  hotLedgerReplace: "就地替换旧清单（surface 永远一条）",
+  transposition: "置换检测",
+  tier2After: "checkpoint 超过该值合并最老的两段",
+  graphDir: "棋谱目录；留空 = <DSH_HOME>/chess-context",
+  worldHashMaxFiles: "世界状态哈希最多 stat 多少文件",
+};
+
+/**
+ * 用一份配置对象渲染我们那一块（含注释）。缩进由调用方给。
+ * 与 engineBlock() 的区别：后者是固定模板（安装器用），这个按实际值渲染（UI 保存用）。
+ */
+export function renderEngineBlock(config, indent = "") {
+  const lines = [
+    "# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。",
+    "#   替换掉原来的 @deepseek-ai/dsh-compaction-basic —— 两者会抢同一个 ctx.compaction。",
+    "#   回滚：dsh-gokifu-compact revert   （恢复 .bak-before-gokifu-* 备份）",
+    "- id: " + ENTRY_ID,
+    "  name: '" + PKG_NAME + "/engine'",
+    "  config:",
+  ];
+  for (const [key, value] of Object.entries(config ?? {})) {
+    const note = KEY_COMMENTS[key];
+    const pad = " ".repeat(Math.max(1, 20 - key.length));
+    lines.push("    " + key + ": " + formatScalar(value) + (note ? pad + "# " + note : ""));
+  }
+  return lines.map((line) => indent + line).join("\n");
 }
 
 export function backupFile(file, ts = Date.now()) {
@@ -171,6 +288,37 @@ function renameLegacyId(text) {
     changed = true;
   }
   return changed ? lines.join("\n") : null;
+}
+
+/**
+ * 在 profile 的 cordis.patch.yml 里挂上 UI 的 host 半（`id: gokifu-ui`，裸包名）。
+ * 为什么用裸包名：client-modules 只对「包根说明符」做客户端发现（子路径直接跳过），
+ * 所以 host 半必须是 `dsh-gokifu-compact`（根 = src/ui.mjs），引擎在 preset 里用 `/engine`。
+ */
+export function patchProfileForUi(profileDir, log = () => {}, dryRun = false) {
+  const file = nodePath.join(profileDir, "cordis.patch.yml");
+  if (!nodeFs.existsSync(file)) return { changed: false, reason: "没有 profile cordis.patch.yml" };
+  const text = nodeFs.readFileSync(file, "utf8");
+  if (text.includes("id: gokifu-ui")) return { changed: false, reason: "已挂载" };
+  const block = [
+    "",
+    "# ★ 上下文压缩详情页（host 半）：注册 /gokifu/api，给客户端页提供数据/写配置。",
+    "#   客户端 bundle 由本包的 dsh.client 声明自动加载（左栏「上下文压缩」）。",
+    "- insert:",
+    "    - id: gokifu-ui",
+    `      name: '${PKG_NAME}'`,
+    "",
+  ].join("\n");
+  const next = text.endsWith("\n") ? text + block : text + "\n" + block;
+  if (dryRun) {
+    log("  [dry] profile cordis.patch.yml 会加 gokifu-ui");
+    return { changed: true, dryRun: true };
+  }
+  const backup = `${file}.bak-before-gokifu-ui-${Date.now()}`;
+  nodeFs.copyFileSync(file, backup);
+  nodeFs.writeFileSync(file, next, "utf8");
+  log(`  ✓ profile cordis.patch.yml 已加 gokifu-ui（备份 ${nodePath.basename(backup)}）`);
+  return { changed: true, backup };
 }
 
 export function run(argv = process.argv.slice(2)) {
@@ -236,8 +384,26 @@ export function run(argv = process.argv.slice(2)) {
   for (const t of targets) {
     const hasOurs = t.text.includes(PKG_NAME);
     const hasOurId = /^\s*- id: gokifu-compact\s*$/m.test(t.text);
-    if (hasOurs && hasOurId) {
+    const hasEngineName = t.text.includes(`${PKG_NAME}/engine`);
+    if (hasOurs && hasOurId && hasEngineName) {
       log(`  · ${nodePath.basename(nodePath.dirname(t.file))}: 已是 ${ENTRY_ID}，跳过`);
+      continue;
+    }
+    if (hasOurs && hasOurId && !hasEngineName) {
+      // 迁移：v1.8 之前 preset 里写的是包根名（那时根就是引擎）；现在根是 UI，引擎在 /engine。
+      const parsed = parseEngineBlock(t.text);
+      const next = parsed === null ? null : t.text.replace(parsed.raw, renderEngineBlock(parsed.config, parsed.indent));
+      if (next === null) {
+        log(`  ! ${t.file}: 找不到引擎块，跳过迁移`);
+        continue;
+      }
+      if (dryRun) {
+        log(`  [dry] ${t.file}: 引擎名迁移为 ${PKG_NAME}/engine`);
+        continue;
+      }
+      const backup = backupFile(t.file);
+      nodeFs.writeFileSync(t.file, next, "utf8");
+      log(`  ✓ ${t.file} 引擎名迁移为 ${PKG_NAME}/engine（备份 ${nodePath.basename(backup)}）`);
       continue;
     }
     if (hasOurs && !hasOurId) {
@@ -268,6 +434,10 @@ export function run(argv = process.argv.slice(2)) {
     nodeFs.writeFileSync(t.file, next, "utf8");
     log(`  ✓ ${t.file} 已换后端（备份 ${nodePath.basename(backup)}）`);
   }
+
+  /* ③ 挂 UI 的 host 半（profile 级）：裸包名，客户端 bundle 靠它被发现 */
+  const ui = patchProfileForUi(profileDir, (m) => log(m), dryRun);
+  if (ui.changed === false) log(`  · UI host 半：${ui.reason}`);
 
   if (dryRun) {
     log("\n这是预演，什么都没改。真装去掉 --dry-run。");

@@ -70,7 +70,7 @@ nodeFs.writeFileSync(
   disabled: true
 - insert:
     - id: chess-context
-      name: 'dsh-gokifu-compact'
+      name: 'dsh-gokifu-compact/engine'
       config:
         thresholdRatio: 0.002
         headroomTokens: 1000

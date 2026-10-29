@@ -57,12 +57,13 @@ if (nodeFs.existsSync(profilePkgPath)) {
 /* ③④⑤ preset */
 if (nodeFs.existsSync(PRESET_FILE)) {
   const text = nodeFs.readFileSync(PRESET_FILE, "utf8");
-  add("preset 引用了 dsh-gokifu-compact", text.includes(`'${PKG}'`) || text.includes(`"${PKG}"`));
+  add("preset 引用了 dsh-gokifu-compact/engine", text.includes(`${PKG}/engine`) || text.includes(`'${PKG}'`));
   add("preset 里没有 compaction-basic（单实例）", !text.includes("- id: compaction-basic"));
   add("preset 保留 command-compact", text.includes("dsh-command-compact"));
   add("preset 保留 tool-result-pruner", text.includes("dsh-compaction-tool-result-pruner"));
   // 找 chess-context 所在 group 的 isolate
-  const idx = text.indexOf(`'${PKG}'`) >= 0 ? text.indexOf(`'${PKG}'`) : text.indexOf(`"${PKG}"`);
+  const engineName = `${PKG}/engine`;
+  const idx = text.indexOf(`'${engineName}'`) >= 0 ? text.indexOf(`'${engineName}'`) : text.indexOf(`${PKG}`);
   const before = text.slice(Math.max(0, idx - 2200), idx);
   const iso = before.lastIndexOf("isolate:");
   const isoBlock = iso >= 0 ? before.slice(iso, iso + 120) : "";
