@@ -34,7 +34,8 @@
 - **`test/build-tree.mjs --all`**：一次性重建所有 index.md 落后于 graph.json 的会话（本次修了 48 个 / 1760 个节点文件）
 - **摘要输出上限抬高**：`maxTokens` 默认 2048 → 4096，preset 3072 → **8192** ——
   实测一次 fold 用掉 2,902 tok，3072 太贴边，触顶会 MAX_TOKENS 截断（截断 = fold 失败）
-- **`graph.lastFoldUsage`**：每次 fold 的真实 usage（输入/输出/provider/model/时间）写进棋谱，计费对账不必再翻会话日志
+- **`graph.lastFoldUsage`**：每次 fold 的真实 usage（输入/输出/provider/model/时间）写进棋谱，计费对账不必再翻会话日志；
+  `doctor` 对新旧图都能显示（旧图没有该字段时从会话日志的 `compaction/summary` 事件兜底）
 
 ### 测试
 

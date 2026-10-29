@@ -120,6 +120,7 @@ function recentSessionLogs(limit) {
   return files.slice(0, limit);
 }
 let foldOk = 0;
+let logUsage = null;
 let foldFail = 0;
 let foldOkAll = 0;
 let foldFailAll = 0;
@@ -143,8 +144,23 @@ for (const { file, session } of recentSessionLogs(6)) {
     } catch {
       continue;
     }
-    if (e.type !== "compaction/end") continue;
     const at = typeof e.time === "number" ? e.time : 0;
+    if (e.type === "compaction/summary" && e.data?.usage) {
+      // 旧版本写的 graph 没有 lastFoldUsage —— 从会话日志里捞最近一次摘要的真实 usage 兜底
+      if (logUsage === null || at > logUsage.at) {
+        logUsage = {
+          at,
+          inputTokens: e.data.usage.inputTokens,
+          outputTokens: e.data.usage.outputTokens,
+          provider: e.data.provider ?? null,
+          model: e.data.model ?? null,
+          shadowedTokens: e.data.shadowedTokenCount ?? null,
+          session,
+        };
+      }
+      continue;
+    }
+    if (e.type !== "compaction/end") continue;
     if (e.data?.error) {
       foldFailAll += 1;
       lastFailAt = Math.max(lastFailAt, at);
@@ -208,14 +224,16 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+const cost = lastFold ?? (logUsage === null ? null : { ...logUsage, source: "会话日志" });
 add(
   "上次 fold 的成本（真实 usage）",
-  lastFold === null ? "warn" : "ok",
-  lastFold === null
-    ? "没有带 usage 记录的 fold（旧版本写的图）"
-    : `遮蔽 ${lastFold.mark?.shadowedTokens ?? "?"} tok（seq ${lastFold.mark?.seqStart ?? "?"}-${lastFold.mark?.seqEnd ?? "?"}）` +
-      ` → 摘要输入 ${lastFold.inputTokens ?? "?"} / 输出 ${lastFold.outputTokens ?? "?"} tok` +
-      `（${lastFold.provider ?? "?"}/${lastFold.model ?? "?"}，fold #${lastFold.foldCount}，${lastFold.session.slice(0, 24)}）`,
+  cost === null ? "warn" : "ok",
+  cost === null
+    ? "没有任何摘要 usage 记录"
+    : `遮蔽 ${cost.mark?.shadowedTokens ?? cost.shadowedTokens ?? "?"} tok` +
+      `${cost.mark ? `（seq ${cost.mark.seqStart ?? "?"}-${cost.mark.seqEnd ?? "?"}）` : ""}` +
+      ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
+      `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
 );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
