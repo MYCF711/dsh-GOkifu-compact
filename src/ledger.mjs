@@ -174,7 +174,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     }
     if (path.length > 1 && level <= 2) {
       // 先算完整成功路径（WORKING）—— 和 CURRENT PATH 相同就只显示一个，避免重复
-      const successEdges = Object.values(g.edges).filter((e) => e.result === "success" && e.to && g.nodes[e.to]);
+      // ★ 2026-10-29：自环成功边（from === to）不能当工作路径的锚点 —— 它没让局面前进，
+      //   实测会让 WORKING 行渲染成「n22 → n22」，等于给模型一句废话。
+      const successEdges = Object.values(g.edges).filter(
+        (e) => e.result === "success" && e.to && e.from !== e.to && g.nodes[e.to],
+      );
       let workingIds = null;
       let workingTail = null;
       if (successEdges.length > 0) {
@@ -184,7 +188,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         let cur = last.from;
         for (;;) {
           const prev = Object.values(g.edges).find(
-            (e) => e.result === "success" && e.to === cur && g.nodes[e.from] && !seen.has(e.from),
+            (e) => e.result === "success" && e.to === cur && e.from !== e.to && g.nodes[e.from] && !seen.has(e.from),
           );
           if (!prev) break;
           ids.unshift(prev.from);

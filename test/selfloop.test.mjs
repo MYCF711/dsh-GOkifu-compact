@@ -139,3 +139,25 @@ export const tests = {
     if (!health.healthy) throw new Error(`干净 DAG 被判不健康：${JSON.stringify(health)}`);
   },
 };
+
+/**
+ * ★ 2026-10-29：热清单的 WORKING 行不能拿自环成功边当锚点。
+ * 实测渲染成「WORKING: n22 → n22」—— 一句没有任何信息的废话，还让模型以为
+ * 工作路径就是原地打转。
+ */
+tests["热清单：自环成功边不参与 WORKING 路径"] = async () => {
+  const { renderLedger } = await import("../src/ledger.mjs");
+  const g = createGraph({ sessionId: "sl7" });
+  addUserNode(g, { seq: 1, text: "目标：跑绿" });
+  const s1 = oneStep(g);
+  // 一条自环「成功」边（旧版数据里到处都是）
+  const loop = addEdge(g, { from: s1.node, intent: "原地读", action: "read(x)" });
+  settleEdge(g, loop, { to: s1.node, result: "success", verify: { kind: "read", summary: "ok" } });
+  // 一条真实前进的成功边
+  const s2 = oneStep(g, { fromEdgeId: s1.edges.at(-1), hash: "NEXT" });
+  const out = renderLedger(g, { maxTokens: 3000, treeDir: "/tmp/t" });
+  const line = out.text.split("\n").find((l) => l.startsWith("WORKING:"));
+  if (!line) return; // 没有 WORKING 行也算通过（信息不足时不显示）
+  const m = /WORKING:\s*(n\d+)\s*→\s*(n\d+)/.exec(line);
+  if (m && m[1] === m[2]) throw new Error(`WORKING 行是自环：${line}`);
+};
