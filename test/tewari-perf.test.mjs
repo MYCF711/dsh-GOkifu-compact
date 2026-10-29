@@ -47,7 +47,8 @@ function manyFailuresGraph(n = 40) {
     const node = addAgentNode(g, { seq: 100 + i, goal: `ok${i}`, worldHash: `W${i}`, constraintHash: "C1" }).id;
     settleEdge(g, ok, { to: node, result: "success", verify: { kind: "exit", summary: "exit 0" } });
     const bad = addEdge(g, { from: last, intent: `失败路 ${i}`, action: `bash(echo bad${i})` });
-    settleEdge(g, bad, { to: null, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: `AssertionError: case ${i}` });
+    // ★ P6-A：无终点的失败边会被当 rewash 残留过滤掉 ⇒ 夹具必须给真实终点，否则 tewari 一次都不会算
+    settleEdge(g, bad, { to: node, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: `AssertionError: case ${i}` });
   }
   return g;
 }

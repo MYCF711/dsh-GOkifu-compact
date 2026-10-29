@@ -113,7 +113,7 @@ function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" 
     seq: 1,
     text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}`,
   });
-  let cursor = u.id;
+  let cursor = u; // addUserNode 返回 id 字符串
   for (let i = 0; i < hops; i += 1) {
     const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
     const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
@@ -122,8 +122,9 @@ function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" 
     cursor = node;
   }
   for (let i = 0; i < failures; i += 1) {
-    const e = addEdge(g, { from: u.id, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
+    const e = addEdge(g, { from: u, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
     settleEdge(g, e, {
+      to: u, // ★ P6-A：无终点失败会被当 rewash 残留过滤 ⇒ 给自环终点（不造假进展）
       result: "failure",
       verify: { kind: "exit", summary: "exit 1" },
       errorSnippet: `AssertionError: case${i} expected 1 got 2 at tests/case${i}.test.js:42`,

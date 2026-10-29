@@ -22,9 +22,10 @@ function blockedOnlyGraph() {
   const g = createGraph({ sessionId: "markers-blocked" });
   const u = addUserNode(g, { seq: 1, text: "把构建跑通。不要动 prod 配置。" });
   const e1 = addEdge(g, { from: u, intent: "直接改 prod 配置", action: "write(file_path=prod.yml)" });
-  settleEdge(g, e1, { result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "Error: EACCES: permission denied, open 'prod.yml'" });
+  // ★ P6-A：失败边必须有真实终点，否则会被当 rewash 残留过滤（本夹具要测「只有 blocked 失败」的图例）
+  settleEdge(g, e1, { to: u, result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "Error: EACCES: permission denied, open 'prod.yml'" });
   const e2 = addEdge(g, { from: u, intent: "删掉 node_modules 重装", action: "bash(rm -rf node_modules)" });
-  settleEdge(g, e2, { result: "failure", verify: { kind: "exit", summary: "ETIMEDOUT" }, errorSnippet: "npm ERR! network timeout ETIMEDOUT" });
+  settleEdge(g, e2, { to: u, result: "failure", verify: { kind: "exit", summary: "ETIMEDOUT" }, errorSnippet: "npm ERR! network timeout ETIMEDOUT" });
   return g;
 }
 
@@ -124,9 +125,15 @@ tests["dead 带重开锚点：retry-if 指向那条成功边（不是永久墓�
 
 tests["TRACE：热清单指向真的三层树（不再是 v1.2.2 起就不再写的 graph.md）"] = () => {
   const { g } = manyFailuresGraph(3);
+  // ★ P6a（2026-10-30）：TRACE 只给**相对**路径（`<sid>/index.md`），不再写绝对盘符/用户名。
+  //   旧断言是 `TRACE: D:/x/chess-context/sessions/abc/index.md` —— 那正是 P6a 要回收的 45 token。
   const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/abc" });
-  if (!r.text.includes("TRACE: D:/x/chess-context/sessions/abc/index.md")) throw new Error(`缺 TRACE 行：\n${r.text}`);
-  if (!r.text.includes("nodes/<id>.md")) throw new Error("没告诉模型每节点细节在哪");
+  if (!r.text.includes("TRACE: abc/index.md")) throw new Error(`缺相对 TRACE 行：\n${r.text}`);
+  if (/TRACE:[^\n]*(?:[A-Za-z]:[\\/]|\/d\/|\/Users\/)/.test(r.text)) throw new Error(`TRACE 泄漏了绝对路径：\n${r.text}`);
+  if (r.text.includes("per-node detail")) throw new Error("TRACE 行不该再带长尾巴（P6a 已压掉）");
+  // 可配置根：传 traceRoot 时前缀出现
+  const rooted = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/abc", traceRoot: "sessions" });
+  if (!rooted.text.includes("TRACE: sessions/abc/index.md")) throw new Error(`traceRoot 不生效：\n${rooted.text}`);
   if (r.text.includes("graph.md")) throw new Error("还在指向已废弃的 graph.md");
   // 不传 treeDir 时不该凭空造路径
   const plain = renderLedger(g, { maxTokens: 500 });
@@ -191,7 +198,7 @@ function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
   const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
   const u = addUserNode(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
-  let cursor = u.id;
+  let cursor = u; // addUserNode 返回 id 字符串（u.id 是 undefined）
   for (let i = 0; i < 8; i += 1) {
     const e = addEdge(g, { from: cursor, intent: `第 ${i + 1} 步：推进一格`, action: `bash(step${i})` });
     const node = addAgentNode(g, { seq: 3 + i * 2, goal: `step ${i + 1} 完成`, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
@@ -200,8 +207,9 @@ function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
     cursor = node;
   }
   for (let i = 0; i < failures; i += 1) {
-    const e = addEdge(g, { from: u.id, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
+    const e = addEdge(g, { from: u, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})` });
     settleEdge(g, e, {
+      to: u, // ★ P6-A：无终点失败会被当 rewash 残留过滤 ⇒ 给真实终点；用自环避免 tewari 造出 novel 标记
       result: "failure",
       verify: { kind: "exit", summary: "EACCES" },
       errorSnippet: `Error: EACCES: permission denied, open '/usr/lib/node_modules/x${i}'`,

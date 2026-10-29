@@ -80,6 +80,93 @@ const TEST_PASS_RE = /(\d+)\s+(?:passed|passing|tests? passed|个?通过)|all te
 const TEST_FAIL_RE = /\b([1-9]\d*)\s+(?:failed|failing|个?失败|errors?)\b/i;
 const DIFF_RE = /(\d+)\s*(?:insertions?\(\+\)|deletions?\(-\))/;
 
+/* ───────────────────── S2b：no-exit 的 N1 否决规则表 ───────────────────── */
+
+/**
+ * ★ S2b（2026-10-30）：shell 无退出码时，「默认算弱成功」前的 8 条否决特征。
+ *
+ * 背景（WS-S2B 采样报告，`tmp/dsh-gokifu-compact/ws-s2b/REPORT.md`）：
+ *   · 本宿主**只在非零时**追加 `[exit code: N]`（32 会话实测：`[exit code: 0]` 0 次，
+ *     `[exit code: N≠0]` 153 次，无标记 3225 次）⇒ no-exit 的先验极强地指向 exit 0；
+ *   · 但「无标记」≠「一定成功」：管道会把前段退出码换成 tail 的、node/python 崩溃也可能丢标记。
+ *     全收 no-exit 做 weak 的实测误报率 2.94%（95% CI 2.25–4.03%，外推 9762 条约 287 条假进展）。
+ *   · 加下面 8 条否决特征后残余 0.49%（约 48 条），只损失 2.66% 的弱边。
+ *
+ * 为什么是「否决表」而不是「白名单」：no-exit 的底率是 95.5% 真成功，白名单会把大量
+ * 正常命令挡在外面；否决表只挡**有明确失败证据**的那一小撮。
+ *
+ * ★ 纪律：判据只在这一处。`classify()` 的 shell 分支与测试都从这张表读，禁止在别处再写一份
+ *   正则 —— 散落的规则改一处漏一处，是 S2b 报告里点名要避免的。
+ * ★ 只影响 `weak` 标记；`result` 永远保持 `unverified`（弱成功不能进 success/failure）。
+ */
+export const SHELL_WEAK_VETO_RULES = Object.freeze([
+  {
+    id: "SELFEXIT",
+    why: "末行自报非零退出（`exit=1` / `EXIT:1` / `exit code: 1`，允许行内前缀如 `diff exit=1`）",
+    // ★ 按真实语料校正：实测最后一行是 `diff exit=1`（不是裸的 exit=1）⇒ 允许行内前缀；
+    //   但只认**最后一行**，避免把正文中间提到的 exit=1 当命令退出码。
+    test: (text) => /(?:^|\s)(?:exit(?:\s*code)?|EXIT)\s*[:=]\s*[1-9]\d*\s*$/i.test(lastNonEmptyLine(text)),
+  },
+  {
+    id: "NODECRASH",
+    why: "末行是 `Node.js vX.Y.Z`（node 未捕获异常的固定尾巴）",
+    test: (text) => /^Node\.js v\d+\.\d+\.\d+$/.test(lastNonEmptyLine(text)),
+  },
+  {
+    id: "STACKTAIL",
+    why: "尾部 node 栈迹（`    at file:///…` / `at Object.` / `at Module.` / `at node:` / `at process.`）",
+    test: (text) => /^[^\S\n]+at (?:file:\/\/|Object\.|Module\.|node:|process\.)/m.test(text),
+  },
+  {
+    id: "NOTFOUND",
+    why: "命令/文件不存在（command not found / No such file or directory / cannot stat / failed to run command）",
+    test: (text) => /(?:command not found|No such file or directory|cannot stat|failed to run command)/.test(text),
+  },
+  {
+    id: "ERRTYPE",
+    why: "行首是解释器/断言错误类型（SyntaxError / AssertionError / TypeError / ReferenceError …）",
+    test: (text) =>
+      /^[^\S\n]*(?:SyntaxError|AssertionError|UnicodeEncodeError|UnicodeDecodeError|TypeError|ReferenceError|RangeError|ValueError|KeyError|IndexError|NameError|ImportError|ModuleNotFoundError|ZeroDivisionError|AttributeError)\b/m.test(
+        text,
+      ),
+  },
+  {
+    id: "TESTFAIL",
+    why: "测试框架自报失败（`FAILED (failures=N)` / `FAILED (errors=N)`）",
+    test: (text) => /^[^\S\n]*FAILED \([^\S\n]*(?:failures|errors)=\d+\)/m.test(text),
+  },
+  {
+    id: "NPMERR",
+    why: "npm 错误行（`npm error …`）",
+    test: (text) => /^npm error /m.test(text),
+  },
+  {
+    id: "PYTRACE",
+    why: "Python traceback 头（`Traceback (most recent call last):`）",
+    test: (text) => /^Traceback \(most recent call last\):/m.test(text),
+  },
+]);
+
+/** 最后一行非空（去掉 CRLF 与首尾空白）。真实工具输出是 CRLF（Git Bash / pwsh），必须归一。 */
+function lastNonEmptyLine(text) {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim();
+    if (line) return line;
+  }
+  return "";
+}
+
+/**
+ * 返回命中的否决规则 id 列表（空 = 无失败证据，可标 weak:"shell"）。
+ * 纯函数，测试直接断言每条规则的正反例。
+ * ★ 先归一 CRLF：真实工具结果（Git Bash / pwsh）用 `\r\n`，不归一的话所有 `$` 锚点都会漏。
+ */
+export function shellWeakVetoHits(text) {
+  const body = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return SHELL_WEAK_VETO_RULES.filter((rule) => rule.test(body)).map((rule) => rule.id);
+}
+
 /** 常见工具的「结论行」（shell 输出里最像错误的一行）。 */
 const TOOL_ERR_RE = /^\s*(?:sed|awk|grep|cp|mv|rm|mkdir|tar|git|npm|node|python|python3|bash|sh|curl|docker|make|tsc)\s*:\s*.*(?:error|unknown command|invalid option|unrecognized option|no such|cannot|not found|denied|failed)/i;
 
@@ -165,6 +252,12 @@ export function classify({ tool, text, isError = false }) {
       result: "unverified",
       verify: { kind: "no-exit", summary: body ? `${body.length} chars, no exit code` : "empty" },
       errorSnippet: "",
+      // ★ S2b（2026-10-30）：no-exit 默认打 `weak:"shell"` —— 本宿主只在非零时追加退出码标记，
+      //   无标记是「宿主没报错」的强信号（32 会话实测底率 95.5%）。但命中 N1 任一失败特征就**不给**：
+      //   宁可少标一条弱边，也不要把真失败当成进展（全收实测误报 2.94%）。
+      //   ⚠ 空输出也不给：没有任何内容可判断，标了等于猜。
+      //   ⚠ `result` 一个字不动，仍是 unverified —— 弱成功只能用于 WORKING 路径。
+      ...(body.trim().length > 0 && shellWeakVetoHits(body).length === 0 ? { weak: "shell" } : {}),
     };
   }
 

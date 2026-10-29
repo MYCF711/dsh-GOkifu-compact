@@ -89,6 +89,8 @@ export function addUserNode(g, { seq, turn = null, text, constraints }) {
   if (g.rootUserNodeIds.length === 0) g.rootUserNodeIds.push(id);
   g.updatedAt = Date.now();
   bumpRev(g);
+  markNodeDirty(g, id);
+  markOrderAppend(g, id);
   return id;
 }
 
@@ -132,6 +134,8 @@ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintH
   if (!pending) g.stateIndex[key] = id;
   g.updatedAt = Date.now();
   bumpRev(g);
+  markNodeDirty(g, id);
+  markOrderAppend(g, id);
   return { id, transposition: null };
 }
 
@@ -167,6 +171,13 @@ export function mergeNodeInto(g, fromId, intoId) {
   for (const [key, value] of Object.entries(g.stateIndex)) if (value === fromId) delete g.stateIndex[key];
   g.updatedAt = Date.now();
   bumpRev(g);
+  // P3：合并动了目标节点、被重定向的边，以及所有 from 改向的边
+  markNodeDirty(g, intoId);
+  markNodeDeleted(g, fromId);
+  for (const edge of Object.values(g.edges)) {
+    if (edge.from === intoId || edge.to === intoId) markEdgeDirty(g, edge.id);
+  }
+  for (const id of redirected) markEdgeDirty(g, id);
   return [...redirected];
 }
 
@@ -221,6 +232,7 @@ export function addEdge(g, { from, intent = "", action = "", evidence = null }) 
   };
   g.updatedAt = Date.now();
   bumpRev(g);
+  markEdgeDirty(g, id);
   return id;
 }
 
@@ -243,6 +255,7 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
   if (to && edge.transposition === undefined) edge.transposition = false;
   g.updatedAt = Date.now();
   bumpRev(g);
+  markEdgeDirty(g, edgeId);
   return edge;
 }
 
@@ -877,4 +890,258 @@ export function renderIndexMd(g) {
   }
   if (failCount === 0) lines.push("（无）");
   return lines.join("\n");
+}
+/* ─────────────── P3（2026-10-30）：增量落盘 ───────────────
+ *
+ * 背景（实测）：一次 flush 写 graph.json(0.5–0.6MB) + index.md(13–92KB)，
+ * 而一步真正新增只有 ~762B ⇒ 写放大 ×800–975；fold 后还要全量重写 361–415 个 nodes/*.md（429–836ms）。
+ *
+ * 设计：
+ *   · **dirty 跟踪**（本文件的 mutator 里打点，WeakMap 存，不进 graph JSON 形状）；
+ *   · **delta 帧**：每帧只写本次变更的节点/边（绝对 upsert）+ 标量 + order 追加/删除；
+ *   · **generation 保护**：帧头记录它写在其上的基线内容哈希；基线一旦重写（压缩），
+ *     旧帧因哈希不匹配被整体忽略 ⇒「先写基线 rename、后清 delta」在任意崩溃点都安全；
+ *   · **尾部坏帧**：加载时遇到 JSON 坏/校验不符的行就地停止（半写帧不会污染图）。
+ */
+
+const DIRTY = new WeakMap();
+
+function dirtyOf(g) {
+  let d = DIRTY.get(g);
+  if (d === undefined) {
+    d = { nodes: new Set(), edges: new Set(), delNodes: new Set(), delEdges: new Set(), orderAppend: [], orderDrop: [] };
+    DIRTY.set(g, d);
+  }
+  return d;
+}
+
+/** 标记一个节点被写（add / merge 的目标 / 直接改字段）。 */
+export function markNodeDirty(g, id) {
+  if (id) dirtyOf(g).nodes.add(id);
+}
+/** 标记一条边被写。 */
+export function markEdgeDirty(g, id) {
+  if (id) dirtyOf(g).edges.add(id);
+}
+/** 标记节点被删（order 里也要去掉）。 */
+export function markNodeDeleted(g, id) {
+  if (!id) return;
+  const d = dirtyOf(g);
+  d.delNodes.add(id);
+  d.nodes.delete(id);
+  d.orderDrop.push(id);
+}
+/** 标记 order 新增（节点创建时调用）。 */
+export function markOrderAppend(g, id) {
+  if (id) dirtyOf(g).orderAppend.push(id);
+}
+
+/** 只读：当前 dirty 集（写盘成功后再 clearDirty）。 */
+export function peekDirty(g) {
+  const d = dirtyOf(g);
+  return {
+    nodes: [...d.nodes],
+    edges: [...d.edges],
+    delNodes: [...d.delNodes],
+    delEdges: [...d.delEdges],
+    orderAppend: [...d.orderAppend],
+    orderDrop: [...d.orderDrop],
+    empty:
+      d.nodes.size === 0 && d.edges.size === 0 && d.delNodes.size === 0 && d.delEdges.size === 0 && d.orderAppend.length === 0 && d.orderDrop.length === 0,
+  };
+}
+
+/** 写盘成功后清空 dirty（失败时不能清 —— 否则丢一次变更）。 */
+export function clearDirty(g) {
+  const d = dirtyOf(g);
+  d.nodes.clear();
+  d.edges.clear();
+  d.delNodes.clear();
+  d.delEdges.clear();
+  d.orderAppend.length = 0;
+  d.orderDrop.length = 0;
+}
+
+/** 从 dirty 集生成一帧增量（只放本帧真的要持久化的字段，不加新 schema）。 */
+export function deltaFromDirty(g, dirty = peekDirty(g)) {
+  const nodes = {};
+  for (const id of dirty.nodes) if (g.nodes[id]) nodes[id] = g.nodes[id];
+  const edges = {};
+  for (const id of dirty.edges) if (g.edges[id]) edges[id] = g.edges[id];
+  return {
+    v: 1,
+    nodes,
+    edges,
+    delNodes: dirty.delNodes ?? [],
+    delEdges: dirty.delEdges ?? [],
+    orderAppend: dirty.orderAppend ?? [],
+    orderDrop: dirty.orderDrop ?? [],
+    scalars: {
+      updatedAt: g.updatedAt,
+      nextNode: g.nextNode,
+      nextEdge: g.nextEdge,
+      rootUserNodeIds: g.rootUserNodeIds,
+      foldCount: g.foldCount,
+      lastFoldTotalTokens: g.lastFoldTotalTokens,
+      checkpointSeq: g.checkpointSeq,
+      lastFoldUsage: g.lastFoldUsage ?? null,
+      foldMarks: g.foldMarks ?? [],
+    },
+  };
+}
+
+/**
+ * 把一帧增量应用到图上（幂等：upsert 是绝对覆盖；order 追加前查重）。
+ * 应用后 stateIndex 按 fromJSON 的同一规则重建 —— 它是派生数据，不进 delta。
+ */
+export function applyDelta(g, delta) {
+  if (!delta || delta.v !== 1) throw new Error(`graph: unsupported delta version ${delta?.v}`);
+  for (const [id, node] of Object.entries(delta.nodes ?? {})) g.nodes[id] = node;
+  for (const [id, edge] of Object.entries(delta.edges ?? {})) g.edges[id] = edge;
+  for (const id of delta.delNodes ?? []) delete g.nodes[id];
+  for (const id of delta.delEdges ?? []) delete g.edges[id];
+  const s = delta.scalars ?? {};
+  for (const k of ["updatedAt", "nextNode", "nextEdge", "rootUserNodeIds", "foldCount", "lastFoldTotalTokens", "checkpointSeq"]) {
+    if (s[k] !== undefined) g[k] = s[k];
+  }
+  if (s.lastFoldUsage !== undefined) g.lastFoldUsage = s.lastFoldUsage;
+  if (Array.isArray(s.foldMarks)) g.foldMarks = s.foldMarks;
+  for (const id of delta.orderDrop ?? []) {
+    const at = g.order.indexOf(id);
+    if (at >= 0) g.order.splice(at, 1);
+  }
+  if ((delta.orderAppend ?? []).length > 0) {
+    const seen = new Set(g.order);
+    for (const id of delta.orderAppend) {
+      if (!seen.has(id)) {
+        g.order.push(id);
+        seen.add(id);
+      }
+    }
+  }
+  rebuildStateIndex(g);
+  bumpRev(g);
+  // 结构变了 ⇒ 索引缓存必须作废（直接删挂载的 Symbol，下次渲染重建）
+  try {
+    delete g[TEWARI_CACHE];
+  } catch {
+    /* ignore */
+  }
+  return g;
+}
+
+/** stateIndex 重建（与 fromJSON 里的规则逐字一致：按时序、只收非 pending 的 agent）。 */
+export function rebuildStateIndex(g) {
+  const rebuilt = {};
+  for (const id of g.order ?? []) {
+    const n = g.nodes?.[id];
+    if (!n || n.kind !== "agent") continue;
+    if (n.worldHash === "pending" || n.constraintHash === "pending") continue;
+    const key = `${n.worldHash}/${n.constraintHash}`;
+    if (rebuilt[key] === undefined) rebuilt[key] = id;
+  }
+  g.stateIndex = rebuilt;
+  return g;
+}
+
+/* ── 帧的编码/解码：`<baseHash16> <checksum31> <json>` 一行一帧 ── */
+
+/** 便宜校验（不是密码学哈希；只用来挡住「半写/坏帧」）。 */
+export function checksum31(text) {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return h;
+}
+
+/** 编码一帧：baseHash 是它写在其上的 graph.json 内容哈希（十六进制前 16 位）。 */
+export function encodeDeltaFrame(baseHash, delta) {
+  const body = JSON.stringify(delta);
+  return `${baseHash}\t${checksum31(body)}\t${body}\n`;
+}
+
+/**
+ * 解码 delta 文件内容：只接受 baseHash 与当前基线一致、且校验通过的帧；遇到坏帧就地停止。
+ * @returns {{frames: object[], badTail: boolean}}
+ */
+export function decodeDeltaFrames(text, baseHash) {
+  const frames = [];
+  let badTail = false;
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.length === 0) continue;
+    const p1 = line.indexOf("\t");
+    const p2 = p1 < 0 ? -1 : line.indexOf("\t", p1 + 1);
+    if (p1 < 0 || p2 < 0) {
+      badTail = true;
+      break;
+    }
+    const frameBase = line.slice(0, p1);
+    if (frameBase !== baseHash) {
+      // 基线已重写（压缩后留下的旧帧）⇒ 整段忽略，不是坏帧
+      badTail = true;
+      break;
+    }
+    const sum = Number(line.slice(p1 + 1, p2));
+    const body = line.slice(p2 + 1);
+    if (!Number.isFinite(sum) || checksum31(body) !== sum) {
+      badTail = true;
+      break;
+    }
+    try {
+      frames.push(JSON.parse(body));
+    } catch {
+      badTail = true;
+      break;
+    }
+  }
+  return { frames, badTail };
+}
+
+/* ── index.md 增量追加（fold / 首次写全量；其余每次只追加新内容） ── */
+
+/**
+ * 生成 index.md 的追加段：只写本帧新增/变化的节点行、边行与失败原因。
+ * 追加段自描述（`## 增量 · <iso> · +N 节点 / +M 边`），fold 时由全量重建覆盖掉。
+ */
+export function renderIndexAppend(g, dirty = peekDirty(g), label = "") {
+  const cut = (x, k) => String(x ?? "").slice(0, k);
+  const lines = [];
+  const nodeIds = [...(dirty.nodes ?? [])].filter((id) => g.nodes[id]);
+  const edgeIds = [...(dirty.edges ?? [])].filter((id) => g.edges[id]);
+  const delNodes = dirty.delNodes ?? [];
+  if (nodeIds.length === 0 && edgeIds.length === 0 && delNodes.length === 0) return "";
+  lines.push("");
+  lines.push(
+    `## 增量 · ${new Date(g.updatedAt ?? Date.now()).toISOString()}${label ? ` · ${label}` : ""} · +${nodeIds.length} 节点 / +${edgeIds.length} 边${delNodes.length ? ` / −${delNodes.length} 节点` : ""}`,
+  );
+  for (const id of nodeIds) {
+    const n = g.nodes[id];
+    const kind = n.kind === "user" ? "USER" : "STATE";
+    const title = n.kind === "user" ? cut(n.text, 40) : n.goal ? cut(n.goal, 40) : "(无目标)";
+    lines.push(`- [${id}](./nodes/${id}.md) ${kind} seq=${n.seq} ${title}`);
+    for (const e of renderIndexEdgesOf(g, id)) {
+      const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
+      lines.push(`  - ${e.id} ${mark} ${cut(e.intent || e.action, 30)}${e.result === "failure" && e.verify?.kind === "text" ? " [text:?]" : ""}`);
+    }
+  }
+  for (const id of edgeIds) {
+    const e = g.edges[id];
+    if (!e) continue;
+    const mark = e.result === "success" ? "✓" : e.result === "failure" ? "✗" : "?";
+    lines.push(
+      `- ${e.id} ${mark} ${e.from} → ${e.to ?? "(未结算)"}: ${cut(e.intent || e.action, 40)}${e.result === "failure" ? ` — ${cut(e.errorSnippet || e.verify?.summary || "(无原因)", 120)}` : ""}`,
+    );
+  }
+  for (const id of delNodes) lines.push(`- ${id} （已合并，见置换节点）`);
+  return lines.join("\n");
+}
+
+/** 便捷：某节点的出边（走结构索引，避免增量渲染再退回 O(N×E)）。 */
+function renderIndexEdgesOf(g, id) {
+  let idx = null;
+  try {
+    idx = g[TEWARI_CACHE] && g[TEWARI_CACHE].cheap === cheapKey(g) ? g[TEWARI_CACHE] : graphIndex(g);
+  } catch {
+    idx = null;
+  }
+  return idx ? idx.byFrom.get(id) ?? [] : Object.values(g.edges).filter((e) => e.from === id);
 }

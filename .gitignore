@@ -1,6 +1,8 @@
 src/.harness-stubs/
 src/.engine-under-test.mjs
+src/.engine-under-test-*.mjs
 test/.harness/
+test/.harness-*/
 node_modules/
 
 # 临时/证据目录：本轮实测 478 文件 / 3.94 MB（含整仓变异副本），

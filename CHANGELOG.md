@@ -1,6 +1,108 @@
 # 更新记录
 
+## 1.9.2 — 2026-10-30
+
+### ⚠ 破坏性契约变化：`graph.json` 不再是「最新状态」
+
+**1.9.2 起，落盘拆成「上一回合基线 + 当前增量」：**
+
+| 文件 | 内容 |
+|---|---|
+| `graph.json` | **上一个回合边界**的完整基线 |
+| `graph.json.delta.jsonl` | 本回合的增量帧，一帧一行 `<baseHash16>\t<checksum31>\t<json>` |
+
+`graph.json` 只在**回合边界**（`agent/status idle`）落一次；回合内每一步只追加 delta 帧。
+⇒ **外部工具若只 `JSON.parse(graph.json)`，会少一个回合的数据。** 最新状态 = 基线 + 按序重放 delta
+（`fromJSON` → `decodeDeltaFrames(text, baseHash)` → `applyDelta`，三个函数在 `src/graph.mjs`）。
+README 新增「graph.json 契约（外部工具必读）」一节，含三条余量（短回合写放大 / dirty>100 flush / `appendFileSync` 跨平台）。
+
+### P3 · flush 写放大 ×800–975 治理（增量 delta + index 追加 + dirty 节点）
+
+- `graph.json.delta.jsonl`：每步只追加 dirty 节点/边（绝对 upsert）+ 标量 + order 追加；
+  合并阈值 `max(64KB, 基线 20%)`，超过则写新基线（`tmp` → `rename`）并清空 delta
+- 崩溃安全：帧带 `baseHash`（generation 保护，基线重写后旧帧整体忽略）+ `checksum31`
+  （半写帧就地停止并截断到最后一个好帧）+ 幂等重放（同一批帧重放多次结果相同）
+- `index.md` 稳态**追加**增量段（~200–800 B/次），fold / 首次 / 缺失 / >256KB 时全量重建；
+  `nodes/*.md` 稳态不写，只记 pending，fold 时只写 dirty
+- 实测（三张真实图 × 60 步 + 1 回合边界）：写放大 **×80.16 / ×70.04 / ×61.75 → ×37.41 / ×33.31 / ×30.75**；
+  稳态每步写 **10.5–11.8 KB → 591–713 B（−94%）**；fold 后 flush **429–836 ms → 9.4–22.9 ms**
+  （5–20 个 dirty 节点）/ **76.5–88.8 ms**（100 个）
+- 测试：`test/persist-incremental.test.mjs` **8 项**（重放等价 / 幂等 / 半写帧 / generation 保护 /
+  index 增量 / engine 端到端 / nodes dirty）
+- 已知边界：**极短回合（<10 步）** 每回合的全量基线摊销不足，写放大仍可能 >×50；
+  `appendFileSync` 跨平台原子性未验证
+
+### P4 · 首屏 `state` 的 graph.json 解析缓存
+
+- `src/ui.mjs` 新增 `(绝对路径, mtimeMs, size) → 聚合摘要` 缓存 + `pruneGraphCache()`：
+  改文件必失效（同 mtime 但 size 不同也失效）
+- 133 图 / 33 MB 实测：热路径 p50 **140.5 ms → 20.9 ms**（另一轮 **242.5 → 51.1**）；
+  冷路径也更快（**170.7 → 101.3** / **386.4 → 196.7**）；`state` 响应 **3,648 B 逐字相同**
+- 测试：`test/ui-perf.test.mjs` **10 项**
+
+### P5 · 生产口径 token 预算与 `pickFallback`
+
+- `renderLedger` 新增 `fallback` 三态（`none` / `over-budget` / `impossible`）+ `overBudgetBy`：
+  **不再静默返回超预算文本** —— 调用方拿到的每个结果都能区分「预算内 / 兜底超限 / 无解」
+- `pickFallback` 择优顺序固定：预算内优先 → tokens 最小 → 平手列得多；全超选最省并标 `over-budget`；
+  无非空文本返回 `null`（`impossible`）
+- 生产口径（`treeDir` = 真实会话目录、`maxTokens=500`，133 图）：
+  **>500 = 24/133（与 1.9.1 HEAD 的 24 相同，新增 0）**、avg **444.80**（HEAD 430.85，+13.95 ≤ +20）、
+  max **905**（与 HEAD 完全相同）。24 张全部是 L4/L5 兜底档 —— 正文本身 >1500 字符，不是预算记账 bug
+- 测试：`test/ledger-budget.test.mjs` **7 项**
+
+### P6a · `TRACE:` 行绝对路径改相对，回收 avg +17 tok/图
+
+- `TRACE:` 从 `D:\DeepSeek Harness\home\chess-context\sessions\<sid>/index.md …`（137.7 字符）
+  改成 `sessions/<sid>/index.md`（57.5 字符），`traceRoot` 可配置（默认无前缀，生产传 `sessions`）
+- 生产口径 133 图：avg **445.08 → 429.64（−15.44 tok/图）**；over500 **24 → 18**；max **905 → 878**；
+  逐会话 85 便宜 / 7 变贵（5 个是 TRACE 变短后落进更低档位、列了更多内容）/ 41 不变；
+  `renderFacts` **133 图 0 差异**
+- 测试：`test/trace-relative.test.mjs` **7 项**（Windows 盘符 / POSIX 用户名路径 / traceRoot 可配置 / 不泄漏绝对路径 …）
+
+### P6-A · 悬空边只在分析中排除（不剪数据）
+
+- 新增 `classifyDangling()`（`residue` / `live-unsettled` / `from-broken` / `none`）与 `danglingStats()`；
+  **只过滤显示，不改 `graph.json`**
+- 判定：`residue := to==null && age>10min`；**`live_unsettled`（untested 且 ≤10 分钟）必须保留可见**
+  —— 这是 Lead 批准的**更保守**口径（keeper 先 settle 结果、`step/end` 才回填 `to`，
+  按字面公式会把刚结算的新鲜失败当场隐藏）
+- `from` 悬空 **214 条**（全在 `5acafe42`，`mergeNodeInto` 老 bug）单独标记，不混入 `to=null` residue
+- 实测（133 图）：热清单**无终点失败边 158 → 0**；avg **−18.98**；over500 **17 → 17**；max **878 → 878**；
+  全库 `residue 5,566 / liveUnsettled 1 / fromBroken 214`
+- `renderFacts` **仍列全部失败边**（失败记忆不丢），新增 `DANGLING_RESIDUE: N` / `FROM_DANGLING: 214` /
+  `LIVE_UNSETTLED: N` 显式计数
+- 测试：`test/dangling-exclusion.test.mjs` **8 项**
+
+### P7 · `fallback` 与 `traceRoot` 接进 engine / doctor（不留死开关）
+
+- `src/engine.mjs`：新增配置 `hotLedgerTraceRoot`（schema 默认 `"sessions"`），生产 `renderLedger` 调用传
+  `traceRoot: "sessions"` ⇒ 生产热清单 `TRACE:` 为 `sessions/<sid>/index.md`，不泄漏盘符/用户名
+- engine **消费** `fallback`：`over-budget` → warn 日志含 `overBudgetBy=` / `budget=`；
+  `impossible` → error；`ledgerBudgetMetrics` 累计并原子落盘 `<graphDir>/ledger-budget.json`；
+  提供 `getLedgerBudgetStats()` / `onLedgerBudget` 钩子（可测，不静默）
+- `scripts/doctor.mjs`：新增「热清单预算（fallback）」项，显示 `none / over-budget / impossible` 分布与
+  `maxOverBudgetBy`；字段缺失写「未采集」；`impossible > 0` 记 error
+- 测试：`test/engine-harness.test.mjs` 增至 **25 项**（+4 条 P7 接线用例）
+
+### S2b · `no-exit` 弱成功按 N1 收窄
+
+- `verifier.classify()` 的 shell 分支：`[exit code]` 存在时行为不变；**无退出码时默认给 `weak:"shell"`**，
+  命中 N1 任一规则则不给。`result` **永远是 `unverified`**（不进已验证事实）
+- N1 八条 veto 规则集中在 `SHELL_WEAK_VETO_RULES` 一处（id + 说明 + 正则）：末行自报非零 / 末行 `Node.js vX` /
+  尾部 node 栈迹 / `command not found`·`No such file`·`cannot stat` / 行首 `SyntaxError|AssertionError|…` /
+  `FAILED (failures=N)` 等；规则表可测试、可追溯
+- 真实采样：全标 weak 的误报率 **2.94% → 收窄后约 0.49%**（≈48/9762 条假进展）
+- 测试：`test/weak-shell.test.mjs` **13 项**（每条规则命中/不命中 + 旧图兼容 + renderFacts 不变 + 变异自检）
+
+### 测试
+
+- `node test/run.mjs`：**373 passed / 0 failed**（30 个测试文件，`EXIT 0`；2026-10-30 03:2x 实测）
+- 新增测试文件：`persist-incremental`(8) · `ui-perf`(10) · `ledger-budget`(7) · `trace-relative`(7) ·
+  `dangling-exclusion`(8) · `weak-shell`(13)；`engine-harness` 21 → **25**
+
 ## 1.9.1 — 2026-10-29
+
 
 ### 修图坍缩：全库 61.3% 的边是自环（三份独立评估共同指向）
 
