@@ -10,13 +10,14 @@
  * 不变量：
  *   residue(e)        := e.to == null && (e.result !== "untested" || age > 10min)
  *   live_unsettled(e) := e.to == null && e.result === "untested" && age <= 10min
+ *   candidate(e)      := e.to == null && e.result === "untested" && age > 10min（P6C-1 新增）
  *
- * 本文件锁住：只排除 residue、live_unsettled 必须保留、from 悬空单列、热清单/硬事实的区分、
- * 以及「把 live_unsettled 也排除」的变异必须被抓到。
+ * 本文件锁住：只排除 residue、live_unsettled 与 candidate 进 OPTIONS（不混进 UNVERIFIED）、
+ * from 悬空单列、热清单/硬事实的区分，以及「把 live_unsettled 也排除」的变异必须被抓到。
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, failureClass } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, classifyDangling, danglingStats, isDanglingResidue, DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, classifyDangling, danglingStats, isDanglingResidue, isDanglingOption, DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
 
@@ -57,7 +58,7 @@ const learnedIds = (text) => text.split("\n").filter((l) => /^- e\d+ /.test(l)).
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "P6A-1 classifyDangling：四类判定（residue / live-unsettled / from-broken / none）"(t) {
+  "P6A-1 classifyDangling：五类判定（residue / candidate / live-unsettled / from-broken / none）"(t) {
     const { g, u, a } = baseGraph();
     // residue：已结算（failure）且 to=null
     const r = addResidue(g, a, { result: "failure" });
@@ -77,7 +78,12 @@ export const tests = {
     // residue：untested 但超过 10 分钟
     const stale = addEdge(g, { from: a, intent: "陈旧", action: "bash(x)" });
     g.edges[stale].ts = NOW - TEN_MIN - 1;
-    t.eq(classifyDangling(g.edges[stale], { graph: g, now: NOW }), "residue", "超过 10 分钟的 untested = residue");
+    // ★ P6C-1：超过 10 分钟的 untested **不再是 residue**，而是 candidate（未落地：可继续也可放弃）
+    t.eq(classifyDangling(g.edges[stale], { graph: g, now: NOW }), "candidate", "超过 10 分钟的 untested = candidate（P6C-1）");
+    t.eq(isDanglingResidue(g.edges[stale], { graph: g, now: NOW }), false, "candidate 不许被当 residue 排除");
+    t.eq(isDanglingOption(g.edges[stale], { graph: g, now: NOW }), true, "candidate 必须进 OPTIONS");
+    t.eq(isDanglingOption(g.edges[live], { graph: g, now: NOW }), true, "新鲜 untested 也进 OPTIONS");
+    t.eq(isDanglingOption(g.edges[fresh], { graph: g, now: NOW }), false, "刚结算的失败边不是 OPTIONS（它是已发生的失败）");
     // 恰好 10 分钟仍是 live（> 才 stale）
     const edgeCase = addEdge(g, { from: a, intent: "边界", action: "bash(x)" });
     g.edges[edgeCase].ts = NOW - TEN_MIN;
@@ -92,24 +98,28 @@ export const tests = {
     t.eq(classifyDangling(null), "none", "null 安全");
   },
 
-  "P6A-2 danglingStats：三类计数互不重叠，全库形态可复现"(t) {
+  "P6A-2 danglingStats：四类计数互不重叠，全库形态可复现"(t) {
     const { g, u, a } = baseGraph("fx-stats");
     for (let i = 0; i < 3; i += 1) addResidue(g, a, { result: "failure" });
     const live = addEdge(g, { from: a, intent: "live", action: "bash(x)" });
     g.edges[live].ts = NOW - 1000;
     const fb = addEdge(g, { from: "n-missing", intent: "fb", action: "bash(x)" });
     settleEdge(g, fb, { to: a, result: "unverified", verify: { kind: "no-exit", summary: "x" } });
+    // ★ P6C-1：陈旧 untested 单列 candidate，不算 residue
+    const staleOpt = addEdge(g, { from: a, intent: "stale option", action: "bash(y)" });
+    g.edges[staleOpt].ts = NOW - TEN_MIN - 60000;
     const s = danglingStats(g, { now: NOW });
     t.eq(s.residue, 3, `residue 必须 3，实际 ${JSON.stringify(s)}`);
+    t.eq(s.candidates, 1, `candidates 必须 1，实际 ${JSON.stringify(s)}`);
     t.eq(s.liveUnsettled, 1, "live_unsettled 必须 1");
     t.eq(s.fromBroken, 1, "from_broken 必须 1");
-    // 三类不相交：逐边分类求和 = 边数里属于这三类的
+    // 四类不相交：逐边分类求和 = 边数里属于这四类的
     let sum = 0;
     for (const e of Object.values(g.edges)) {
       const k = classifyDangling(e, { graph: g, now: NOW });
-      if (k === "residue" || k === "live-unsettled" || k === "from-broken") sum += 1;
+      if (k === "residue" || k === "candidate" || k === "live-unsettled" || k === "from-broken") sum += 1;
     }
-    t.eq(sum, 5, "分类总数必须等于三类之和（互不重叠）");
+    t.eq(sum, 6, "分类总数必须等于四类之和（互不重叠）");
   },
 
   "P6A-3 热清单：无终点失败边不再展示（噪声 −100%），真失败仍在"(t) {
@@ -127,14 +137,67 @@ export const tests = {
     t.eq(r.text.includes("rewash residue (no endpoint) omitted"), false, "热清单不该为残留单独占一行（token）");
   },
 
-  "P6A-4 live_unsettled 必须保留：新产生的 untested 边仍在 UNVERIFIED_CLAIMS"(t) {
+  "P6A-4 live_unsettled 必须保留：新产生的 untested 边进 OPTIONS（不再混进 UNVERIFIED）"(t) {
     const { g, a } = baseGraph("fx-live");
     const live = addEdge(g, { from: a, intent: "正在执行第 3 步", action: "bash(sleep 1)" });
     g.edges[live].ts = NOW - 1000;
     const r = renderLedger(g, { maxTokens: 500, now: NOW });
-    t.ok(r.text.includes("UNVERIFIED (ran, but no external signal"), `必须有 UNVERIFIED 段：\n${r.text}`);
+    t.ok(r.text.includes("OPTIONS (not yet landed — you may continue or abandon):"), `必须有 OPTIONS 段：\n${r.text}`);
     t.ok(r.text.includes(live), `live_unsettled 边 ${live} 必须保留：\n${r.text}`);
     t.ok(r.text.includes("正在执行第 3 步"), "live 边的意图必须可见（防误清）");
+    // ★ P6C-1：未落地的边不再混进 UNVERIFIED（那是「跑了但没验证信号」）
+    t.eq(r.text.includes("UNVERIFIED (ran, but no external signal"), false, `未落地的边不许出现在 UNVERIFIED 段：\n${r.text}`);
+    t.eq(r.text.includes("[stale"), false, "新鲜的选项不该带 stale 标记");
+  },
+
+  "P6C-1-1 陈旧 untested ⇒ OPTIONS 里带 [stale Xm]，不进 UNVERIFIED、不计 residue"(t) {
+    const { g, a } = baseGraph("fx-cand");
+    const stale = addEdge(g, { from: a, intent: "中断的第 7 步", action: "bash(long-job)" });
+    g.edges[stale].ts = NOW - 42 * 60 * 1000; // 42 分钟
+    const s = danglingStats(g, { now: NOW });
+    t.eq(s.candidates, 1, `candidates 必须计 1，实际 ${JSON.stringify(s)}`);
+    t.eq(s.residue, 0, "陈旧 untested 不许计入 residue");
+    const r = renderLedger(g, { maxTokens: 500, now: NOW });
+    t.ok(r.text.includes("OPTIONS (not yet landed — you may continue or abandon):"), `必须有 OPTIONS 段：\n${r.text}`);
+    t.ok(r.text.includes(stale), `陈旧选项 ${stale} 必须出现：\n${r.text}`);
+    t.includes(r.text, "[stale 42m]", "陈旧选项必须标出年龄");
+    t.eq(r.text.includes("UNVERIFIED (ran, but no external signal"), false, "陈旧选项不许混进 UNVERIFIED");
+    t.eq(isDanglingResidue(g.edges[stale], { graph: g, now: NOW }), false, "candidate 不许被 residue 过滤掉");
+  },
+
+  "P6C-1-2 回归：settled + to=null 仍是 residue（不许因 P6C-1 放松）"(t) {
+    const { g, u, a } = baseGraph("fx-settled");
+    const rFail = addResidue(g, a, { result: "failure" });
+    const rUnv = addResidue(g, a, { result: "unverified" });
+    const s = danglingStats(g, { now: NOW });
+    t.eq(s.residue, 2, `已结算无终点仍是 residue，实际 ${JSON.stringify(s)}`);
+    t.eq(s.candidates, 0, "已结算的边不许算 candidate");
+    t.eq(classifyDangling(g.edges[rFail], { graph: g, now: NOW }), "residue", "failure 残留");
+    t.eq(classifyDangling(g.edges[rUnv], { graph: g, now: NOW }), "residue", "unverified 残留");
+    t.eq(isDanglingOption(g.edges[rUnv], { graph: g, now: NOW }), false, "已结算的边不是 OPTIONS");
+  },
+
+  "P6C-1-3 renderFacts：OPTIONS 与 UNVERIFIED_CLAIMS 分开，并给 STALE_UNSETTLED 计数"(t) {
+    const { g, a } = baseGraph("fx-facts-opt");
+    const live = addEdge(g, { from: a, intent: "正在跑", action: "bash(x)" });
+    g.edges[live].ts = NOW - 1000;
+    const stale = addEdge(g, { from: a, intent: "中断很久", action: "bash(y)" });
+    g.edges[stale].ts = NOW - 3 * 60 * 60 * 1000; // 3 小时
+    // 一条「跑了但没信号」的真 unverified（有终点）
+    const unv = addEdge(g, { from: a, intent: "没信号", action: "bash(z)" });
+    settleEdge(g, unv, { to: a, result: "unverified", verify: { kind: "no-exit", summary: "x" } });
+    const facts = renderFacts(g, { now: NOW });
+    t.includes(facts, "OPTIONS (not yet landed — you may continue or abandon):", "硬事实必须有 OPTIONS 段");
+    t.includes(facts, live, "新鲜选项必须在 OPTIONS 里");
+    t.includes(facts, stale, "陈旧选项必须在 OPTIONS 里");
+    t.includes(facts, "[stale 180m]", "陈旧选项必须标年龄");
+    t.includes(facts, "UNVERIFIED_CLAIMS (no external verification signal):", "真 unverified 仍单列");
+    t.includes(facts, unv, "有终点的 unverified 必须在 UNVERIFIED_CLAIMS 里");
+    t.includes(facts, "STALE_UNSETTLED: 1", "陈旧未结算必须有计数行");
+    // 两个选项不许出现在 UNVERIFIED_CLAIMS 段里
+    const unvBlock = facts.split("UNVERIFIED_CLAIMS (no external verification signal):")[1] ?? "";
+    t.eq(unvBlock.includes(stale), false, "陈旧选项不许出现在 UNVERIFIED_CLAIMS 段");
+    t.eq(unvBlock.includes(live), false, "新鲜选项不许出现在 UNVERIFIED_CLAIMS 段");
   },
 
   "P6A-5 renderFacts：仍列全部失败边，但显式区分 DANGLING_RESIDUE 并计数"(t) {
