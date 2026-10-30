@@ -1,0 +1,28 @@
+# dsh-gokifu-compact bundle patch
+#
+# 这是本包的 `dsh.bundle.patch` 层（`package.json` 的 `dsh.bundle.patch` 指向本文件）。
+# 它只做一件事：**把 UI 的 host 半插进插件树**（`/gokifu/api` + 详情页数据/写配置）。
+#
+# 为什么现在改成 bundle：以前靠 `dsh plugin add` 之后**手改 profile 的 cordis.patch.yml**
+# 加一条 `- insert: [{id: gokifu-ui, name: 'dsh-gokifu-compact'}]`。手改有两个后患：
+#   ① 用户升级包之后，这条手工行留在 profile 里，和 bundle 通道**同时**挂载 ⇒ 两个 host 半
+#      注册同一个 `/gokifu/api` 前缀 ⇒ 启动即失败（duplicate prefix route）；
+#   ② `dsh plugin add` 不会自己补挂载行 ⇒ 「装好了但没生效」，且没有任何报错。
+# 声明成本包的 patch 层之后，profile 只要把本包写进 `dsh.profile.bundles`，补丁会被自动合并，
+# 与手工行**语义完全等价**（同样是 `- insert:` 一行），但不再需要用户改任何 YAML。
+#
+# ⚠ 两条通道**只能二选一**：
+#   · bundle 通道：`dsh.profile.bundles` 含 `dsh-gokifu-compact`，profile 自己的
+#     `cordis.patch.yml` 里**不得**再有 `id: gokifu-ui` 的手工行；
+#   · 手工通道：profile 自己的 `cordis.patch.yml` 有那一行，且 bundles 里**不得**含本包。
+#   `scripts/install.mjs` 切到 bundle 通道时会**备份并删除**旧手工行；
+#   `test/verify-install.mjs` 有「二选一、不双挂载」的机器判据（两条都在 = 红）。
+#
+# 引擎（压缩后端）不在这里：它必须挂在 **agent preset 的 compaction group 内部**，
+# profile/bundle 级 patch 打不到 preset 的 `config.plugins`（见 docs/DSH-技术测绘.md §7.6）。
+# 那一行由 `scripts/install.mjs` 改 preset 完成；本文件只管 UI。
+#
+# id 保持 `gokifu-ui`（与历史手工行一致）：从手工通道切过来时，日志/文档/doctor 都不用改口径。
+- insert:
+    - id: gokifu-ui
+      name: 'dsh-gokifu-compact'

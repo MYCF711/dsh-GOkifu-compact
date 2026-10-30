@@ -96,6 +96,8 @@ function makeHealthyHome(label, { link = true } = {}) {
     name: "dsh-profile-fixture",
     private: true,
     dependencies: { [PKG]: toLinkSpec(pkgSrc) },
+    // ★ task-118：健康态 = **bundle 通道**（本包自带 cordis.patch.yml），profile 里没有手工 gokifu-ui 行
+    dsh: { profile: { bundles: [PKG] } },
   }, null, 2) + "\n");
   if (link) nodeFs.symlinkSync(pkgSrc, nodePath.join(profileDir, "node_modules", PKG), "junction");
   return { home, profileDir, pkgSrc, cleanup: () => rmrf(home) };
@@ -232,8 +234,8 @@ tests["S10c-3 manifestError 进 ✗ 详情：profile/package.json 缺失时说�
     const badDeclares = named(bad, "profile/package.json 声明了本包依赖");
     t.includes(badDeclares.detail, "不是合法 JSON");
     t.includes(badDeclares.detail, nodePath.join(home, "profiles", "desktop", "package.json"));
-    const badBundles = named(bad, "dsh.profile.bundles 里没有它");
-    t.ok(badBundles?.ok === false, "清单读不出来时 bundles 那条必须红，不许凭 ?? [] 判绿");
+    const badBundles = named(bad, "UI 挂载通道二选一");
+    t.ok(badBundles?.ok === false, "清单读不出来时挂载通道那条必须红，不许凭 ?? [] 判绿");
     t.includes(badBundles.detail, "不是合法 JSON");
   } finally {
     rmrf(home);
@@ -440,13 +442,13 @@ tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径）�
     const result = verify(fixture.home);
     t.ok(!nodeFs.existsSync(profilePkg), "前置：清单应不存在");
     t.eq(result.checks.length, 16, "检查项数量");
-    // ② 组：从「声明了本包依赖」到「dsh.profile.bundles 里没有它」共 5 条
+    // ② 组：从「声明了本包依赖」到「UI 挂载通道二选一」共 5 条
     const names = [
       "profile/package.json 声明了本包依赖",
       "依赖规格解析后目标存在（link:/file: 目标目录 / registry 实装）",
       "解析到的包名是本包",
       "profile/node_modules 实际指向与依赖规格一致",
-      "dsh.profile.bundles 里没有它（避免顶层双挂载）",
+      "UI 挂载通道二选一（bundle 或手工行，不双挂载）",
     ];
     for (const name of names) {
       const c = result.checks.find((x) => x.name === name);
@@ -704,5 +706,77 @@ tests["C-12-5 本仓库的 ab-render.mjs 不再用「URL 结尾等于 basename�
     t.ok(nodeFs.existsSync(nodePath.join(out, "off.md")), "真文件应写出 off.md");
   } finally {
     rmrf(out);
+  }
+};
+
+/* ═════════════════════ task-118 · bundle 与手工行只能二选一 ═════════════════════ */
+
+tests["S11 挂载通道二选一：bundle / 手工行各自都算健康，两条同时存在 = 双挂载 = 红"] = (t) => {
+  // ① bundle 通道（新常态：本包自带 cordis.patch.yml）
+  const bundleHome = makeHealthyHome("s11-bundle");
+  try {
+    const r = verify(bundleHome.home);
+    const chk = named(r, "UI 挂载通道二选一");
+    t.eq(chk?.ok, true, `bundle 通道必须绿：${chk?.detail}`);
+    t.includes(chk.detail, "bundle=有");
+    t.includes(chk.detail, "手工行=无");
+  } finally {
+    bundleHome.cleanup();
+  }
+
+  // ② 手工通道（旧形态仍然合法：bundle 里没有本包，profile 有 id: gokifu-ui）
+  const manualHome = makeHealthyHome("s11-manual");
+  try {
+    const pkgFile = nodePath.join(manualHome.profileDir, "package.json");
+    const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+    pkg.dsh = { profile: { bundles: [] } };
+    write(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+    write(nodePath.join(manualHome.profileDir, "cordis.patch.yml"), [
+      "# fixture profile patch",
+      "- insert:",
+      "    - id: gokifu-ui",
+      `      name: '${PKG}'`,
+      "",
+    ].join("\n"));
+    const r = verify(manualHome.home);
+    const chk = named(r, "UI 挂载通道二选一");
+    t.eq(chk?.ok, true, `手工通道也必须绿：${chk?.detail}`);
+    t.includes(chk.detail, "bundle=无");
+    t.includes(chk.detail, "手工行=有");
+  } finally {
+    manualHome.cleanup();
+  }
+
+  // ③ 两条同时存在 ⇒ 双挂载 ⇒ 红（两个 host 半抢同一个 /gokifu/api 前缀）
+  const bothHome = makeHealthyHome("s11-both");
+  try {
+    write(nodePath.join(bothHome.profileDir, "cordis.patch.yml"), [
+      "# fixture profile patch",
+      "- insert:",
+      "    - id: gokifu-ui",
+      `      name: '${PKG}'`,
+      "",
+    ].join("\n"));
+    const r = verify(bothHome.home);
+    const chk = named(r, "UI 挂载通道二选一");
+    t.eq(chk?.ok, false, "两条通道同时存在必须红");
+    t.includes(chk.detail, "双挂载");
+  } finally {
+    bothHome.cleanup();
+  }
+
+  // ④ 两条都没有 ⇒ 没挂载 ⇒ 红（装好了但没生效，旧版这里曾静默绿）
+  const noneHome = makeHealthyHome("s11-none");
+  try {
+    const pkgFile = nodePath.join(noneHome.profileDir, "package.json");
+    const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+    pkg.dsh = { profile: { bundles: [] } };
+    write(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+    const r = verify(noneHome.home);
+    const chk = named(r, "UI 挂载通道二选一");
+    t.eq(chk?.ok, false, "两条通道都没有必须红");
+    t.includes(chk.detail, "没挂载");
+  } finally {
+    noneHome.cleanup();
   }
 };

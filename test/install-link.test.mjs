@@ -98,6 +98,8 @@ function makeHome(label, { deps } = {}) {
     name: "dsh-profile-fixture",
     private: true,
     ...(dependencies === null ? {} : { dependencies }),
+    // ★ task-118：健康态的 UI 挂载走 bundle 通道（profile 里没有手工 gokifu-ui 行）
+    dsh: { profile: { bundles: [PKG] } },
   }, null, 2) + "\n");
   return { home, profileDir, pkgSrc, spec, cleanup: () => rmrf(home) };
 }

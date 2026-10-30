@@ -5,7 +5,8 @@
  *   ① 包已链接进 profile/node_modules，且能读到 package.json（包名 / main / peers）
  *   ② 依赖声明**解析到真实目标**：规格是 link:/file: 时，解析出的目录必须存在、包名必须是我们、
  *     且 profile/node_modules 的实际指向必须与它一致；写版本号时按 registry 安装判（实装在 profile 内）
- *     并且 dsh.profile.bundles 里没有它（防止顶层双挂载）
+ *     UI 挂载通道二选一：bundle（dsh.profile.bundles 含本包）或手工行（profile 的 cordis.patch.yml
+ *     里有 `id: gokifu-ui`），**两条都在 = 双挂载 = 红**（task-118）
  *   ③ preset 的 compaction group 里是 dsh-gokifu-compact，且没有 compaction-basic（单实例）
  *   ④ preset 的 group 仍然 isolate:{compaction:true}（否则整个 preset 挂载失败）
  *   ⑤ preset 里其他 compaction 成员（command-compact / tool-result-pruner）还在
@@ -103,19 +104,30 @@ export function verifyInstall(options = {}) {
       ? `实际 → ${install.linked.realPath ?? "(断链)"}｜规格 → ${install.spec.target.realPath ?? (install.spec.target.exists ? "(未解析)" : `(目标目录不存在：${install.spec.path ?? "?"})`)}`
       : `实际 → ${install.linked.realPath ?? "(断链)"}`;
     add("profile/node_modules 实际指向与依赖规格一致", install.checks.linkConsistent, linkDetail);
+    // ★ task-118：UI 挂载有两条**语义等价**的通道 ——
+    //   bundle（本包自带 cordis.patch.yml，profile 的 dsh.profile.bundles 写本包即自动合并）
+    //   与手工行（profile 自己的 cordis.patch.yml 里 `- id: gokifu-ui`）。
+    //   两条同时存在 ⇒ 两个 host 半注册同一个 /gokifu/api 前缀 ⇒ 启动失败。
+    //   ⇒ 判据从「bundle 里不许有它」改成「**恰好一条**通道」。
     const bundles = install.manifest?.dsh?.profile?.bundles ?? [];
+    const profilePatch = nodePath.join(PROFILE_DIR, "cordis.patch.yml");
+    const patchText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    const hasManualRow = /^\s*- id:\s*gokifu-ui\s*$/m.test(patchText);
+    const inBundle = bundles.includes(PKG);
     // S10c：清单读不出来时这条不能凭 "?? []" 判绿 —— 那等于没查就说没问题。
     add(
-      "dsh.profile.bundles 里没有它（避免顶层双挂载）",
-      install.manifestError === null && !bundles.includes(PKG),
-      install.manifestError === null ? bundles.join(", ") : `（未核对：${install.manifestError}）`,
+      "UI 挂载通道二选一（bundle 或手工行，不双挂载）",
+      install.manifestError === null && inBundle !== hasManualRow,
+      install.manifestError === null
+        ? `bundle=${inBundle ? "有" : "无"}｜手工行=${hasManualRow ? "有" : "无"}${inBundle && hasManualRow ? "（两条都在 = 双挂载）" : inBundle || hasManualRow ? "" : "（两条都没有 = 没挂载）"}`
+        : `（未核对：${install.manifestError}）`,
     );
   } else {
     // 同上：文件不在时也把这 5 条显式判红（第一条带路径 + 具体原因），保持检查项总数恒定 16
     // S10c：原因取自 inspectProfileInstall 的 manifestError（ENOENT / 不是合法 JSON / EACCES… 各有措辞）
     const why = `(${install.manifestError ?? `profile/package.json 不存在：${install.profilePkgPath}`}，无法核对)`;
     add("profile/package.json 声明了本包依赖", false, why);
-    for (const name of ["依赖规格解析后目标存在（link:/file: 目标目录 / registry 实装）", "解析到的包名是本包", "profile/node_modules 实际指向与依赖规格一致", "dsh.profile.bundles 里没有它（避免顶层双挂载）"]) {
+    for (const name of ["依赖规格解析后目标存在（link:/file: 目标目录 / registry 实装）", "解析到的包名是本包", "profile/node_modules 实际指向与依赖规格一致", "UI 挂载通道二选一（bundle 或手工行，不双挂载）"]) {
       add(name, false, why);
     }
   }
