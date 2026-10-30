@@ -26,10 +26,11 @@ import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges } from "./g
 import { observeEvent } from "./keeper.mjs";
 import { createWorldTracker } from "./worldstate.mjs";
 import { planFold, isCheckpointSource } from "./range.mjs";
-import { renderLedger, renderFacts } from "./ledger.mjs";
+import { renderFacts } from "./ledger.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./summary-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
+import { decideInjection } from "./rooms/hot-inject.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
 
@@ -303,98 +304,27 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       try {
         const session = payload.agent.session;
         const st = this.#runtimeFor(session);
-        // ★ 历史包袱清理（P1-4 配套，一次性）：旧版在每个会话里追加了几十条~上百条清单，
-        //   它们不能被「删除」（surface 只有 append/replace），但可以逐条替换成一行占位。
-        //   实测 session-5acafe42 的 surface 上还压着 **44 条 / 295,255 字符 ≈ 9.8 万 token** 的旧清单。
-        //   只保留最后一条（当前清单），其余换成占位；每条只做一次（stub < 200 字符 ⇒ 下次跳过）。
-        if (this.chess.hotLedgerReplace && !st.legacyElided) {
-          st.legacyElided = true;
-          const n = elideLegacyLedgers(session);
-          if (n > 0) ctx.logger?.info?.(`chess-context: 清理历史清单 ${n} 条（换成一行占位，surface 不再背旧账）`);
-        }
-        const g = this.#graph(session);
-        // ★ 2026-10-29（三份评估共同的 P0-2）：压缩「连续失败」必须被看见。
-        //   实测今天：摘要模型配错 ⇒ 856 次失败 / 5.5 小时，全程只写 logger.warn，
-        //   人靠上下文涨到 85 万才发现。热清单是唯一必然进 prompt 的位置，警告写在这里。
-        //   一条失败边都没有时也要注入 —— 「没有失败边 + 压缩坏了」才是最危险的组合。
-        const warning = foldFailureWarning(st);
-        if (failureEdges(g).length === 0 && warning === "") return decision;
-        const ledger = renderLedger(g, {
-          maxTokens: this.chess.hotLedgerMaxTokens,
-          markers: this.chess.hotLedgerMarkers,
-          treeDir: this.#sessionDir(session),
-          // ★ P7（task-58）：生产必须传 traceRoot —— 否则 TRACE 走 ledger 默认 ""，热清单只剩 `<sid>/index.md`
-          //   （虽然仍是相对路径，但少了 sessions 根，模型拼不回去）。可配置，默认 sessions。
-          traceRoot: this.chess.hotLedgerTraceRoot,
+        // ★ A2-3：注入策略全在 R08（hot-inject）。engine 只负责端口注入与预算消费。
+        const result = decideInjection({
+          session,
+          graph: this.#graph(session),
+          state: st,
+          config: this.chess,
+          sessionDir: this.#sessionDir(session),
+          decision,
+          payloadMessages: payload.messages,
+          createUserMessage,
+          onBudget: (ledger, s) => this.consumeLedgerBudget(ledger, s),
+          onLog: (level, line) => ctx.logger?.[level]?.(line),
         });
-        // ★ P7：消费 fallback（over-budget 记 warn + overBudgetBy；impossible 记 error），并落盘给 doctor。
-        this.consumeLedgerBudget(ledger, session);
-        const ledgerText = warning === "" ? ledger.text : `${warning}
-${ledger.text}`;
-        if (!ledgerText) return decision;
-        // digest 只算「骨架」：失败边集合 + 根目标 + 约束。
-        // 不含 CURRENT PATH / CURRENT GOAL —— 它们每步都变，会让清单每步重注入一次（实测 6 条/轮）。
-        const digest = warning === "" ? ledgerDigest(g) : `${ledgerDigest(g)}|fold-fail-${st.foldFailures}`;
-        // ★ P1-4 彻底修法（2026-10-29）：surface 上**只留一条**热清单。
-        //   旧版每次都**追加**一条新 user 消息、旧的不替换 —— 实测真实会话累积 131 条 / 508,308 字符
-        //   （约 20 万 token）：一个压缩插件自己的热上下文成了最大的上下文消费者。
-        //   现在：找到当前 surface 上最后一条 chess-context 节点，用 DSH 官方的
-        //   `surfaceOp: {op:"replace", startSeq, endSeq}` 就地替换（官方 system-prompt / tool-result-pruner
-        //   用的就是这个机制，真实包上的行为见 test/real-ledger-replace.mjs）。
-        const existing = currentLedgerNode(session);
-        // 内容一字不差：不动（既不写日志，也不碰 surface 的 contentGeneration）
-        if (existing && messageTextOf(existing.message) === ledgerText) return decision;
-
-        // 限流（与旧版一致：两次注入至少隔 40 个事件、失败边至少多 5 条）——
-        // 替换不占额外 prompt，但会写一条日志事件并推进 surface 的 contentGeneration，
-        // 所以节奏保持原样，只把「累积」这一条去掉。
-        // 唯一例外：清单被 fold 压掉了（surface 上没有它）却又和上次同源 ⇒ 必须补回来。
-        const lostToFold = existing === null && st.lastLedgerDigest === digest && st.lastLedgerFailureCount !== undefined;
-        // 告警不走限流：它出现的那一刻就是必须被看见的那一刻。
-        if (!lostToFold && warning === "") {
-          if (typeof st.lastLedgerInjectSeq === "number" && session.seq - st.lastLedgerInjectSeq < 40) return decision;
-          if (typeof st.lastLedgerFailureCount === "number" && ledger.failureCount < st.lastLedgerFailureCount + 5) return decision;
-          if (st.lastLedgerDigest === digest && existing) return decision;
-        }
-
-        const message = createUserMessage({
-          content: [{ type: "text", text: ledgerText }],
-          source: { kind: "chess-context", form: "ledger", digest },
-        });
-
-        if (existing && this.chess.hotLedgerReplace) {
-          try {
-            session.append("user/message", message, {
-              surfaceOp: { op: "replace", startSeq: existing.seq, endSeq: existing.seq },
-              sourceEventSeqs: [existing.seq],
-            });
-            st.lastLedgerDigest = digest;
-            st.lastLedgerInjectSeq = session.seq;
-            st.lastLedgerFailureCount = ledger.failureCount;
-            ctx.logger?.debug?.(
-              `chess-context: 替换失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens（surface 仍只有一条）`,
-            );
-            return decision; // 不进 decision.messages：surface 已经是新的，本轮的 deriveMessages 会带上它
-          } catch (error) {
-            // 锚点失效（例如刚好被 fold 遮蔽）→ 退回追加路径，绝不因为这里失败而丢信息
-            ctx.logger?.warn?.(`chess-context: 失败清单替换失败，退回追加：${String(error)}`);
-          }
-        }
-
-        const lastClaimed = decision.messages.findLastIndex((m) => payload.messages.includes(m));
-        const entered = decision.messages.toSpliced(Math.max(lastClaimed, 0) + 1, 0, message);
-        st.lastLedgerDigest = digest;
-        st.lastLedgerInjectSeq = session.seq;
-        st.lastLedgerFailureCount = ledger.failureCount;
-        ctx.logger?.debug?.(`chess-context: 注入失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens`);
-        return { ...decision, messages: entered };
+        return result.decision;
       } catch (error) {
+        // 双保险：R08 已全部吞错；这里再兜一层，注入失败绝不阻塞对话。
         ctx.logger?.warn?.(`chess-context: 失败清单注入失败（继续本轮）：${String(error)}`);
         return decision;
       }
     });
   }
-
   /* ────────────────────────── 摘要（唯一官方钩子） ────────────────────────── */
 
   async summarize(input, agent, signal) {
@@ -744,20 +674,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
 /* ────────────────────────────── 辅助 ────────────────────────────── */
 
-/**
- * 热清单里的「压缩失效」告警行。
- * 只有当前确实连续失败时才出现（成功一次就清零）—— 它是状态，不是历史账本。
- */
-function foldFailureWarning(st) {
-  if (typeof st?.foldFailures !== "number" || st.foldFailures <= 0) return "";
-  const err = String(st.lastFoldError ?? "").replace(/\s+/g, " ").trim().slice(0, 150);
-  return (
-    `⚠ CONTEXT COMPRESSION IS FAILING (${st.foldFailures} consecutive folds failed${err ? `; last error: ${err}` : ""}). ` +
-    "The conversation above was NOT compacted — context keeps growing and will keep costing more. " +
-    "Tell the user once, then continue; do not retry the failing summarizer yourself."
-  );
-}
-
 /** resolveChess 的键序（与 A2-4 之前逐键同序；`onLedgerBudget` 是 engine 的注入位，不进 SCHEMA）。 */
 const RESOLVE_ORDER = [
   "summaryMode", "thresholdRatio", "headroomTokens", "retainRatio", "retainTokens",
@@ -822,96 +738,6 @@ function checkpointSeqs(session) {
     if (event?.type === "user/message" && isCheckpointSource(event.data?.source)) out.push(seq);
   }
   return out;
-}
-
-/**
- * 热上下文的「骨架摘要」：只由失败边 + 根目标 + 约束决定。
- * 不含 CURRENT PATH / CURRENT GOAL —— 它们每一步都变，用整段文本做 digest
- * 会导致每步都判定「清单变了」并重新注入（实测一轮 6 条）。
- */
-function ledgerDigest(g) {
-  const parts = [];
-  const roots = g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean);
-  for (const root of roots) {
-    parts.push(root.text);
-    parts.push(...(root.constraints ?? []));
-  }
-  for (const e of failureEdges(g)) {
-    parts.push(`${e.id}:${e.verify?.kind ?? ""}:${(e.errorSnippet || e.verify?.summary || "").slice(0, 80)}`);
-  }
-  return sha(parts.join(String.fromCharCode(0)));
-}
-
-/**
- * 当前 surface 上最后一条热清单节点（P1-4）。
- * 返回 `{ seq, message }` —— `seq` 是替换时要用锚点（必须**是当前 surface 节点**，
- * 真实 Session 对「替换已被遮蔽的 seq」会直接抛错，见 test/real-ledger-replace.mjs）。
- */
-function currentLedgerNode(session) {
-  const nodes = session.surface?.nodes ?? [];
-  for (let i = nodes.length - 1; i >= 0; i -= 1) {
-    const event = session.eventAt(nodes[i]);
-    if (event?.type !== "user/message") continue;
-    if (event.data?.source?.kind === "chess-context") return { seq: nodes[i], message: event.data };
-  }
-  return null;
-}
-
-/** 消息的纯文本（用于「内容一字不差就不动」的判定）。 */
-function messageTextOf(message) {
-  const content = message?.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n");
-}
-
-/**
- * 清理历史遗留的热清单（P1-4 配套，一次性 pass）。
- *
- * v1.5.0 之前每个会话都**追加**清单、从不替换 —— 实测 session-5acafe42 的 surface 上
- * 还压着 44 条 / 295,255 字符 ≈ 9.8 万 token。surface 只支持 append/replace（不能删除节点），
- * 所以逐条**替换成一行占位**：内容已经过时（最新那条清单覆盖了同样的信息，全量轨迹在 graph.json），
- * 留着只是白占上下文。
- *
- * 幂等：占位本身很短（< 200 字符），下一次进来直接跳过。
- * @returns {number} 本次替换掉的条数
- */
-function elideLegacyLedgers(session) {
-  const nodes = session.surface?.nodes ?? [];
-  const seqs = [];
-  for (const seq of nodes) {
-    const event = session.eventAt(seq);
-    if (event?.type === "user/message" && event.data?.source?.kind === "chess-context") seqs.push(seq);
-  }
-  if (seqs.length <= 1) return 0; // 只有一条（正常形态）
-  const keep = seqs[seqs.length - 1];
-  let elided = 0;
-  for (const seq of seqs) {
-    if (seq === keep) continue;
-    const event = session.eventAt(seq);
-    if (typeof event?.data?.content === "string") continue;
-    if (!Array.isArray(event?.data?.content)) continue;
-    if (messageTextOf(event.data).length <= 200) continue; // 已经是占位
-    const stub = createUserMessage({
-      content: [
-        {
-          type: "text",
-          text: "[stale chess-ledger elided — superseded by the latest <chess-ledger>; full trace in graph.json]",
-        },
-      ],
-      source: { kind: "chess-context", form: "ledger-stub" },
-    });
-    try {
-      session.append("user/message", stub, {
-        surfaceOp: { op: "replace", startSeq: seq, endSeq: seq },
-        sourceEventSeqs: [seq],
-      });
-      elided += 1;
-    } catch {
-      /* 该节点已不在 surface 上（并发 fold）—— 跳过即可 */
-    }
-  }
-  return elided;
 }
 
 function hasPriorCheckpoint(session) {

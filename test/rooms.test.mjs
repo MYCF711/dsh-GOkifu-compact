@@ -46,6 +46,11 @@ const ROOMS = {
     allowed: ["node:fs", "node:path", "../graph.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "hot-inject": {
+    file: "hot-inject.mjs",
+    allowed: ["../graph.mjs", "../ledger.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
 };
 
 /** 房间文件里所有「既不在 allowed 前缀里、也不命中 forbid」的说明符 = 意外依赖。 */
@@ -199,8 +204,8 @@ export const tests = {
     t.eq(bad[0].reason, "C3", "原因必须是 C3");
   },
 
-  "方向：preset-format / config-schema / kifu-persist 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
-    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs"]) {
+  "方向：preset-format / config-schema / kifu-persist / hot-inject 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
+    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs", "hot-inject.mjs"]) {
       const bad = roomDependencyViolations(roomFile);
       t.eq(bad, [], `${roomFile} 依赖面违规：${bad.map((b) => `${b.spec} (${b.reason})`).join("; ")}`);
     }
