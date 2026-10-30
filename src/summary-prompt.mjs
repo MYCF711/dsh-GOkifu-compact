@@ -10,8 +10,6 @@
  * 逐字一致，提供方的 KV cache 能命中 —— 与官方实现同一策略。
  */
 
-import { renderFacts } from "./ledger.mjs";
-
 /**
  * 从 renderFacts 的文本里截取 CONSTRAINTS_VERBATIM 段。
  * 用途：摘要生成后**机械追加**到产物里 —— 不依赖模型遵守（实测 15 条失败边压力下模型会丢约束）。
@@ -101,17 +99,3 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   return lines.join("\n");
 }
 
-/** 便利包装：直接从图生成指令。 */
-export function buildInstructionFromGraph(g, { shadowedStart, shadowedEnd, priorFold = false, maxFailures = 200 }) {
-  return buildChessInstruction({
-    facts: renderFacts(g, { maxFailures }),
-    shadowedStart,
-    shadowedEnd,
-    priorFold,
-  });
-}
-
-/** 把摘要文本框成落盘的记录块（与官方 <compacted-summary> 并存，供 md 视图使用）。 */
-export function frameChessSummary(summaryText) {
-  return `${CHESS_SUMMARY_OPEN}\n${summaryText.trim()}\n${CHESS_SUMMARY_CLOSE}`;
-}
