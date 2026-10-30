@@ -32,18 +32,23 @@ import { weakKindOf } from "./verify.mjs";
  *   · 另有 214 条 `from` 悬空（全在 session-5acafe42，mergeNodeInto 老 bug）——**另一类**，
  *     判据必须以 `to == null` 开头，绝不能写成「任一端为空」（会误删）。
  *
- * 不变量（报告 §2）：
- *   residue(e)        := e.to == null && (e.result !== "untested" || age > 10min)
- *   live_unsettled(e) := e.to == null && e.result === "untested" && age <= 10min
+ * 不变量（报告 §2，P6C-1 起四类）：
+ *   residue(e)        := e.to == null && e.result !== "untested" && age > 10min        （已结算却没终点 = 不可能）
+ *   live_unsettled(e) := e.to == null && e.result === "untested" && age <= 10min       （正在执行）
+ *   candidate(e)      := e.to == null && e.result === "untested" && age > 10min        （未落地：可继续、也可放弃）
  *
- * 为什么安全：结算过（success/failure/unverified）的边必须有终点；`untested` 是唯一合法的
- * 「未结算」状态，且只应出现在当前正在执行的 step（时间戳新鲜）。超 10 分钟仍是 untested
- * ⇒ 进程崩溃/中断留下的死边。
+ * ★ P6C-1（2026-10-30）：**超过 10 分钟的 untested 不再是 residue，而是 candidate。**
+ *   旧判据把它当「死边」整条丢掉 —— 但模型崩溃/中断留下的未结算边恰恰是「下一步还能接着做」
+ *   的信息，丢掉等于把线索一起丢了。现在它进热清单的 OPTIONS 区段（标 `[stale Xm]`），
+ *   明确写成「not yet landed — you may continue or abandon」，不混进 UNVERIFIED（那是「跑了但没验证」）。
+ *
+ * 为什么 residue 只留「已结算」：结算过（success/failure/unverified）的边必须有终点，
+ * 无终点只可能是 1.9.1 rewash 留下的历史残留（数据事实 5,564/5,567）。
  */
 export const DANGLING_STALE_MS = 10 * 60 * 1000;
 
 /**
- * @returns {"residue"|"live-unsettled"|"from-broken"|"none"}
+ * @returns {"residue"|"candidate"|"live-unsettled"|"from-broken"|"none"}
  */
 export function classifyDangling(edge, { graph = null, now = Date.now() } = {}) {
   if (!edge) return "none";
@@ -57,22 +62,36 @@ export function classifyDangling(edge, { graph = null, now = Date.now() } = {}) 
   //   生产数字不受影响：全库 5,564 条 settled 残留的 ts 全部是 10-29 的老边，远超 10 分钟。
   const ts = Number(edge.ts);
   if (Number.isFinite(ts) && now - ts <= DANGLING_STALE_MS) return "live-unsettled";
-  if (!Number.isFinite(ts)) return edge.result === "untested" ? "live-unsettled" : "residue";
+  // 陈旧（或没有时间戳、无法证明新鲜）的 untested = candidate（P6C-1）
+  if (edge.result === "untested") return "candidate";
   return "residue";
 }
 
-/** 全图悬空统计：{residue, liveUnsettled, fromBroken}。只读，不改图。 */
+/**
+ * 该边是否属于「OPTIONS」区段（未落地的尝试：新鲜 live 或陈旧 candidate）。
+ * ★ 只认 `result === "untested"`：刚结算的失败边也可能因年龄护栏落进 live-unsettled，
+ *   但它是**已发生的失败**（已在 LEARNED 里），不是「还没落地、可以继续或放弃」的选项。
+ */
+export function isDanglingOption(edge, { graph = null, now = Date.now() } = {}) {
+  if (!edge || edge.result !== "untested" || edge.to != null) return false;
+  const kind = classifyDangling(edge, { graph, now });
+  return kind === "live-unsettled" || kind === "candidate";
+}
+
+/** 全图悬空统计：{residue, candidates, liveUnsettled, fromBroken}。只读，不改图。 */
 export function danglingStats(g, { now = Date.now() } = {}) {
   let residue = 0;
+  let candidates = 0;
   let liveUnsettled = 0;
   let fromBroken = 0;
   for (const e of Object.values(g?.edges ?? {})) {
     const kind = classifyDangling(e, { graph: g, now });
     if (kind === "residue") residue += 1;
+    else if (kind === "candidate") candidates += 1;
     else if (kind === "live-unsettled") liveUnsettled += 1;
     else if (kind === "from-broken") fromBroken += 1;
   }
-  return { residue, liveUnsettled, fromBroken };
+  return { residue, candidates, liveUnsettled, fromBroken };
 }
 
 /** 该边是否应从「失败边分析 / 热清单」排除。live_unsettled 永远保留。 */
@@ -89,6 +108,19 @@ export function isDanglingResidue(edge, { graph = null, now = Date.now() } = {})
 //   单这一行就吃掉「L3+ 路径行净增 ≤50 token」额度的大半。压到 61 字符，信息不丢：
 //   「k of n hops 未验证 = 不构成进展证据」。
 const WEAK_LEGEND = "# weak k/n = k of n hops unverified — not proof of progress";
+
+/**
+ * OPTIONS 行尾的陈旧标记（P6C-1）：只有超过 10 分钟的 untested 才加。
+ * 没有时间戳 ⇒ 无法证明新鲜，标 `[stale ?]`（宁可让模型知道「这条来路不明」）。
+ */
+function staleTagOf(edge, now) {
+  if (edge?.result !== "untested") return "";
+  const ts = Number(edge.ts);
+  if (!Number.isFinite(ts)) return " [stale ?]";
+  const age = now - ts;
+  if (age <= DANGLING_STALE_MS) return "";
+  return ` [stale ${Math.floor(age / 60000)}m]`;
+}
 
 /** 保守 token 估算（CJK 1 字≈1 token，英文 ~4 字/token；取 3 折中偏保守）。 */
 export function estimateTokens(text) {
@@ -423,7 +455,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   // ★ P6-A：UNVERIFIED_CLAIMS 里的 rewash 残留（to=null 的 unverified）同样是噪声 ——
   //   它们既没有终点、也不可能再被结算（result 已写死 unverified），展示出来只会占行数。
   //   live_unsettled 必须保留（正在执行、还没结算）。
-  const open = openEdges(g).filter((e) => !isDanglingResidue(e, { graph: g, now }));
+  // ★ P6C-1（2026-10-30）：**未落地（untested + to=null）的边不再混进 UNVERIFIED** ——
+  //   「跑了但没外部验证信号」和「还没落地、可以继续也可以放弃」是两类信息，混在一起模型会当成
+  //   「已验证过但不可信」，于是不敢用也不敢弃。现在它们单独进 OPTIONS 区段。
+  const options = Object.values(g.edges).filter((e) => isDanglingOption(e, { graph: g, now }));
+  const open = openEdges(g).filter((e) => !isDanglingResidue(e, { graph: g, now }) && !isDanglingOption(e, { graph: g, now }));
   const latest = latestAgentNode(g);
   const path = latest ? currentPath(g, latest.id) : [];
   const root = g.rootNode ?? g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
@@ -568,6 +604,12 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         );
       }
       for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
+    }
+    // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
+  //   与 UNVERIFIED 同档 —— 它们是「下一步要不要接着做」的决策信息，预算紧张时先让位给失败记忆。
+  if (options.length && level <= 1) {
+      tailLines.push("OPTIONS (not yet landed — you may continue or abandon):");
+      for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
     }
     if (open.length && level <= 1) {
       tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
@@ -859,8 +901,18 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     if (stats.liveUnsettled > 0) {
       lines.push(`LIVE_UNSETTLED: ${stats.liveUnsettled} edges are newly unsettled (untested, <=10min) — kept visible on purpose.`);
     }
+    if (stats.candidates > 0) {
+      lines.push(`STALE_UNSETTLED: ${stats.candidates} edges are untested and older than 10min — listed as OPTIONS (continue or abandon), NOT residue.`);
+    }
   }
-  const open = openEdges(g);
+  // ★ P6C-1：未落地的尝试（untested + to=null）单独成段，不再混进 UNVERIFIED_CLAIMS。
+  const openAll = openEdges(g);
+  const options = openAll.filter((e) => isDanglingOption(e, { graph: g, now }));
+  const open = openAll.filter((e) => !isDanglingOption(e, { graph: g, now }));
+  if (options.length) {
+    lines.push("OPTIONS (not yet landed — you may continue or abandon):");
+    for (const e of options.slice(-40)) lines.push(`* ${e.id} "${clip(e.intent || e.action, 90)}"${staleTagOf(e, now)}`);
+  }
   if (open.length) {
     lines.push("UNVERIFIED_CLAIMS (no external verification signal):");
     for (const e of open.slice(-40)) lines.push(`* ${e.id} "${clip(e.intent || e.action, 90)}"`);
