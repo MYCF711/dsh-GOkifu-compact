@@ -67,6 +67,12 @@ const ROOMS = {
     allowed: ["node:fs", "node:path", "../graph.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "kifu-model": {
+    file: "kifu-model.mjs",
+    // 契约 R00：零仓库依赖，只允许 node:crypto
+    allowed: ["node:crypto"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
 };
 
 /** 房间文件里所有「既不在 allowed 前缀里、也不命中 forbid」的说明符 = 意外依赖。 */
@@ -220,8 +226,8 @@ export const tests = {
     t.eq(bad[0].reason, "C3", "原因必须是 C3");
   },
 
-  "方向：preset-format / config-schema / kifu-persist / hot-inject / verify / fold-planner / world 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
-    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs", "hot-inject.mjs", "verify.mjs", "fold-planner.mjs", "world.mjs"]) {
+  "方向：preset-format / config-schema / kifu-persist / hot-inject / verify / fold-planner / world / kifu-model 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
+    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs", "hot-inject.mjs", "verify.mjs", "fold-planner.mjs", "world.mjs", "kifu-model.mjs"]) {
       const bad = roomDependencyViolations(roomFile);
       t.eq(bad, [], `${roomFile} 依赖面违规：${bad.map((b) => `${b.spec} (${b.reason})`).join("; ")}`);
     }
