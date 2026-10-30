@@ -17,36 +17,48 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 
 ---
 
-## 1 · 16 个房间（R00–R15）与当前路径
+## 1 · 16 个房间（R00–R15）与**最终路径**（A2+A3 已完成）
 
-**现状：A2 全部五刀已完成（A2-1 / A2-4 / A2-5 / A2-2 / A2-3）；A3 已开第一刀（A3-1a `verifier` 已搬）· `src/rooms/` = 五个文件（`preset-format` · `config-schema` · `kifu-persist` · `hot-inject` · `verify`）**；**A2-R（真实重启验证）未做，需主人给停窗口**；**A3 其余六刀未开**（`engine/graph/ledger/…` 仍在原位）。
+**现状：A2 + A3 全部收口 —— 11 个房间全在 `src/rooms/`；`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）两个永久文件；8 个旧门面已删除**（`verifier` · `range` · `worldstate` · `graph` · `keeper` · `extract` · `ledger` · `summary-prompt`）。**A2-R 与 A3-R 均在隔离实例（`tmp/dsh-gokifu-compact/test-home/`，独立 DSH_HOME）PASS，未碰 live home。**
 
-| id | 房间 | 职责 | 当前路径（真实） | 目标路径（A3 后） |
-|---|---|---|---|---|
-| **R00** | `kifu-model` | 棋谱数据层：建图/边/结算/查询/渲染/delta/tewari | `src/graph.mjs`（`wc -l`=1146；末行无换行符 ⇒ 实际 1147 行，48,187 B） | `src/rooms/kifu-model.mjs` |
-| **R01** | `kifu-persist` | 落盘与增量协议（load / flush / 路径 / delta 回放 / 坏尾截断） | `src/engine.mjs:113-117, 227-282, 329-442` | `src/rooms/kifu-persist.mjs` |
-| **R02** | `fold-planner` | 增量 fold 范围选择（**零依赖**） | `src/range.mjs` | `src/rooms/fold-planner.mjs` |
-| **R03** | `keeper` | 事件 → 图（含 `extract`） | `src/keeper.mjs` + `src/extract.mjs` | `src/rooms/keeper.mjs` |
-| **R04** | `verify` | 验证信号分类（**零依赖**，判据集中一处） | **`src/rooms/verify.mjs`（A3-1a 已落位，17,914 B）**；`src/verifier.mjs` 只剩 1 行门面 `export * from "./rooms/verify.mjs";` | `src/rooms/verify.mjs` |
-| **R05** | `world` | 世界状态哈希 | `src/worldstate.mjs` | `src/rooms/world.mjs` |
-| **R06** | `ledger` | 热上下文渲染 + 悬空边分类 | `src/ledger.mjs` | `src/rooms/ledger.mjs` |
-| **R07** | `facts-prompt` | 摘要硬事实与指令 | `src/summary-prompt.mjs`（`renderFacts` 仍在 R06） | `src/rooms/facts-prompt.mjs` |
-| **R08** | `hot-inject` | 每步注入策略（`#bindLedger` 等） | **`src/rooms/hot-inject.mjs`（A2-3 已落位，12,554 B）** + `src/engine.mjs` 侧调用点 | `src/rooms/hot-inject.mjs` |
-| **R09** | `engine-sheath` | **唯一允许 import `@deepseek-ai/*` 的房间** | **`src/engine.mjs`（永久路径，不搬）** | 同左 |
-| **R10** | `ops` | 体检 / 校验 / 回洗 / 归档 CLI | **`scripts/doctor.mjs`（`bin` 相关，永久路径）** + `scripts/check-maintenance.mjs` · `scripts/release.mjs` + `test/verify-install.mjs`（**`scripts/` 整体不搬进 `src/rooms/`**，见 §4.3 第 5 条） | 同左 |
-| **R11** | `ui-host` | 详情页 host 半（HTTP + 配置文件读写） | **`src/ui.mjs`（永久路径：`main` + `exports "."`，client 发现靠包根）** | 同左 |
-| **R12** | `ui-client` | 浏览器半（React） | **`lib/client.js`（永久路径：`exports "./client"` + `dsh.client`）** | 同左 |
-| **R13** | `install` | profile / preset 安装与链接 | **`scripts/install.mjs` · `scripts/link-path.mjs`（永久路径：3 个测试直接 import 它们）** | 同左 |
-| **R14** | `migrate` | 数据迁移（P6-C：悬空边归档/剪除） | **无生产代码**；原型 `test/archive-dangling*.mjs` | `src/rooms/migrate.mjs` + `scripts/migrate-dangling.mjs` |
-| **R15** | `config-schema` | 配置的**单一来源**（A2-4 后 **4/5 收敛**；`lib/client.js` `FIELDS` 15 键待 R12） | **`src/rooms/config-schema.mjs`（已落位，14,968 B）** | `src/rooms/config-schema.mjs` |
+| id | 房间 | 职责 | 最终路径（A3 已完成） | 命名导出（实测） | 允许依赖 |
+|---|---|---|---|---:|---|
+| **R00** | `kifu-model` | 棋谱数据层：建图/边/结算/查询/渲染/delta/tewari | `src/rooms/kifu-model.mjs` | 43 | 零依赖（仅 `node:crypto`） |
+| **R01** | `kifu-persist` | 落盘与增量协议（load / flush / 路径 / delta 回放 / 坏尾截断） | `src/rooms/kifu-persist.mjs` | 10 | R00 · `node:fs`/`path`（经注入 port） |
+| **R02** | `fold-planner` | 增量 fold 范围选择 | `src/rooms/fold-planner.mjs` | 5 | **零依赖** |
+| **R03** | `keeper` | 事件 → 图（含 extract） | `src/rooms/keeper.mjs` | 11 | R00 · R04 |
+| **R04** | `verify` | 验证信号分类（判据集中一处） | `src/rooms/verify.mjs` | 7 | **零依赖** |
+| **R05** | `world` | 世界状态哈希 | `src/rooms/world.mjs` | 1 | R00 |
+| **R06** | `ledger` | 热上下文渲染 + 悬空边分类 | `src/rooms/ledger.mjs` | 14 | R00 · R04 |
+| **R07** | `facts-prompt` | 摘要硬事实与指令 | `src/rooms/facts-prompt.mjs` | 4 | R06（单向） |
+| **R08** | `hot-inject` | 每步注入策略（`#bindLedger` 等） | `src/rooms/hot-inject.mjs` | 9 | R00 · R06（只吃 session port） |
+| **R09** | `engine-sheath` | **唯一允许 import `@deepseek-ai/*` 的房间** | `src/engine.mjs`（**永久路径**） | 5 | R00–R08 · R15 |
+| **R10** | `ops` | 体检 / 校验 / 回洗 / 归档 CLI | `scripts/`（**永久，不搬**） | — | R00 · R13 |
+| **R11** | `ui-host` | 详情页 host 半（HTTP + 配置文件读写） | `src/ui.mjs`（**永久路径**） | 21 | R13·`preset-format` · R15 |
+| **R12** | `ui-client` | 浏览器半（React） | `lib/client.js`（**永久路径**） | — | `react`（零本仓依赖） |
+| **R13** | `install` | profile / preset 安装与链接 | `scripts/`（**永久，不搬**） | — | R15 |
+| **R14** | `migrate` | 数据迁移（P6-C：悬空边归档/剪除） | **未创建**（原型 `test/archive-dangling*.mjs`） | — | R00 · R01 · R06（判据） |
+| **R15** | `config-schema` | 配置的**单一来源**（A2-4 后 **4/5 收敛**；`lib/client.js` `FIELDS` 15 键待 R12） | `src/rooms/config-schema.mjs` | 9 | **零依赖** |
 
-**A2 已落位的四个房间**：
-- `src/rooms/preset-format.mjs`（A2-1 · 8,364 B）—— preset 纯文本格式 `parseEngineBlock` / `renderEngineBlock` / `replaceCompactionBlock` / `engineBlock` / `KEY_COMMENTS`，被 `src/ui.mjs` + `scripts/install.mjs` 双用（`install.mjs` **必须 re-export**，否则 `ui.test`/`ui-config`/`install-link` 三个测试红）。⚠ **删除 re-export 是「运行期红」而不是「加载期红」**（`38914c7` A2-1-fix 的教训：`ui.test.mjs` 顶部是 `await import`，加载期查不出来）。
-- `src/rooms/config-schema.mjs`（A2-4 · 14,968 B）—— **`SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11** 的单一来源；`resolve()` / `describe()` / `validatePatch()` / `engineBlock()` 派生给 R09/R11/R12/R13。⚠ **收敛只到 4/5**：`lib/client.js:78` 的 `FIELDS`（实测 15 键）仍是硬编码第 4 份，留待 R12。
-- `src/rooms/kifu-persist.mjs`（A2-2 · 12,364 B）—— R01 落盘房间：`loadGraph` / `flush` / `persistBudget` / `paths`，吃注入的 `port`（`{readFile, writeFile, rename, appendFile, stat, exists, mkdir}`），**不吞错**（返回 `{ok,error}` 或 `repaired`+`repairedReason`）。
-- `src/rooms/hot-inject.mjs`（A2-3 · 12,554 B）—— R08 注入房间（259 行，从 `engine.mjs` 搬出）：`#bindLedger` / `foldFailureWarning` / `ledgerDigest` / `findLedgerNode` / `messageTextOf` 等。**session port = `{id, seq, surface:{nodes}, eventAt, append}`**，`createUserMessage` 由 R09 参数注入 ⇒ **R08 不 import DSH**。六条契约常量未改（`INJECT_MIN_EVENTS=40` / `INJECT_MIN_FAILURE_DELTA=5` / `LEDGER_STUB_TEXT` 逐字 / digest 组成 / replace 退回 append / never-throws）。
+**11 个房间文件（`src/rooms/`，`ls` 实测）**：
 
-**A3 已落位（1 / 7）**：`src/rooms/verify.mjs`（A3-1a · 17,914 B）—— R04 从 `src/verifier.mjs` **纯移动**（逻辑/常量/导出未改）；旧路径留 **1 行门面** `export * from "./rooms/verify.mjs";`，所有旧 import 仍可用。pack **+1**（68 → 69）。
+```
+config-schema.mjs   14,968 B     preset-format.mjs    8,364 B
+facts-prompt.mjs     6,035 B     verify.mjs          17,914 B
+fold-planner.mjs     6,502 B     world.mjs            3,296 B
+hot-inject.mjs      12,557 B     kifu-model.mjs      47,853 B
+keeper.mjs          12,335 B     ledger.mjs          55,948 B
+kifu-persist.mjs    12,368 B
+```
+
+**两个永久顶层文件**：`src/engine.mjs`（R09，唯一 import `@deepseek-ai/*`）· `src/ui.mjs`（R11，`main` + `exports "."`）。
+**8 个已删门面**：`verifier` / `range` / `worldstate` / `graph` / `keeper` / `extract` / `ledger` / `summary-prompt` —— **它们只能以 `src/rooms/<room>.mjs` 存在**；`test/rooms.test.mjs` 的 `SRC_TOP_LEVEL_ALLOWED = ["engine.mjs","ui.mjs"]` 与 `DELETED_FACADES` 会拦住任何复活。
+
+**关键实现要点（写在代码里的契约，别改）**：
+- `preset-format.mjs` 被 `src/ui.mjs` + `scripts/install.mjs` 双用（`install.mjs` **必须 re-export**）；**删 re-export 是「运行期红」不是「加载期红」**（`38914c7` 教训）。
+- `config-schema.mjs` = `SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11；**收敛只到 4/5**（`lib/client.js:78` `FIELDS` 15 键仍是硬编码，待 R12）。
+- `kifu-persist.mjs` 吃注入的 `port`，**不吞错**（`{ok,error}` / `repaired`+`repairedReason`）。
+- `hot-inject.mjs` 的 session port = `{id, seq, surface:{nodes}, eventAt, append}`，`createUserMessage` 由 R09 注入 ⇒ **R08 不 import DSH**；六条契约常量未改（`INJECT_MIN_EVENTS=40` / `INJECT_MIN_FAILURE_DELTA=5` / `LEDGER_STUB_TEXT` 逐字 / digest 组成 / replace 退回 append / never-throws）。
 
 ### 1.1 依赖 DAG
 
@@ -70,7 +82,7 @@ R12 ui-client（只 HTTP + 宿主 slots，零本仓依赖）
 R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 ```
 
-### 1.2 四条可静态断言的方向规则（`test/rooms.test.mjs`，GUARD-1 已落地）
+### 1.2 六条可静态断言的方向规则（`test/rooms.test.mjs`，GUARD-1 已落地）
 
 | 规则 | 断言 | 现状 |
 |---|---|---|
@@ -78,8 +90,14 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 | **R-B** | R00–R08 不得 import `@deepseek-ai/*` / R09 / R11 / `scripts/` | 绿 |
 | **R-C** | **R09 之外**任何文件不得 import `@deepseek-ai/*` | 绿 |
 | **R-D** | `lib/client.js` 不得 import 仓库内任何文件；R10/R14 不得 import R09 | 绿 |
+| **R-E** | `src/engine.mjs` 不得 import `rooms/migrate.mjs`（**P6-C「禁止 engine 启动钩子」的机器判据**）；`migrate.mjs` 若存在也不得 import engine | 绿 |
+| **R-F** | `src/**` · `scripts/**` · `lib/**` 中不得出现 `allowedModels` 字样（宿主全局配置，插件不读不写） | 绿 |
 
-> `rooms` 门禁跑法：`node test/run.mjs rooms`。**这条命令是「架构有没有被破坏」的唯一判据**，任何搬动/新增房间后必跑。
+**另有两条结构性门禁（A3-2-fix / A3-3 新增，同为 `rooms` filter 内）**：
+- **C1/R-C 精确化**：`@deepseek-ai/*` 的 **import** 只允许出现在 `src/engine.mjs`，且 R09 的宿主说明符集合必须**恰好**是契约那 4 个（`dsh-compaction` / `dsh-compaction-basic` / `dsh-llm` / `schemastery`）—— 判据按**说明符**而非裸文本，所以 preset 块与注释里仍可写官方包名（行为面冻结）。
+- **最终路径 + 顶层白名单**：`ROOMS` 每项 `file === <id>.mjs` 且真实存在；`src/` 顶层只允许 `engine.mjs` / `ui.mjs`；**`DELETED_FACADES` 里的 8 个名字一旦出现在 `src/` 顶层或被任何文件 import，立即红**。
+
+> `rooms` 门禁跑法：`node test/run.mjs rooms`（现 **15 用例**）。**这条命令是「架构有没有被破坏」的唯一判据**，任何搬动/新增房间后必跑。
 
 ---
 
@@ -192,7 +210,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | R01 | `persist-incremental` | 经 engine 间接覆盖；待补假 port 直测 |
 | R02 | `range` | — |
 | R03 | `keeper` · `weak-success` · `robustness` | `state` 实际 **20 个字段**（不是 13） |
-| R04 | `verifier` · `weak-shell` | 判据集中在 `verifier.mjs:102-148`；**不要顺手「修」只读表里混着的写状态工具**（会改热清单内容） |
+| R04 | `verifier` · `weak-shell` | 判据集中在 `src/rooms/verify.mjs:102-148`；**不要顺手「修」只读表里混着的写状态工具**（会改热清单内容） |
 | R05 | `selfloop` | 含「单字符路径」回归 |
 | R06 | `ledger` · `markers` · `c17` · `dangling-exclusion` · `ledger-scale` · `ledger-budget` · `trace-relative` | 20+ 测试直接打它 |
 | R07 | `ledger`（弱） | 待补 `facts-prompt` |
@@ -224,7 +242,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 3. 若改的是**错误语义**：必须在验收里单列，并由 reviewer 批准。
 4. 若改的是 **`state` 形状 / 热清单文本 / `classify` 判据 / `graph.json`·delta 字节 / preset 块格式** ⇒ **停**，这四类属于「不许在同刀里改」的行为面。
 
-### 4.3 搬文件（A3）
+### 4.3 搬文件（A3）—— ✅ **A3 已全部完成；本节保留为「下次搬迁」的方法与判据**
 1. **永久路径不能动**：`src/engine.mjs` · `src/ui.mjs` · `lib/client.js` · `scripts/{install,link-path,doctor,cli}.mjs`（动 = 破 `package.json` 的 `exports` / `bin` / preset 里的 `name`）。
 2. 顺序 = **叶子 → 核心**；每步**一个 commit**，旧文件**留一行门面**（re-export），使所有 import 不用改。
 3. 每步之后：全量 0 failed + `rooms` 绿 + `npm pack` **+1 文件**。
@@ -246,14 +264,14 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ---
 
-## 5 · 当前状态（2026-10-30 16:03 快照 · A3-1a 之后）
+## 5 · 当前状态（2026-10-30 16:53 快照 · **A3 全部收口**）
 
 > **本节是「某 commit 的快照」，不是实时状态。**实时状态看 `计划表.md` 对应的刀节（`### A2-5` / `### A2-2` …）。
 > **实测命令**：`git rev-parse --short HEAD` · `node test/run.mjs` · `npm pack --dry-run --json` · `ls src/rooms/`。
 
 | 项 | 状态 | 来源 |
 |---|---|---|
-| **HEAD** | **`e70ed56`**（A3-1a: verifier 搬到 rooms/verify，旧路径留门面） | 本节 `git rev-parse` 实测 |
+| **代码 HEAD** | **`0b61fb9`**（A3-3: 门禁收口 · 最终路径 + C1/R-C/R-E/R-F） | 本节 `git rev-parse` 实测（本文档提交会在其之上） |
 | **工作树** | **干净**（`git status --short` = 0 行） | 同上 |
 | **迁移门禁（M-00）** | **`385/0 @ f464d2c`**，`verify-install 16/16`，**pack 64 文件** | `计划表.md` 迁移基线节（逐字粘贴的命令输出） |
 | **A2-1（已做完）** | **`390/0`**（33 个测试文件，+5 来自 `rooms` 门禁）；pack **65**（+1） | `计划表.md` A2-1 节 |
@@ -261,19 +279,19 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | **A2-5（已做完）** | **`401/0`**（用例数与 A2-4 同数 —— 纯删除）；pack **66**（不变）/ **532,971 B** / `8e24452e…`（比 A2-4 少 664 B，纯删除的预期）；`engine-harness` 25/0 · `ledger` 24/0 · `rooms` 5/0 · `verify-install` 16/16 | `计划表.md` A2-5 节 |
 | **A2-2（已做完）** | **`412/0`**（35 个测试文件，+11 `kifu-persist.test.mjs`）；pack **67** / 535,070 B / `f9019efb…`；`kifu-persist` 11/0 · `persist-incremental` 8/0 | `计划表.md` A2-2 节 |
 | **A2-3（已做完）** | **`424/0`**（**36 个测试文件**，+8 `hot-inject.test.mjs`）；pack **68**（M-00 **+4**）/ **537,343 B** / `0825ab1a…`；`rooms` **9/0** · `hot-inject` **8/0** · `engine-harness` 25/0 · `verify-install` 16/16 | `计划表.md` A2-3 节 |
-| **A2-R（未做）** | **真实 DSH 重启验证 —— 未做，需主人给停窗口**（A2 五刀的输出只在假 ctx/夹具上验过；真机 surface `replace` 行为未跑） | 迁移计划 §3.6 |
-| **A3-1a（已做完）** | **`424/0`**（用例数不变 —— 纯移动）；pack **69**（+1）/ **537,420 B** / `8da4a189…`；`rooms` **9/0** · `verifier` / `weak-shell` / `weak-success` / `ledger` 全绿 | 本节实测 `node test/run.mjs` / `npm pack --dry-run --json` |
-| **A3 物理搬迁** | **已开 1 / 7 刀**：**A3-1a ✅ `verifier` → `src/rooms/verify.mjs`**（旧路径 1 行门面）；其余六刀（range / worldstate / graph / keeper+extract / ledger / summary-prompt）**未开**。`src/rooms/` 五文件 = preset-format 8,364 · config-schema 14,968 · kifu-persist 12,364 · hot-inject 12,554 · **verify 17,914 B**；`engine/graph/ledger/…` 仍在原位 | `ls src/rooms/` 实测 |
+| **A2-R（已 PASS）** | **隔离实例 PASS**（`tmp/dsh-gokifu-compact/test-home/`，独立 DSH_HOME，headless）：`compaction start→summary→end` 一次完整、**foldCount=1**、摘要含完整棋谱结构；桌面 `cordis.patch.yml` sha `047a342e…` / mtime / size **三项全同**、19387 同 PID 仍在 ⇒ **live 未受影响**（task-97） | `ws-a2r-verify/REPORT.md` |
+| **A3-R（已 PASS）** | **干净树隔离实例 PASS**（HEAD `0b61fb9`、跑前跑后 `git status` 均 0 项）：EXIT=0、**foldCount=1**、摘要 7 段齐全、桌面与仓库零变化（task-107） | `ws-a3r-verify/REPORT.md` |
+| **A3 物理搬迁** | ✅ **全部完成**：A3-1a…g 七步搬迁 + **A3-2 删 8 个门面** + A3-2-fix 补门禁 + **A3-3 门禁收口**。`src/rooms/` **11 个文件**；`src/` 顶层 **只剩 `engine.mjs` / `ui.mjs`** | `ls src/rooms/` 实测 |
 | **P6-C（R14）** | **原型已提交，未接入 CLI、未在真实数据执行**（`test/archive-dangling.mjs` 474 行 + `.test.mjs` 221 行 / 7 用例，commit `f464d2c`） | `计划表.md` M-00a |
 | **`allowedModels`** | **已移除 `gokifu` 条目**；现值只剩 `magpie / group/deepseek-v4.1-flash1017`（1 条，`cordis.patch.yml:583`） | 本节 `grep` 实测 |
 | **UI（M1/M2）** | **暂停**（主人指示：优先性能与功能，没人用的插件不需要 UI）⇒ `PROD-M2` 不排期 | `plan` task-5 / 迁移计划 §5.2 |
 | **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `session-893bfb9d`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
 | **热重载 L2 · 插件代码 / client bundle** | **未验证** —— **不得作为任何验收前提** | `docs/架构-迁移计划.md` §5.3 |
 | **运行期收益** | **未验证**（全部性能数字是离线夹具；真机 19387 未观测） | 贯穿 `计划表.md` 各节的「未验证」栏 |
-| **已发布版本** | **1.9.3**（npm `e117c876…`，61 文件 / 439,590 B；commit `283cac9`；tag `v1.9.3`） | `计划表.md` §九十九 / §一百 |
+| **已发布版本** | **npm latest = `1.9.3`**（`e117c876…`，61 文件 / 439,590 B，commit `283cac9`）；**GitHub Release 已有 `v1.10.0`**（annotated tag → commit `39ba25e`，房间化架构 A2+A3-1a/b/c；**1.10.0 未发 npm**）⇒ **包内 `package.json` / `README` 已是 `1.10.0`，但 npm 上仍是 1.9.3**，引用时要分清 | `计划表.md` + `ws-release-1.10.0/REPORT.md` |
 
 **引用纪律（本仓踩过 4 次）**：
-- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0` → A2-2-fix `416/0` → A2-3 `424/0` → **A3-1a `424/0`（纯移动，同数；pack 68→69）****（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
+- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0` → A2-2-fix `416/0` → A2-3 `424/0` → A3-1a `424/0`（纯移动，同数；pack 68→69）→ **A3 收口 `430/0`（36 文件；`rooms` 9→15；pack **67**，删门面后净减 2）****（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
 - 每个数字都带**时点 + 树**（发布树 / 工作树 / 某 commit）。**跨批不可比**。
 - 计数/比例必须自带 **定义式 + 分子 + 分母 + 时点**，缺一维视为不可引用。
 
@@ -288,9 +306,8 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ```
 M-00a → M-00b → M-00c → M-00d → {GUARD-1, GUARD-2, GUARD-3}
-GUARD-1 → A2-1 ✅ → A2-4 ✅ → A2-5 ✅ → A2-2 ✅ → A2-3 ✅ → **A2-R（未做，需主人窗口）**
-A2-R → **A3-1a(verifier) ✅** → b(range) → c(worldstate) → d(graph) → e(keeper+extract)
-      → f(ledger) → g(summary-prompt) → (观察一轮) → A3-2(删门面) → A3-3 → A3-R
+GUARD-1 → A2-1 ✅ → A2-4 ✅ → A2-5 ✅ → A2-2 ✅ → A2-3 ✅ → **A2-R ✅（隔离实例 PASS）**
+A3-1a ✅ → b ✅ → c ✅ → d ✅ → e ✅ → f ✅ → g ✅ → A3-2（删 8 门面）✅ → A3-2-fix ✅ → A3-3 ✅ → **A3-R ✅（隔离实例 PASS）**
 P6C-0 → P6C-1 → P6C-2 → P6C-3        （与 A2/A3 并行；P6C-3 必须停窗口）
 PROBE-1 → PROD-M2                     （等主人恢复 M2，当前暂停）
 ```
@@ -324,7 +341,7 @@ AGENTS.md  本文件（不进包）
 
 ---
 
-## 7 · 已知陷阱 TOP 9（都是真踩过的）
+## 7 · 已知陷阱 TOP 10（都是真踩过的）
 
 1. **`README.md` 改了 = 包改了**（npm 强制包含，即使不在 `files`）⇒ 1.9.2 因 `README:3` 漏改版本号被迫发 1.9.3；**已加门禁 A0（`README` 版本行 == `package.json` version）**。
 2. **`.gitignore` 管不了 npm** ⇒ `src/.engine-under-test-p3.mjs` 差点进包（57,914 B），靠 `files` 补 `"!src/.engine-under-test-*.mjs"` 才 62→61。
@@ -334,4 +351,5 @@ AGENTS.md  本文件（不进包）
 6. **运行中插件会覆盖磁盘清理**（内存 flush 回升）⇒ 任何数据清理必须停插件窗口。
 7. **`cordis.patch.yml` patch 打不中只 warning** ⇒ 改完必须核对生效。
 8. **`run.mjs` 的 filter 是文件名子串** ⇒ 按房间名写命令会漏测（见 §3.2）。
-9. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
+9. **恢复旧门面必须变红** —— A3-2 删掉的 8 个门面（`verifier` / `range` / `worldstate` / `graph` / `keeper` / `extract` / `ledger` / `summary-prompt`）**只要在 `src/` 顶层重新出现，或被任何文件 import，`rooms` 门禁必须立刻红**（`SRC_TOP_LEVEL_ALLOWED` + `DELETED_FACADES`）。**原因**：门面一复活，同一份实现就有了两个入口，「哪个才是真的」立刻无人能答 —— 这正是 A3 全部工作的意义。**新增房间同理：`src/rooms/` 下多一个未登记文件，C3 就必须红。**
+10. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
