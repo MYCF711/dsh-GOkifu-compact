@@ -22,32 +22,14 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-ai/dsh-compaction";
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-import {
-  createGraph,
-  fromJSON,
-  toJSON,
-  renderIndexMd,
-  renderIndexAppend,
-  renderNodeMd,
-  sha,
-  hashSet,
-  validate,
-  mergeNodeInto,
-  failureEdges,
-  // ★ P3（增量落盘）：dirty 跟踪 + delta 帧编解码/回放
-  peekDirty,
-  clearDirty,
-  deltaFromDirty,
-  encodeDeltaFrame,
-  decodeDeltaFrames,
-  applyDelta,
-} from "./graph.mjs";
+import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges } from "./graph.mjs";
 import { observeEvent } from "./keeper.mjs";
 import { createWorldTracker } from "./worldstate.mjs";
 import { planFold, isCheckpointSource } from "./range.mjs";
 import { renderLedger, renderFacts } from "./ledger.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./summary-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
+import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
 
@@ -95,11 +77,6 @@ export function ledgerBudgetLogLine(metrics, sessionId = "") {
 }
 
 /** 预算统计文件的相对位置（相对 graphDir）：`<graphDir>/ledger-budget.json`。 */
-const LEDGER_BUDGET_FILE = "ledger-budget.json";
-
-/** ★ P3：index.md 超过这个大小就全量重建（否则只追加增量段）。92KB 的大图允许涨到 ~2.8×。 */
-const INDEX_APPEND_LIMIT = 256 * 1024;
-
 export const name = "dsh-gokifu-compact";
 
 /**
@@ -131,10 +108,6 @@ function resolveHome() {
   return nodePath.join(os.homedir(), ".dsh");
 }
 
-function safeId(id) {
-  return String(id ?? "session").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120);
-}
-
 export default class ChessCompactionEngine extends BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
 
@@ -143,15 +116,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   constructor(ctx, config = {}) {
     super(ctx, pickBase(config));
     this.chess = resolveChess(config);
+
+    // ★ A2-2：落盘层交给 R01（kifu-persist）。engine 只留 graphs 缓存、debounce 定时器与日志。
+    this.persist = createPersistStore({
+      port: createFsPort(nodeFs),
+      root: graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() }),
+      onWarn: (level, line) => this.ctx?.logger?.[level]?.(line),
+    });
     this.graphs = new Map();
     /** 三层文件树已写过的会话（2000 边时 4000 文件会卡事件循环，只首次与 fold 后写） */
-    this.treeWritten = new Set();
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */
     this.flushTimers = new Map();
     /** ★ P3：每会话基线 graph.json 的内容哈希（16 位）；delta 帧用它做 generation 保护。 */
-    this.baseHash = new Map();
     /** ★ P3：已进入 graph.json/delta 但还没写过 nodes/<id>.md 的节点（fold 时补写）。 */
-    this.nodesPendingMd = new Map();
     this.runtime = new Map();
     /** ★ P7：热清单预算统计（跨会话累计；doctor 从这里读）。 */
     this.ledgerBudget = { none: 0, "over-budget": 0, impossible: 0, 未采集: 0, maxOverBudgetBy: 0, updatedAt: 0, samples: 0 };
@@ -193,62 +170,32 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   }
 
   #persistLedgerBudget() {
-    try {
-      const file = nodePath.join(this.#dir(), LEDGER_BUDGET_FILE);
-      nodeFs.mkdirSync(nodePath.dirname(file), { recursive: true });
-      const tmp = `${file}.tmp-${process.pid}`;
-      nodeFs.writeFileSync(tmp, JSON.stringify(this.ledgerBudget, null, 1), "utf8");
-      nodeFs.renameSync(tmp, file);
-    } catch {
-      /* 指标落盘失败不影响压缩（doctor 会显示「未采集」） */
-    }
+    // ★ A2-2：原子写与失败收敛都在 R01（`persistBudget` 返回 {ok,error}，不抛）。
+    this.persist.persistBudget(this.ledgerBudget);
   }
-
   /* ────────────────────────── 棋谱状态 ────────────────────────── */
-
-  #dir() {
-    return this.chess.graphDir.length > 0 ? this.chess.graphDir : nodePath.join(resolveHome(), "chess-context");
-  }
 
   /** 会话的棋谱目录（三层树就长在这里：index.md + nodes/<id>.md + graph.json）。 */
   #sessionDir(session) {
-    return nodePath.join(this.#dir(), "sessions", safeId(session.id));
+    return sessionPaths(this.persist.root, session.id).dir;
   }
 
   #graphPath(session) {
-    return nodePath.join(this.#sessionDir(session), "graph.json");
+    return sessionPaths(this.persist.root, session.id).graphFile;
   }
-
   #graph(session) {
     const key = session.id;
     let g = this.graphs.get(key);
     if (g !== undefined) return g;
-    const file = this.#graphPath(session);
-    try {
-      const text = nodeFs.readFileSync(file, "utf8");
-      g = fromJSON(text);
-      // ★ P3：基线内容哈希（16 位）—— delta 帧都带它；基线重写后旧帧自然失效。
-      this.baseHash.set(key, sha(text).slice(0, 16));
-      // 重放增量：坏帧/半写帧就地停止，并把文件截到最后一个好帧（防止后续追加接在半帧后面）
-      const deltaFile = `${file}.delta.jsonl`;
-      if (nodeFs.existsSync(deltaFile)) {
-        const dtext = nodeFs.readFileSync(deltaFile, "utf8");
-        const base = this.baseHash.get(key);
-        const { frames, badTail } = decodeDeltaFrames(dtext, base);
-        for (const f of frames) applyDelta(g, f);
-        if (badTail) {
-          const good = frames.map((f) => encodeDeltaFrame(base, f)).join("");
-          nodeFs.writeFileSync(deltaFile, good, "utf8");
-          this.ctx.logger?.warn?.(`chess-context: delta 尾部有坏帧，已截断到第 ${frames.length} 帧（半写不污染图）`);
-        }
-      }
-    } catch {
-      g = createGraph({ sessionId: key, cwd: session.cwd ?? process.cwd() });
+    // ★ A2-2 行为变更①：读不出/版本不符不再静默建空图 —— R01 返回 repaired + 原因，这里打一行 warn。
+    const loaded = this.persist.load({ id: key, cwd: session.cwd });
+    if (loaded.repaired) {
+      this.ctx.logger?.warn?.(`chess-context: 棋谱读不出或版本不符，已新建空图（${loaded.repairedReason}）：${this.#graphPath(session)}`);
     }
+    g = loaded.graph;
     this.graphs.set(key, g);
     return g;
   }
-
   #runtimeFor(session) {
     const key = session.id;
     let st = this.runtime.get(key);
@@ -296,103 +243,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
 
   #flush(session, { tree = false, full = false } = {}) {
     const g = this.#graph(session);
-    const dir = nodePath.dirname(this.#graphPath(session));
-    const file = this.#graphPath(session);
-    const deltaFile = `${file}.delta.jsonl`;
-    const key = session.id;
-    try {
-      nodeFs.mkdirSync(dir, { recursive: true });
-      // P1-11：落盘前校验图不变量（悬空边 / 失败边没原因 / agent 缺哈希）。
-      // 审查实测 live graph 155 条边里 115 条 from 悬空而无人发现 —— 校验结果至少进日志。
-      const problems = validate(g);
-      if (problems.length > 0) {
-        this.ctx.logger?.warn?.(`chess-context: 棋谱不变量告警 ${problems.length} 条：${problems.slice(0, 3).join("; ")}`);
-      }
-
-      const dirty = peekDirty(g);
-      const firstWrite = !this.treeWritten.has(key);
-      const nodesDir = nodePath.join(dir, "nodes");
-      const indexFile = nodePath.join(dir, "index.md");
-
-      // ── index.md ────────────────────────────────────────────────
-      // ★ P3：稳态 flush 不再整篇重写（13–92KB/次），改为**追加**本帧增量；
-      //   fold / 首次 / 文件缺失 / 膨胀超阈值时才全量重建（重建后追加段自然被覆盖）。
-      const needFullIndex = tree || firstWrite || !nodeFs.existsSync(indexFile) || nodeFs.statSync(indexFile).size > INDEX_APPEND_LIMIT;
-      if (needFullIndex) {
-        nodeFs.writeFileSync(indexFile, renderIndexMd(g), "utf8");
-        this.treeWritten.add(key);
-      } else if (!dirty.empty) {
-        const append = renderIndexAppend(g, dirty);
-        if (append) nodeFs.appendFileSync(indexFile, `${append}\n`, "utf8");
-      }
-
-      // ── nodes/<id>.md ───────────────────────────────────────────
-      // ★ P3：稳态 flush 只记账「待写 md 的节点」；fold 时只写这些 + 本帧 dirty（通常个位数），
-      //   不再全量重写 361–415 个文件（实测 429–836ms）。
-      let pending = this.nodesPendingMd.get(key);
-      if (pending === undefined) {
-        pending = new Set();
-        this.nodesPendingMd.set(key, pending);
-      }
-      if (firstWrite) {
-        nodeFs.mkdirSync(nodesDir, { recursive: true });
-        for (const id of Object.keys(g.nodes)) {
-          if (g.nodes[id]) nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
-        }
-        pending.clear();
-      } else if (tree || pending.size > 0) {
-        nodeFs.mkdirSync(nodesDir, { recursive: true });
-        const writeSet = new Set([...pending, ...dirty.nodes]);
-        for (const id of writeSet) {
-          if (!g.nodes[id]) continue;
-          nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(g, id), "utf8");
-        }
-        pending.clear();
-      } else {
-        for (const id of dirty.nodes) pending.add(id);
-      }
-
-      // ── graph.json + delta ──────────────────────────────────────
-      // 提交点 = 基线 rename。顺序刻意如此：
-      //   ① 需要压缩时：写 tmp → rename 成基线（新哈希）→ 再清 delta；
-      //      崩溃在「rename 之后、清 delta 之前」⇒ 旧帧的 baseHash 与新基线不符，加载时整体忽略，图仍正确；
-      //   ② 稳态：只 append 一帧（~1KB），append 半写 ⇒ 解码时校验失败、就地停止并截断。
-      const baseExists = nodeFs.existsSync(file);
-      if (!baseExists) {
-        const text = toJSON(g);
-        const tmp = `${file}.tmp`;
-        nodeFs.writeFileSync(tmp, text, "utf8");
-        nodeFs.renameSync(tmp, file);
-        nodeFs.writeFileSync(deltaFile, "", "utf8");
-        this.baseHash.set(key, sha(text).slice(0, 16));
-      } else {
-        let base = this.baseHash.get(key);
-        if (base === undefined) {
-          base = sha(nodeFs.readFileSync(file, "utf8")).slice(0, 16);
-          this.baseHash.set(key, base);
-        }
-        const baseBytes = nodeFs.statSync(file).size;
-        const deltaBytes = nodeFs.existsSync(deltaFile) ? nodeFs.statSync(deltaFile).size : 0;
-        // 合并阈值：delta 超过基线的 20% 或 64KB 就压缩（摊销后每步只多写 baseBytes/帧数）
-        const compactLimit = Math.max(64 * 1024, Math.floor(baseBytes * 0.2));
-        if (full || deltaBytes > compactLimit) {
-          const text = toJSON(g);
-          const tmp = `${file}.tmp`;
-          nodeFs.writeFileSync(tmp, text, "utf8");
-          nodeFs.renameSync(tmp, file); // 提交点
-          nodeFs.writeFileSync(deltaFile, "", "utf8");
-          this.baseHash.set(key, sha(text).slice(0, 16));
-        } else if (!dirty.empty) {
-          nodeFs.appendFileSync(deltaFile, encodeDeltaFrame(base, deltaFromDirty(g, dirty)), "utf8");
-        }
-      }
-      clearDirty(g);
-    } catch (error) {
-      // 写失败**不清 dirty**：下次 flush 会把这一轮变更一起写下去（宁可重复写，不可丢变更）
-      this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${String(error)}`);
+    // ★ A2-2 行为变更②：写序/字节全在 R01；失败返回 {ok:false} 且 **dirty 不清**，这里打一行 warn。
+    const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full });
+    if (!result.ok) {
+      this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${result.error}`);
     }
   }
-
   /**
    * 落盘（debounce）。以前是「每 25 个事件才写一次」，实测会导致：
    * 重启/崩溃时丢最后一个窗口的落账；外部观察（人看 graph.md）永远滞后。
