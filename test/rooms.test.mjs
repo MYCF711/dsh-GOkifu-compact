@@ -5,9 +5,10 @@
  * `src/` 里的房间回头 import 了 `scripts/` 或 `lib/` 的实现。一旦发生，
  * 「房间」就只是目录改名，契约文档里的 R-A/R-B 全部失效，而运行时**不会有任何报错**。
  *
- * 本文件按契约文档 §2.8 实现 R-A：
+ * 本文件按契约文档 §2.8 实现 R-A，并按 §4.1 的「新增房间检查清单」实现 C3：
  *
  *   R-A：`src/**` 不得 import `../scripts/` 或 `../lib/`
+ *   C3 ：`src/rooms/` 下**每个** .mjs 文件都必须在 `ROOMS` 表里登记（反向也成立）
  *
  * 历史：A2-1 之前这里是**红 1 处** —— `src/ui.mjs:58` 从 `../scripts/install.mjs` 取
  * `parseEngineBlock/renderEngineBlock`。A2-1 把这段格式代码搬到 `src/rooms/preset-format.mjs`
@@ -21,6 +22,49 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const SRC = nodePath.join(ROOT, "src");
+
+/**
+ * 房间登记表（C3）：`src/rooms/` 下每个文件都必须在这里有一行，且每个房间至少要有一条
+ * 「只能依赖谁 / 绝不能依赖谁」的方向断言。新增房间不登记 ⇒ C3 红。
+ *
+ * `allowed` 是白名单（说明符前缀），`forbid` 是黑名单（正则）。房间的依赖面必须能被
+ * 这两张表解释 —— 不许「悄悄多一个 import」。
+ */
+const ROOMS = {
+  "preset-format": {
+    file: "preset-format.mjs",
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "config-schema": {
+    file: "config-schema.mjs",
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "kifu-persist": {
+    file: "kifu-persist.mjs",
+    allowed: ["node:fs", "node:path", "../graph.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+};
+
+/** 房间文件里所有「既不在 allowed 前缀里、也不命中 forbid」的说明符 = 意外依赖。 */
+export function roomDependencyViolations(roomFile) {
+  const entry = Object.values(ROOMS).find((r) => r.file === roomFile);
+  if (!entry) return [{ file: roomFile, spec: "(未登记)", reason: "C3" }];
+  const text = nodeFs.readFileSync(nodePath.join(SRC, "rooms", roomFile), "utf8");
+  const bad = [];
+  for (const spec of specifiersOf(text)) {
+    if (entry.forbid.some((re) => re.test(spec))) {
+      bad.push({ file: roomFile, spec, reason: "forbidden" });
+      continue;
+    }
+    if (!entry.allowed.some((prefix) => spec === prefix || spec.startsWith(prefix))) {
+      bad.push({ file: roomFile, spec, reason: "not-allowed" });
+    }
+  }
+  return bad;
+}
 
 /* ───────────────────────────── 判据（纯函数） ───────────────────────────── */
 
@@ -137,6 +181,34 @@ export const tests = {
       t.eq(parsed.config.thresholdRatio, 0.45, "thresholdRatio 数值型");
       t.eq(parsed.config.summarizationProvider, "", "空字符串写成 ''");
     });
+  },
+
+  "C3：src/rooms/ 下每个 .mjs 都必须在 ROOMS 表里登记（且表里不许有幽灵文件）"(t) {
+    const files = nodeFs
+      .readdirSync(nodePath.join(SRC, "rooms"), { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(".mjs"))
+      .map((e) => e.name)
+      .sort();
+    const registered = Object.values(ROOMS).map((r) => r.file).sort();
+    t.eq(files, registered, "房间文件集合必须与 ROOMS 表登记完全一致（新增房间不登记 ⇒ 红）");
+  },
+
+  "C3 判据自检：未登记的房间文件必须被判为违规（防止表扫描写错导致永远绿）"(t) {
+    const bad = roomDependencyViolations("__not_a_room__.mjs");
+    t.eq(bad.length, 1, "未登记文件必须返回 1 条 C3 违规");
+    t.eq(bad[0].reason, "C3", "原因必须是 C3");
+  },
+
+  "方向：preset-format / config-schema / kifu-persist 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
+    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs"]) {
+      const bad = roomDependencyViolations(roomFile);
+      t.eq(bad, [], `${roomFile} 依赖面违规：${bad.map((b) => `${b.spec} (${b.reason})`).join("; ")}`);
+    }
+  },
+
+  "方向：config-schema 必须零 import（单一来源不许拉任何实现）"(t) {
+    const text = nodeFs.readFileSync(nodePath.join(SRC, "rooms", "config-schema.mjs"), "utf8");
+    t.eq(specifiersOf(text), [], "config-schema 出现任何 import 都必须红");
   },
 };
 
