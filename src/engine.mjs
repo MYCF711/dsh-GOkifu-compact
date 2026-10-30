@@ -49,25 +49,11 @@ import { createWorldTracker } from "./worldstate.mjs";
 import { planFold, isCheckpointSource } from "./range.mjs";
 import { renderLedger, renderFacts, renderTranspositionWarning, estimateTokens } from "./ledger.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./summary-prompt.mjs";
+import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 
-const BASE_KEYS = new Set([
-  "thresholdRatio",
-  "headroomTokens",
-  "retainRatio",
-  "retainTokens",
-  "summarizationProvider",
-  "summarizationModel",
-  "maxTokens",
-  "compactionRetries",
-  "maxOverflowRetries",
-  "modelPolicies",
-  "auto",
-]);
-
-const SUMMARY_MODE = new Set(["hybrid", "rules", "llm"]);
+const BASE_KEYS = new Set(BASE_KEY_LIST);
 
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
-const MARKER_MODES = new Set(["semantic", "terse", "off"]);
 
 /* ───────────────── P7：fallback 仪表盘（engine 侧） ───────────────── */
 
@@ -118,38 +104,22 @@ const INDEX_APPEND_LIMIT = 256 * 1024;
 
 export const name = "dsh-gokifu-compact";
 
-export const Config = z.object({
-  /* —— 与官方后端的同名键（语义一致，默认值不同） —— */
-  thresholdRatio: z.number().default(0.45).description("窗口占比：压力超过 min(窗口×该值, 窗口−输出预留−余量) 才 fold"),
-  headroomTokens: z.number().default(65536).description("路由输出预留之外的额外压力余量"),
-  retainRatio: z.number().default(0.16).description("逐字保留的近期尾部（占 窗口−输出预留 的比例）"),
-  retainTokens: z.number().description("逐字保留的近期尾部（绝对 token）；与 retainRatio 互斥"),
-  summarizationProvider: z.string().default("").description("摘要模型 provider；留空=跟随最近一次路由"),
-  summarizationModel: z.string().default("").description("摘要模型 model；留空=跟随最近一次路由"),
-  // ★ 2026-10-29：默认值统一到 8192。旧的三处默认互相矛盾（Config 4096 / resolveChess 2048 /
-  //   安装配置 8192），而 3072~4096 在真实会话里会贴边触发 MAX_TOKENS
-  //   （实测 10-28 有 82 次 `summarization truncated at the token cap`）。
-  //   8192 与桌面 preset 实际使用的值一致，Kimi 评估的 5/15/30 条失败边抽样全部通过。
-  maxTokens: z.number().default(8192).description("摘要输出上限"),
-  compactionRetries: z.number().default(1),
-  maxOverflowRetries: z.number().default(1),
-  modelPolicies: z.array(z.any()).default([]),
-  auto: z.boolean().default(true),
+/**
+ * ★ A2-4（2026-10-30）：Config 由 `src/rooms/config-schema.mjs` 的 SCHEMA 生成 —— 默认值只有一个来源。
+ *   逐键顺序/类型/默认值/描述与原手写字面量完全一致（`test/config-schema.test.mjs` 的 golden 钉住）。
+ */
+function zodField(entry) {
+  let field;
+  if (entry.type === "boolean") field = z.boolean();
+  else if (entry.type === "number") field = z.number();
+  else if (entry.type === "array") field = z.array(z.any());
+  else field = z.string();
+  if (entry.default !== undefined) field = field.default(entry.default);
+  if (entry.desc) field = field.description(entry.desc);
+  return field;
+}
 
-  /* —— 棋谱扩展 —— */
-  summaryMode: z.string().default("hybrid").description("hybrid=规则事实+模型润色；rules=零模型调用；llm=完全交给模型"),
-  growthFloorTokens: z.number().default(40000).description("距上次 fold 至少新增这么多 token 才再次 fold（0=关闭增长门控）"),
-  minFoldTokens: z.number().default(8000).description("被遮蔽内容少于这么多 token 就不 fold（摘要本身要花钱）"),
-  hotLedger: z.boolean().default(true).description("每轮注入失败清单（热上下文）"),
-  hotLedgerMaxTokens: z.number().default(500).description("失败清单的 token 上限"),
-  hotLedgerMarkers: z.string().default("semantic").description("失败边标记档位：semantic=带语义（blocked:permission）+动态图例；terse=只写三态；off=不打标记"),
-  hotLedgerTraceRoot: z.string().default("sessions").description("TRACE 行相对路径的根前缀（默认 sessions ⇒ `sessions/<sid>/index.md`；空串 = 只写 `<sid>/index.md`）"),
-  hotLedgerReplace: z.boolean().default(true).description("热清单就地替换 surface 上的旧节点（surface 永远只有一条）；false=退回追加（长会话会累积）"),
-  transposition: z.boolean().default(true).description("置换检测：同一状态再次到达时不新建节点"),
-  tier2After: z.number().default(8).description("checkpoint 超过这么多时合并最老的两段（tier-2）"),
-  graphDir: z.string().default("").description("棋谱落盘目录；留空 = <DSH_HOME>/chess-context"),
-  worldHashMaxFiles: z.number().default(200).description("世界状态哈希最多 stat 多少个文件"),
-});
+export const Config = z.object(Object.fromEntries(SCHEMA.map((entry) => [entry.key, zodField(entry)])));
 
 function pickBase(config) {
   const out = {};
@@ -934,46 +904,24 @@ function foldFailureWarning(st) {
   );
 }
 
+/** resolveChess 的键序（与 A2-4 之前逐键同序；`onLedgerBudget` 是 engine 的注入位，不进 SCHEMA）。 */
+const RESOLVE_ORDER = [
+  "summaryMode", "thresholdRatio", "headroomTokens", "retainRatio", "retainTokens",
+  "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
+  "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
+  "onLedgerBudget", "transposition", "tier2After", "graphDir", "worldHashMaxFiles",
+];
+
+/** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */
 function resolveChess(config) {
   const c = config ?? {};
-  const mode = SUMMARY_MODE.has(c.summaryMode) ? c.summaryMode : "hybrid";
-  const out = {
-    summaryMode: mode,
-    thresholdRatio: num(c.thresholdRatio, 0.45),
-    headroomTokens: num(c.headroomTokens, 65536),
-    retainRatio: num(c.retainRatio, 0.16),
-    retainTokens: numberOrUndefined(c.retainTokens),
-    summarizationProvider: str(c.summarizationProvider, ""),
-    summarizationModel: str(c.summarizationModel, ""),
-    maxTokens: num(c.maxTokens, 8192),
-    growthFloorTokens: num(c.growthFloorTokens, 40000),
-    minFoldTokens: num(c.minFoldTokens, 8000),
-    hotLedger: c.hotLedger !== false,
-    hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, 500),
-    hotLedgerMarkers: MARKER_MODES.has(c.hotLedgerMarkers) ? c.hotLedgerMarkers : "semantic",
-    hotLedgerTraceRoot: str(c.hotLedgerTraceRoot, "sessions"),
-    hotLedgerReplace: c.hotLedgerReplace !== false,
-    /** ★ P7：测试/宿主用的预算回调（不写进 preset schema —— 函数没法序列化）。 */
-    onLedgerBudget: typeof c.onLedgerBudget === "function" ? c.onLedgerBudget : null,
-    transposition: c.transposition !== false,
-    tier2After: num(c.tier2After, 8),
-    graphDir: str(c.graphDir, ""),
-    worldHashMaxFiles: num(c.worldHashMaxFiles, 200),
-  };
-  if (out.retainRatio >= out.thresholdRatio) out.retainRatio = Math.max(0.05, out.thresholdRatio - 0.05);
+  const base = resolveConfig(c);
+  const out = {};
+  for (const key of RESOLVE_ORDER) {
+    out[key] = key === "onLedgerBudget" ? (typeof c.onLedgerBudget === "function" ? c.onLedgerBudget : null) : base[key];
+  }
   return out;
 }
-
-function num(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-function numberOrUndefined(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-function str(value, fallback) {
-  return typeof value === "string" ? value : fallback;
-}
-
 function routedTarget(session) {
   const config = session.requestHeader()?.config;
   if (config === undefined || !config.provider || !config.model) return undefined;
