@@ -1,5 +1,55 @@
 # 更新记录
 
+## 1.10.0 — 2026-10-30
+
+### 房间化架构：A2 五刀 + A3 前三刀（**GitHub 试用版，桌面不自动更新**）
+
+> ⚠ **分发说明**：1.10.0 **只发 GitHub Release，不发 npm**。DSH 桌面端只认 npm registry，
+> 因此**不会自动更新到本版**；想试用请从本 Release 的源码/tarball 手动安装。
+> npm 上的 `latest` 仍是 1.9.3。
+
+这一版把「上下文压缩后端」从单文件堆拆成 **16 个房间（R00–R15）**，落地了 A2 全部五刀与 A3 前三刀。
+**行为零变更**：所有搬迁都是纯移动 + 旧路径留一行 `export * from "…"` 门面，热清单文本 / classify 判据 /
+`graph.json`·delta 字节 / preset 块格式**一个字节都没动**。
+
+**A2 · 五刀（抽房间 + 收敛配置来源 + 删死接口）**
+
+| 刀 | 房间 | 内容 | 验收 |
+|---|---|---|---|
+| A2-1 | `R15 preset-format`（8,364 B） | preset 纯文本格式 `parseEngineBlock` / `renderEngineBlock` / `replaceCompactionBlock` / `engineBlock` / `KEY_COMMENTS`；`src/ui.mjs` 与 `scripts/install.mjs` 双用（install 必须 re-export，删掉会让 3 个测试红） | 390/0 · pack 65 |
+| A2-4 | `R15 config-schema`（14,968 B） | 配置的**单一来源**：`SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11；`resolve()` / `describe()` / `validatePatch()` / `engineBlock()` 全部派生。**收敛 4/5** —— `lib/client.js` 的 `FIELDS`（15 键硬编码）仍是第 4 份，留待 R12 | 401/0 · pack 66 |
+| A2-5 | — | 死接口清理（纯删除）：`renderTranspositionWarning` / `incomingEdges` / `outgoingEdges` 及 engine 里的无用 import / re-export | 401/0（同数）· pack 66（−664 B） |
+| A2-2 | `R01 kifu-persist`（12,364 B） | 落盘与增量协议搬出 engine：`load` / `flush` / `persistBudget` / `paths`，吃注入的 fs `port`。**两处行为单列**：① load 读不出/版本不符 ⇒ `{repaired, repairedReason}` + 一行 warn（旧版静默建空图）；② flush 失败 ⇒ `{ok:false, error, dirtyKept:true}`，dirty 照旧不清 | 412/0 · pack 67 |
+| A2-3 | `R08 hot-inject`（12,554 B） | 每步注入策略搬出 engine（259 行）：`#bindLedger` / `foldFailureWarning` / `ledgerDigest` / `findLedgerNode` / `messageTextOf` / `elideLegacyLedgers`；`createUserMessage` 由 R09 参数注入 ⇒ **R08 不 import DSH** | 424/0 · pack 68 |
+
+> A2 之间还有一刀 **A2-2-fix**：`rooms` 门禁补 `ROOMS` 登记表与 4 条用例（未登记文件必须红、方向依赖断言），416/0。
+
+**A3 · 前三刀（物理搬迁，旧路径留一行门面）**
+
+| 刀 | 房间 | 文件 | 验收 |
+|---|---|---|---|
+| A3-1a | `R04 verify` | `src/verifier.mjs` → `src/rooms/verify.mjs`（17,914 B，325 行原样） | 424/0（同数）· pack 69 |
+| A3-1b | `R02 fold-planner` | `src/range.mjs` → `src/rooms/fold-planner.mjs`（6,502 B，git 100% 相似度） | 424/0（同数）· pack 70 |
+| A3-1c | `R05 world` | `src/worldstate.mjs` → `src/rooms/world.mjs`（3,292 B）；内部 import `./graph.mjs` → `../graph.mjs`（下沉一层） | 424/0（同数）· pack 71 |
+
+**四条可静态断言的架构方向规则**（`test/rooms.test.mjs`，9/0）：
+R-A `src/**` 不得 import `scripts/`/`lib/`；R-B R00–R08 不得 import `@deepseek-ai/*`/R09/R11/`scripts/`；
+R-C **R09 之外**任何文件不得 import `@deepseek-ai/*`；R-D `lib/client.js` 不 import 仓库内文件、R10/R14 不 import R09。
+
+**验证**
+
+- 全量：**424 passed / 0 failed**（36 个测试文件）
+- `verify-install`：**16/16**
+- `bench 2000`：**351 tokens** / 1.336 ms（81260 / 386945 字符、1.41 MB、2001 节点）—— 与迁移基线逐字一致（ms 为运行噪声）
+- `npm pack --dry-run --json`：**71 文件** / 537,438 B / `49c13887ff3fa9c23e46d573df7410f84b00b3a0`；`test/`·`tmp/`·harness 命中 **0**
+- `rooms` 架构门禁：**9/0**
+
+**未验证（必须知道）**
+
+- **真机重启验证（A2-R）未做** —— 全部 424 项都在假 ctx / 夹具上跑；真实 surface `replace` 行为未在桌面 DSH 上观测。
+- **运行期收益未验证** —— 性能数字全部来自离线夹具。
+- A3 物理搬迁只做了 3/7 刀：`graph` / `keeper+extract` / `ledger` / `summary-prompt` 仍在原位。
+
 ## 1.9.3 — 2026-10-30
 
 ### 修 README 版本行（1.9.2 的发布缺陷）

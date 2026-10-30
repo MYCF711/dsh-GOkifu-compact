@@ -1,20 +1,20 @@
 {
-  "generatedAt": "2026-10-29T09:53:20.453Z",
+  "generatedAt": "2026-10-30T08:12:13.946Z",
   "edges": 2000,
   "nodes": 2001,
   "failures": 1201,
-  "ledgerTokens": 323,
+  "ledgerTokens": 351,
   "ledgerLevel": 5,
   "ledgerOmitted": 1191,
-  "factsChars": 81167,
+  "factsChars": 81260,
   "mdChars": 386945,
   "jsonBytes": 1477550,
   "ms": {
-    "observePair": 0.008,
-    "renderLedger": 0.465,
-    "renderFacts": 1.054,
-    "renderMd": 1.199,
-    "serialize": 3.407,
-    "selectRange": 0.007
+    "observePair": 0.011,
+    "renderLedger": 1.336,
+    "renderFacts": 1.893,
+    "renderMd": 2.126,
+    "serialize": 6.964,
+    "selectRange": 0.009
   }
 }
