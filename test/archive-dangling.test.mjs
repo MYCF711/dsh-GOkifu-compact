@@ -1,0 +1,221 @@
+/**
+ * archive-dangling.test.mjs —— P6-C 归档工具的回归矩阵（2026-10-30）
+ *
+ * 工具：`test/archive-dangling.mjs`（dry-run / apply / verify / rollback）。
+ * 判据来自 `src/ledger.mjs` 的 `classifyDangling`，本文件不重复实现判据。
+ *
+ * 危险面：这是**会改真实 graph.json** 的工具。测试必须证明：
+ *   · dry-run 一个字节都不写；
+ *   · apply 先整目录备份、再写 sidecar、再删主图边，且备份可逐字恢复；
+ *   · live_unsettled 与 from-broken **绝不**被归档（变异：把 live 也归档必须红）。
+ */
+
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import os from "node:os";
+import crypto from "node:crypto";
+import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
+import { DANGLING_STALE_MS } from "../src/ledger.mjs";
+import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions } from "./archive-dangling.mjs";
+
+const TMP = nodePath.resolve(os.tmpdir());
+const NOW = 1_800_000_000_000;
+
+function tmpRoot(name) {
+  const root = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), `gokifu-p6c-${name}-`));
+  const resolved = nodePath.resolve(root);
+  if (!resolved.startsWith(TMP)) throw new Error(`夹具必须在 tmp 下：${resolved}`);
+  return root;
+}
+
+/** 造一个会话目录，含 graph.json + index.md + nodes/。 */
+function makeSessionDir(root, id, build) {
+  const dir = nodePath.join(root, id);
+  nodeFs.mkdirSync(nodePath.join(dir, "nodes"), { recursive: true });
+  const g = build();
+  nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(g), "utf8");
+  nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
+  nodeFs.writeFileSync(nodePath.join(dir, "nodes", "n1.md"), "# n1\n", "utf8");
+  return { dir, g };
+}
+
+/** 混合图：3 residue（旧 ts、to=null）+ 1 live（新 untested）+ 1 fromBroken + 1 真失败 + 1 成功。 */
+function mixedGraph(sessionId = "sess-p6c") {
+  const g = createGraph({ sessionId });
+  const u = addUserNode(g, { seq: 1, text: "把构建跑通。" }).id;
+  const e0 = addEdge(g, { from: u, intent: "成功一步", action: "bash(ls)" });
+  const n2 = addAgentNode(g, { seq: 3, goal: "ok", worldHash: "W0", constraintHash: "C1", via: e0 }).id;
+  g.edges[e0].to = n2;
+  settleEdge(g, e0, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  // 3 条 residue（已结算、无终点、旧 ts）
+  for (let i = 0; i < 3; i += 1) {
+    const e = addEdge(g, { from: n2, intent: `残留 ${i}`, action: "bash(x)" });
+    g.edges[e].ts = NOW - 24 * 3600 * 1000;
+    settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: `boom ${i}` });
+  }
+  // 1 条 live（untested 且新鲜）
+  const live = addEdge(g, { from: n2, intent: "正在跑", action: "bash(sleep 1)" });
+  g.edges[live].ts = NOW - 1000;
+  // 1 条 fromBroken
+  const fb = addEdge(g, { from: "n-does-not-exist", intent: "from 悬空", action: "bash(x)" });
+  settleEdge(g, fb, { to: n2, result: "unverified", verify: { kind: "no-exit", summary: "x" } });
+  // 1 条真失败（有终点）
+  const real = addEdge(g, { from: u, intent: "真失败", action: "bash(npm test)" });
+  settleEdge(g, real, { to: n2, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "AssertionError: real" });
+  return { g, ids: { residue: [], live, fb, real, okNode: n2 } };
+}
+
+/* ───────────────────────────── 用例 ───────────────────────────── */
+
+export const tests = {
+  "P6C-1 planSession：三分类互不重叠，residue 只含旧的无终点边"(t) {
+    const { g } = mixedGraph();
+    const plan = planSession(g, { now: NOW });
+    t.eq(plan.residue.length, 3, "residue 必须 3");
+    t.eq(plan.live.length, 1, "live 必须 1");
+    t.eq(plan.fromBroken.length, 1, "fromBroken 必须 1");
+    for (const e of plan.residue) {
+      t.eq(e.to, null, "residue 必须 to=null");
+      t.ok(NOW - e.ts > DANGLING_STALE_MS, "residue 必须超 10 分钟");
+    }
+    t.eq(plan.live[0].result, "untested", "live 必须是 untested");
+    t.eq(plan.residue.some((e) => e.id === plan.live[0].id), false, "live 不许混进 residue");
+  },
+
+  "P6C-2 buildSidecar：格式/版本/判据/源图 sha256/全部字段都在"(t) {
+    const { g } = mixedGraph();
+    const plan = planSession(g, { now: NOW });
+    const text = toJSON(g);
+    const sc = buildSidecar(g, plan.residue, { now: NOW, sourceSha: sha256(text), sessionId: "sess-p6c" });
+    t.eq(sc.format, "dsh-gokifu-dangling-sidecar", "format");
+    t.eq(sc.version, 1, "version");
+    t.eq(sc.sessionId, "sess-p6c", "sessionId");
+    t.eq(sc.source.sha256, sha256(text), "source sha256");
+    t.ok(sc.criteria.residue.includes("to==null"), "判据必须写明");
+    t.ok(sc.criteria.staleMs > 0, "staleMs");
+    t.eq(sc.edges.length, 3, "edges 条数");
+    // 全部字段保留：与图里的边 JSON 逐字相同
+    for (const e of plan.residue) {
+      t.eq(JSON.stringify(sc.edges.find((x) => x.id === e.id)), JSON.stringify(e), `edge ${e.id} 字段必须逐字保留`);
+    }
+  },
+
+  "P6C-3 dry-run：零写入（前后整树 sha256 不变）"(t) {
+    const root = tmpRoot("dry");
+    try {
+      makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+      makeSessionDir(root, "sess-b", () => {
+        const g = createGraph({ sessionId: "sess-b" });
+        addUserNode(g, { seq: 1, text: "hi" });
+        return g;
+      });
+      const before = hashTree(root);
+      const result = dryRun(root, { now: NOW });
+      const after = hashTree(root);
+      t.eq(JSON.stringify(after), JSON.stringify(before), "dry-run 不许写任何文件");
+      t.eq(result.sessions, 2, "扫到 2 个会话");
+      t.eq(result.residue, 3, "residue 3");
+      t.eq(result.liveUnsettled, 1, "live 1");
+      t.eq(result.fromBroken, 1, "fromBroken 1");
+      t.eq(result.sidecarEdges, 3, "sidecar 预计 3 条");
+      t.ok(result.deltaBytes < 0, `主图应变小：${result.deltaBytes}`);
+      t.eq(nodeFs.existsSync(nodePath.join(root, "sess-a", "graph.dangling.json")), false, "dry-run 不许产 sidecar");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-4 apply：整目录备份 + sidecar + 删 residue + 重建 index.md"(t) {
+    const root = tmpRoot("apply");
+    const backupRoot = tmpRoot("apply-bak");
+    try {
+      makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+      const beforeGraph = nodeFs.readFileSync(nodePath.join(root, "sess-a", "graph.json"), "utf8");
+      const beforeSha = sha256(beforeGraph);
+      const res = apply(root, { now: NOW, backupRoot });
+      // 备份存在且可逐字恢复
+      t.ok(nodeFs.existsSync(res.backupDir), "备份目录必须存在");
+      const manifest = JSON.parse(nodeFs.readFileSync(nodePath.join(res.backupDir, "MANIFEST.json"), "utf8"));
+      t.ok(manifest.files.length >= 3, `备份文件数 ${manifest.files.length}`);
+      const backupGraph = nodeFs.readFileSync(nodePath.join(res.backupDir, "sess-a", "graph.json"), "utf8");
+      t.eq(backupGraph, beforeGraph, "备份里的 graph.json 必须与执行前逐字相同");
+      t.eq(manifest.files.find((f) => f.rel === "sess-a/graph.json")?.sha256, beforeSha, "清单 sha256");
+      // sidecar
+      const sc = JSON.parse(nodeFs.readFileSync(nodePath.join(root, "sess-a", "graph.dangling.json"), "utf8"));
+      t.eq(sc.edges.length, 3, "sidecar 3 条");
+      t.eq(sc.source.sha256, beforeSha, "sidecar 记录的是执行前图 sha");
+      // 主图
+      const g = fromJSON(nodeFs.readFileSync(nodePath.join(root, "sess-a", "graph.json"), "utf8"));
+      t.eq(planSession(g, { now: NOW }).residue.length, 0, "残留必须清零");
+      t.eq(planSession(g, { now: NOW }).live.length, 1, "live 必须保留");
+      t.eq(planSession(g, { now: NOW }).fromBroken.length, 1, "fromBroken 必须保留");
+      // index.md 重建（不是原样）
+      const idx = nodeFs.readFileSync(nodePath.join(root, "sess-a", "index.md"), "utf8");
+      t.eq(idx, renderIndexMd(g), "index.md 必须按新图重建");
+      // 原子写：不留 tmp 文件
+      const leftovers = nodeFs.readdirSync(nodePath.join(root, "sess-a")).filter((f) => f.includes(".tmp-"));
+      t.eq(leftovers, [], "不许留 .tmp- 文件");
+      t.eq(res.archived, 3, "archived 3");
+      t.eq(res.deleted, 3, "deleted 3");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-5 verify：sidecar 数=删边数、residue=0、fromBroken 不变、抽样 10 条逐字相同"(t) {
+    const root = tmpRoot("verify");
+    const backupRoot = tmpRoot("verify-bak");
+    try {
+      makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+      makeSessionDir(root, "sess-b", () => mixedGraph("sess-b").g);
+      const res = apply(root, { now: NOW, backupRoot });
+      const v = verify(root, { now: NOW, backupDir: res.backupDir });
+      t.eq(v.ok, true, `verify 必须 ok：${v.problems.join("; ")}`);
+      t.eq(v.residue, 0, "residue 0");
+      t.eq(v.fromBroken, 2, "fromBroken 2（每个会话 1）");
+      t.eq(v.sidecarEdges, 6, "sidecar 6 条");
+      t.eq(v.samples.length, Math.min(10, v.sidecarEdges), "抽样条数 = min(10, sidecar 边数)");
+      for (const s of v.samples) t.eq(s.identical, true, `抽样 ${s.session}/${s.edge} 必须逐字相同`);
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-6 rollback：从备份逐字恢复（含 index.md / nodes / graph.json）"(t) {
+    const root = tmpRoot("rollback");
+    const backupRoot = tmpRoot("rollback-bak");
+    try {
+      makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+      const before = hashTree(root);
+      const res = apply(root, { now: NOW, backupRoot });
+      t.ok(hashTree(root).some((f) => f.rel === "sess-a/graph.dangling.json"), "apply 后应有 sidecar");
+      const r = rollback(res.backupDir);
+      t.ok(r.restored > 0, "恢复文件数 > 0");
+      // 备份里的 MANIFEST 不参与恢复；其余应逐字一致
+      const after = hashTree(root).filter((f) => f.rel !== "MANIFEST.json");
+      t.eq(JSON.stringify(after), JSON.stringify(before), "回滚后整树必须逐字一致");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-7 listSessions：只认含 graph.json 的目录，坏 JSON 不崩"(t) {
+    const root = tmpRoot("scan");
+    try {
+      makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+      nodeFs.mkdirSync(nodePath.join(root, "empty"), { recursive: true });
+      nodeFs.mkdirSync(nodePath.join(root, "bad"), { recursive: true });
+      nodeFs.writeFileSync(nodePath.join(root, "bad", "graph.json"), "{not json", "utf8");
+      const list = listSessions(root);
+      t.eq(list.length, 2, "只认 sess-a 与 bad（含 graph.json）");
+      const d = dryRun(root, { now: NOW }); // 坏 JSON 不许让扫描崩
+      t.eq(d.sessions, 2, "扫描数 2");
+      t.eq(d.residue, 3, "坏图跳过，不计 residue");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+};
