@@ -24,10 +24,8 @@ import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@d
 
 import {
   createGraph,
-  addAgentNode,
   fromJSON,
   toJSON,
-  renderMd,
   renderIndexMd,
   renderIndexAppend,
   renderNodeMd,
@@ -47,7 +45,7 @@ import {
 import { observeEvent } from "./keeper.mjs";
 import { createWorldTracker } from "./worldstate.mjs";
 import { planFold, isCheckpointSource } from "./range.mjs";
-import { renderLedger, renderFacts, renderTranspositionWarning, estimateTokens } from "./ledger.mjs";
+import { renderLedger, renderFacts } from "./ledger.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./summary-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 
@@ -1146,5 +1144,3 @@ function ruleSummary(g, range) {
   lines.push(`- 本段遮蔽 seq ${range?.start ?? "?"}-${range?.end ?? "?"}；逐字原文在 DSH 会话日志中，按 seq 回读。`);
   return lines.join("\n");
 }
-
-export { estimateTokens, renderTranspositionWarning };

@@ -686,7 +686,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         lines.push("# WORKING: none — no step in this session reached a new position yet");
       }
       // ★ 置换提示（P1-12）：路径上出现 transposition 标记的边 = 回到了走过的状态。
-      //   旧版 `renderTranspositionWarning` 全项目没有调用点，这个提示永远不会出现。
+      //   （A2-5 已删掉那个从来没有调用点的旧包装；提示由 transpositionNote 直接生成。）
       if (transpositionNote) lines.push(transpositionNote);
     } else if (PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)] !== "full") {
       // ★ C-17：L3+ 连「路径」本身都不存在时也要留一行说明 —— 「没有路径」和「路径被省掉了」
@@ -866,13 +866,6 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     for (const e of open.slice(-40)) lines.push(`* ${e.id} "${clip(e.intent || e.action, 90)}"`);
   }
   return lines.join("\n");
-}
-
-/** 人读的「下一步提示」：置换命中时给模型一句警告。 */
-export function renderTranspositionWarning(result) {
-  if (!result?.transposition) return "";
-  const { nodeId, hops } = result.transposition;
-  return `⚠ 置换：你回到了节点 ${nodeId}${hops ? `（经过 ${hops} 条边）` : ""}——这里试过的路都已经记在 LEARNED 里，换一条没试过的。`;
 }
 
 /** 仅供测试的内部控制面（不在包导出面里；改这些等于改行为，必须有测试）。 */

@@ -203,16 +203,6 @@ function predecessorEdge(g, nodeId) {
   return node && node.kind === "agent" ? node.via ?? null : null;
 }
 
-/** 找到导向某节点的所有入边（含置换边）。 */
-export function incomingEdges(g, nodeId) {
-  return Object.values(g.edges).filter((e) => e.to === nodeId);
-}
-
-/** 找到从某节点出发的所有边。 */
-export function outgoingEdges(g, nodeId) {
-  return Object.values(g.edges).filter((e) => e.from === nodeId);
-}
-
 /* ────────────────────────────── 边 ────────────────────────────── */
 
 export function addEdge(g, { from, intent = "", action = "", evidence = null }) {

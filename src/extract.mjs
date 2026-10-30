@@ -84,7 +84,3 @@ export function writtenPathsFromResult(text) {
   return out;
 }
 
-/** 判断一个事件是不是「增量 fold 边界」可用的位置（粗略辅助）。 */
-export function countNewlines(text) {
-  return String(text ?? "").split("\n").length;
-}

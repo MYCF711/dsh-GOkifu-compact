@@ -194,7 +194,3 @@ function guessToolFromEdge(g, edgeId) {
   return m ? m[1] : "unknown";
 }
 
-/** 边 → 用于热上下文的「意图」：优先 intent，退化为 action。 */
-export function edgeLabel(edge) {
-  return norm(edge.intent || edge.action || edge.id).slice(0, 120);
-}
