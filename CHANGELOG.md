@@ -1,5 +1,46 @@
 # 更新记录
 
+## 1.11.2 — 2026-10-30
+
+### 本包改成 DSH bundle（UI 挂载不再需要用户手改 YAML）
+
+**这是第一个 UI bundle 版。** 以前装完包要**手改 profile 的 `cordis.patch.yml`** 加一条
+`- insert: [{id: gokifu-ui, name: 'dsh-gokifu-compact'}]` 才能挂上 UI。手改有两个后患：
+
+1. **双挂载**：用户升级包后手工行还留着，和 bundle 通道同时挂 ⇒ 两个 host 半注册同一个 `/gokifu/api` 前缀 ⇒ **启动即失败**（duplicate prefix route）；
+2. **没挂载**：`dsh plugin add` 不会自己补挂载行 ⇒ 「装好了但没生效」，且**没有任何报错**。
+
+**改法**
+
+- 新增 **`cordis.patch.yml`（28 行）**：只做一件事 —— `- insert: [{id: gokifu-ui, name: 'dsh-gokifu-compact'}]`。
+  **引擎不在这里**：压缩后端必须挂在 **agent preset 的 compaction group 内部**，profile/bundle 级 patch 打不到 `preset.config.plugins`；那一行仍由 `install.mjs` 改 preset。
+  `id` 保持 `gokifu-ui`（与历史手工行一致）⇒ 从手工通道切过来时，日志/文档/doctor 口径都不用改。
+- `package.json`：`dsh.bundle.patch = "./cordis.patch.yml"` · `dsh.manifestVersion = 1` · `files`/`exports` 补 `cordis.patch.yml`；`main` 与 `dsh.client` 不变。
+- **`scripts/install.mjs` 改 bundle 优先**：
+  - `findManualUiRow` / `removeManualUiRow`：定位并（带备份）删除 profile 里的旧手工行
+  - `patchProfileBundles()`：把本包**追加**进 `dsh.profile.bundles`，保持既有顺序；写前备份 profile/`package.json`
+  - `ensureBundleChannel()` = **先加 bundle、再删手工行** —— 顺序保证任何中断都不会出现「两条都没有」的空窗
+  - `git`/`registry` 规格**不改写成 `link`**
+- **`test/verify-install.mjs` 判据升级**：旧判据「bundles 里没有它」→ **「UI 挂载通道二选一，不双挂载」**：两条都在 = 红（双挂载）、都没有 = 红（没挂载）；检查项总数仍 **16**。
+- **`test/ws-install.test.mjs`**：健康夹具改走 bundle 通道；**新增 S11 四种态**（bundle-only 绿 / manual-only 绿 / both 红 / neither 红）。
+- **`test/install-link.test.mjs`** 夹具同步。
+- **新增 `test/bundle.test.mjs`（6 条）**：B-1 声明齐全 · B-2 patch 只插 UI 一行 · B-3 `findManualUiRow` 三态 · B-4 bundle 优先+备份+幂等 · B-5 dry-run 零写 · B-6 registry 规格不被改写。
+- **变异自检（4 条，逐条实测红）**：删 `dsh.bundle` ⇒ B-1；patch 塞引擎行 ⇒ B-2；安装器不删手工行 ⇒ B-4；判据退回「bundle 里不许有」⇒ S11 + S10e-1。
+
+### 验证
+
+- 全量：**443 passed / 0 failed**（36 个测试文件；436 + 6 bundle + 1）
+- `rooms` **15/0** · `ws-install` **14/0** · `install-link` **29/0** · `bundle` **6/0** · `verify-install` **16/16**
+- `bench 2000`：**351 tokens** / 1.423 ms（81,260 / 386,945 字符、1.41 MB、2001 节点）
+- `npm pack --dry-run --json`：**70 文件**（69 + `cordis.patch.yml`）/ 558,113 B；`test/`·`tmp/` 命中 0
+- live 当前仍是**手工通道**（`bundle=无｜手工行=有`）—— `verify-install` 按「二选一」判据通过
+
+**未验证（必须知道）**
+
+- **未跑 live install**：`--apply` 到真实 profile 的 bundle 切换没有执行过（只在 dry-run 与夹具上验证）。
+- **未启 DSH**：bundle 通道在真实插件树里的加载行为未观测。
+- 从手工通道切换到 bundle 的**中断恢复**只在单测里模拟（顺序保证 + 备份），真机未演练。
+
 ## 1.11.1 — 2026-10-30
 
 ### P6-C 落地：未落地尝试不再被当成残留（**热清单新增 OPTIONS 段**）
