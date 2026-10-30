@@ -94,6 +94,13 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "migrate": {
+    file: "migrate.mjs",
+    // 契约 R14 + P6C-2：R00 只读、R01 路径规则（graphRoot）、R06 判据（classifyDangling 单一来源）、
+    // node:fs/path/crypto；禁止 engine / scripts / lib / @deepseek-ai（R-E 另有断言）
+    allowed: ["./kifu-model.mjs", "./kifu-persist.mjs", "./ledger.mjs", "node:fs", "node:path", "node:crypto"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
 };
 
 /** 房间文件里所有「既不在 allowed 前缀里、也不命中 forbid」的说明符 = 意外依赖。 */
@@ -378,8 +385,8 @@ export const tests = {
     t.eq(bad[0].reason, "C3", "原因必须是 C3");
   },
 
-  "方向：preset-format / config-schema / kifu-persist / hot-inject / verify / fold-planner / world / kifu-model / keeper / ledger / facts-prompt 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
-    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs", "hot-inject.mjs", "verify.mjs", "fold-planner.mjs", "world.mjs", "kifu-model.mjs", "keeper.mjs", "ledger.mjs", "facts-prompt.mjs"]) {
+  "方向：preset-format / config-schema / kifu-persist / hot-inject / verify / fold-planner / world / kifu-model / keeper / ledger / facts-prompt / migrate 只允许各自的依赖面（不得 import @deepseek-ai/engine/scripts/lib）"(t) {
+    for (const roomFile of ["preset-format.mjs", "config-schema.mjs", "kifu-persist.mjs", "hot-inject.mjs", "verify.mjs", "fold-planner.mjs", "world.mjs", "kifu-model.mjs", "keeper.mjs", "ledger.mjs", "facts-prompt.mjs", "migrate.mjs"]) {
       const bad = roomDependencyViolations(roomFile);
       t.eq(bad, [], `${roomFile} 依赖面违规：${bad.map((b) => `${b.spec} (${b.reason})`).join("; ")}`);
     }
@@ -416,11 +423,11 @@ export const tests = {
     t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
   },
 
-  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/）"(t) {
+  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；P6C-2 起 12 个）"(t) {
     const bad = roomPathViolations();
     t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
     // 契约最终路径集合：11 个房间（顺序无关）
-    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "preset-format", "verify", "world"], "房间集合必须与契约 11 个一致");
+    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "migrate", "preset-format", "verify", "world"], "房间集合必须与契约 12 个一致（P6C-2 创建 R14 migrate）");
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
     t.eq(roomPathViolations({ ghost: { file: "ghost.mjs" } }), ["ghost: src/rooms/ghost.mjs 不存在"], "文件不存在必须被检出");
