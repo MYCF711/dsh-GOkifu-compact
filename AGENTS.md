@@ -19,7 +19,7 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 
 ## 1 · 16 个房间（R00–R15）与当前路径
 
-**现状：A2-1 + A2-4 已完成（`src/rooms/` = `preset-format.mjs` + `config-schema.mjs`），A2-2 / A2-3 / A2-5 未开；A3（物理搬迁）一步未做 ⇒ 下面「当前路径」就是真实路径，`engine/graph/ledger/…` 全在原位。**
+**现状：A2-1 / A2-4 / A2-5 / A2-2 已完成（`src/rooms/` = `preset-format.mjs` + `config-schema.mjs` + `kifu-persist.mjs`），**A2-3 未开**；A3（物理搬迁）一步未做 ⇒ 下面「当前路径」就是真实路径，`engine/graph/ledger/…` 全在原位。**
 
 | id | 房间 | 职责 | 当前路径（真实） | 目标路径（A3 后） |
 |---|---|---|---|---|
@@ -38,11 +38,12 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 | **R12** | `ui-client` | 浏览器半（React） | **`lib/client.js`（永久路径：`exports "./client"` + `dsh.client`）** | 同左 |
 | **R13** | `install` | profile / preset 安装与链接 | **`scripts/install.mjs` · `scripts/link-path.mjs`（永久路径：3 个测试直接 import 它们）** | 同左 |
 | **R14** | `migrate` | 数据迁移（P6-C：悬空边归档/剪除） | **无生产代码**；原型 `test/archive-dangling*.mjs` | `src/rooms/migrate.mjs` + `scripts/migrate-dangling.mjs` |
-| **R15** | `config-schema` | 配置的**单一来源**（现散在 5 处） | **无** | `src/rooms/config-schema.mjs` |
+| **R15** | `config-schema` | 配置的**单一来源**（A2-4 后 **4/5 收敛**；`lib/client.js` `FIELDS` 15 键待 R12） | **`src/rooms/config-schema.mjs`（已落位，14,968 B）** | `src/rooms/config-schema.mjs` |
 
-**已落位的两个房间**：
+**已落位的三个房间**：
 - `src/rooms/preset-format.mjs`（A2-1 · 8,364 B）—— preset 纯文本格式 `parseEngineBlock` / `renderEngineBlock` / `replaceCompactionBlock` / `engineBlock` / `KEY_COMMENTS`，被 `src/ui.mjs` + `scripts/install.mjs` 双用（`install.mjs` **必须 re-export**，否则 `ui.test`/`ui-config`/`install-link` 三个测试红）。⚠ **删除 re-export 是「运行期红」而不是「加载期红」**（`38914c7` A2-1-fix 的教训：`ui.test.mjs` 顶部是 `await import`，加载期查不出来）。
-- `src/rooms/config-schema.mjs`（A2-4 · 14,968 B）—— **`SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11** 的单一来源；`resolve()` / `describe()` / `validatePatch()` / `engineBlock()` 派生给 R09/R11/R12/R13。
+- `src/rooms/config-schema.mjs`（A2-4 · 14,968 B）—— **`SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11** 的单一来源；`resolve()` / `describe()` / `validatePatch()` / `engineBlock()` 派生给 R09/R11/R12/R13。⚠ **收敛只到 4/5**：`lib/client.js:78` 的 `FIELDS`（实测 15 键）仍是硬编码第 4 份，留待 R12。
+- `src/rooms/kifu-persist.mjs`（A2-2 · 12,364 B）—— R01 落盘房间：`loadGraph` / `flush` / `persistBudget` / `paths`，吃注入的 `port`（`{readFile, writeFile, rename, appendFile, stat, exists, mkdir}`），**不吞错**（返回 `{ok,error}` 或 `repaired`+`repairedReason`）。
 
 ### 1.1 依赖 DAG
 
@@ -89,6 +90,7 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 
 ### 2.2 profile 安装
 - **动 profile 前先备份**：`profiles/<name>/cordis.patch.yml`、`package.json` 各留 `.bak-before-chess-context-<ts>`。
+  ⚠ **但备份的「拷贝到」动作本身就是写入** —— **DSH 运行时不要对 `cordis.patch.yml` 做 `cp`/`edit`/`sed -i`**，会触发整树热重载并可能 host `exit(1)`（见 §2.7 / §7-9）。**要么在 DSH 未运行时做，要么走设置 UI。**
 - 装/改走 `node scripts/cli.mjs install --dry-run` 先看，再实装；**live profile 两个文件 sha256 前后必须一致**（只读验证安装器没被改坏）。
 
 ### 2.3 单实例
@@ -118,7 +120,7 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 - **一刀一个 commit**，commit 首行 = 切片 id。
 - **不许在同一刀里同时改「结构」与「行为」**。
 - **不许改热清单文本、`classify()` 判据、`graph.json`/delta 字节、preset 块格式**（改动前必须单独复核）。
-- **不许把「热重载」写进任何验收前提**（未验证，见 §5）。
+- **不许把「热重载」写进任何验收前提。分两层说（见 §5）**：**L1 profile 配置**（`profiles/*/cordis.patch.yml`）确实会热重载，且**运行中改会整树热重载并可能让 host `exit(1)`**（15:00 已实测）⇒ **运行中禁改**；**L2 插件代码 / client bundle 是否热重载仍未验证**。**不能说「所有插件都热重载」，也不能说「热重载不存在」。**
 - **每刀完成立刻记账**，不许攒到批次末尾。
 
 ### 2.8 通用
@@ -241,26 +243,32 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ---
 
-## 5 · 当前状态（2026-10-30 15:20 快照 · A2-1/A2-4 之后）
+## 5 · 当前状态（2026-10-30 15:43 快照 · A2-2 之后）
+
+> **本节是「某 commit 的快照」，不是实时状态。**实时状态看 `计划表.md` 对应的刀节（`### A2-5` / `### A2-2` …）。
+> **实测命令**：`git rev-parse --short HEAD` · `node test/run.mjs` · `npm pack --dry-run --json` · `ls src/rooms/`。
 
 | 项 | 状态 | 来源 |
 |---|---|---|
-| **HEAD** | **`d6f06eb`**（A2-4: config-schema 单一来源） | 本节 `git rev-parse` 实测 |
+| **HEAD** | **`3639e51`**（A2-2: kifu-persist 落盘房间抽出） | 本节 `git rev-parse` 实测 |
 | **工作树** | 干净（**提交本文件前**仅 ` M AGENTS.md`，提交后应为 0 行） | 同上 |
 | **迁移门禁（M-00）** | **`385/0 @ f464d2c`**，`verify-install 16/16`，**pack 64 文件** | `计划表.md` 迁移基线节（逐字粘贴的命令输出） |
 | **A2-1（已做完）** | **`390/0`**（33 个测试文件，+5 来自 `rooms` 门禁）；pack **65**（+1） | `计划表.md` A2-1 节 |
-| **A2-4（已做完）** | **`401/0`**（**34 个测试文件**，+11 来自 `config-schema.test.mjs`）；pack **66**（+1）；专项 `config-schema` 11/0 · `rooms` 5/0 · `ui` 54/0 · `persist-incremental` 8/0 | **本节实测**：`node test/run.mjs` / `npm pack --dry-run --json` |
-| **A2-2 / A2-3 / A2-5** | **未开** | — |
-| **A3 物理搬迁** | **一步未做**（`src/rooms/` 只有 `preset-format.mjs` 8,364 B + `config-schema.mjs` 14,968 B；`engine/graph/ledger/…` 仍在原位） | `ls src/rooms/` 实测 |
+| **A2-4（已做完）** | **`401/0`**（34 个测试文件，+11 `config-schema.test.mjs`）；pack **66**；`config-schema` 11/0 · `rooms` 5/0 · `ui-config` **13/0** | `计划表.md` A2-4 节 |
+| **A2-5（已做完）** | **`401/0`**（用例数与 A2-4 同数 —— 纯删除）；pack **66**（不变）/ **532,971 B** / `8e24452e…`（比 A2-4 少 664 B，纯删除的预期）；`engine-harness` 25/0 · `ledger` 24/0 · `rooms` 5/0 · `verify-install` 16/16 | `计划表.md` A2-5 节 |
+| **A2-2（已做完）** | **`412/0`**（**35 个测试文件**，+11 来自 `kifu-persist.test.mjs`）；pack **67**（+1）/ **535,070 B** / `f9019efb…`；专项 `kifu-persist` 11/0 · `rooms` 5/0 · `persist-incremental` 8/0 | **本节实测**：`node test/run.mjs` / `npm pack --dry-run --json` |
+| **A2-3** | **未开**（`src/rooms/hot-inject.mjs` 不存在，已实测） | `ls src/rooms/` |
+| **A3 物理搬迁** | **一步未做**（`src/rooms/` 只有 `preset-format.mjs` 8,364 B · `config-schema.mjs` 14,968 B · `kifu-persist.mjs` 12,364 B；`engine/graph/ledger/…` 仍在原位） | `ls src/rooms/` 实测 |
 | **P6-C（R14）** | **原型已提交，未接入 CLI、未在真实数据执行**（`test/archive-dangling.mjs` 474 行 + `.test.mjs` 221 行 / 7 用例，commit `f464d2c`） | `计划表.md` M-00a |
 | **`allowedModels`** | **已移除 `gokifu` 条目**；现值只剩 `magpie / group/deepseek-v4.1-flash1017`（1 条，`cordis.patch.yml:583`） | 本节 `grep` 实测 |
 | **UI（M1/M2）** | **暂停**（主人指示：优先性能与功能，没人用的插件不需要 UI）⇒ `PROD-M2` 不排期 | `plan` task-5 / 迁移计划 §5.2 |
-| **DSH 热重载** | **未验证** —— **不得作为任何验收前提** | `docs/架构-迁移计划.md` §5.3 |
+| **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `session-893bfb9d`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
+| **热重载 L2 · 插件代码 / client bundle** | **未验证** —— **不得作为任何验收前提** | `docs/架构-迁移计划.md` §5.3 |
 | **运行期收益** | **未验证**（全部性能数字是离线夹具；真机 19387 未观测） | 贯穿 `计划表.md` 各节的「未验证」栏 |
 | **已发布版本** | **1.9.3**（npm `e117c876…`，61 文件 / 439,590 B；commit `283cac9`；tag `v1.9.3`） | `计划表.md` §九十九 / §一百 |
 
 **引用纪律（本仓踩过 4 次）**：
-- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁只有 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0`**（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
+- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0`**（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
 - 每个数字都带**时点 + 树**（发布树 / 工作树 / 某 commit）。**跨批不可比**。
 - 计数/比例必须自带 **定义式 + 分子 + 分母 + 时点**，缺一维视为不可引用。
 
@@ -275,7 +283,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ```
 M-00a → M-00b → M-00c → M-00d → {GUARD-1, GUARD-2, GUARD-3}
-GUARD-1 → A2-1 ✅ → A2-4 ✅ → A2-5 → A2-2 → A2-3 → A2-R
+GUARD-1 → A2-1 ✅ → A2-4 ✅ → A2-5 ✅ → A2-2 ✅ → A2-3 → A2-R
 A2-R → A3-1a(verifier) → b(range) → c(worldstate) → d(graph) → e(keeper+extract)
       → f(ledger) → g(summary-prompt) → (观察一轮) → A3-2(删门面) → A3-3 → A3-R
 P6C-0 → P6C-1 → P6C-2 → P6C-3        （与 A2/A3 并行；P6C-3 必须停窗口）
@@ -303,7 +311,7 @@ PROBE-1 → PROD-M2                     （等主人恢复 M2，当前暂停）
 src/       引擎与规则（纯函数优先，便于单测）；src/rooms/<id>.mjs = 房间
 lib/       浏览器半（React，仅 client.js）
 scripts/   CLI：install / link-path / doctor / cli / check-maintenance / release
-test/      单测 + 挂载校验，全部可脱离 DSH 跑（34 个 *.test.mjs）
+test/      单测 + 挂载校验，全部可脱离 DSH 跑（35 个 *.test.mjs）
 docs/      架构定稿 / 方案 / 草稿 / 测绘报告
 evidence/  实测证据
 AGENTS.md  本文件（不进包）
@@ -311,7 +319,7 @@ AGENTS.md  本文件（不进包）
 
 ---
 
-## 7 · 已知陷阱 TOP 8（都是真踩过的）
+## 7 · 已知陷阱 TOP 9（都是真踩过的）
 
 1. **`README.md` 改了 = 包改了**（npm 强制包含，即使不在 `files`）⇒ 1.9.2 因 `README:3` 漏改版本号被迫发 1.9.3；**已加门禁 A0（`README` 版本行 == `package.json` version）**。
 2. **`.gitignore` 管不了 npm** ⇒ `src/.engine-under-test-p3.mjs` 差点进包（57,914 B），靠 `files` 补 `"!src/.engine-under-test-*.mjs"` 才 62→61。
@@ -321,3 +329,4 @@ AGENTS.md  本文件（不进包）
 6. **运行中插件会覆盖磁盘清理**（内存 flush 回升）⇒ 任何数据清理必须停插件窗口。
 7. **`cordis.patch.yml` patch 打不中只 warning** ⇒ 改完必须核对生效。
 8. **`run.mjs` 的 filter 是文件名子串** ⇒ 按房间名写命令会漏测（见 §3.2）。
+9. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
