@@ -123,6 +123,9 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 - 发布顺序：**冻结写入面 → 现测六份 sha → 跑 `npm pack` 取基线 → re-gate → commit → push → tag → publish → Release**。
   **⚠ 基线起点 = 写入方签字停手之后的现测值，不是任何推定的时刻**（本仓已因这条踩雷 3 次，见 `计划表.md` §九十八 / 草稿 R15）。
 - **`README.md` / `package.json` 被 npm 强制包含，即使不在 `files` 里** ⇒ **改 README = 改发布包**（1.9.2 就是 `README:3` 版本行漏改，只能靠 1.9.3 覆盖；npm 不可变，发出去的错改不回来）。
+- **tag 必须是 annotated**：`git tag -a <tag> -m "release <tag>"`。lightweight tag 只指向 commit，没有作者/日期/消息 ⇒ GitHub Release 的 Tag 一栏是空的、`git cat-file -t` 只看到 commit，「这一版改了什么」在 tag 上查不回来。
+  `scripts/release.mjs` 的计划文本与真做命令都已统一为 `git tag -a`；`scripts/check-maintenance.mjs` 有静态断言（⑦）盯着这条，谁改回 lightweight 立刻红。
+  ⚠ **已发布的 `v1.11.0` 是 lightweight tag，不追改**（tag 是对外契约，不能悄悄重写）；规则从**下一版**起生效。
 - 回滚 = `git revert <sha>`（**一刀一 commit** 才使这条成立）；数据回滚只认 `.bak-<ts>` + sidecar。
 
 ### 2.5 数据迁移（P6-C）
