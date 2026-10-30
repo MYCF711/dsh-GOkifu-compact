@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const SRC = nodePath.join(ROOT, "src");
+/** 本文件自身路径（扫描时跳过：它的自检夹具里含旧路径字符串）。 */
+const SELF = nodePath.join(HERE, "rooms.test.mjs");
 
 /**
  * 房间登记表（C3）：`src/rooms/` 下每个文件都必须在这里有一行，且每个房间至少要有一条
@@ -159,6 +161,71 @@ export function listSources(dir) {
   return out.sort();
 }
 
+/* ─────────────── A3-2-fix（task-104）：门面删除后的两条新门禁 ─────────────── */
+
+/** A3-2 删掉的 8 个旧门面文件名。它们只允许以 `src/rooms/<room>.mjs` 的形态存在。 */
+export const DELETED_FACADES = ["verifier.mjs", "range.mjs", "worldstate.mjs", "graph.mjs", "keeper.mjs", "extract.mjs", "ledger.mjs", "summary-prompt.mjs"];
+
+/** `src/` 顶层允许的模块（永久路径）：其余 .mjs 一律判违规（点开头的生成物不计）。 */
+export const SRC_TOP_LEVEL_ALLOWED = ["engine.mjs", "ui.mjs"];
+
+/**
+ * 纯判据：给定 `src/` 顶层文件名列表，返回违规项。
+ * 为什么需要：A3-2 删掉 8 个门面后，把任意一个门面恢复回来，全量测试仍然全绿
+ * （旧 import 已经全改成 rooms 了）—— 门面就成了「删了也没人发现」的死文件。
+ */
+export function topLevelOffenders(names) {
+  return names
+    .filter((n) => !String(n).startsWith(".") && /\.(mjs|js)$/.test(n) && !SRC_TOP_LEVEL_ALLOWED.includes(n))
+    .sort();
+}
+
+/**
+ * 纯判据：从一段源码里抽出「引用已删门面」的说明符。
+ * - 静态 `import … from` / 动态 `import(…)` / `require(…)` 都算；
+ * - 按解析后的绝对路径判定：只有解析到 `src/<旧门面>.mjs` 才算违规；
+ *   `src/rooms/ledger.mjs` 里的 `./ledger.mjs` 解析到 `src/rooms/ledger.mjs` ⇒ 放行；
+ * - 字符串字面量里的例句（如本文件自检夹具）不是 import，不会被 specifiersOf 命中。
+ */
+export function deletedFacadeRefs(text, fileDir, root = ROOT) {
+  const bad = [];
+  const srcDir = nodePath.join(root, "src");
+  for (const spec of specifiersOf(text)) {
+    if (!String(spec).startsWith(".")) continue;
+    const abs = nodePath.resolve(fileDir, spec);
+    if (nodePath.dirname(abs) === srcDir && DELETED_FACADES.includes(nodePath.basename(abs))) bad.push(spec);
+  }
+  return bad;
+}
+
+/** 仓库根相对路径的加载点（夹具的 `__pick__("src/…")` 与 `join(SRC, …)`）。 */
+export function deletedFacadeRepoRefs(text) {
+  const bad = [];
+  for (const re of [/__pick__\(\s*["']([^"']+)["']/g, /\bjoin\(\s*SRC\s*,\s*["']([^"']+)["']/g]) {
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const rel = String(m[1]).replace(/\\/g, "/");
+      if (DELETED_FACADES.includes(nodePath.posix.basename(rel)) && !rel.includes("/rooms/")) bad.push(m[1]);
+    }
+  }
+  return bad;
+}
+
+/** 扫一片目录，返回所有「引用已删门面」的文件与说明符。 */
+export function findDeletedFacadeReferences(dirs = [SRC, nodePath.join(ROOT, "test")], skip = [SELF]) {
+  const out = [];
+  for (const dir of dirs) {
+    for (const file of listSources(dir)) {
+      if (skip.includes(file)) continue; // 本文件自身：`__pick__("src/graph.mjs")` 是判据自检的字符串夹具，不是真加载
+      const text = nodeFs.readFileSync(file, "utf8");
+      const rel = nodePath.relative(ROOT, file).split(nodePath.sep).join("/");
+      for (const spec of deletedFacadeRefs(text, nodePath.dirname(file))) out.push({ file: rel, spec });
+      for (const spec of deletedFacadeRepoRefs(text)) out.push({ file: rel, spec });
+    }
+  }
+  return out;
+}
+
 /** 返回违规列表：[{file, spec}] */
 export function findReverseDependencies(dir = SRC) {
   const bad = [];
@@ -254,6 +321,32 @@ export const tests = {
   "方向：config-schema 必须零 import（单一来源不许拉任何实现）"(t) {
     const text = nodeFs.readFileSync(nodePath.join(SRC, "rooms", "config-schema.mjs"), "utf8");
     t.eq(specifiersOf(text), [], "config-schema 出现任何 import 都必须红");
+  },
+
+  "门禁①（A3-2-fix）：src/ 顶层只允许 engine.mjs / ui.mjs —— 已删的 8 个门面不许复活"(t) {
+    const names = nodeFs
+      .readdirSync(SRC, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => e.name);
+    const bad = topLevelOffenders(names);
+    t.eq(bad, [], `src/ 顶层出现非永久路径文件：${bad.join(", ")}（A3-2 已删门面不许恢复）`);
+    // 判据自检：合成违规必须被检出（防止「读错目录 ⇒ 永远绿」）
+    t.eq(topLevelOffenders(SRC_TOP_LEVEL_ALLOWED), [], "engine.mjs / ui.mjs 必须放行");
+    t.eq(topLevelOffenders(["engine.mjs", "ui.mjs", "graph.mjs"]), ["graph.mjs"], "合成 graph.mjs 必须被检出");
+    t.eq(topLevelOffenders([".engine-under-test.mjs", "engine.mjs"]), [], "harness 生成物（点开头）不计");
+  },
+
+  "门禁②（A3-2-fix）：src/ 与 test/ 不得引用已删的 8 个门面路径（import / __pick__ / join(SRC)）"(t) {
+    const bad = findDeletedFacadeReferences();
+    t.eq(bad, [], `仍有对已删门面的引用：${bad.map((b) => `${b.file} → ${b.spec}`).join("; ")}`);
+    // 判据自检：合成的旧 import 必须被检出，rooms/ 与同目录房间必须放行
+    t.eq(deletedFacadeRefs('import { x } from "../src/graph.mjs";', nodePath.join(ROOT, "test")), ["../src/graph.mjs"], "合成旧 import 必须被检出");
+    t.eq(deletedFacadeRefs('import { y } from "../src/rooms/kifu-model.mjs";', nodePath.join(ROOT, "test")), [], "rooms/ 路径必须放行");
+    t.eq(deletedFacadeRefs('import { z } from "./ledger.mjs";', nodePath.join(SRC, "rooms")), [], "房间内部 ./ledger.mjs 解析到 rooms/ ⇒ 放行");
+    t.eq(deletedFacadeRefs('import { z } from "./ledger.mjs";', SRC), ["./ledger.mjs"], "src 顶层的 ./ledger.mjs 必须被检出");
+    t.eq(deletedFacadeRepoRefs('const m = __pick__("src/graph.mjs");'), ["src/graph.mjs"], "夹具的 __pick__ 旧路径必须被检出");
+    t.eq(deletedFacadeRepoRefs('const m = __pick__("src/rooms/kifu-model.mjs");'), [], "__pick__ 的 rooms 路径必须放行");
+    t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
   },
 };
 
