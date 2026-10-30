@@ -17,11 +17,11 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 
 ---
 
-## 1 · 16 个房间（R00–R15）与**最终路径**（A2+A3 已完成）
+## 1 · 16 个房间（R00–R15）与**最终路径**（A2+A3+P6-C 已完成）
 
-**现状：A2 + A3 全部收口 —— 11 个房间全在 `src/rooms/`；`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）两个永久文件；8 个旧门面已删除**（`verifier` · `range` · `worldstate` · `graph` · `keeper` · `extract` · `ledger` · `summary-prompt`）。**A2-R 与 A3-R 均在隔离实例（`tmp/dsh-gokifu-compact/test-home/`，独立 DSH_HOME）PASS，未碰 live home。**
+**现状：A2 + A3 全部收口 + P6-C 已晋升 —— 12 个房间全在 `src/rooms/`；`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）两个永久文件；8 个旧门面已删除**（`verifier` · `range` · `worldstate` · `graph` · `keeper` · `extract` · `ledger` · `summary-prompt`）。**A2-R / A3-R 隔离实例 PASS；P6C-3 隔离目录端到端 PASS（dry-run 零写入 · apply 只归档 residue · candidate 一条未动 · rollback 逐字恢复）。未碰 live home。**
 
-| id | 房间 | 职责 | 最终路径（A3 已完成） | 命名导出（实测） | 允许依赖 |
+| id | 房间 | 职责 | 最终路径 | 命名导出（实测） | 允许依赖 |
 |---|---|---|---|---:|---|
 | **R00** | `kifu-model` | 棋谱数据层：建图/边/结算/查询/渲染/delta/tewari | `src/rooms/kifu-model.mjs` | 43 | 零依赖（仅 `node:crypto`） |
 | **R01** | `kifu-persist` | 落盘与增量协议（load / flush / 路径 / delta 回放 / 坏尾截断） | `src/rooms/kifu-persist.mjs` | 10 | R00 · `node:fs`/`path`（经注入 port） |
@@ -29,7 +29,7 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 | **R03** | `keeper` | 事件 → 图（含 extract） | `src/rooms/keeper.mjs` | 11 | R00 · R04 |
 | **R04** | `verify` | 验证信号分类（判据集中一处） | `src/rooms/verify.mjs` | 7 | **零依赖** |
 | **R05** | `world` | 世界状态哈希 | `src/rooms/world.mjs` | 1 | R00 |
-| **R06** | `ledger` | 热上下文渲染 + 悬空边分类 | `src/rooms/ledger.mjs` | 14 | R00 · R04 |
+| **R06** | `ledger` | 热上下文渲染 + 悬空边分类（**五类**：none / from-broken / live-unsettled / **candidate** / residue） | `src/rooms/ledger.mjs` | 15 | R00 · R04 |
 | **R07** | `facts-prompt` | 摘要硬事实与指令 | `src/rooms/facts-prompt.mjs` | 4 | R06（单向） |
 | **R08** | `hot-inject` | 每步注入策略（`#bindLedger` 等） | `src/rooms/hot-inject.mjs` | 9 | R00 · R06（只吃 session port） |
 | **R09** | `engine-sheath` | **唯一允许 import `@deepseek-ai/*` 的房间** | `src/engine.mjs`（**永久路径**） | 5 | R00–R08 · R15 |
@@ -37,18 +37,18 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 | **R11** | `ui-host` | 详情页 host 半（HTTP + 配置文件读写） | `src/ui.mjs`（**永久路径**） | 21 | R13·`preset-format` · R15 |
 | **R12** | `ui-client` | 浏览器半（React） | `lib/client.js`（**永久路径**） | — | `react`（零本仓依赖） |
 | **R13** | `install` | profile / preset 安装与链接 | `scripts/`（**永久，不搬**） | — | R15 |
-| **R14** | `migrate` | 数据迁移（P6-C：悬空边归档/剪除） | **未创建**（原型 `test/archive-dangling*.mjs`） | — | R00 · R01 · R06（判据） |
+| **R14** | `migrate` | 数据迁移（P6-C：**只归档 settled residue**；`candidate` 保留在图里） | **`src/rooms/migrate.mjs`（已落位，20,913 B）** + **`scripts/migrate-dangling.mjs`**（CLI）+ `scripts/cli.mjs` 的 `migrate-dangling` 子命令 | 21 | R00 · R01 · R06（判据）· `node:fs/path/crypto` |
 | **R15** | `config-schema` | 配置的**单一来源**（A2-4 后 **4/5 收敛**；`lib/client.js` `FIELDS` 15 键待 R12） | `src/rooms/config-schema.mjs` | 9 | **零依赖** |
 
-**11 个房间文件（`src/rooms/`，`ls` 实测）**：
+**12 个房间文件（`src/rooms/`，`ls` 实测）**：
 
 ```
 config-schema.mjs   14,968 B     preset-format.mjs    8,364 B
 facts-prompt.mjs     6,035 B     verify.mjs          17,914 B
 fold-planner.mjs     6,502 B     world.mjs            3,296 B
 hot-inject.mjs      12,557 B     kifu-model.mjs      47,853 B
-keeper.mjs          12,335 B     ledger.mjs          55,948 B
-kifu-persist.mjs    12,368 B
+keeper.mjs          12,335 B     ledger.mjs          59,539 B
+kifu-persist.mjs    12,368 B     migrate.mjs         20,913 B
 ```
 
 **两个永久顶层文件**：`src/engine.mjs`（R09，唯一 import `@deepseek-ai/*`）· `src/ui.mjs`（R11，`main` + `exports "."`）。
@@ -132,7 +132,14 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 - **禁止 engine 启动钩子**。迁移必须是**独立房间 R14 + 显式 CLI**（`scripts/migrate-dangling.mjs`），默认 `--dry-run`，`--apply` 需**主人授权 + 停插件窗口**。
 - **不得杀 DSH 做迁移**，也不得通过重启/停进程「顺便」完成迁移。运行中插件会在内存图 flush 时覆盖磁盘清理（**实测 `netCleaned=0`**）。
 - 迁移允许依赖：R00 只读、R01 路径规则、`node:fs/path/crypto`；**禁止 import R09**。
-- B 方案（剪除）会**不可逆丢失 268 条失败边**（964 条失败边中 27.8%）⇒ 要保留失败历史选 **C（sidecar）**。
+- B 方案（剪除）会**不可逆丢失 268 条失败边**（964 条失败边中 27.8%）⇒ **已确定走 C（sidecar）**，且**收窄为「只归档 settled residue」**：
+  - **归档的只有 `classifyDangling === "residue"`** —— 即 `to===null` **且** `result !== "untested"`（已结算的失败/未验证边）且超 `DANGLING_STALE_MS`（10 分钟）；
+  - **`candidate`（陈旧 untested 边）一条都不动** —— 它是**「你可以继续，也可以放弃」的 OPTIONS**，不是残留；它们以 `OPTIONS (not yet landed — you may continue or abandon):` 段渲染进热清单/`renderFacts`，陈旧标 `[stale 42m]`，并额外打一行 `STALE_UNSETTLED: N edges are untested and older than 10min — listed as OPTIONS …, NOT residue.`；
+  - `planSession` 有**硬断言**：`residue` 集合里若出现 `result==="untested"` 就抛错（判据回退时不悄悄归档）；
+  - `verify` / `APPLY.json` 会比对 **candidates 数**，变了即 `problem`；
+  - **fresh-unsettled（≤10min 的 untested）也不动**；`from-broken` 与真失败边（`to≠null`）同样保留。
+- **120s 新鲜度守卫**：`--apply` 前扫会话目录，任一 `graph.json` 的 `mtime` 距 `now` **绝对值 < 120s** ⇒ 拒绝 apply（**不备份、不写任何文件**），`--force` 才跳过。**用绝对值**是因为 NTFS 时间戳可能比 `Date.now()` 超前几毫秒，只判 `age>=0` 会漏判。
+- **备份必须在 `sessions/` 之外**（`<DSH_HOME>/chess-context/migrate-backups/backup-<ts>`），否则会被自身 `cpSync` 递归。
 
 ### 2.6 不写死用户模型
 - **`allowedModels` 不归插件管**：它是 `profiles/<name>/cordis.patch.yml` 的宿主全局配置 —— 插件**不读、不写、不校验、不提示**。
@@ -223,7 +230,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | R11 | `ui` · `ui-security` · `ui-config` · `ui-perf` · `version-path` | — |
 | R12 | `ui`（源码文本断言，弱） | 待补 Node 装载用例 |
 | R13 | `install-link` · `ws-install` · `ui` | — |
-| R14 | 原型 7 用例（`archive-dangling`） | 晋升后补 `migrate` |
+| R14 | `migrate`（**10/0**：7 等价迁移 + P6C-8 路径经 R01 + P6C-9 120s 守卫） | 原型 `test/archive-dangling.mjs` 已删除（git 识别为 rename） |
 | R15 | `ui-config` · `config-schema`（**11/0**） | ✅ A2-4 已补表驱动全键 |
 
 ---
@@ -267,14 +274,14 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ---
 
-## 5 · 当前状态（2026-10-30 17:06 快照 · **A3 全部收口 + 1.11.0 已发布**）
+## 5 · 当前状态（2026-10-30 17:55 快照 · **A3 收口 + P6-C 晋升 + 1.11.0 已发布**）
 
 > **本节是「某 commit 的快照」，不是实时状态。**实时状态看 `计划表.md` 对应的刀节（`### A2-5` / `### A2-2` …）。
 > **实测命令**：`git rev-parse --short HEAD` · `node test/run.mjs` · `npm pack --dry-run --json` · `ls src/rooms/`。
 
 | 项 | 状态 | 来源 |
 |---|---|---|
-| **代码 HEAD** | **`e9c812a`**（1.11.0: 最小交付房间架构收口 — A2+A3 全完成） | 本节 `git rev-parse` 实测（本文档提交会在其之上） |
+| **代码 HEAD** | **`20ffa94`**（P6C-2: migrate 房间与 CLI 晋升） | 本节 `git rev-parse` 实测（本文档提交会在其之上） |
 | **工作树** | **干净**（`git status --short` = 0 行） | 同上 |
 | **迁移门禁（M-00）** | **`385/0 @ f464d2c`**，`verify-install 16/16`，**pack 64 文件** | `计划表.md` 迁移基线节（逐字粘贴的命令输出） |
 | **A2-1（已做完）** | **`390/0`**（33 个测试文件，+5 来自 `rooms` 门禁）；pack **65**（+1） | `计划表.md` A2-1 节 |
@@ -284,8 +291,11 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | **A2-3（已做完）** | **`424/0`**（**36 个测试文件**，+8 `hot-inject.test.mjs`）；pack **68**（M-00 **+4**）/ **537,343 B** / `0825ab1a…`；`rooms` **9/0** · `hot-inject` **8/0** · `engine-harness` 25/0 · `verify-install` 16/16 | `计划表.md` A2-3 节 |
 | **A2-R（已 PASS）** | **隔离实例 PASS**（`tmp/dsh-gokifu-compact/test-home/`，独立 DSH_HOME，headless）：`compaction start→summary→end` 一次完整、**foldCount=1**、摘要含完整棋谱结构；桌面 `cordis.patch.yml` sha `047a342e…` / mtime / size **三项全同**、19387 同 PID 仍在 ⇒ **live 未受影响**（task-97） | `ws-a2r-verify/REPORT.md` |
 | **A3-R（已 PASS）** | **干净树隔离实例 PASS**（HEAD `0b61fb9`、跑前跑后 `git status` 均 0 项）：EXIT=0、**foldCount=1**、摘要 7 段齐全、桌面与仓库零变化（task-107） | `ws-a3r-verify/REPORT.md` |
-| **A3 物理搬迁** | ✅ **全部完成**：A3-1a…g 七步搬迁 + **A3-2 删 8 个门面** + A3-2-fix 补门禁 + **A3-3 门禁收口**。`src/rooms/` **11 个文件**；`src/` 顶层 **只剩 `engine.mjs` / `ui.mjs`** | `ls src/rooms/` 实测 |
-| **P6-C（R14）** | **原型已提交，未接入 CLI、未在真实数据执行**（`test/archive-dangling.mjs` 474 行 + `.test.mjs` 221 行 / 7 用例，commit `f464d2c`） | `计划表.md` M-00a |
+| **A3 物理搬迁** | ✅ **全部完成**：A3-1a…g 七步搬迁 + **A3-2 删 8 个门面** + A3-2-fix 补门禁 + **A3-3 门禁收口**。A3 收口时 `src/rooms/` **11 个文件**（P6C-2 又加 `migrate.mjs` ⇒ 现 **12**）；`src/` 顶层 **只剩 `engine.mjs` / `ui.mjs`** | `ls src/rooms/` 实测 |
+| **P6C-1（已做完）** | **候选语义**（commit `462a814`）：`classifyDangling` **四类 → 五类**，陈旧 `untested` 从 `residue` 拆出为 **`candidate`**；新增 `isDanglingOption`；`danglingStats` = `{residue, candidates, liveUnsettled, fromBroken}`；`renderLedger`/`renderFacts` 新增 **OPTIONS 段** + `STALE_UNSETTLED` 计数行。全量 433/0（430+3）· pack 67 不变 | `ws-p6c-1/REPORT.md` |
+| **P6C-2（已做完）** | **R14 晋升**（commit `20ffa94`）：`src/rooms/migrate.mjs`（**21 导出**）+ `scripts/migrate-dangling.mjs` + `scripts/cli.mjs` 子命令；原型 `test/archive-dangling.mjs` 删除（git 识别为 rename）。**436/0** · `rooms` 15/0 · `migrate` **10/0** · pack **69**（+2） | `ws-p6c-2/REPORT.md` |
+| **P6C-3（已 PASS）** | **隔离目录端到端**（task-115，`tmp/dsh-gokifu-compact/p6c-3/`，跑前跑后 `git status` = 0）：dry-run **整树 sha `dc547cb8…` 前后相同**（真的没写）；apply 归档 **2 条 residue**、**candidate 2 条一条未动**、residue 清零、`-68 B`；sidecar 含源图 `sha256`/`bytes`/`criteria`；verify **`ok=true`**（抽样逐字段相同）；**rollback 逐字恢复**（整树 sha 回原值） | `ws-p6c-3/REPORT.md`（129 行） |
+| **真实 apply（未做）** | **对 live `sessions/**` 的 apply 从未执行** —— P6C-3 是隔离夹具（2 会话 × 5 边），不是真实 150 个会话。**需主人授权 + 停插件窗口 + 先 dry-run 对账** | `计划表.md` P6-C 节 |
 | **`allowedModels`** | **已移除 `gokifu` 条目**；现值只剩 `magpie / group/deepseek-v4.1-flash1017`（1 条，`cordis.patch.yml:583`） | 本节 `grep` 实测 |
 | **UI（M1/M2）** | **暂停**（主人指示：优先性能与功能，没人用的插件不需要 UI）⇒ `PROD-M2` 不排期 | `plan` task-5 / 迁移计划 §5.2 |
 | **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `session-893bfb9d`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
@@ -294,7 +304,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | **已发布版本** | **`1.11.0` —— npm 与 GitHub Release 都已到位**：npm `latest` = **1.11.0**、**`dist.shasum 3de92f1155a0b651e488923f5a6a19005f1b0205`**、**67 文件 / unpacked 1,373,541 B**；commit **`e9c812a`**、tag **`v1.11.0`**（⚠ **轻量 tag**，不是 annotated）、GitHub Release `v1.11.0`（`draft:false` / `prerelease:false`）。门禁 430/0 · `verify-install` 16/16。**包内 `package.json` / `README:3` = 1.11.0，与 npm 一致** | `计划表.md` 1.11.0 节 + `ws-release-1.11.0/REPORT.md`（107 行） |
 
 **引用纪律（本仓踩过 4 次）**：
-- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0` → A2-2-fix `416/0` → A2-3 `424/0` → A3-1a `424/0`（纯移动，同数；pack 68→69）→ **A3 收口 `430/0`（36 文件；`rooms` 9→15；pack **67**，删门面后净减 2）****（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
+- **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0` → A2-2-fix `416/0` → A2-3 `424/0` → A3-1a `424/0`（纯移动，同数；pack 68→69）→ A3 收口 `430/0`（36 文件；`rooms` 9→15；pack **67**，删门面后净减 2）→ P6C-1 `433/0`（+3；pack 67 不变）→ **P6C-2 `436/0`（+3 `migrate.test.mjs` 新增；pack **69**，+`rooms/migrate.mjs` 与 `scripts/migrate-dangling.mjs`）****（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
 - 每个数字都带**时点 + 树**（发布树 / 工作树 / 某 commit）。**跨批不可比**。
 - 计数/比例必须自带 **定义式 + 分子 + 分母 + 时点**，缺一维视为不可引用。
 
@@ -311,7 +321,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 M-00a → M-00b → M-00c → M-00d → {GUARD-1, GUARD-2, GUARD-3}
 GUARD-1 → A2-1 ✅ → A2-4 ✅ → A2-5 ✅ → A2-2 ✅ → A2-3 ✅ → **A2-R ✅（隔离实例 PASS）**
 A3-1a ✅ → b ✅ → c ✅ → d ✅ → e ✅ → f ✅ → g ✅ → A3-2（删 8 门面）✅ → A3-2-fix ✅ → A3-3 ✅ → **A3-R ✅（隔离实例 PASS）**
-P6C-0 → P6C-1 → P6C-2 → P6C-3        （与 A2/A3 并行；P6C-3 必须停窗口）
+P6C-0 ✅ → P6C-1 ✅（候选语义）→ P6C-2 ✅（R14+CLI 晋升）→ P6C-3 ✅（隔离端到端 PASS）→ **真实 apply 未做（需主人窗口）**
 PROBE-1 → PROD-M2                     （等主人恢复 M2，当前暂停）
 ```
 
