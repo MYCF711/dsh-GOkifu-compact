@@ -565,7 +565,9 @@ tests["E2 判据只有一份：verify 与 doctor 都走 inspectProfileInstall"] 
 /** 把 scripts/ 里两个文件复制进夹具，造一个「已装好的包」，再用 junction 挂出来。 */
 function makeInstalledCopy(fixture, label) {
   const pkgCopy = nodePath.join(fixture.home, `pkg-copy-${label}`);
-  for (const rel of [["scripts", "install.mjs"], ["scripts", "link-path.mjs"], ["test", "verify-install.mjs"]]) {
+  // ★ A2-1：install.mjs 现在从 src/rooms/preset-format.mjs 取块格式（R-A 消反向依赖）。
+  //   「装好的包副本」必须包含该房间文件，否则 junction 场景下 ESM 解析直接失败。
+  for (const rel of [["scripts", "install.mjs"], ["scripts", "link-path.mjs"], ["test", "verify-install.mjs"], ["src", "rooms", "preset-format.mjs"]]) {
     const from = nodePath.join(REPO_DIR, ...rel);
     const to = nodePath.join(pkgCopy, ...rel);
     nodeFs.mkdirSync(nodePath.dirname(to), { recursive: true });
