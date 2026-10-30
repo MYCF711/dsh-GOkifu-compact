@@ -128,6 +128,19 @@ if (from && to) {
        "补 tag：git tag <tag> <commit>（补历史版本是可以的，不改代码）")
 }
 
+// ── ⑦ release.mjs 必须打 annotated tag ───────────────────────────────
+// lightweight tag 只指向 commit，没有作者/日期/消息：GitHub Release 的「Tag」一栏是空的，
+// `git cat-file -t` 只看到 commit —— 「这一版到底改了什么」在 tag 上查不回来。
+// 1.11.0 就是 lightweight tag（`v1.11.0`），事后不可改；规则从下一版起生效。
+const releaseSrc = existsSync(join(ROOT, "scripts", "release.mjs"))
+  ? readFileSync(join(ROOT, "scripts", "release.mjs"), "utf8")
+  : ""
+const usesAnnotated = releaseSrc.includes("git tag -a") && !/git tag \$\{tag\} /.test(releaseSrc)
+ok(usesAnnotated,
+   "release.mjs 打的是 annotated tag（git tag -a … -m …）",
+   "用 lightweight tag ⇒ Release 页没有 tag 说明、`git cat-file -t` 只看到 commit，历史无法解释",
+   '把 scripts/release.mjs 里的 "git tag <tag>" 改成 "git tag -a <tag> -m \\"release <tag>\\""')
+
 // ── 输出 ──────────────────────────────────────────────────────────────
 
 report()

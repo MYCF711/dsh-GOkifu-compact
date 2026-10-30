@@ -206,7 +206,7 @@ for (const n of notes) console.log(C.yellow(`  ! ${n}`))
 
 const plan = []
 plan.push({ what: `git push origin ${branch}`, why: "第 4 步：git 源检测看默认分支 HEAD" })
-plan.push({ what: `git tag ${tag} && git push origin ${tag}`, why: "第 6 步：tag 让「某 bug 出在哪版」可查" })
+plan.push({ what: `git tag -a ${tag} -m "release ${tag}" && git push origin ${tag}`, why: "第 6 步：annotated tag（带消息）让「某 bug 出在哪版」可查，且 GitHub Release 才有说明" })
 plan.push({
   what: `POST /repos/${gh.owner}/${gh.repo}/releases`,
   why: `第 6 步：Release 正文 = CHANGELOG 的 ${version} 段（${releaseBody.split("\n").length} 行，已去掉 > 起因）`,
@@ -247,7 +247,7 @@ function run(cmd, label) {
 }
 
 const pushed = run(`git push origin ${branch}`, `push ${branch}`)
-const tagged = run(`git tag ${tag} && git push origin ${tag}`, `tag ${tag}`)
+const tagged = run(`git tag -a ${tag} -m "release ${tag}" && git push origin ${tag}`, `tag ${tag}`)
 
 let released = false
 
