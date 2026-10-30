@@ -18,6 +18,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -226,6 +227,72 @@ export function findDeletedFacadeReferences(dirs = [SRC, nodePath.join(ROOT, "te
   return out;
 }
 
+/* ─────────────── A3-3（task-105）：最终路径 + C1/R-C/R-E/R-F 四条收口门禁 ─────────────── */
+
+const SCRIPTS = nodePath.join(ROOT, "scripts");
+const LIB = nodePath.join(ROOT, "lib");
+
+/** 契约 R09（engine-sheath）的 4 个已知宿主 specifier —— 多一个少一个都要红。 */
+export const R09_DEEPSEEK_SPECIFIERS = [
+  "@deepseek-ai/dsh-compaction",
+  "@deepseek-ai/dsh-compaction-basic",
+  "@deepseek-ai/dsh-llm",
+  "@deepseek-ai/schemastery",
+];
+
+/** 纯判据：rooms 表的「最终路径」必须与契约一致（`file === <id>.mjs`，且真的落在 src/rooms/）。 */
+export function roomPathViolations(rooms = ROOMS, srcDir = SRC) {
+  const out = [];
+  for (const [id, entry] of Object.entries(rooms)) {
+    if (entry.file !== `${id}.mjs`) out.push(`${id}: file=${entry.file}（契约要求 ${id}.mjs）`);
+    else if (!nodeFs.existsSync(nodePath.join(srcDir, "rooms", entry.file))) out.push(`${id}: src/rooms/${entry.file} 不存在`);
+  }
+  return out;
+}
+
+/** 纯判据：一段源码里的宿主 specifier（去重排序）。 */
+export function deepseekSpecifiers(text) {
+  return [...new Set(specifiersOf(text).filter((s) => String(s).startsWith("@deepseek-ai/")))].sort();
+}
+
+/** C1/R-C：除 `src/engine.mjs`（R09）外，`src/**` 不得出现任何 `@deepseek-ai/*` 的 import。 */
+export function c1Violations(srcDir = SRC) {
+  const out = [];
+  const engine = nodePath.join(srcDir, "engine.mjs");
+  for (const file of listSources(srcDir)) {
+    if (file === engine) continue;
+    for (const spec of deepseekSpecifiers(nodeFs.readFileSync(file, "utf8"))) {
+      out.push({ file: nodePath.relative(ROOT, file).split(nodePath.sep).join("/"), spec });
+    }
+  }
+  return out;
+}
+
+/** R-E：engine 不得 import R14（migrate）；R14 存在时也不得 import engine。 */
+export function rEViolations(engineText, migrateText = null) {
+  const bad = [];
+  for (const spec of specifiersOf(engineText)) {
+    if (/(^|\/)migrate\.mjs$/.test(String(spec).replace(/\\/g, "/"))) bad.push({ where: "engine", spec });
+  }
+  if (migrateText !== null) {
+    for (const spec of specifiersOf(migrateText)) {
+      if (/(^|\/)engine\.mjs$/.test(String(spec).replace(/\\/g, "/"))) bad.push({ where: "migrate", spec });
+    }
+  }
+  return bad;
+}
+
+/** R-F：`src/**`、`scripts/**`、`lib/**` 不得出现 `allowedModels` 字样（宿主全局配置，插件不读不写）。 */
+export function bannedTokenHits(dirs = [SRC, SCRIPTS, LIB], token = "allowedModels") {
+  const hits = [];
+  for (const dir of dirs) {
+    for (const file of listSources(dir)) {
+      if (nodeFs.readFileSync(file, "utf8").includes(token)) hits.push(nodePath.relative(ROOT, file).split(nodePath.sep).join("/"));
+    }
+  }
+  return hits;
+}
+
 /** 返回违规列表：[{file, spec}] */
 export function findReverseDependencies(dir = SRC) {
   const bad = [];
@@ -347,6 +414,53 @@ export const tests = {
     t.eq(deletedFacadeRepoRefs('const m = __pick__("src/graph.mjs");'), ["src/graph.mjs"], "夹具的 __pick__ 旧路径必须被检出");
     t.eq(deletedFacadeRepoRefs('const m = __pick__("src/rooms/kifu-model.mjs");'), [], "__pick__ 的 rooms 路径必须放行");
     t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
+  },
+
+  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/）"(t) {
+    const bad = roomPathViolations();
+    t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
+    // 契约最终路径集合：11 个房间（顺序无关）
+    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "preset-format", "verify", "world"], "房间集合必须与契约 11 个一致");
+    // 判据自检
+    t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
+    t.eq(roomPathViolations({ ghost: { file: "ghost.mjs" } }), ["ghost: src/rooms/ghost.mjs 不存在"], "文件不存在必须被检出");
+  },
+
+  "C1/R-C：@deepseek-ai/* 只允许出现在 src/engine.mjs（R09），且 R09 恰好 4 个已知 specifier"(t) {
+    const bad = c1Violations();
+    t.eq(bad, [], `R09 之外出现宿主 import：${bad.map((b) => `${b.file} → ${b.spec}`).join("; ")}`);
+    const engineSpecs = deepseekSpecifiers(nodeFs.readFileSync(nodePath.join(SRC, "engine.mjs"), "utf8"));
+    t.eq(engineSpecs, R09_DEEPSEEK_SPECIFIERS, "R09 的宿主 specifier 集合必须恰好是契约里的 4 个（harness 的 4 条 stub 替换依赖它）");
+    // 判据自检
+    t.eq(deepseekSpecifiers('import x from "@deepseek-ai/dsh-llm";'), ["@deepseek-ai/dsh-llm"], "合成宿主 import 必须被检出");
+    t.eq(deepseekSpecifiers('// 注释里提到 @deepseek-ai/dsh-compaction-basic 不算 import'), [], "注释/banner 文本不算 import（preset 块里必须能写官方包名）");
+  },
+
+  "R-E：src/engine.mjs 不得 import R14（migrate）；R14 若存在也不得 import engine"(t) {
+    const engineText = nodeFs.readFileSync(nodePath.join(SRC, "engine.mjs"), "utf8");
+    const migratePath = nodePath.join(SRC, "rooms", "migrate.mjs");
+    const migrateText = nodeFs.existsSync(migratePath) ? nodeFs.readFileSync(migratePath, "utf8") : null;
+    const bad = rEViolations(engineText, migrateText);
+    t.eq(bad, [], `R-E 违规：${bad.map((b) => `${b.where} → ${b.spec}`).join("; ")}`);
+    // 判据自检：合成的 engine→migrate / migrate→engine 都必须被检出
+    t.eq(rEViolations('import { plan } from "./rooms/migrate.mjs";').length, 1, "engine import migrate 必须被检出");
+    t.eq(rEViolations('import x from "./rooms/ledger.mjs";'), [], "engine import 非 migrate 房间必须放行");
+    t.eq(rEViolations("", 'import { Engine } from "../engine.mjs";').length, 1, "migrate import engine 必须被检出");
+  },
+
+  "R-F：src/、scripts/、lib/ 不得出现 allowedModels 字样（宿主全局配置，插件不读不写）"(t) {
+    const hits = bannedTokenHits();
+    t.eq(hits, [], `出现 allowedModels 的文件：${hits.join(", ")}`);
+    // 判据自检：临时目录里放一个含禁词的文件，必须被检出（防止「扫错目录 ⇒ 永远绿」）
+    const tmpDir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "rooms-rf-"));
+    try {
+      nodeFs.writeFileSync(nodePath.join(tmpDir, "x.mjs"), "const allowedModels = 1;\n", "utf8");
+      t.eq(bannedTokenHits([tmpDir]).length, 1, "合成 allowedModels 文件必须被检出");
+      nodeFs.writeFileSync(nodePath.join(tmpDir, "y.mjs"), "const somethingElse = 1;\n", "utf8");
+      t.eq(bannedTokenHits([tmpDir]).length, 1, "不含禁词的文件不得误报");
+    } finally {
+      nodeFs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   },
 };
 
