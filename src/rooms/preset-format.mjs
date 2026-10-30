@@ -11,7 +11,9 @@
  * 搬家只搬位置，**一个字节的块格式都不许变** —— 本文件的每个字符都是逐行搬来的。
  *
  * 兼容：scripts/install.mjs 保留同名 re-export（test/ui.test.mjs、test/ui-config.test.mjs、
- * test/install-link.test.mjs 都从那里取）。删掉那行 re-export 会让这些测试**加载期**就红。
+ * test/install-link.test.mjs 都从那里取）。删掉那行 re-export **不会**让文件加载失败，
+ * 而是让 `ui`(38/16)、`ui-config`(8/5)、`ui-security`(19/6) 的用例在**运行期**红
+ * （导入得到 `undefined`，不是 SyntaxError）；`install-link` 仍 29/0。
  */
 
 export const PKG_NAME = "dsh-gokifu-compact";

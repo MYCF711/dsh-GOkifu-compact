@@ -31,7 +31,8 @@ import { PKG_NAME, ENTRY_ID, replaceCompactionBlock, engineBlock, parseEngineBlo
 
 // ★ A2-1（2026-10-30）：preset 块格式的唯一事实已搬到 src/rooms/preset-format.mjs（R13 子房间）。
 //   这里保留**同名兼容再导** —— test/ui.test.mjs、test/ui-config.test.mjs、test/install-link.test.mjs
-//   都从 scripts/install.mjs 取这些符号；删掉这行会让它们加载期就红。
+//   都从 scripts/install.mjs 取这些符号；删掉这行不会让文件加载失败，而是让 ui(38/16)/
+//   ui-config(8/5)/ui-security(19/6) 在**运行期**红（导入得 undefined，不是 SyntaxError）。
 export { PKG_NAME, ENTRY_ID, replaceCompactionBlock, engineBlock, parseEngineBlock, renderEngineBlock, KEY_COMMENTS };
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
