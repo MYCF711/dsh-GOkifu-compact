@@ -1,5 +1,72 @@
 # 更新记录
 
+## 1.11.1 — 2026-10-30
+
+### P6-C 落地：未落地尝试不再被当成残留（**热清单新增 OPTIONS 段**）
+
+1.11.0 之前，**超过 10 分钟仍没落地的尝试**（`to===null && result==="untested"`）被归进 `residue` 一起从热清单里丢掉。
+这是错的：它不是残留，而是**「你可以继续，也可以放弃」的选项** —— 模型有权知道它存在。
+
+**P6C-1 · 悬空边从四类变五类**
+
+| 类 | 判据 | 进热清单？ |
+|---|---|---|
+| `residue` | `to===null` 且**已结算**（`result !== "untested"`）且 >10 分钟 | 不进（真残留，可归档） |
+| **`candidate`（新）** | `to===null` 且 `result === "untested"` 且 >10 分钟 | **进 OPTIONS 段**，陈旧标 `[stale 42m]` |
+| `live-unsettled` | `to===null` 且 `untested` 且 ≤10 分钟 | 进 OPTIONS（新鲜） |
+| `from-broken` | `from` 指向不存在的节点 | 保留可见 |
+| `none` | 其余 | — |
+
+- 新增导出 `isDanglingOption(edge)`：只认 `result==="untested"` 的无终点边；**刚结算的失败边不算选项**
+- `renderLedger` 新增 `OPTIONS (not yet landed — you may continue or abandon):` 区段；**UNVERIFIED 不再包含未落地的边**
+- `renderFacts` 同样拆出 OPTIONS 段，并加 `STALE_UNSETTLED: N edges are untested and older than 10min — listed as OPTIONS …, NOT residue.` 计数行
+- 测试 +3（`[stale 42m]` 标记 / settled 仍归 residue 的回归 / renderFacts 拆分与计数）
+
+### P6C-2 · 迁移工具晋升为房间 R14 + 独立 CLI
+
+- **`src/rooms/migrate.mjs`（20,913 B / 21 导出）**：`planSession` / `buildSidecar` / `removeEdges` / `listSessions` / `dryRun` / `freshSessions` / `backupTree` / `rollback` / `apply` / `verify` + 路径规则
+- **`scripts/migrate-dangling.mjs`** 新 CLI（默认 dry-run）＋ `scripts/cli.mjs` 增 `migrate-dangling` 子命令；参数 `--apply` / `--verify` / `--rollback` / `--backup` / `--root` / `--backup-dir` / `--sessions=` / `--force` / `--now` / `--json` / `--help`；退出码 0/1/2
+- **只归档 settled residue** —— `candidate` 一条都不动，且 `planSession` 有硬断言：`residue` 集合里出现 `result==="untested"` 就抛错（防判据回退时悄悄归档）
+- **路径经 R01**：`sessionsRoot()` = `join(graphRoot({...}), "sessions")`，不自己拼
+- **120s 新鲜度守卫**：`--apply` 前扫会话目录，任一 `graph.json` 的 `|now − mtime| < 120s` ⇒ **拒绝 apply 且不备份、不写任何文件**（用绝对值：NTFS 时间戳可能比 `Date.now()` 超前几毫秒）；`--force` 才跳过
+- **备份写到 `sessions/` 之外**（`<DSH_HOME>/chess-context/migrate-backups/backup-<ts>`），否则会被自身 `cpSync` 递归
+- **坏图逐会话汇总**：`dryRun`/`apply`/`verify` 都返回 `badGraphs:[{session, ok:false, reason}]`（旧原型静默跳过）
+- 原型 `test/archive-dangling.mjs` 删除，测试迁为 `test/migrate.test.mjs`（**10/0**：7 条原有 + 路径经 R01 + 守卫 + 坏图）
+
+**P6C-3 · 隔离目录端到端演练（PASS）**
+
+夹具 2 会话 × 5 边（residue / candidate / live / from-broken / 真失败各一），跑前跑后 `git status` = 0：
+
+| 阶段 | 结果 |
+|---|---|
+| dry-run | `residue:2 / candidates:2 / liveUnsettled:2 / fromBroken:2`，`deltaBytes:-68`；**整树 sha 前后完全相同** ⇒ 真的没写 |
+| apply | 归档 **2 条 residue**、**`candidate` 一条未动**（重算 residue=0 / candidate=1）、`-68 B` |
+| sidecar | 每会话 `graph.dangling.json`：源图 `sha256`/`bytes`/`criteria` + 归档边**全字段** ⇒ 可回灌 |
+| verify | `ok:true`，抽样边与备份图逐字段相同，`problems:[]` |
+| rollback | 整树 sha **回到原值** ⇒ 逐字恢复 |
+
+### 发布流程修复：`release.mjs` 现在打 **annotated tag**
+
+1.10.0 / 1.11.0 的 tag 是**轻量 tag**（`git cat-file -t` 只看到 `commit`）—— 没有作者、日期、消息，
+GitHub Release 的 Tag 一栏是空的，「这一版改了什么」在 tag 上查不回来。
+**修复**：`scripts/release.mjs` 的计划文本与真做命令统一为 `git tag -a <tag> -m "release <tag>"`；
+`scripts/check-maintenance.mjs` 增加静态断言 ⑦ 盯着这条，谁改回 lightweight 立刻红。
+⚠ **已发布的 `v1.11.0` 不追改**（tag 是对外契约）；规则从**本版起**生效。
+
+### 验证
+
+- 全量：**436 passed / 0 failed**（36 个测试文件；A3 收口 430 + P6C-1 的 3 + P6C-2 的 10 − 原型 7）
+- `rooms` 架构门禁 **15/0** · `migrate` **10/0** · `verify-install` **16/16**
+- `bench 2000`：**351 tokens** / 1.333 ms（81,260 / 386,945 字符、1.41 MB、2001 节点）—— 与基线逐字一致
+- `npm pack --dry-run --json`：**69 文件**（67 + `rooms/migrate.mjs` + `scripts/migrate-dangling.mjs`）/ 552,403 B；`test/`·`tmp/`·harness 命中 **0**
+
+**未验证（必须知道）**
+
+- **对 live `sessions/**` 的 apply 从未执行** —— P6C-3 是隔离夹具（2 会话），真实库是 150 个会话 / 13,043 个 agent 节点；规模与真实判据分布都没经历过。
+- **停插件窗口流程一次都没跑**（隔离目录压根没碰运行中的插件）。
+- **sidecar 回灌未实现**（字段齐全 ≠ 有回灌工具）。
+- P6C-2 有一处**契约文字偏差**已披露：契约 R14 的允许依赖未列 R06，但判据必须单一来源（`classifyDangling` 只在 R06）⇒ 房间实际 import `./ledger.mjs` 的判据函数与 `DANGLING_STALE_MS`，已补进 ROOMS 的 allowed 表。
+
 ## 1.11.0 — 2026-10-30
 
 ### 最小交付房间架构收口：A2 + A3 全部完成（**首个把 16 房间落到底的正式版**）
