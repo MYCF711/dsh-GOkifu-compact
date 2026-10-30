@@ -1,5 +1,5 @@
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints } from "../src/ledger.mjs";
+import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
@@ -54,7 +54,7 @@ tests["约束：renderFacts 也包含全部约束"] = () => {
 };
 
 tests["extractConstraintsBlock 从事实块里逐字取出约束"] = async () => {
-  const { extractConstraintsBlock } = await import("../src/summary-prompt.mjs");
+  const { extractConstraintsBlock } = await import("../src/rooms/facts-prompt.mjs");
   const facts = [
     "[HARD FACTS]",
     "ROOT_USER_REQUEST_VERBATIM >>",
@@ -73,7 +73,7 @@ tests["extractConstraintsBlock 从事实块里逐字取出约束"] = async () =>
 };
 
 tests["extractConstraintsBlock 没有约束时返回空串"] = async () => {
-  const { extractConstraintsBlock } = await import("../src/summary-prompt.mjs");
+  const { extractConstraintsBlock } = await import("../src/rooms/facts-prompt.mjs");
   if (extractConstraintsBlock("[HARD FACTS]\nFAILED_ATTEMPTS (1):\n* e1") !== "") throw new Error("应为空");
   if (extractConstraintsBlock("") !== "") throw new Error("空输入应为空");
 };

@@ -13,7 +13,7 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import { sha, hashSet } from "../graph.mjs";
+import { sha, hashSet } from "./kifu-model.mjs";
 
 const MAX_STAT_FILES = 200;
 

@@ -16,7 +16,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, failureClass } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, classifyDangling, danglingStats, isDanglingResidue, DANGLING_STALE_MS } from "../src/ledger.mjs";
+import { renderLedger, renderFacts, classifyDangling, danglingStats, isDanglingResidue, DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
 

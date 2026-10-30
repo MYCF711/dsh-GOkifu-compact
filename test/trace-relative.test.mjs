@@ -15,7 +15,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, traceRelativeDir, _internal } from "../src/ledger.mjs";
+import { renderLedger, renderFacts, traceRelativeDir, _internal } from "../src/rooms/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
 

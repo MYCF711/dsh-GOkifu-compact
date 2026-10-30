@@ -13,7 +13,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fromJSON, renderIndexMd, renderNodeMd } from "../src/graph.mjs";
+import { fromJSON, renderIndexMd, renderNodeMd } from "../src/rooms/kifu-model.mjs";
 
 const CHESS_ROOT = path.join(process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home", "chess-context", "sessions");
 const args = process.argv.slice(2);

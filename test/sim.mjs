@@ -9,7 +9,7 @@
  * 保留边界 —— 因此**上一次的 checkpoint 必定被再摘要一次**，这就是 ρ^k 衰减的来源。
  */
 
-import { planFold } from "../src/range.mjs";
+import { planFold } from "../src/rooms/fold-planner.mjs";
 
 export function createSim({ window = 1_000_000, systemTokens = 8000, toolsTokens = 12000, checkpointTokens = 700 } = {}) {
   let nextSeq = 1;

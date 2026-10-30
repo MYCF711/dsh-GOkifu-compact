@@ -17,7 +17,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createGraph, addUserNode, addUserNodeId } from "./graph-fixtures.mjs";
-import { addUserNode as addUserNodeFromSrc } from "../src/graph.mjs";
+import { addUserNode as addUserNodeFromSrc } from "../src/rooms/kifu-model.mjs";
 
 export const tests = {};
 

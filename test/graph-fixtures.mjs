@@ -14,9 +14,9 @@
  * 而这次只需要修测试层；生产行为一个字节不改。
  */
 
-import { addUserNode as addUserNodeImpl } from "../src/graph.mjs";
+import { addUserNode as addUserNodeImpl } from "../src/rooms/kifu-model.mjs";
 
-export * from "../src/graph.mjs";
+export * from "../src/rooms/kifu-model.mjs";
 
 /** 返回**完整节点对象**（含 id）——`const u = addUserNode(...)` 之后 `u.id` 永远有效。 */
 export function addUserNode(g, options) {

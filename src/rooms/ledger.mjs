@@ -17,8 +17,8 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "../graph.mjs";
-import { weakKindOf } from "../verifier.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./kifu-model.mjs";
+import { weakKindOf } from "./verify.mjs";
 
 /* ───────────────── P6-A：悬空边（to=null）的分类与排除 ───────────────── */
 

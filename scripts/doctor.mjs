@@ -18,7 +18,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { fromJSON } from "../src/graph.mjs";
+import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 
 const asJson = process.argv.includes("--json");

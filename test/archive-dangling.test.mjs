@@ -15,7 +15,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
-import { DANGLING_STALE_MS } from "../src/ledger.mjs";
+import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions } from "./archive-dangling.mjs";
 
 const TMP = nodePath.resolve(os.tmpdir());

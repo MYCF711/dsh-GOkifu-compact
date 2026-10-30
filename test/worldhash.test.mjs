@@ -14,7 +14,7 @@
  */
 
 import { createGraph, addUserNodeId, addAgentNode, addEdge, fromJSON, toJSON, hashText } from "./graph-fixtures.mjs";
-import { renderFacts } from "../src/ledger.mjs";
+import { renderFacts } from "../src/rooms/ledger.mjs";
 
 export const tests = {
   "hashText：字符串原样、对象取 .hash、空值 pending"() {

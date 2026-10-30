@@ -26,8 +26,8 @@ const __REPO__ = nodePath.resolve(process.env.GOKIFU_REPO_ROOT || process.argv[3
 const __require__ = __createRequire__(__pathToFileURL__(nodePath.join(__REPO__, "package.json")));
 const __pick__ = (rel) => __require__(nodePath.join(__REPO__, rel));
 
-const { createGraph, addUserNode, addAgentNode, addEdge, settleEdge } = __pick__("src/graph.mjs");
-const { renderLedger } = __pick__("src/ledger.mjs");
+const { createGraph, addUserNode, addAgentNode, addEdge, settleEdge } = __pick__("src/rooms/kifu-model.mjs");
+const { renderLedger } = __pick__("src/rooms/ledger.mjs");
 
 export function scenario() {
   const g = createGraph({ sessionId: "ab-svc-4021", cwd: "/home/dev/work/svc-4021" });

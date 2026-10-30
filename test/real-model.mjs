@@ -18,8 +18,8 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
-import { buildChessInstruction } from "../src/summary-prompt.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
+import { buildChessInstruction } from "../src/rooms/facts-prompt.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");

@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, renderMd, toJSON } from "./graph-fixtures.mjs";
-import { observeEvent } from "../src/keeper.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
-import { selectIncrementalRange } from "../src/range.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
+import { selectIncrementalRange } from "../src/rooms/fold-planner.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");

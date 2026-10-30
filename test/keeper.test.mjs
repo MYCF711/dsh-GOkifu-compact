@@ -1,5 +1,5 @@
-import { createGraph, failureEdges } from "../src/graph.mjs";
-import { observeEvent } from "../src/keeper.mjs";
+import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
 
 function freshState() {
   return {

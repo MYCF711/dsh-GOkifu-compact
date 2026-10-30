@@ -22,12 +22,12 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-ai/dsh-compaction";
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges } from "./graph.mjs";
-import { observeEvent } from "./keeper.mjs";
-import { createWorldTracker } from "./worldstate.mjs";
-import { planFold, isCheckpointSource } from "./range.mjs";
-import { renderFacts } from "./ledger.mjs";
-import { buildChessInstruction, extractConstraintsBlock } from "./summary-prompt.mjs";
+import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges } from "./rooms/kifu-model.mjs";
+import { observeEvent } from "./rooms/keeper.mjs";
+import { createWorldTracker } from "./rooms/world.mjs";
+import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
+import { renderFacts } from "./rooms/ledger.mjs";
+import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";

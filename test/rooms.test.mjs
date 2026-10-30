@@ -43,12 +43,12 @@ const ROOMS = {
   },
   "kifu-persist": {
     file: "kifu-persist.mjs",
-    allowed: ["node:fs", "node:path", "../graph.mjs"],
+    allowed: ["node:fs", "node:path", "./kifu-model.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "hot-inject": {
     file: "hot-inject.mjs",
-    allowed: ["../graph.mjs", "../ledger.mjs"],
+    allowed: ["./kifu-model.mjs", "./ledger.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "verify": {
@@ -64,7 +64,7 @@ const ROOMS = {
   "world": {
     file: "world.mjs",
     // 契约 R05：允许 R00（sha/hashSet）+ node:fs/node:path
-    allowed: ["node:fs", "node:path", "../graph.mjs"],
+    allowed: ["node:fs", "node:path", "./kifu-model.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "kifu-model": {
@@ -76,13 +76,13 @@ const ROOMS = {
   "keeper": {
     file: "keeper.mjs",
     // 契约 R03：允许 R00（图函数）+ R04（classify）
-    allowed: ["../graph.mjs", "../verifier.mjs"],
+    allowed: ["./kifu-model.mjs", "./verify.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "ledger": {
     file: "ledger.mjs",
     // 契约 R06：允许 R00（图查询）+ R04（weakKindOf）；实现不用 node:path，故不登记
-    allowed: ["../graph.mjs", "../verifier.mjs"],
+    allowed: ["./kifu-model.mjs", "./verify.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "facts-prompt": {

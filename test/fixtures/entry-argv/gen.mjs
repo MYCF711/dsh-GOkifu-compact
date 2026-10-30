@@ -76,13 +76,32 @@ function mirrorSelf() {
   return prev === null ? "created" : "updated";
 }
 
+/**
+ * A3-2（2026-10-30）：旧门面删除后，夹具里从**历史 commit** 生成的 __pick__ 路径会指向已不存在的
+ * src/graph.mjs / src/ledger.mjs。这里只做**模块路径**映射（不动被生成文件的任何判据代码）：
+ * 旧路径 -> 新房间路径。历史 ab-old.mjs 的 judgeEntry 实现逐字保留，C-12 负例语义不变。
+ */
+const ROOM_ALIAS = {
+  "src/graph.mjs": "src/rooms/kifu-model.mjs",
+  "src/ledger.mjs": "src/rooms/ledger.mjs",
+  "src/verifier.mjs": "src/rooms/verify.mjs",
+  "src/range.mjs": "src/rooms/fold-planner.mjs",
+  "src/worldstate.mjs": "src/rooms/world.mjs",
+  "src/keeper.mjs": "src/rooms/keeper.mjs",
+  "src/extract.mjs": "src/rooms/keeper.mjs",
+  "src/summary-prompt.mjs": "src/rooms/facts-prompt.mjs",
+};
+const roomify = (text) =>
+  Object.entries(ROOM_ALIAS).reduce((acc, [oldRel, newRel]) => acc.split(`__pick__(${JSON.stringify(oldRel)})`).join(`__pick__(${JSON.stringify(newRel)})`), text);
+
+
 const jobs = [
   // C-12：旧判据（**必须是历史版本**）与修好后（工作区原文）各一份。
   // ★ task-59 发现：原写法用 `git("HEAD:...")`，但 HEAD 自 571a994（1.9.1 发布）起已经是
   //   修好的 judgeEntry —— 再跑生成器会把「负例」悄悄换成「正例」，C-12-1 变成假绿。
   //   旧判据（import.meta.url.endsWith(basename(...))）最后存在于 21be900；这里钉死。
-  ["ab-old.mjs", rewire(git("21be900:test/ab-render.mjs"))],
-  ["ab-now.mjs", rewire(nodeFs.readFileSync(nodePath.join(REPO, "test", "ab-render.mjs"), "utf8"))],
+  ["ab-old.mjs", roomify(rewire(git("21be900:test/ab-render.mjs")))],
+  ["ab-now.mjs", roomify(rewire(nodeFs.readFileSync(nodePath.join(REPO, "test", "ab-render.mjs"), "utf8")))],
 ];
 for (const [name, text] of jobs) console.log(name, writeIfChanged(nodePath.join(OUT, name), text));
 // 负例保险：ab-old 里必须还能看到**旧判据**，否则 C-12-1 就不是负例了（会静默假绿）

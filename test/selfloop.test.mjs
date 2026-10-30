@@ -27,7 +27,7 @@ import {
   failureClass,
   graphHealth,
 } from "./graph-fixtures.mjs";
-import { createWorldTracker } from "../src/worldstate.mjs";
+import { createWorldTracker } from "../src/rooms/world.mjs";
 
 const W = "w1";
 const C = "c1";
@@ -172,7 +172,7 @@ function workingFixture(loopPlacement) {
 }
 
 tests["热清单：自环成功边不参与 WORKING 路径"] = async () => {
-  const { renderLedger } = await import("../src/ledger.mjs");
+  const { renderLedger } = await import("../src/rooms/ledger.mjs");
   for (const placement of ["before", "after"]) {
     const { g, s2, loop } = workingFixture(placement);
     if (g.edges[loop].from !== g.edges[loop].to) throw new Error("前置：夹具里的那条边必须是自环");

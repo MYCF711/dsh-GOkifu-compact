@@ -13,9 +13,9 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
-import { createGraph, failureEdges } from "../src/graph.mjs";
-import { observeEvent } from "../src/keeper.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
+import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
