@@ -1,5 +1,64 @@
 # 更新记录
 
+## 1.11.0 — 2026-10-30
+
+### 最小交付房间架构收口：A2 + A3 全部完成（**首个把 16 房间落到底的正式版**）
+
+1.10.0 只做到 A3-1a/b/c（三个房间 + 8 个门面还在）。这一版把 **A3 剩余四刀、删门面、四条新门禁**全部做完：
+**`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）**，其余 11 个房间全部在 `src/rooms/`，
+**8 个旧门面已删除**（任何复活都会被门禁判红）。
+
+**A3 物理搬迁 · 后四刀（纯移动，旧路径留一行 `export *` 门面）**
+
+| 刀 | 房间 | 文件 | 自证方式 |
+|---|---|---|---|
+| A3-1d | `R00 kifu-model` | `src/graph.mjs`（1,136 行 / 47,853 B）→ `src/rooms/kifu-model.mjs` | `git` 100% 重命名，0 行改动；导出面 43 === 43 |
+| A3-1e | `R03 keeper` | `src/keeper.mjs` + `src/extract.mjs` → `src/rooms/keeper.mjs`（12,335 B） | 合并正文与「两份备份去 import 后拼接」**逐字节相同**；导出 11 === 11 |
+| A3-1f | `R06 ledger` | `src/ledger.mjs`（871 行 / 55,948 B）→ `src/rooms/ledger.mjs` | 对备份 `diff` **只有 2 行**（`./graph.mjs`→`../graph.mjs`、`./verifier.mjs`→`../verifier.mjs`） |
+| A3-1g | `R07 facts-prompt` | `src/summary-prompt.mjs`（101 行）→ `src/rooms/facts-prompt.mjs` | `cmp` **逐字节相同**，零 import 修正 |
+
+**A3-2 · 删除 8 个旧门面 + 一次性改 import**
+
+- `git rm src/{verifier,range,worldstate,graph,keeper,extract,ledger,summary-prompt}.mjs`
+- 重写 **44 个文件 / 77 行** import（纯路径，无断言改动）：`src/engine.mjs` 6 条、`src/rooms/*` 5 条、
+  `test/` 37 文件 + `scripts/doctor.mjs`
+- **pack 75 → 67（−8）**：这正是「门面存在时同一份实现有两个入口」的代价被消掉的直接体现
+
+**A3-2-fix + A3-3 · 让「删门面」可被机器判定（4 + 2 条新门禁，`rooms` 9 → 15 用例）**
+
+| 规则 | 断言 |
+|---|---|
+| `src/` 顶层白名单 | 只允许 `engine.mjs` / `ui.mjs`（harness 生成物不计） |
+| 已删门面引用扫描 | `src/` 与 `test/` 不得引用那 8 个名字；按**解析后的绝对路径**判定（房间内部同目录引用放行） |
+| 最终路径 | `ROOMS` 每项 `file === <id>.mjs` 且真实存在；房间集合必须等于契约 11 个 |
+| **C1/R-C 精确化** | `@deepseek-ai/*` 的 **import** 只允许出现在 `src/engine.mjs`，且宿主说明符集合必须**恰好**那 4 个 —— 判据按**说明符**而非裸文本，所以 preset 块与注释里仍可写官方包名（行为面冻结） |
+| **R-E** | `src/engine.mjs` 不得 import `rooms/migrate.mjs`（P6-C「禁止 engine 启动钩子」的机器判据） |
+| **R-F** | `src/`·`scripts/`·`lib/` 不得出现 `allowedModels` 字样（宿主全局配置，插件不读不写） |
+
+每条都带**判据自检**与**变异自检**（恢复 `src/graph.mjs`、把测试 import 改回旧路径、给引擎偷 import `schemastery`、
+给 engine 加 migrate import、在 doctor 里写 `allowedModels` —— 5 组全部实测变红，还原后 15/0）。
+
+**隔离实例运行时验证（A2-R / A3-R）**
+
+- **A2-R PASS**：`tmp/dsh-gokifu-compact/test-home/`（独立 `DSH_HOME` + profile `test`，headless 不占端口）——
+  `compaction start → summary → end` 一次完整、`foldCount=1`、摘要含完整棋谱结构；桌面
+  `profiles/desktop/cordis.patch.yml` sha256 `047a342e…` / mtime / size **三项跑前跑后全同**，19387 同 PID 仍在监听。
+- **A3-R PASS**：在 `0b61fb9` 干净树上复跑（跑前/跑后 `git status` 均 0 项）—— EXIT 0、`foldCount=1`、摘要 **7 段齐全**、桌面与仓库零变化。
+
+**验证**
+
+- 全量：**430 passed / 0 failed**（36 个测试文件；A3-2-fix 426 + A3-3 新增 4）
+- `rooms` 架构门禁：**15/0** · `verify-install`：**16/16**
+- `bench 2000`：**351 tokens** / 1.133 ms（81,260 / 386,945 字符、1.41 MB、2001 节点）—— 与迁移基线逐字一致
+- `npm pack --dry-run --json`：**67 文件** / 539,339 B / `9f7e2a4b0c923066eb7ef29ffa6d26364da6715f`；`test/`·`tmp/`·harness 命中 **0**
+
+**未验证（必须知道）**
+
+- **A2-R / A3-R 都是隔离实例，不是 live 桌面重启** —— live 侧（19387）的注入与落盘行为仍未在真实会话中观测。
+- **运行期收益未验证** —— 性能数字全部来自离线夹具。
+- `lib/client.js` 的 `FIELDS`（15 键）仍是配置的第 4 份来源（收敛 4/5），留待 R12。
+- R14 `migrate` 房间仍未创建（P6-C 原型在 `test/archive-dangling.mjs`，未接 CLI）。
+
 ## 1.10.0 — 2026-10-30
 
 ### 房间化架构：A2 五刀 + A3 前三刀（**GitHub 试用版，桌面不自动更新**）

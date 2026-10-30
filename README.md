@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.10.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.11.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 323 tokens 的热清单」。**
 
@@ -8,7 +8,7 @@
 热清单     323 tokens       （2000 边压力测试；旧版全量渲染 28,800）
 失败保留   8 / 8            （真实模型对照；官方 8 段模板 4.67 / 8）
 清单开销   0.2% of prompt   （v1.3.1 起；事故会话的旧版是 21.3%）
-验证       424 项单测 · 真实包 8/8 · 真实进程 fold 3~6/6
+验证       430 项单测 · 真实包 8/8 · 真实进程 fold 3~6/6
 ```
 
 GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不只有落子顺序，还有每一手的评语。
