@@ -315,22 +315,31 @@ tests["B6 · 正常保存（全部已知键）不受影响，且回传 effective
 
 /* ───────────────────────── 跨文件一致性（防再次漂移） ───────────────────────── */
 
-tests["一致性 · host 的 DEFAULTS 必须与 engine.mjs 的 schema 默认值逐键相同"] = async () => {
+tests["一致性 · host 的 DEFAULTS 必须与 R15（config-schema 的 SCHEMA）默认值逐键相同"] = async () => {
   const { home } = tempHome();
   await withHome(home, async () => {
     const { uiMod } = await mount();
-    const engineSrc = nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
+    // ★ A2-4：engine.mjs 的 Config 已由 SCHEMA 生成（不再有 `thresholdRatio: z.number().default(0.45)`
+    //   这样的字面量可正则）。判据改为直接读单一来源，逐键比较 —— 比正则更强。
+    const schema = await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href);
     const mismatches = [];
+    const defaults = schema.configDefaults();
     for (const [key, value] of Object.entries(uiMod.DEFAULTS)) {
-      const m = new RegExp(`^\\s{2}${key}:\\s*z\\.[^\\n]*?\\.default\\(([^)]*)\\)`, "m").exec(engineSrc);
-      if (m === null) {
-        mismatches.push(`${key}: engine.mjs 的 Config 里找不到带 default 的该键`);
+      if (!Object.prototype.hasOwnProperty.call(defaults, key)) {
+        mismatches.push(`${key}: SCHEMA 里没有该 preset 键`);
         continue;
       }
-      const literal = m[1].trim();
-      if (literal !== JSON.stringify(value)) mismatches.push(`${key}: ui=${JSON.stringify(value)} engine=${literal}`);
+      if (defaults[key] !== value) mismatches.push(`${key}: ui=${JSON.stringify(value)} schema=${JSON.stringify(defaults[key])}`);
     }
-    if (mismatches.length > 0) throw new Error(`DEFAULTS 与 engine.mjs 漂移：\n  ${mismatches.join("\n  ")}`);
+    for (const key of Object.keys(defaults)) {
+      if (!(key in uiMod.DEFAULTS)) mismatches.push(`${key}: SCHEMA 有但 DEFAULTS 缺`);
+    }
+    if (mismatches.length > 0) throw new Error(`DEFAULTS 与 SCHEMA 漂移：\n  ${mismatches.join("\n  ")}`);
+    // engine 侧必须真的消费同一份 SCHEMA（不是又抄一份字面量）
+    const engineSrc = nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
+    if (!engineSrc.includes("SCHEMA.map((entry) => [entry.key, zodField(entry)])")) {
+      throw new Error("engine.mjs 的 Config 没有从 SCHEMA 生成");
+    }
   });
 };
 

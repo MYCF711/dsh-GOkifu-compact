@@ -58,6 +58,8 @@ import { fileURLToPath } from "node:url";
 // ★ A2-1（2026-10-30）：preset 块格式的唯一定义在 R13 的 preset-format 子房间（src/rooms/）。
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
+// ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
+import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
 
 /**
  * 本文件所在目录（真实路径）。
@@ -74,46 +76,8 @@ export const name = "dsh-gokifu-compact/ui";
 export const inject = ["webServer"];
 
 /** 与 engine.mjs 的 Config 保持一致的默认值（页面用来显示「默认」）。 */
-export const DEFAULTS = Object.freeze({
-  auto: true,
-  thresholdRatio: 0.45,
-  headroomTokens: 65536,
-  retainRatio: 0.16,
-  growthFloorTokens: 40000,
-  minFoldTokens: 8000,
-  summaryMode: "hybrid",
-  // ★ 2026-10-29：与 engine.mjs 的 Config 默认值、桌面 preset 的实际配置统一到 8192。
-  //   旧的三处不一致（4096 / 2048 / 8192），而 3072~4096 在真实会话里贴边触发 MAX_TOKENS。
-  maxTokens: 8192,
-  summarizationProvider: "",
-  summarizationModel: "",
-  hotLedger: true,
-  hotLedgerMaxTokens: 500,
-  hotLedgerMarkers: "semantic",
-  hotLedgerReplace: true,
-  transposition: true,
-  tier2After: 8,
-});
-
-/** 页面允许改的键（白名单；其余键不碰）。 */
-const EDITABLE = new Set(Object.keys(DEFAULTS));
-
-const NUM_RANGES = {
-  thresholdRatio: [0.05, 0.95],
-  headroomTokens: [0, 512000],
-  retainRatio: [0, 0.9],
-  growthFloorTokens: [0, 1000000],
-  minFoldTokens: [0, 1000000],
-  maxTokens: [256, 65536],
-  hotLedgerMaxTokens: [0, 20000],
-  tier2After: [0, 100],
-};
-
-const ENUMS = {
-  summaryMode: ["hybrid", "rules", "llm"],
-  hotLedgerMarkers: ["semantic", "terse", "off"],
-};
-
+/** 与 R15（config-schema）保持一致的默认值（页面用来显示「默认」）。 */
+export const DEFAULTS = Object.freeze(configDefaults());
 function resolveHome() {
   return process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", "DeepSeek Harness", "home");
 }
@@ -526,33 +490,12 @@ export function pruneBackups(presetFile, keep = BACKUP_KEEP) {
  * 与 `lib/client.js` 的 `FIELDS[].label` 保持一致（host 侧不能 import 浏览器半，只能各留一份；
  * `test/ui-config.test.mjs` 有一致性断言钉住这两份）。
  */
-export const FIELD_LABELS = Object.freeze({
-  auto: "自动压缩",
-  thresholdRatio: "触发阈值（占窗口）",
-  headroomTokens: "压力余量（tokens）",
-  retainRatio: "逐字保留尾部",
-  growthFloorTokens: "增长闸（tokens）",
-  minFoldTokens: "最小 fold 量（tokens）",
-  summaryMode: "摘要方式",
-  maxTokens: "摘要输出上限（tokens）",
-  hotLedger: "热清单",
-  hotLedgerMaxTokens: "热清单预算（tokens）",
-  hotLedgerReplace: "就地替换旧清单",
-  hotLedgerMarkers: "清单标记档位",
-  transposition: "置换检测",
-  tier2After: "checkpoint 合并阈值",
-  summarizationProvider: "摘要 provider",
-  summarizationModel: "摘要 model",
-});
-
-/** 布尔键（引擎侧用 `!== false` 语义，但 preset 里必须是真布尔，写进去的也必须是）。 */
-const BOOLEAN_KEYS = new Set(["auto", "hotLedger", "hotLedgerReplace", "transposition"]);
-/** 引擎 `resolveChess()` 认识的枚举值（用它做「生效值」净化，不认的值一律回默认）。 */
-const SUMMARY_MODES = new Set(["hybrid", "rules", "llm"]);
-const MARKER_MODES = new Set(["semantic", "terse", "off"]);
-
-const label = (key) => FIELD_LABELS[key] ?? key;
-
+/**
+ * 中文键名 —— 错误信息里必须出现用户认得的名字，而不是 `tier2After` 这种配置键。
+ * 与 `lib/client.js` 的 `FIELDS[].label` 保持一致（host 侧不能 import 浏览器半，只能各留一份；
+ * `test/ui-config.test.mjs` 有一致性断言钉住这两份）。
+ */
+export const FIELD_LABELS = Object.freeze(fieldLabels());
 /**
  * 把 preset 里「实际写了什么」翻译成「引擎实际生效什么」。
  *
@@ -569,37 +512,14 @@ const label = (key) => FIELD_LABELS[key] ?? key;
  * @param {Record<string, unknown>} presetConfig 从 preset 文本解析出来的原始键值
  * @returns {{effective: Record<string, unknown>, origins: Record<string, string>, unconfiguredKeys: string[]}}
  */
+/**
+ * 「preset 里写了什么 → 引擎实际生效什么」+ 逐键来源（default / preset / sanitized / adjusted）。
+ * ★ A2-4：实现已搬到 R15（`config-schema.describeConfig`）—— 这里只保留导出名与返回形状，
+ *   避免页面与引擎各算一套（那正是 `hotLedgerReplace` 显示成未勾选的起因）。
+ */
 export function describeConfig(presetConfig = {}) {
-  const src = presetConfig ?? {};
-  const effective = {};
-  const origins = {};
-  for (const [key, fallback] of Object.entries(DEFAULTS)) {
-    const raw = src[key];
-    if (raw === undefined) {
-      effective[key] = fallback;
-      origins[key] = "default";
-      continue;
-    }
-    let valid = true;
-    if (NUM_RANGES[key] !== undefined) valid = typeof raw === "number" && Number.isFinite(raw);
-    else if (key === "summaryMode") valid = SUMMARY_MODES.has(raw);
-    else if (key === "hotLedgerMarkers") valid = MARKER_MODES.has(raw);
-    else if (BOOLEAN_KEYS.has(key)) valid = typeof raw === "boolean";
-    else valid = typeof raw === "string";
-    effective[key] = valid ? raw : fallback;
-    origins[key] = valid ? "preset" : "sanitized";
-  }
-  // engine.mjs resolveChess() 结尾那条修正：保留尾部不得 ≥ 触发阈值。
-  if (typeof effective.retainRatio === "number" && typeof effective.thresholdRatio === "number" && effective.retainRatio >= effective.thresholdRatio) {
-    effective.retainRatio = Math.max(0.05, effective.thresholdRatio - 0.05);
-    origins.retainRatio = "adjusted";
-  }
-  const unconfiguredKeys = Object.keys(DEFAULTS)
-    .filter((key) => src[key] === undefined)
-    .sort();
-  return { effective, origins, unconfiguredKeys };
+  return describeConfigFromSchema(presetConfig);
 }
-
 /**
  * 校验并规整页面提交的 patch。
  *
@@ -609,43 +529,20 @@ export function describeConfig(presetConfig = {}) {
  *   · 白名单外的键**不静默丢**：这里仍然只是收集到 `skipped`（纯函数好测），
  *     真正「不许静默」由 `saveConfig`（默认 strictKeys）与路由的 400 保证。
  */
+/**
+ * 校验并规整页面提交的 patch。
+ *
+ * 两条硬规则（WS-UIAUDIT B5/B6）：
+ *   · 数字字段：空串 / 空白 / null **不是 0** —— 直接报错，绝不静默写成 0（`Number("")===0` 的坑）。
+ *     非十进制字面量（`0x10`、`1e3`、`true`）也拒。
+ *   · 白名单外的键**不静默丢**：收集到 `skipped`（纯函数好测），真正「不许静默」由 `saveConfig`
+ *     与路由的 400 保证。
+ *
+ * ★ A2-4：规则与中文文案已搬到 R15（`config-schema.validatePatch`），这里只保留导出名与返回形状。
+ */
 export function sanitizePatch(patch) {
-  const out = {};
-  const skipped = [];
-  for (const [key, value] of Object.entries(patch ?? {})) {
-    if (!EDITABLE.has(key)) {
-      skipped.push(key);
-      continue;
-    }
-    if (NUM_RANGES[key] !== undefined) {
-      const raw = typeof value === "string" ? value.trim() : value;
-      if (raw === null || raw === undefined || raw === "") throw new Error(`${label(key)} 不能为空`);
-      let n;
-      if (typeof raw === "number") n = raw;
-      else if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw)) n = Number(raw);
-      else throw new Error(`${label(key)} 必须是数字（收到 ${JSON.stringify(value)}）`);
-      if (!Number.isFinite(n)) throw new Error(`${label(key)} 必须是有限数字`);
-      const [min, max] = NUM_RANGES[key];
-      if (n < min || n > max) throw new Error(`${label(key)} 超出范围 [${min}, ${max}]（收到 ${n}）`);
-      out[key] = key === "thresholdRatio" || key === "retainRatio" ? Math.round(n * 1000) / 1000 : Math.round(n);
-      continue;
-    }
-    if (ENUMS[key] !== undefined) {
-      if (!ENUMS[key].includes(value)) throw new Error(`${label(key)} 必须是 ${ENUMS[key].join(" | ")}`);
-      out[key] = value;
-      continue;
-    }
-    if (BOOLEAN_KEYS.has(key)) {
-      if (typeof value === "boolean") out[key] = value;
-      else if (value === "true" || value === "false") out[key] = value === "true";
-      else throw new Error(`${label(key)} 必须是 true / false（收到 ${JSON.stringify(value)}）`);
-      continue;
-    }
-    out[key] = String(value ?? "");
-  }
-  return { patch: out, skipped };
+  return validatePatch(patch);
 }
-
 /**
  * 把 patch 写进 preset（带轮转备份；含密钥时不落明文备份）；返回改动清单 + 生效值。
  *
