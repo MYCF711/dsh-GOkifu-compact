@@ -27,7 +27,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
-import { fromJSON, toJSON, graphHealth, renderIndexMd } from "../src/graph.mjs";
+import { fromJSON, toJSON, graphHealth, renderIndexMd } from "../src/rooms/kifu-model.mjs";
 
 function defaultRoot() {
   const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");

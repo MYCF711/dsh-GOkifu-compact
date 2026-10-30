@@ -21,7 +21,7 @@ import {
   messageText,
 } from "../src/rooms/hot-inject.mjs";
 import { addUserNodeId, createGraph } from "./graph-fixtures.mjs";
-import { observeEvent } from "../src/keeper.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
 
 /* ───────────────────────── 夹具 ───────────────────────── */
 

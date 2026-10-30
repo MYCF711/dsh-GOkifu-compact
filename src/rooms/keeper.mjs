@@ -9,8 +9,8 @@
  * 旧路径 src/keeper.mjs 与 src/extract.mjs 都保留一行门面，全部旧 import 仍可用。
  */
 
-import { addUserNode, addEdge, addAgentNode, settleEdge, extractConstraints, norm } from "../graph.mjs";
-import { classify } from "../verifier.mjs";
+import { addUserNode, addEdge, addAgentNode, settleEdge, extractConstraints, norm } from "./kifu-model.mjs";
+import { classify } from "./verify.mjs";
 
 /**
  * extract.mjs —— 从会话事件里抽取「意图 / 动作 / 约束」

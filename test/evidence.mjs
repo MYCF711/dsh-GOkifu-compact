@@ -8,7 +8,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { runPolicy } from "./sim.mjs";
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, renderMd } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, estimateTokens } from "../src/ledger.mjs";
+import { renderLedger, renderFacts, estimateTokens } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");

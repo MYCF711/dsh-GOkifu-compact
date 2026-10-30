@@ -25,8 +25,8 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { execFileSync } from "node:child_process";
-import { fromJSON, toJSON, renderIndexMd, renderNodeMd } from "../src/graph.mjs";
-import { classify, errorSnippet } from "../src/verifier.mjs";
+import { fromJSON, toJSON, renderIndexMd, renderNodeMd } from "../src/rooms/kifu-model.mjs";
+import { classify, errorSnippet } from "../src/rooms/verify.mjs";
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith("--"));

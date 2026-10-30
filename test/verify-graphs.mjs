@@ -36,8 +36,8 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
-import { fromJSON, toJSON, graphHealth } from "../src/graph.mjs";
-import { renderFacts, renderLedger } from "../src/ledger.mjs";
+import { fromJSON, toJSON, graphHealth } from "../src/rooms/kifu-model.mjs";
+import { renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
 import { checkGraphs, checkGraphsWithExemptions, parseArgs, usageText } from "./graph-invariants.mjs";
 import { graphFingerprint, parseExemptions, todayIso } from "./graph-exemptions.mjs";
 

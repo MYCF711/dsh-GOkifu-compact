@@ -284,7 +284,7 @@ function withWriteCounter(fn) {
 }
 
 async function seedSession(dir, sessionId) {
-  const mod = await import(pathToFileURL(nodePath.join(SRC, "graph.mjs")).href);
+  const mod = await import(pathToFileURL(nodePath.join(SRC, "rooms", "kifu-model.mjs")).href);
   const g = mod.createGraph({ sessionId, cwd: "D:/x" });
   const u = mod.addUserNode(g, { seq: 1, text: "必须保持接口不变。" });
   const e1 = mod.addEdge(g, { from: u, intent: "旧的一步", action: "bash(echo old)" });

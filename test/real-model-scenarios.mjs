@@ -20,8 +20,8 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createGraph, addUserNodeId, addEdge, settleEdge } from "./graph-fixtures.mjs";
-import { renderFacts, renderLedger } from "../src/ledger.mjs";
-import { extractConstraintsBlock } from "../src/summary-prompt.mjs";
+import { renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
+import { extractConstraintsBlock } from "../src/rooms/facts-prompt.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");

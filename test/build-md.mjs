@@ -7,7 +7,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fromJSON, renderMd } from "../src/graph.mjs";
+import { fromJSON, renderMd } from "../src/rooms/kifu-model.mjs";
 
 const SESS = process.argv[2] ?? "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-b85b-4e06-845a-65428b43d7c0";
 const g = fromJSON(fs.readFileSync(path.join(SESS, "graph.json"), "utf8"));

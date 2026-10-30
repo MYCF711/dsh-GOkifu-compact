@@ -1,5 +1,5 @@
-import { classify, errorSnippet, toolClass } from "../src/verifier.mjs";
-import { intentFromAssistantText, actionSummary, touchedPaths } from "../src/extract.mjs";
+import { classify, errorSnippet, toolClass } from "../src/rooms/verify.mjs";
+import { intentFromAssistantText, actionSummary, touchedPaths } from "../src/rooms/keeper.mjs";
 
 export const tests = {
   "exit 非 0 ⇒ failure（并抓到报错原文）"() {

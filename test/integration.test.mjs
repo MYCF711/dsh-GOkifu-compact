@@ -1,6 +1,6 @@
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges } from "./graph-fixtures.mjs";
-import { renderFacts, renderLedger } from "../src/ledger.mjs";
-import { planFold } from "../src/range.mjs";
+import { renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
+import { planFold } from "../src/rooms/fold-planner.mjs";
 import { runPolicy } from "./sim.mjs";
 
 /** 从 planFold 的输出判断「这次 fold 是否包含旧 checkpoint」——用 fold 记录间接验证。 */

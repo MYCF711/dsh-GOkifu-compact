@@ -19,8 +19,8 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
-import { fromJSON } from "../src/graph.mjs";
-import { renderLedger } from "../src/ledger.mjs";
+import { fromJSON } from "../src/rooms/kifu-model.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 
 const root = process.env.CHESS_SESSIONS ?? nodePath.join(process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh"), "chess-context", "sessions");
 // ★ 第一个非 `--` 参数才是输出文件（写成 process.argv[2] 会把 `--terse` 当成文件名，

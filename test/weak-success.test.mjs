@@ -27,9 +27,9 @@ import {
   toJSON,
   fromJSON,
 } from "./graph-fixtures.mjs";
-import { classify, weakKindOf } from "../src/verifier.mjs";
-import { observeEvent } from "../src/keeper.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
+import { classify, weakKindOf } from "../src/rooms/verify.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 

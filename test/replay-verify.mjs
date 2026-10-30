@@ -14,9 +14,9 @@ import nodePath from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
-import { createGraph, failureEdges } from "../src/graph.mjs";
-import { observeEvent } from "../src/keeper.mjs";
-import { renderLedger } from "../src/ledger.mjs";
+import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");

@@ -13,10 +13,10 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createGraph, toJSON, fromJSON, addUserNodeId, addEdge, settleEdge, failureEdges, currentPath, validate } from "./graph-fixtures.mjs";
-import { observeEvent } from "../src/keeper.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
-import { classify } from "../src/verifier.mjs";
-import { collectConstraints } from "../src/ledger.mjs";
+import { observeEvent } from "../src/rooms/keeper.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
+import { classify } from "../src/rooms/verify.mjs";
+import { collectConstraints } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 export const tests = {};

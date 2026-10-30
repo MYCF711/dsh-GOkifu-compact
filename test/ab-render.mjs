@@ -20,7 +20,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } from "./graph-fixtures.mjs";
-import { renderLedger } from "../src/ledger.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 
 const WIN = process.platform === "win32";
 

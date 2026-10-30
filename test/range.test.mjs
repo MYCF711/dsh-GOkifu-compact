@@ -1,4 +1,4 @@
-import { selectIncrementalRange, nextSeqAfterLastCheckpoint, hasSystemHead } from "../src/range.mjs";
+import { selectIncrementalRange, nextSeqAfterLastCheckpoint, hasSystemHead } from "../src/rooms/fold-planner.mjs";
 
 /** 构造 surface + pricedNodes */
 function surface(seqs, { systemHead = false, cpAt = null, balanced = () => true } = {}) {

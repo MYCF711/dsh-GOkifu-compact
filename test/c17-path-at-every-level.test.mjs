@@ -20,7 +20,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
-import { renderLedger, estimateTokens } from "../src/ledger.mjs";
+import { renderLedger, estimateTokens } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 

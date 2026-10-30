@@ -10,9 +10,9 @@
  *   3. 真实形态：node 栈迹、Python traceback、管道、空输出、CRLF、旧图兼容。
  */
 
-import { classify, weakKindOf, shellWeakVetoHits, SHELL_WEAK_VETO_RULES } from "../src/verifier.mjs";
+import { classify, weakKindOf, shellWeakVetoHits, SHELL_WEAK_VETO_RULES } from "../src/rooms/verify.mjs";
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 /* ───────────────────────────── 夹具 ───────────────────────────── */
 

@@ -38,7 +38,7 @@ import {
   encodeDeltaFrame,
   decodeDeltaFrames,
   applyDelta,
-} from "../graph.mjs";
+} from "./kifu-model.mjs";
 
 /** 预算指标文件名（键集合冻结，见契约 §2.9）。 */
 export const LEDGER_BUDGET_FILE = "ledger-budget.json";

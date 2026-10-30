@@ -12,7 +12,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis, _tewariStats, _tewariOptions } from "./graph-fixtures.mjs";
-import { renderLedger } from "../src/ledger.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 

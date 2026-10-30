@@ -26,8 +26,8 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { fromJSON, toJSON, renderIndexMd } from "../src/graph.mjs";
-import { classifyDangling, DANGLING_STALE_MS } from "../src/ledger.mjs";
+import { fromJSON, toJSON, renderIndexMd } from "../src/rooms/kifu-model.mjs";
+import { classifyDangling, DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = nodePath.join(process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"), "chess-context", "sessions");

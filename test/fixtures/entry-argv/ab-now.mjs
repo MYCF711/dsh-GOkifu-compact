@@ -28,7 +28,7 @@ const __pick__ = (rel) => __require__(nodePath.join(__REPO__, rel));
 
 import { fileURLToPath } from "node:url";
 const { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } = __pick__("test/graph-fixtures.mjs");
-const { renderLedger } = __pick__("src/ledger.mjs");
+const { renderLedger } = __pick__("src/rooms/ledger.mjs");
 
 const WIN = process.platform === "win32";
 

@@ -15,7 +15,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, fallbackStatusOf, _internal } from "../src/ledger.mjs";
+import { renderLedger, renderFacts, fallbackStatusOf, _internal } from "../src/rooms/ledger.mjs";
 
 const { pickFallback } = _internal;
 

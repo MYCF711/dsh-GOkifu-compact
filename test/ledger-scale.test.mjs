@@ -9,7 +9,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts } from "../src/ledger.mjs";
+import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 

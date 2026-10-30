@@ -24,8 +24,8 @@
  * 依赖：R00（`failureEdges`/`sha`）、R06（`renderLedger`）。
  */
 
-import { failureEdges, sha } from "../graph.mjs";
-import { renderLedger } from "../ledger.mjs";
+import { failureEdges, sha } from "./kifu-model.mjs";
+import { renderLedger } from "./ledger.mjs";
 
 /** 限流：两次注入至少隔这么多事件。 */
 export const INJECT_MIN_EVENTS = 40;
