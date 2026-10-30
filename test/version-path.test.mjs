@@ -43,6 +43,13 @@ function makeFixture(options = {}) {
   for (const file of ["ui.mjs"]) {
     nodeFs.copyFileSync(nodePath.join(ROOT, "src", file), nodePath.join(dir, "src", file));
   }
+  // ★ A2-1：ui.mjs 现在从 ./rooms/preset-format.mjs 取块格式 —— 夹具必须带上该房间文件，
+  //   否则 ESM 解析在加载期就 ENOENT（本用例测的是 readVersion，不是包布局）。
+  nodeFs.mkdirSync(nodePath.join(dir, "src", "rooms"), { recursive: true });
+  nodeFs.copyFileSync(
+    nodePath.join(ROOT, "src", "rooms", "preset-format.mjs"),
+    nodePath.join(dir, "src", "rooms", "preset-format.mjs"),
+  );
   for (const file of ["install.mjs", "link-path.mjs"]) {
     nodeFs.copyFileSync(nodePath.join(ROOT, "scripts", file), nodePath.join(dir, "scripts", file));
   }

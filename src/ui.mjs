@@ -10,7 +10,7 @@
  * 设计约束（都是实机踩出来的）：
  *   · 只走 webServer 具名路由，不用 Typert —— Typert 的 remote-client 是 DSH 构建期生成的，
  *     第三方插件拿不到那条流水线；`register({kind, path, handler})` 是公开的、够用。
- *   · 写配置**必须**走文本级块替换（`scripts/install.mjs` 的 renderEngineBlock），
+ *   · 写配置**必须**走文本级块替换（`src/rooms/preset-format.mjs` 的 renderEngineBlock），
  *     因为 preset 里那一块前后都有别的行；用 YAML 库整份重写会丢注释与顺序。
  *   · 保存后必须重启才生效（插件在 boot 时读 preset），所以返回值带 `restartRequired`。
  *
@@ -55,7 +55,9 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "../scripts/install.mjs";
+// ★ A2-1（2026-10-30）：preset 块格式的唯一定义在 R13 的 preset-format 子房间（src/rooms/）。
+//   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
+import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 
 /**
  * 本文件所在目录（真实路径）。
