@@ -264,14 +264,14 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 
 ---
 
-## 5 · 当前状态（2026-10-30 16:53 快照 · **A3 全部收口**）
+## 5 · 当前状态（2026-10-30 17:06 快照 · **A3 全部收口 + 1.11.0 已发布**）
 
 > **本节是「某 commit 的快照」，不是实时状态。**实时状态看 `计划表.md` 对应的刀节（`### A2-5` / `### A2-2` …）。
 > **实测命令**：`git rev-parse --short HEAD` · `node test/run.mjs` · `npm pack --dry-run --json` · `ls src/rooms/`。
 
 | 项 | 状态 | 来源 |
 |---|---|---|
-| **代码 HEAD** | **`0b61fb9`**（A3-3: 门禁收口 · 最终路径 + C1/R-C/R-E/R-F） | 本节 `git rev-parse` 实测（本文档提交会在其之上） |
+| **代码 HEAD** | **`e9c812a`**（1.11.0: 最小交付房间架构收口 — A2+A3 全完成） | 本节 `git rev-parse` 实测（本文档提交会在其之上） |
 | **工作树** | **干净**（`git status --short` = 0 行） | 同上 |
 | **迁移门禁（M-00）** | **`385/0 @ f464d2c`**，`verify-install 16/16`，**pack 64 文件** | `计划表.md` 迁移基线节（逐字粘贴的命令输出） |
 | **A2-1（已做完）** | **`390/0`**（33 个测试文件，+5 来自 `rooms` 门禁）；pack **65**（+1） | `计划表.md` A2-1 节 |
@@ -288,7 +288,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `session-893bfb9d`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
 | **热重载 L2 · 插件代码 / client bundle** | **未验证** —— **不得作为任何验收前提** | `docs/架构-迁移计划.md` §5.3 |
 | **运行期收益** | **未验证**（全部性能数字是离线夹具；真机 19387 未观测） | 贯穿 `计划表.md` 各节的「未验证」栏 |
-| **已发布版本** | **npm latest = `1.9.3`**（`e117c876…`，61 文件 / 439,590 B，commit `283cac9`）；**GitHub Release 已有 `v1.10.0`**（annotated tag → commit `39ba25e`，房间化架构 A2+A3-1a/b/c；**1.10.0 未发 npm**）⇒ **包内 `package.json` / `README` 已是 `1.10.0`，但 npm 上仍是 1.9.3**，引用时要分清 | `计划表.md` + `ws-release-1.10.0/REPORT.md` |
+| **已发布版本** | **`1.11.0` —— npm 与 GitHub Release 都已到位**：npm `latest` = **1.11.0**、**`dist.shasum 3de92f1155a0b651e488923f5a6a19005f1b0205`**、**67 文件 / unpacked 1,373,541 B**；commit **`e9c812a`**、tag **`v1.11.0`**（⚠ **轻量 tag**，不是 annotated）、GitHub Release `v1.11.0`（`draft:false` / `prerelease:false`）。门禁 430/0 · `verify-install` 16/16。**包内 `package.json` / `README:3` = 1.11.0，与 npm 一致** | `计划表.md` 1.11.0 节 + `ws-release-1.11.0/REPORT.md`（107 行） |
 
 **引用纪律（本仓踩过 4 次）**：
 - **`378/0` 是 1.9.3 发布树的数字，不是工作树** ⇒ 工作树门禁是 **M-00 `385/0` → A2-1 `390/0` → A2-4 `401/0` → A2-5 `401/0`（纯删除，同数）→ A2-2 `412/0` → A2-2-fix `416/0` → A2-3 `424/0` → A3-1a `424/0`（纯移动，同数；pack 68→69）→ **A3 收口 `430/0`（36 文件；`rooms` 9→15；pack **67**，删门面后净减 2）****（每刀递增，引用须写清是哪一刀）。**别拿发布树的数当门禁。**
