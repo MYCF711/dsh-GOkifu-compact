@@ -1,7 +1,7 @@
 /**
- * archive-dangling.test.mjs —— P6-C 归档工具的回归矩阵（2026-10-30）
+ * migrate.test.mjs —— P6-C 归档工具的回归矩阵（2026-10-30；P6C-2 迁移自 archive-dangling.test.mjs）
  *
- * 工具：`test/archive-dangling.mjs`（dry-run / apply / verify / rollback）。
+ * 工具：`src/rooms/migrate.mjs`（R14）+ CLI `scripts/migrate-dangling.mjs`（dry-run / apply / verify / rollback）。
  * 判据来自 `src/ledger.mjs` 的 `classifyDangling`，本文件不重复实现判据。
  *
  * 危险面：这是**会改真实 graph.json** 的工具。测试必须证明：
@@ -16,7 +16,8 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
-import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions } from "./archive-dangling.mjs";
+import { graphRoot } from "../src/rooms/kifu-persist.mjs";
+import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, APPLY_FRESHNESS_MS, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
 
 const TMP = nodePath.resolve(os.tmpdir());
 const NOW = 1_800_000_000_000;
@@ -56,6 +57,9 @@ function mixedGraph(sessionId = "sess-p6c") {
   // 1 条 live（untested 且新鲜）
   const live = addEdge(g, { from: n2, intent: "正在跑", action: "bash(sleep 1)" });
   g.edges[live].ts = NOW - 1000;
+  // ★ P6C-1/2：1 条 candidate（untested 但陈旧）—— **绝不归档**，必须留在图里
+  const candidate = addEdge(g, { from: n2, intent: "中断很久的尝试", action: "bash(long-job)" });
+  g.edges[candidate].ts = NOW - 3 * 3600 * 1000;
   // 1 条 fromBroken
   const fb = addEdge(g, { from: "n-does-not-exist", intent: "from 悬空", action: "bash(x)" });
   settleEdge(g, fb, { to: n2, result: "unverified", verify: { kind: "no-exit", summary: "x" } });
@@ -68,10 +72,11 @@ function mixedGraph(sessionId = "sess-p6c") {
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "P6C-1 planSession：三分类互不重叠，residue 只含旧的无终点边"(t) {
+  "P6C-1 planSession：四类互不重叠，residue 只含旧的无终点边、candidate 永不归档"(t) {
     const { g } = mixedGraph();
     const plan = planSession(g, { now: NOW });
     t.eq(plan.residue.length, 3, "residue 必须 3");
+    t.eq(plan.candidates.length, 1, "candidates 必须 1（P6C-1 的陈旧 untested）");
     t.eq(plan.live.length, 1, "live 必须 1");
     t.eq(plan.fromBroken.length, 1, "fromBroken 必须 1");
     for (const e of plan.residue) {
@@ -79,6 +84,8 @@ export const tests = {
       t.ok(NOW - e.ts > DANGLING_STALE_MS, "residue 必须超 10 分钟");
     }
     t.eq(plan.live[0].result, "untested", "live 必须是 untested");
+    for (const e of plan.residue) t.eq(e.result === "untested", false, "归档的边不许是 untested（candidate 一律保留）");
+    t.eq(plan.residue.some((e) => e.id === plan.candidates[0].id), false, "candidate 不许混进 residue");
     t.eq(plan.residue.some((e) => e.id === plan.live[0].id), false, "live 不许混进 residue");
   },
 
@@ -115,6 +122,7 @@ export const tests = {
       t.eq(JSON.stringify(after), JSON.stringify(before), "dry-run 不许写任何文件");
       t.eq(result.sessions, 2, "扫到 2 个会话");
       t.eq(result.residue, 3, "residue 3");
+      t.eq(result.candidates, 1, "candidates 1（保留）");
       t.eq(result.liveUnsettled, 1, "live 1");
       t.eq(result.fromBroken, 1, "fromBroken 1");
       t.eq(result.sidecarEdges, 3, "sidecar 预计 3 条");
@@ -148,6 +156,7 @@ export const tests = {
       const g = fromJSON(nodeFs.readFileSync(nodePath.join(root, "sess-a", "graph.json"), "utf8"));
       t.eq(planSession(g, { now: NOW }).residue.length, 0, "残留必须清零");
       t.eq(planSession(g, { now: NOW }).live.length, 1, "live 必须保留");
+      t.eq(planSession(g, { now: NOW }).candidates.length, 1, "candidate 必须保留（P6C-2 不归档未落地边）");
       t.eq(planSession(g, { now: NOW }).fromBroken.length, 1, "fromBroken 必须保留");
       // index.md 重建（不是原样）
       const idx = nodeFs.readFileSync(nodePath.join(root, "sess-a", "index.md"), "utf8");
@@ -175,6 +184,7 @@ export const tests = {
       t.eq(v.residue, 0, "residue 0");
       t.eq(v.fromBroken, 2, "fromBroken 2（每个会话 1）");
       t.eq(v.sidecarEdges, 6, "sidecar 6 条");
+      t.eq(v.candidates, 2, "candidates 2（每会话 1 条，一条都不许动）");
       t.eq(v.samples.length, Math.min(10, v.sidecarEdges), "抽样条数 = min(10, sidecar 边数)");
       for (const s of v.samples) t.eq(s.identical, true, `抽样 ${s.session}/${s.edge} 必须逐字相同`);
     } finally {
@@ -216,6 +226,84 @@ export const tests = {
       t.eq(d.residue, 3, "坏图跳过，不计 residue");
     } finally {
       nodeFs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-8 路径：sessionsRoot / backupsRoot 都挂在 <DSH_HOME>/chess-context 下（P6C-2 定稿）"(t) {
+    const home = nodePath.join(TMP, "fake-dsh-home");
+    const graphRootDir = graphRoot({ graphDir: "", dshHome: home });
+    t.eq(sessionsRoot(home), nodePath.join(graphRootDir, "sessions"), "会话根必须经 R01 graphRoot（不是自己拼路径）");
+    t.eq(graphRootDir, nodePath.join(home, "chess-context"), "graphRoot 缺省 = <DSH_HOME>/chess-context");
+    t.eq(backupsRoot(home), nodePath.join(home, "chess-context", "migrate-backups"), "备份根必须在 <DSH_HOME>/chess-context/migrate-backups");
+    const old = process.env.DSH_HOME;
+    try {
+      process.env.DSH_HOME = home;
+      t.eq(sessionsRoot(), nodePath.join(home, "chess-context", "sessions"), "DSH_HOME 环境变量必须优先");
+      t.eq(backupsRoot(), nodePath.join(home, "chess-context", "migrate-backups"), "备份根跟随 DSH_HOME");
+    } finally {
+      if (old === undefined) delete process.env.DSH_HOME;
+      else process.env.DSH_HOME = old;
+    }
+  },
+
+  "P6C-9 apply 120s 新鲜度守卫：刚写过的图必须拒绝执行（防运行中插件覆盖）"(t) {
+    const root = tmpRoot("guard");
+    const backupRoot = tmpRoot("guard-bak");
+    try {
+      // 夹具的时间戳基准是 NOW（远在未来）；这里整体平移成「相对真实时钟的 24 小时前」，
+      // 这样守卫（比 mtime）与 residue（比 ts）两套时间轴都成立。
+      const REAL = Date.now();
+      const shift = NOW - REAL;
+      makeSessionDir(root, "sess-fresh", () => {
+        const g = mixedGraph("sess-fresh").g;
+        for (const e of Object.values(g.edges)) if (Number.isFinite(Number(e.ts))) e.ts = Number(e.ts) - shift;
+        return g;
+      });
+      const fresh = freshSessions(root, { now: REAL });
+      t.eq(fresh, ["sess-fresh"], "刚写过的会话必须被判新鲜");
+      let error = "";
+      try {
+        apply(root, { now: REAL, backupRoot });
+      } catch (e) {
+        error = String(e.message);
+      }
+      t.includes(error, "拒绝 apply", "apply 必须拒绝");
+      t.includes(error, "120s", "报错必须说清守卫窗口");
+      t.eq(nodeFs.existsSync(nodePath.join(root, "sess-fresh", SIDECAR_NAME)), false, "拒绝时不许产 sidecar");
+      // --force 等价：maxAgeMs=0 ⇒ 守卫窗口为空（CLI 的 --force 就是这个语义）
+      const forced = apply(root, { now: REAL, backupRoot: nodePath.join(backupRoot, "forced"), maxAgeMs: 0 });
+      t.eq(forced.archived, 3, "--force（maxAgeMs=0）必须跳过守卫并归档 3 条");
+      // 过了守卫窗口（120s 之后）再跑：已归档过 ⇒ 幂等 0 条、且不再报「拒绝」
+      const ok = apply(root, { now: REAL + APPLY_FRESHNESS_MS + 5000, backupRoot });
+      t.eq(ok.archived, 0, "已被 --force 归档过 ⇒ 再跑就是 0 条（幂等，不重复删）");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-10 坏图逐会话汇总：dry-run 与 apply 都报告，不静默跳过"(t) {
+    const root = tmpRoot("badgraph");
+    const backupRoot = tmpRoot("badgraph-bak");
+    try {
+      makeSessionDir(root, "sess-ok", () => mixedGraph("sess-ok").g);
+      nodeFs.mkdirSync(nodePath.join(root, "sess-bad"), { recursive: true });
+      nodeFs.writeFileSync(nodePath.join(root, "sess-bad", "graph.json"), "{not-json", "utf8");
+      const d = dryRun(root, { now: NOW });
+      t.eq(d.badGraphs.length, 1, "dry-run 必须汇总 1 个坏图");
+      t.eq(d.badGraphs[0].session, "sess-bad", "坏图会话名");
+      t.eq(d.badGraphs[0].ok, false, "坏图条目必须带 ok:false");
+      t.ok(d.badGraphs[0].reason.length > 0, "坏图必须带错误原文（reason）");
+      t.eq(d.residue, 3, "好图照常计入");
+      const res = apply(root, { now: NOW, backupRoot });
+      t.eq(res.badGraphs.length, 1, "apply 也必须汇总坏图");
+      t.eq(res.badGraphs[0].session, "sess-bad", "apply 的坏图会话名");
+      t.eq(res.badGraphs[0].ok, false, "apply 的坏图条目也必须 ok:false");
+      t.ok(res.badGraphs[0].reason.length > 0, "apply 的坏图必须带 reason");
+      t.eq(nodeFs.readFileSync(nodePath.join(root, "sess-bad", "graph.json"), "utf8"), "{not-json", "坏图一个字节都不许改");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
     }
   },
 };

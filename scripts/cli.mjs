@@ -31,6 +31,13 @@ if (command === "install" || command === "revert") {
   } catch (error) {
     process.exitCode = typeof error?.status === "number" ? error.status : 1;
   }
+} else if (command === "migrate-dangling") {
+  const migrate = nodePath.join(HERE, "migrate-dangling.mjs");
+  try {
+    execFileSync(process.execPath, [migrate, ...argv.slice(1)], { stdio: "inherit" });
+  } catch (error) {
+    process.exitCode = typeof error?.status === "number" ? error.status : 1;
+  }
 } else {
   console.log(`dsh-gokifu-compact — DSH 的棋谱式上下文压缩后端
 
@@ -41,6 +48,8 @@ if (command === "install" || command === "revert") {
       还原上一次的 preset 备份
   dsh-gokifu-compact doctor
       体检：安装 / 摘要模型 / 压缩成败 / 棋谱 / 树新鲜度
+  dsh-gokifu-compact migrate-dangling [--apply] [--verify --backup=<dir>]
+      P6-C 悬空边 sidecar 归档（默认 dry-run；apply 需停插件窗口）
 
 装包（先做这一步）:
   dsh plugin --profile <name> add dsh-gokifu-compact
