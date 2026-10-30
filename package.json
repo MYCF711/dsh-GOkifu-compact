@@ -19,7 +19,8 @@
     },
     "./engine": "./src/engine.mjs",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "engines": {
     "node": ">=20"
@@ -33,6 +34,7 @@
     "docs",
     "evidence",
     "scripts",
+    "cordis.patch.yml",
     "CHANGELOG.md",
     "QUICKSTART.md",
     "LICENSE"
@@ -79,6 +81,10 @@
     "dsh-gokifu-compact": "./scripts/cli.mjs"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "manifestVersion": 1,
     "client": {
       "platform": "web",
       "inject": []

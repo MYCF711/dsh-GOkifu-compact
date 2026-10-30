@@ -158,6 +158,127 @@ export function patchProfileForUi(profileDir, log = () => {}, dryRun = false) {
   return { changed: true, backup };
 }
 
+
+/* ─────────────── ②·b bundle 通道（task-118） ─────────────── */
+
+/** 手工行的 id（历史值，保持兼容：日志/doctor/文档都用这个口径）。 */
+const MANUAL_UI_ID = "gokifu-ui";
+
+/**
+ * 在 profile 的 cordis.patch.yml 里定位手工 UI 行（`- insert:` + `- id: gokifu-ui`）。
+ *
+ * 纯函数：只算行号，不改任何东西（方便测试与 dry-run）。找不到返回 null。
+ * 结构不认识时返回 `{ unsupported: true }` —— 调用方必须**拒绝改**，绝不能猜着删。
+ * @returns {{startLine:number,endLine:number,start:number,end:number,wholeBlock:boolean}|{unsupported:true,reason:string}|null}
+ */
+export function findManualUiRow(text) {
+  const lines = String(text).split("\n");
+  const childIdx = lines.findIndex((l) => new RegExp("^\\s*- id:\\s*" + MANUAL_UI_ID + "\\s*$").test(l));
+  if (childIdx < 0) return null;
+  // 往上找父级 `- insert:`（最多 12 行内；缩进必须比子行浅）
+  const childIndent = lines[childIdx].match(/^\s*/)[0].length;
+  let parentIdx = -1;
+  for (let i = childIdx - 1; i >= Math.max(0, childIdx - 12); i -= 1) {
+    const m = /^(\s*)- insert:\s*$/.exec(lines[i]);
+    if (m && m[1].length < childIndent) {
+      parentIdx = i;
+      break;
+    }
+  }
+  if (parentIdx < 0) return { unsupported: true, reason: "找不到 `- insert:` 父行" };
+  // 父块范围 = 从父行到下一条**缩进 ≤ 父缩进**的非空行
+  const parentIndent = lines[parentIdx].match(/^\s*/)[0].length;
+  let endIdx = lines.length;
+  for (let i = parentIdx + 1; i < lines.length; i += 1) {
+    if (lines[i].trim().length === 0) continue;
+    if (lines[i].match(/^\s*/)[0].length <= parentIndent && /^\s*- /.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  // 这个 insert 块里还有别的子行吗？（有 ⇒ 只删本行；没有 ⇒ 整块删）
+  const otherChildren = lines
+    .slice(parentIdx + 1, endIdx)
+    .some((l) => l.match(/^\s*/)[0].length === childIndent && /^\s*- /.test(l) && !new RegExp("^\\s*- id:\\s*" + MANUAL_UI_ID + "\\s*$").test(l));
+  return { startLine: childIdx, endLine: childIdx, start: parentIdx, end: endIdx - 1, wholeBlock: !otherChildren };
+}
+
+/**
+ * 从 profile 的 cordis.patch.yml 删除手工 UI 行（**带备份**）。
+ * 只在 `wholeBlock` 时连注释一起删：注释是与那一行配套的说明，留着会变成误导性死注释。
+ */
+export function removeManualUiRow(profileDir, log = () => {}, dryRun = false) {
+  const file = nodePath.join(profileDir, "cordis.patch.yml");
+  if (!nodeFs.existsSync(file)) return { changed: false, reason: "没有 profile cordis.patch.yml" };
+  const text = nodeFs.readFileSync(file, "utf8");
+  const found = findManualUiRow(text);
+  if (found === null) return { changed: false, reason: "没有手工 UI 行" };
+  if (found.unsupported) return { changed: false, reason: `手工行结构不认识（${found.reason}），拒绝改` };
+  const lines = text.split("\n");
+  let start = found.start;
+  let end = found.end;
+  if (found.wholeBlock) {
+    // 连带删除紧贴其上、提到 gokifu 的连续注释行
+    while (start - 1 >= 0 && /^\s*#/.test(lines[start - 1]) && /gokifu|上下文压缩/i.test(lines[start - 1])) start -= 1;
+  } else {
+    start = found.startLine;
+    end = found.endLine;
+  }
+  let next = [...lines.slice(0, start), ...lines.slice(end + 1)].join("\n");
+  next = next.replace(/\n{3,}/g, "\n\n");
+  if (dryRun) {
+    log("  [dry] profile cordis.patch.yml 会删掉手工 gokifu-ui 行（改走 bundle 通道）");
+    return { changed: true, dryRun: true };
+  }
+  const backup = `${file}.bak-before-gokifu-ui-${Date.now()}`;
+  nodeFs.copyFileSync(file, backup);
+  nodeFs.writeFileSync(file, next, "utf8");
+  log(`  ✓ profile cordis.patch.yml 已删手工 gokifu-ui 行（备份 ${nodePath.basename(backup)}）`);
+  return { changed: true, backup };
+}
+
+/**
+ * 确保 profile 的 `dsh.profile.bundles` 含本包（**追加在末尾**，保持既有顺序）。
+ * 为什么这是主通道：bundle 声明了 patch 层 ⇒ 装载器自动合并本包的 cordis.patch.yml，
+ * 与手写那一行语义等价，但用户不用改 YAML，升级也不会漏。
+ */
+export function patchProfileBundles(profileDir, log = () => {}, dryRun = false) {
+  const file = nodePath.join(profileDir, "package.json");
+  if (!nodeFs.existsSync(file)) return { changed: false, reason: "没有 profile/package.json" };
+  let pkg;
+  try {
+    pkg = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  } catch (error) {
+    return { changed: false, reason: `profile/package.json 不是合法 JSON（${error.message}）` };
+  }
+  const dsh = pkg.dsh && typeof pkg.dsh === "object" ? pkg.dsh : {};
+  const profile = dsh.profile && typeof dsh.profile === "object" ? dsh.profile : {};
+  const bundles = Array.isArray(profile.bundles) ? profile.bundles : [];
+  if (bundles.includes(PKG_NAME)) return { changed: false, reason: "已在 dsh.profile.bundles" };
+  const next = [...bundles, PKG_NAME];
+  if (dryRun) {
+    log(`  [dry] profile/package.json 的 dsh.profile.bundles 会追加 ${PKG_NAME}（现 ${bundles.length} 项）`);
+    return { changed: true, dryRun: true };
+  }
+  nodeFs.copyFileSync(file, `${file}.bak-before-gokifu-${Date.now()}`);
+  pkg.dsh = { ...dsh, profile: { ...profile, bundles: next } };
+  nodeFs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n", "utf8");
+  log(`  ✓ profile/package.json 的 dsh.profile.bundles 已追加 ${PKG_NAME}（${bundles.length} → ${next.length} 项）`);
+  return { changed: true, bundles: next };
+}
+
+/**
+ * **bundle 优先**：先把本包写进 `dsh.profile.bundles`，再删掉旧的手工 gokifu-ui 行（带备份）。
+ * 顺序不能反：先加 bundle 再删手工行，任何一步中断都**不会**出现「两条通道都没有」的空窗。
+ */
+export function ensureBundleChannel(profileDir, log = () => {}, dryRun = false) {
+  const bundle = patchProfileBundles(profileDir, log, dryRun);
+  if (bundle.changed === false) log(`  · UI（bundle 通道）：${bundle.reason}`);
+  const manual = removeManualUiRow(profileDir, log, dryRun);
+  if (manual.changed === false && manual.reason !== "没有手工 UI 行") log(`  · 手工行：${manual.reason}`);
+  return { bundle, manual };
+}
+
 export function run(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   const { dryRun, profile, dshHome, log } = opts;
@@ -234,6 +355,11 @@ export function run(argv = process.argv.slice(2)) {
       samePath(spec.target.realPath, PROJECT_DIR);
     if (correct) {
       log(`  · profile/package.json 的 ${PKG_NAME} 已指向本目录：${declared}`);
+      } else if (spec !== null && spec.kind === "other") {
+        // ★ task-118：用户把手上的依赖写成 registry / git / tarball 规格时**不许改写成 link**。
+        //   那是用户的选择（例如从 npm 装正式版），改写会让「装的是哪个」不可追溯；
+        //   本地调试请自己显式写 file:/link:，安装器不替用户做这个决定。
+        log(`  · profile/package.json 的 ${PKG_NAME} 是 ${declared} 规格（非 file:/link:）—— 保持原样，不改写成 link`);
     } else if (dryRun) {
       log(`  [dry] 会${declared === null ? "加" : "修"} profile/package.json 的 ${PKG_NAME}：${declared ?? "(无)"} → ${want}`);
     } else {
@@ -299,9 +425,11 @@ export function run(argv = process.argv.slice(2)) {
     log(`  ✓ ${t.file} 已换后端（备份 ${nodePath.basename(backup)}）`);
   }
 
-  /* ③ 挂 UI 的 host 半（profile 级）：裸包名，客户端 bundle 靠它被发现 */
-  const ui = patchProfileForUi(profileDir, (m) => log(m), dryRun);
-  if (ui.changed === false) log(`  · UI host 半：${ui.reason}`);
+  /* ③ 挂 UI 的 host 半：**bundle 通道优先**（本包自带 cordis.patch.yml，声明在 dsh.bundle.patch）。
+     旧做法是手改 profile 的 cordis.patch.yml 加 `- insert: {id: gokifu-ui}`；那条路已废弃 ——
+     升级后手工行与 bundle 会同时挂载，两个 host 半抢同一个 /gokifu/api 前缀，启动直接失败。
+     ⇒ 这里把本包写进 dsh.profile.bundles，并**备份后删除**旧手工行，保证任何时候只有一条通道。 */
+  ensureBundleChannel(profileDir, (m) => log(m), dryRun);
 
   if (dryRun) {
     log("\n这是预演，什么都没改。真装去掉 --dry-run。");
