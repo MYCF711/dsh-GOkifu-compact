@@ -31,6 +31,40 @@ function git(args) {
   return (r.stdout ?? "").trim()
 }
 
+/**
+ * 跑 git，返回**未 trim** 的 stdout。
+ * `git status --porcelain` 的首行是 ` M path`（状态码 X 位是空格）——
+ * 一旦对整段 stdout `.trim()`，首行的状态空格会被吃掉，再按固定列 `slice(3)`
+ * 就会多切一个字符：` M evidence/x.json` → `evidence/x.json` → **`vidence/x.json`**，
+ * evidence/ 过滤随之失效（2026-10-31 终审发现的 8/1 假红）。
+ */
+function gitRaw(args) {
+  const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", timeout: 30000 })
+  if (r.status !== 0) return ""
+  return r.stdout ?? ""
+}
+
+/**
+ * 解析 `git status --porcelain -z`。
+ * 为什么用 `-z`：普通 porcelain 会对含空格 / 非 ASCII 的路径加引号并转义
+ * （`"a b.txt"`、`"\303\251.txt"`），`-z` 给出**原始路径字节**、以 NUL 分隔，不用反解义。
+ * 记录格式：`XY <path>`；rename/copy 记录后面紧跟一个「原路径」token（没有 XY 前缀），要跳过。
+ * @param {string} raw - `gitRaw(["status","--porcelain","-z"])` 的原样输出
+ * @returns {string[]} 变更路径（相对仓库根）
+ */
+function parsePorcelainZ(raw) {
+  const parts = String(raw).split("\0")
+  const paths = []
+  for (let i = 0; i < parts.length; i += 1) {
+    const rec = parts[i]
+    if (rec.length < 4) continue
+    paths.push(rec.slice(3))
+    const xy = rec.slice(0, 2)
+    if (xy[0] === "R" || xy[0] === "C") i += 1 // 跳过 rename/copy 的原路径 token
+  }
+  return paths
+}
+
 // ── 读 package.json ──────────────────────────────────────────────────
 
 let pkg = null
@@ -74,10 +108,8 @@ ok(tags.includes(currentTag),
 const CODE = /\.(mjs|js|cjs|ts|tsx|json)$/
 const changedSince = (() => {
   const committed = (git(["diff", "--name-only", `${lastTag}..HEAD`]) ?? "").split("\n").filter(Boolean)
-  const dirty = (git(["status", "--porcelain"]) ?? "")
-    .split("\n")
-    .map((l) => l.slice(3).trim())
-    .filter(Boolean)
+  // 用 -z + 原样 stdout：porcelain 首行的状态空格不能被 trim 吃掉（见 gitRaw 注释）。
+  const dirty = parsePorcelainZ(gitRaw(["status", "--porcelain", "-z"]))
   // 本仓库的适配：evidence/ 是**测量数据**（每次跑 bench/measure 都会变），test/.harness 是测试产物，
   // 它们不是「代码变了」——否则每跑一次基准就要求 bump 一次版本。
   return [...new Set([...committed, ...dirty])]
