@@ -16,8 +16,8 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
-import { graphRoot } from "../src/rooms/kifu-persist.mjs";
-import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, APPLY_FRESHNESS_MS, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
+import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
+import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
 
 const TMP = nodePath.resolve(os.tmpdir());
 const NOW = 1_800_000_000_000;
@@ -38,6 +38,18 @@ function makeSessionDir(root, id, build) {
   nodeFs.writeFileSync(nodePath.join(dir, "index.md"), renderIndexMd(g), "utf8");
   nodeFs.writeFileSync(nodePath.join(dir, "nodes", "n1.md"), "# n1\n", "utf8");
   return { dir, g };
+}
+
+/** 把图里所有边的时间戳平移 shift，使夹具的「相对 NOW」变成「相对真实时钟」。 */
+function shiftEdgeTimes(g, shift) {
+  for (const e of Object.values(g.edges)) if (Number.isFinite(Number(e.ts))) e.ts = Number(e.ts) - shift;
+  return g;
+}
+
+/** 改文件 mtime（夹具要造「旧图 / 新 delta」，不能靠真实写入时间）。 */
+function setMtime(file, ms) {
+  const at = new Date(ms);
+  nodeFs.utimesSync(file, at, at);
 }
 
 /** 混合图：3 residue（旧 ts、to=null）+ 1 live（新 untested）+ 1 fromBroken + 1 真失败 + 1 成功。 */
@@ -276,6 +288,124 @@ export const tests = {
       // 过了守卫窗口（120s 之后）再跑：已归档过 ⇒ 幂等 0 条、且不再报「拒绝」
       const ok = apply(root, { now: REAL + APPLY_FRESHNESS_MS + 5000, backupRoot });
       t.eq(ok.archived, 0, "已被 --force 归档过 ⇒ 再跑就是 0 条（幂等，不重复删）");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-11 delta 新鲜也拒绝：只有 graph.json.delta.jsonl 在写时 apply 必须拦住并点名文件"(t) {
+    const root = tmpRoot("guard-delta");
+    const backupRoot = tmpRoot("guard-delta-bak");
+    try {
+      t.eq(DELTA_NAME, nodePath.basename(sessionPaths("/tmp/x", "s").deltaFile), "DELTA_NAME 必须与 kifu-persist 的落盘名一致");
+      const REAL = Date.now();
+      const shift = NOW - REAL;
+      const { dir } = makeSessionDir(root, "sess-delta", () => shiftEdgeTimes(mixedGraph("sess-delta").g, shift));
+      const graphFile = nodePath.join(dir, "graph.json");
+      const deltaFile = nodePath.join(dir, DELTA_NAME);
+      nodeFs.writeFileSync(deltaFile, "", "utf8");
+      setMtime(graphFile, REAL - 3600_000); // 主图 1 小时前（旧）
+      setMtime(deltaFile, REAL - 1000); // delta 1 秒前（新）
+      t.eq(freshSessions(root, { now: REAL }), ["sess-delta"], "只有 delta 新鲜也必须判该会话 fresh");
+      const ev = freshEvidence(root, { now: REAL });
+      t.eq(ev.length, 1, "只应命中 delta 一个文件");
+      t.eq(ev[0].file, DELTA_NAME, "命中文件必须是 delta");
+      t.ok(ev[0].ageMs < APPLY_FRESHNESS_MS, "ageMs 必须落在窗口内");
+      let error = "";
+      try {
+        apply(root, { now: REAL, backupRoot });
+      } catch (e) {
+        error = String(e.message);
+      }
+      t.includes(error, "拒绝 apply", "apply 必须拒绝");
+      t.includes(error, DELTA_NAME, "报错必须点名 delta 文件");
+      t.includes(error, "sess-delta", "报错必须点名会话");
+      t.eq(nodeFs.existsSync(nodePath.join(dir, SIDECAR_NAME)), false, "拒绝时不许产 sidecar");
+      // --force 语义 = maxAgeMs 0，必须连 delta 守卫一起绕过
+      const forced = apply(root, { now: REAL, backupRoot: nodePath.join(backupRoot, "forced"), maxAgeMs: 0 });
+      t.eq(forced.archived, 3, "--force（maxAgeMs=0）必须绕过 delta 守卫并归档 3 条");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-12 delta 缺失不影响：只有 graph.json 且已旧 ⇒ 不判 fresh、apply 放行"(t) {
+    const root = tmpRoot("guard-nodelta");
+    const backupRoot = tmpRoot("guard-nodelta-bak");
+    try {
+      const REAL = Date.now();
+      const shift = NOW - REAL;
+      const { dir } = makeSessionDir(root, "sess-nodelta", () => shiftEdgeTimes(mixedGraph("sess-nodelta").g, shift));
+      const deltaFile = nodePath.join(dir, DELTA_NAME);
+      t.eq(nodeFs.existsSync(deltaFile), false, "夹具不应有 delta");
+      setMtime(nodePath.join(dir, "graph.json"), REAL - 3600_000);
+      t.eq(freshSessions(root, { now: REAL }), [], "没有 delta 且主图旧 ⇒ 不判 fresh（delta 缺失不能抛错/误判）");
+      t.eq(freshEvidence(root, { now: REAL }), [], "证据也应为空");
+      const res = apply(root, { now: REAL, backupRoot });
+      t.eq(res.archived, 3, "delta 缺失时必须照常归档 3 条 residue");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-13 旧 mtime 放行：graph 与 delta 都旧 ⇒ 不判 fresh、apply 照常"(t) {
+    const root = tmpRoot("guard-old");
+    const backupRoot = tmpRoot("guard-old-bak");
+    try {
+      const REAL = Date.now();
+      const shift = NOW - REAL;
+      const { dir } = makeSessionDir(root, "sess-old", () => shiftEdgeTimes(mixedGraph("sess-old").g, shift));
+      const graphFile = nodePath.join(dir, "graph.json");
+      const deltaFile = nodePath.join(dir, DELTA_NAME);
+      nodeFs.writeFileSync(deltaFile, "", "utf8");
+      setMtime(graphFile, REAL - 3600_000);
+      setMtime(deltaFile, REAL - 1800_000);
+      t.eq(freshSessions(root, { now: REAL }), [], "两个文件都旧 ⇒ 不判 fresh");
+      const res = apply(root, { now: REAL, backupRoot });
+      t.eq(res.archived, 3, "旧图旧 delta 必须放行并归档 3 条");
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-14 多会话混判：freshSessions 按会话去重，错误逐个点名会话与文件"(t) {
+    const root = tmpRoot("guard-multi");
+    const backupRoot = tmpRoot("guard-multi-bak");
+    try {
+      const REAL = Date.now();
+      const shift = NOW - REAL;
+      // sess-a：主图新（无 delta）
+      const a = makeSessionDir(root, "sess-a", () => shiftEdgeTimes(mixedGraph("sess-a").g, shift));
+      setMtime(nodePath.join(a.dir, "graph.json"), REAL - 1000);
+      // sess-b：主图旧、delta 新
+      const b = makeSessionDir(root, "sess-b", () => shiftEdgeTimes(mixedGraph("sess-b").g, shift));
+      const bDelta = nodePath.join(b.dir, DELTA_NAME);
+      nodeFs.writeFileSync(bDelta, "", "utf8");
+      setMtime(nodePath.join(b.dir, "graph.json"), REAL - 3600_000);
+      setMtime(bDelta, REAL - 2000);
+      // sess-c：主图与 delta 都新 ⇒ 证据 2 条但会话只算 1 个
+      const c = makeSessionDir(root, "sess-c", () => shiftEdgeTimes(mixedGraph("sess-c").g, shift));
+      const cDelta = nodePath.join(c.dir, DELTA_NAME);
+      nodeFs.writeFileSync(cDelta, "", "utf8");
+      setMtime(nodePath.join(c.dir, "graph.json"), REAL - 1000);
+      setMtime(cDelta, REAL - 1000);
+      const fresh = freshSessions(root, { now: REAL }).sort();
+      t.eq(fresh, ["sess-a", "sess-b", "sess-c"], "三个会话都应被判 fresh");
+      const ev = freshEvidence(root, { now: REAL });
+      t.eq(ev.length, 4, "证据按文件计：a 1 + b 1 + c 2 = 4");
+      let error = "";
+      try {
+        apply(root, { now: REAL, backupRoot });
+      } catch (e) {
+        error = String(e.message);
+      }
+      t.includes(error, "3 个会话", "错误里的会话数必须去重（3，不是 4）");
+      for (const name of ["sess-a", "sess-b", "sess-c"]) t.includes(error, name, `错误必须点名 ${name}`);
+      t.includes(error, DELTA_NAME, "错误必须出现 delta 文件名");
     } finally {
       nodeFs.rmSync(root, { recursive: true, force: true });
       nodeFs.rmSync(backupRoot, { recursive: true, force: true });
