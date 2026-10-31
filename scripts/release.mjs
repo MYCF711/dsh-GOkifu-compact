@@ -173,10 +173,14 @@ if (branch) {
     .map((rec) => `${rec.slice(0, 2).trim() || "??"} ${rec.slice(3)}`)
     .filter((_, i, all) => all.indexOf(all[i]) === i)
   if (dirtyPaths.length > 0) {
-    const shown = dirtyPaths.slice(0, 10).join(" · ")
+    // task-181：打印前 20 行 + 恢复办法。**evidence/ 等已知噪声也不豁免** —— 发布前必须人工还原干净，
+    // 否则「用户下到的包」和「tag 的树」就不是同一份东西（1.11.12 那次差 1,546 B 就是这么来的）。
+    const shown = dirtyPaths.slice(0, 20).join(" · ")
     bad(
       `工作区有 ${dirtyPaths.length} 处未提交改动（**含未跟踪文件**）—— 发布的内容必须和提交一致：${shown}` +
-        (dirtyPaths.length > 10 ? ` … 还有 ${dirtyPaths.length - 10} 处` : ""),
+        (dirtyPaths.length > 20 ? ` … 还有 ${dirtyPaths.length - 20} 处` : "") +
+        `。处理：先提交（git add -A && git commit -m \"…\"），或人工还原（git checkout -- . && git clean -fd）——` +
+        `**脚本不会替你丢弃改动**，evidence/ 之类的已知噪声也不豁免`,
     )
   }
 }

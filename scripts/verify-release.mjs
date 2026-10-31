@@ -77,7 +77,14 @@ function localTarball(target) {
   return out
 }
 
-/** 递归列出目录下所有文件 → Map<相对路径, sha256> */
+/**
+ * 递归列出目录下所有文件 → Map<相对路径, {sha256, sha256NoCR}>。
+ *
+ * **两个哈希**：原始字节的 sha256，和「把 CRLF 换成 LF 后」的内容 sha256。
+ * 比较以 `sha256NoCR` 为准 —— Windows 工作树是 CRLF、`git archive` 出 LF、npm 打工作树字节，
+ * 同一份内容两边原始 shasum 必然不同（1.11.12 实测差 1,546 B / 2 个 docs）。按原始 shasum 死磕
+ * 会让**每次发布都假红**；行尾差异单独作为警告报告。
+ */
 function hashTree(dir) {
   const out = new Map()
   const walk = (rel) => {
@@ -87,7 +94,12 @@ function hashTree(dir) {
       if (ent.isDirectory()) walk(childRel)
       else if (ent.isFile()) {
         const buf = nodeFs.readFileSync(nodePath.join(dir, childRel))
-        out.set(childRel, nodeCrypto.createHash("sha256").update(buf).digest("hex"))
+        // 去 CR：先按 binary 取 1:1 字节串，再删掉所有 \r，最后还原字节
+        const lf = Buffer.from(buf.toString("binary").split("\r").join(""), "binary")
+        out.set(childRel, {
+          sha256: nodeCrypto.createHash("sha256").update(buf).digest("hex"),
+          sha256NoCR: nodeCrypto.createHash("sha256").update(lf).digest("hex"),
+        })
       }
     }
   }
@@ -170,7 +182,8 @@ if (asJson) {
   console.log(`  tag 树 ${archiveMap.size} 个文件 · 包内 ${tarballMap.size} 个文件 · 逐个比对 ${result.checked} 个\n`)
   line("✗", "tarball 多出（tag 里没有）", result.extra)
   line("✗", "内容不同", result.changed)
-  line("·", "可接受差异（npm bin 归一化 / CRLF↔LF）", result.normalized)
+  line("!", "行尾差异（CRLF↔LF，内容一致 —— 只警告）", result.eol)
+  line("·", "npm bin 归一化（可接受）", result.normalized)
   line("·", "未打包（tag 有、包里没有）", result.notPacked)
   console.log(result.ok ? "\n✓ 一致：发布物就是 tag 的那棵树\n" : "\n✗ 不一致：发布物与 tag 的树不符\n")
 }
