@@ -1,4 +1,4 @@
-import { classify, errorSnippet, toolClass } from "../src/rooms/verify.mjs";
+import { classify, errorSnippet, toolClass, lastLineExitCode, _internal } from "../src/rooms/verify.mjs";
 import { intentFromAssistantText, actionSummary, touchedPaths } from "../src/rooms/keeper.mjs";
 
 export const tests = {
@@ -121,5 +121,70 @@ Object.assign(tests, {
     const out = errorSnippet("Traceback (most recent call last):\n  File a.ts line 3\nTypeError: x\n[exit code: 1]");
     if (!out.includes("TypeError: x")) throw new Error(`取错了：${out}`);
     if (out.includes("[exit code")) throw new Error(`把退出码当结论了：${out}`);
+  },
+});
+
+
+/* ═════════════ OPT-VERIFY（task-124）：exit 精确判据 + local-mutate ═════════════ */
+
+Object.assign(tests, {
+  "OPT-V-1 exit 只认「末条非空行整行等于 [exit code: N]」"() {
+    // ① 末行精确 marker：0 ⇒ success，非 0 ⇒ failure
+    if (classify({ tool: "bash", text: "ok\n[exit code: 0]" }).result !== "success") throw new Error("末行 exit 0 必须 success");
+    if (classify({ tool: "bash", text: "boom\n[exit code: 3]" }).result !== "failure") throw new Error("末行 exit 3 必须 failure");
+    if (classify({ tool: "bash", text: "[exit code: 3]" }).verify.summary !== "exit 3") throw new Error("summary 要写 exit 3");
+    // ② 允许行内前后空白与 CRLF（宿主追加时可能带 \r）
+    if (classify({ tool: "bash", text: "done\n  [exit code: 0]  " }).result !== "success") throw new Error("两侧空白必须容忍");
+    if (classify({ tool: "bash", text: "done\r\n[exit code: 0]\r\n" }).result !== "success") throw new Error("CRLF 必须容忍");
+    if (lastLineExitCode("a\n\n[exit code: 7]\n\n") !== 7) throw new Error("尾部空行要跳过");
+    // ③ marker 不是末行 ⇒ 一律 no-exit（不猜）
+    const notLast = classify({ tool: "bash", text: "[exit code: 1]\n还有后续输出" });
+    if (notLast.result !== "unverified") throw new Error(`marker 不在末行不许当结论，实际 ${notLast.result}`);
+    if (notLast.verify.kind !== "no-exit") throw new Error(`必须是 no-exit，实际 ${notLast.verify.kind}`);
+    // ④ 正文子串（复核活证据 e8）：cat 出来的源码里写着 marker ⇒ 不许判 failure
+    const catSource = classify({ tool: "bash", text: 'const text = "[exit code: 1]" + String(x);\nmodule.exports = text;' });
+    if (catSource.result !== "unverified") throw new Error(`正文子串不许当退出码，实际 ${catSource.result}`);
+    // ⑤ 长前缀 + 末行真 marker：仍然必须抓到（不受 200 字符窗口限制）
+    const longPrefix = classify({ tool: "bash", text: "x".repeat(1200) + "\n[exit code: 4]" });
+    if (longPrefix.result !== "failure" || longPrefix.verify.summary !== "exit 4") throw new Error("长输出 + 末行 marker 必须抓到");
+    // ⑥ 没有 marker ⇒ no-exit，且不改 weak 行为（非空、无失败特征 ⇒ weak shell 仍在）
+    const noExit = classify({ tool: "bash", text: "12 passing" });
+    if (noExit.verify.kind !== "no-exit" || noExit.weak !== "shell") throw new Error("no-exit 行为不许变");
+    // ⑦ lastLineExitCode 判据自检
+    if (lastLineExitCode("") !== null) throw new Error("空输出 ⇒ null");
+    if (lastLineExitCode("no marker here") !== null) throw new Error("无 marker ⇒ null");
+    if (lastLineExitCode("[exit code: 0] trailing") !== null) throw new Error("行内后缀 ⇒ null（必须整行）");
+  },
+
+  "OPT-V-2 local-mutate：本地状态写入类工具 unverified + kind \"none\"、不带 weak"() {
+    const must = [
+      "todo_write", "update_goal", "create_goal", "hindsight_ingest_document",
+      "team_task_create", "team_task_update", "send_message",
+      "schedule_create", "schedule_update", "schedule_delete",
+      "job_kill", "spawn_teammate", "subagent",
+    ];
+    for (const tool of must) {
+      if (toolClass(tool) !== "local-mutate") throw new Error(`${tool} 必须分类为 local-mutate，实际 ${toolClass(tool)}`);
+      const c = classify({ tool, text: "ok · 已完成" });
+      if (c.result !== "unverified") throw new Error(`${tool} 必须 unverified，实际 ${c.result}`);
+      if (c.verify.kind !== "none") throw new Error(`${tool} kind 必须是 none，实际 ${c.verify.kind}`);
+      if (c.weak !== undefined) throw new Error(`${tool} 不许带 weak（会污染 WORKING 路径）`);
+    }
+    // 分组表本身：从 _internal 读，防止测试与实现各写一份
+    for (const tool of must) if (!_internal.LOCAL_MUTATE_TOOLS.has(tool)) throw new Error(`${tool} 不在 LOCAL_MUTATE_TOOLS 里`);
+    // 真正只读的仍然只读 + weak read
+    for (const tool of ["read", "grep", "web_fetch", "list_agents", "job_output", "team_task_get", "get_goal"]) {
+      if (toolClass(tool) !== "read") throw new Error(`${tool} 必须仍是 read，实际 ${toolClass(tool)}`);
+    }
+    const r = classify({ tool: "read", text: "some content" });
+    if (r.result !== "unverified" || r.weak !== "read") throw new Error("只读工具仍必须 weak:read");
+    // 仓库写入与 present 一个字节不改
+    if (toolClass("present") !== "write") throw new Error("present 必须仍是 write");
+    if (toolClass("write") !== "write" || toolClass("edit") !== "write") throw new Error("写工具分类不许变");
+    const w = classify({ tool: "write", text: "1 insertion(+)" });
+    if (w.result !== "success" || w.verify.kind !== "diff") throw new Error("write 回执仍必须 success/diff");
+    // isError 优先级最高：local-mutate 被宿主标错时仍是 failure
+    const e = classify({ tool: "todo_write", text: "boom", isError: true });
+    if (e.result !== "failure" || e.verify.kind !== "host-error") throw new Error("isError 必须仍压过 local-mutate");
   },
 });
