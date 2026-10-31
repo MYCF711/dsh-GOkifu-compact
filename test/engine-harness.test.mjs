@@ -997,7 +997,7 @@ tests["S8-4 阈值边界：恰好等于首折阈值就 fold，少 1 token 不 fo
   if (!b) throw new Error(`恰好等于阈值（${S8_FIRST}）必须 fold（判定是 total < threshold 才跳过）`);
 };
 
-tests["S8-5 fold 次数不增：首折只把第一次提前，之后的判定点与关闭 S8 完全一致"] = async () => {
+tests["S8-5 fold 次数最多 +1（首折提前一次）：之后的判定点与关闭 S8 完全一致"] = async () => {
   const { Engine, graphDir } = await load();
   const run = async (id, config) => {
     const session = s8Session(id, 19);
