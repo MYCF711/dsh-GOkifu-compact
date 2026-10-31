@@ -1,5 +1,52 @@
 # 更新记录
 
+## 1.11.9 — 2026-10-31
+
+### 发布脚本新增门禁：CHANGELOG 写的「N 个测试文件」必须等于事实
+
+**这条门禁上线当天就抓到了真实漂移**：CHANGELOG 从 1.11.5 起一直写着同一个旧数字（**37**），
+实际早就是 **42** —— 连续几个版本没人对过账（它不影响构建，所以从来不会自己叫）。
+
+**新增（`scripts/release-lib.mjs`，纯逻辑、可单测）**
+
+| 导出 | 行为 |
+|---|---|
+| `declaredTestFiles(section)` | 读「N 个测试文件」；**没写返回 `null`**；容错 `**42** 个测试文件` / `（42 个测试文件；493 + 7）` / `42个测试文件` |
+| `checkTestFileCount(section, actual)` | **三态**：一致放行 / 不一致给出 `{declared, actual, reason}` / 无声明放行 |
+
+**`scripts/release.mjs` 体检 ②b**：当前版本那一节的数字 ≠ `test/*.test.mjs` 实际数 ⇒ **红，`--yes` 也不动手**；
+**没写这句不报错**（允许不声明）。红文案同时给出两个数与「怎么数」（含历史版本数法）：
+
+```
+· CHANGELOG 写的「N 个测试文件」与实际 42 个不符 —— 改了测试文件就必须同步这句（或删掉它，脚本不会因此报错）。
+  实际值怎么数：ls test/*.test.mjs | wc -l（看历史版本：git ls-tree -r --name-only <tag>^{commit} test/ | grep -c '\.test\.mjs$'）
+```
+
+### 顺带修掉两个「只在预演期才撞到」的发布脚本缺陷
+
+写这条门禁时跑 dry-run，脚本**直接崩了**，顺藤摸出两个真缺陷（都不影响发版那一刻，但会让「已发版本上再跑一次预演」变成堆栈）：
+
+1. **tag 已存在时 dry-run 崩**：`git rev-parse -q --verify refs/tags/x^{commit}` —— Windows 上 `execSync` 走 **cmd.exe**，
+   `^` 是转义字符 ⇒ 被吃成 `{commit}`，命令失败抛异常（手动在 Git Bash 里跑同一命令是好的，极难从表面看出）。
+   改用 `git rev-list -n1 refs/tags/<tag>`（无 shell 元字符，annotated / lightweight 都剥到 commit）+ try/catch。
+2. **「tag 指向别的 commit」误报**：给 `ls-remote` 传**精确 pattern** 时**不会**输出 `^{}` 剥皮行 ⇒ 拿到的是 tag 对象 sha（≠ commit）；
+   而且判据原本是「≠ HEAD」，但「发过之后 main 又往前走了」是**正常态**。改为列全部 tag 再在 JS 里过滤剥皮行，
+   判据改成「**既不是 HEAD 也不是 HEAD 的祖先**」（`git merge-base --is-ancestor`）才报。
+
+### 验证
+
+- 全量：**498 passed / 0 skipped / 0 failed**（**42 个测试文件**；493 + 5 条 `release-hardening`）
+- `release-hardening` **15/0** · `verify-install` **16/16**
+- `npm pack --dry-run --json`：**71 文件**（`test/` 不进包，数量不变）
+- 三态端到端（临时克隆、版本 9.9.9）：声明 37 / 实际 42 ⇒ **exit 1**；**无声明** ⇒ **exit 0**（附跳过说明）；声明 42 ⇒ **exit 0**
+- 仓库记录更正：1.11.8 节的「37」已改为「42」并在原处注明「发布时误写；npm 上已发内容无法改」
+
+**未验证**
+
+- 门禁只校验**当前 `package.json` 版本那一节**；历史各节不追溯。
+- 没把「仓库自洽」做成单测：若在测试套件里断言「当前版本的数字 == 实际数」，每加一个测试文件都会红到下一版
+  （已发布那一节是冻结的）⇒ 这条只在**发布时**才对得起来。
+
 ## 1.11.8 — 2026-10-31
 
 ### sidecar 现在能**回灌**：归档掉的悬空边可以放回图里
