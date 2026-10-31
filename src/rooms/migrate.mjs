@@ -416,10 +416,26 @@ export function apply(root, { now = Date.now(), backupRoot = backupsRoot(), stam
  * merge 的备份目录：`<backupRoot>/merge-<iso>`（apply 且真的写了才创建）。
  * 与 apply 的整目录备份同根（`<DSH_HOME>/chess-context/migrate-backups`），便于排障时一处找齐。
  */
-export function mergeBackupDir({ backupRoot = backupsRoot(), stamp = new Date() } = {}) {
-  const dir = nodePath.join(backupRoot, `merge-${stamp.toISOString().replace(/[:.]/g, "-")}`);
+export function mergeBackupDir({ backupRoot = backupsRoot(), stamp = new Date(), session = "" } = {}) {
+  const runDir = nodePath.join(backupRoot, `merge-${stamp.toISOString().replace(/[:.]/g, "-")}`);
+  // ★ task-163：同一次 mergeMany 的多个会话共用同一个 backupRoot + stamp ⇒ 必须按会话分子目录，
+  //   否则后一个会话的 graph.json/MERGE.json 会把前一个**覆盖掉**（实测：48 会话只剩最后一份）。
+  const dir = session ? nodePath.join(runDir, String(session).replace(/[^A-Za-z0-9._-]/g, "_")) : runDir;
   nodeFs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * 汇总用的备份目录去重：同一 run 目录只留一条（48 个会话共用一个 root ⇒ 1 条）。
+ * 输入是 `perSession`（每项可有 `backupDir`，指向 `<run>/<session>`）。
+ * @returns {string[]} 去重后的 **run 目录**列表
+ */
+export function uniqueBackupDirs(perSession) {
+  const dirs = (perSession ?? [])
+    .map((one) => one?.backupDir)
+    .filter((dir) => typeof dir === "string" && dir.length > 0)
+    .map((dir) => nodePath.dirname(dir));
+  return [...new Set(dirs)];
 }
 
 /**
@@ -463,6 +479,10 @@ export function readSidecar(file, { sessionId = "" } = {}) {
  *   · **默认 dry-run**（不写任何文件）；`apply:true` 才写，写之前把 graph.json / index.md
  *     备份到 `<backupRoot>/merge-<iso>/`，并落一份 `MERGE.json` 审计；
  *   · 幂等：同一 sidecar 回灌第二次 ⇒ `merged:0`、`skipped:N`、不写盘、不建备份。
+ *
+ * ⚠ **merge 不是字节级还原**：它把边并回去、刷新 `updatedAt`、重建 index.md，
+ *   个别会话的 `stateIndex`（派生数据）可能与归档前不同。要**逐字节**回到某个时点，
+ *   请用 `--rollback=<apply 的备份目录>`（apply 的整目录备份才是字节级快照）。
  *
  * @param {string} dir 会话目录（含 graph.json）
  * @param {{sidecarFile?:string, apply?:boolean, backupRoot?:string, stamp?:Date, now?:number}} [options]
@@ -545,7 +565,7 @@ export function mergeSidecar(dir, { sidecarFile = "", apply = false, backupRoot 
   }
 
   // ① 显式备份（graph.json + index.md）；② 原子写 graph.json；③ 重建 index.md；④ MERGE.json 审计
-  const backupDir = mergeBackupDir({ backupRoot, stamp });
+  const backupDir = mergeBackupDir({ backupRoot, stamp, session });
   result.backupDir = backupDir;
   nodeFs.copyFileSync(graphFile, nodePath.join(backupDir, "graph.json"));
   const indexFile = nodePath.join(dir, "index.md");
@@ -564,6 +584,13 @@ export function mergeSidecar(dir, { sidecarFile = "", apply = false, backupRoot 
 /**
  * 回灌一批会话（CLI 用）：`target` 可以是单个 sidecar 文件、单个会话目录、或会话根目录。
  * 返回汇总 + 每会话结果。任何一条出错 ⇒ `ok:false`（但已成功的仍然写完了，逐条可查）。
+ *
+ * 备份布局：同一次调用里所有会话共用 `<backupRoot>/merge-<iso>/`，**每个会话一个子目录**
+ * （`<session>/graph.json|index.md|MERGE.json`）。汇总字段 `backupDirs` 给的是**去重后的 run 目录**
+ * （共用 root ⇒ 1 条），`perSession[].backupDir` 仍是各自子目录，两条信息互不替代。
+ *
+ * ⚠ 与 `mergeSidecar` 相同：**不是字节级还原**（`updatedAt` 会刷、`stateIndex` 可能不同）；
+ *   逐字节恢复用 apply 备份 + `rollback`。
  */
 export function mergeMany(target, { apply = false, backupRoot = backupsRoot(), stamp = new Date(), now = Date.now() } = {}) {
   const dirs = [];
@@ -609,7 +636,7 @@ export function mergeMany(target, { apply = false, backupRoot = backupsRoot(), s
     skipped,
     ok: perSession.length > 0 && errors.length === 0,
     errors,
-    backupDirs: perSession.map((r) => r.backupDir).filter(Boolean),
+    backupDirs: uniqueBackupDirs(perSession),
     perSession,
   };
 }

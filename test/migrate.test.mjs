@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
-import { planSession, buildSidecar, dryRun, apply, verify, rollback, mergeSidecar, mergeMany, readSidecar, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
+import { planSession, buildSidecar, dryRun, apply, verify, rollback, mergeSidecar, mergeMany, readSidecar, uniqueBackupDirs, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
@@ -611,7 +611,16 @@ Object.assign(tests, {
       const res = mergeMany(root, { apply: true, backupRoot });
       t.eq(res.ok, true, `apply 应成功：${res.errors.join("; ")}`);
       t.eq(res.merged, 6, "共回灌 6 条");
-      t.eq(res.backupDirs.length, 2, "两个会话各自建备份");
+      // ★ task-163：共用 backupRoot ⇒ 汇总 backupDirs 去重成 1 条（run 目录），
+      //   每会话的备份在 run 目录下的独立子目录里（互不覆盖）。
+      t.eq(res.backupDirs.length, 1, `共用 backupRoot 时 backupDirs 必须去重成 1，实际 ${res.backupDirs.length}`);
+      const perDirs = res.perSession.map((r) => r.backupDir);
+      t.eq(new Set(perDirs).size, 2, "perSession 仍必须各自有路径");
+      for (const one of res.perSession) {
+        t.ok(nodeFs.existsSync(nodePath.join(one.backupDir, "graph.json")), `${one.session} 的备份不能丢（曾被覆盖）`);
+        t.eq(nodePath.dirname(one.backupDir), res.backupDirs[0], "每个会话的子目录都应在同一个 run 目录下");
+      }
+      t.eq(nodeFs.readdirSync(res.backupDirs[0]).filter((f) => f.startsWith("sess-")).length, 2, "run 目录下应有两个会话子目录");
       for (const id of ["sess-a", "sess-b"]) {
         const g = fromJSON(nodeFs.readFileSync(nodePath.join(root, id, "graph.json"), "utf8"));
         t.eq(planSession(g, { now: Date.now() }).residue.length, 3, `${id} 的 residue 应回到 3`);
@@ -698,5 +707,90 @@ Object.assign(tests, {
     t.includes(src, "mergeMany(opts.mergeTarget", "必须调 mergeMany");
     t.includes(src, "backup:", "人类摘要必须打印备份目录");
     t.includes(src, "已回灌并重建 index.md", "apply 人类摘要必须说明写了什么");
+  },
+});
+
+/* ═════════════ P6C-BACKUP（task-163）：汇总去重 + 非字节级还原说明 ═════════════ */
+
+Object.assign(tests, {
+  "P6C-B1 uniqueBackupDirs：同一 run 目录 ×48 ⇒ 1 条；不同目录 ⇒ 各留一条"(t) {
+    const run = nodePath.join("D:", "bak", "merge-2026-01-01T00-00-00-000Z");
+    const same = Array.from({ length: 48 }, (_, i) => ({ session: `s${i}`, backupDir: nodePath.join(run, `s${i}`) }));
+    const deduped = uniqueBackupDirs(same);
+    t.eq(deduped.length, 1, `48 个会话共用一个 run 目录 ⇒ 去重成 1 条，实际 ${deduped.length}`);
+    t.eq(deduped[0], run, "去重后应是 run 目录（不是某个会话子目录）");
+    // 不同 backupRoot ⇒ 各留一条
+    const mixed = [...same, { session: "other", backupDir: nodePath.join("D:", "bak2", "merge-x", "other") }];
+    const two = uniqueBackupDirs(mixed);
+    t.eq(two.length, 2, `两个不同的 run 目录 ⇒ 2 条，实际 ${two.length}`);
+    t.eq(two.includes(nodePath.join("D:", "bak2", "merge-x")), true, "第二个 run 目录必须在");
+    // 边界：没有备份 / 空输入
+    t.eq(uniqueBackupDirs([{ session: "a", backupDir: "" }]).length, 0, "空 backupDir 要过滤");
+    t.eq(uniqueBackupDirs([]).length, 0, "空输入 ⇒ 空数组");
+  },
+
+  "P6C-B2 同 root 批量 merge：run 目录 1 个、每会话子目录各自独立、两份备份都不丢（旧版会覆盖）"(t) {
+    const root = tmpRoot("b2");
+    const backupRoot = tmpRoot("b2-bak");
+    try {
+      for (const id of ["sess-x", "sess-y"]) {
+        const { dir } = makeSessionDir(root, id, () => shiftEdgeTimes(mixedGraph(id).g, NOW - Date.now()));
+        const old = Date.now() - 2 * 3600 * 1000;
+        setMtime(nodePath.join(dir, "graph.json"), old);
+        if (nodeFs.existsSync(nodePath.join(dir, DELTA_NAME))) setMtime(nodePath.join(dir, DELTA_NAME), old);
+      }
+      apply(root, { now: NOW, backupRoot });
+      const beforeX = nodeFs.readFileSync(nodePath.join(root, "sess-x", "graph.json"), "utf8");
+      const beforeY = nodeFs.readFileSync(nodePath.join(root, "sess-y", "graph.json"), "utf8");
+
+      const res = mergeMany(root, { apply: true, backupRoot });
+      t.eq(res.ok, true, `应成功：${res.errors.join("; ")}`);
+      t.eq(res.backupDirs.length, 1, "共用 backupRoot ⇒ 汇总只有 1 个 run 目录");
+      t.eq(res.perSession.length, 2, "两个会话各一条结果");
+      const dirs = res.perSession.map((r) => r.backupDir);
+      t.eq(new Set(dirs).size, 2, "两个会话的备份目录必须不同（否则互相覆盖）");
+      for (const one of res.perSession) {
+        t.eq(nodePath.dirname(one.backupDir), res.backupDirs[0], "会话子目录都挂在同一个 run 目录下");
+      }
+      // ★ 关键：旧版这里只剩最后一份 —— 两份备份的 graph.json 内容必须各自等于自己合并前的图
+      const xBackup = nodeFs.readFileSync(nodePath.join(res.perSession[0].backupDir, "graph.json"), "utf8");
+      const yBackup = nodeFs.readFileSync(nodePath.join(res.perSession[1].backupDir, "graph.json"), "utf8");
+      t.eq(xBackup, beforeX, "sess-x 的备份必须是它自己合并前的图（没被 sess-y 覆盖）");
+      t.eq(yBackup, beforeY, "sess-y 的备份必须是它自己合并前的图");
+      t.notIncludes(xBackup, yBackup, "两份备份不许相同（相同=覆盖了）");
+      // MERGE.json 也必须各一份且指向自己的会话
+      for (const one of res.perSession) {
+        const audit = JSON.parse(nodeFs.readFileSync(nodePath.join(one.backupDir, "MERGE.json"), "utf8"));
+        t.eq(audit.session, one.session, `MERGE.json 必须属于 ${one.session}`);
+      }
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-B3 merge 不是字节级还原：updatedAt 会刷新，逐字节恢复要走 rollback（文档 + 行为双证）"(t) {
+    const fx = archivedSession("b3");
+    try {
+      const graphFile = nodePath.join(fx.dir, "graph.json");
+      const archivedText = nodeFs.readFileSync(graphFile, "utf8");
+      const archived = JSON.parse(archivedText);
+      // 用一个明显不同的 now，保证 updatedAt 一定被刷新
+      const res = mergeSidecar(fx.dir, { apply: true, backupRoot: fx.backupRoot, now: 1_900_000_000_000 });
+      t.eq(res.ok, true, `应成功：${res.errors.join("; ")}`);
+      const afterText = nodeFs.readFileSync(graphFile, "utf8");
+      const after = JSON.parse(afterText);
+      t.eq(after.updatedAt, 1_900_000_000_000, "merge 必须刷新 updatedAt（这正是「非字节级还原」的含义）");
+      t.eq(after.updatedAt !== archived.updatedAt, true, "updatedAt 必须与归档时不同");
+      t.eq(afterText !== archivedText, true, "合并不可能逐字节等于归档前的文本");
+      // JSDoc / 文档必须写明这件事，否则用户会以为 merge 能当回滚用
+      const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "migrate.mjs"), "utf8");
+      t.includes(src, "不是字节级还原", "mergeSidecar/mergeMany 的文档必须写明非字节级还原");
+      t.includes(src, "--rollback", "文档必须指向 rollback 作为字节级恢复手段");
+      t.includes(src, "stateIndex", "文档必须提到 stateIndex 可能不同");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
   },
 });
