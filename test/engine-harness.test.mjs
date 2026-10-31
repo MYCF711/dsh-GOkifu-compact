@@ -921,3 +921,131 @@ tests["P7-4 doctor：展示 fallback 分布与最大 overBudgetBy；缺文件写
   const emptyCheck = empty.checks.find((c) => c.name === "热清单预算（fallback）");
   if (!emptyCheck || !emptyCheck.detail.includes("未采集")) throw new Error(`缺文件必须写「未采集」：${JSON.stringify(emptyCheck)}`);
 };
+
+/* ═════════════ S8 首折削峰（task-170） ═════════════ */
+
+/** 造一个可 fold 的会话：system + n 条 user。 */
+function s8Session(id, n = 19) {
+  const session = makeSession({ id });
+  for (let i = 0; i < n; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  return session;
+}
+
+/** 200K 窗口、默认 headroom ⇒ 首折阈值 60K（0.30）、正常阈值 90K（0.45）。 */
+const S8_WINDOW = 200_000;
+const S8_FIRST = S8_WINDOW * 0.3;
+const S8_NORMAL = S8_WINDOW * 0.45;
+
+tests["S8-1 首折在 firstFoldRatio（0.30）触发：61K 就 fold，不必等到 90K"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = s8Session("sess-s8-first");
+  const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => S8_FIRST + 1_000 });
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error(`首折应在 ${S8_FIRST} 触发（实际没有 fold）`);
+  if (engine.compactCalls.length !== 1) throw new Error(`compactRegion 调用 ${engine.compactCalls.length} 次`);
+  const g = readGraph(graphDir, "sess-s8-first");
+  if (g.foldCount !== 1) throw new Error(`foldCount 应为 1，实际 ${g.foldCount}`);
+};
+
+tests["S8-2 首折之后回到 thresholdRatio（0.45）：80K 不 fold，91K 才 fold"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = s8Session("sess-s8-second", 19);
+  let total = S8_FIRST + 1_000;
+  const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => total });
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const first = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!first) throw new Error("第一次 fold 应当发生（首折 60K）");
+  // 首折之后：再补节点，让 80K 有内容可压，但阈值已回到 90K
+  for (let i = 0; i < 10; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "y" }] });
+  total = S8_FIRST + 20_000; // 80K：高于首折阈值、低于正常阈值
+  const mid = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (mid !== null) throw new Error(`第二次（80K）不该 fold —— 首折之后必须回到 90K，实际 fold 了`);
+  total = S8_NORMAL + 1_000; // 91K
+  const second = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!second) throw new Error("第三次（91K）应当 fold（正常阈值 90K）");
+  // graph.json 是「上一回合基线快照」（落后一回合），所以持久面用 compactCalls 断言
+  if (engine.compactCalls.length !== 2) throw new Error(`compactRegion 应 2 次（首折 + 91K），实际 ${engine.compactCalls.length}`);
+};
+
+tests["S8-3 firstFoldRatio=0 关闭：61K 不 fold、91K 才 fold（与旧行为一致）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = s8Session("sess-s8-off");
+  let total = S8_FIRST + 1_000;
+  const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => total });
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, firstFoldRatio: 0 });
+  const early = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (early !== null) throw new Error("firstFoldRatio=0 时 61K 不该 fold");
+  total = S8_NORMAL + 1_000;
+  const later = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!later) throw new Error("91K 应当 fold（0.45）");
+};
+
+tests["S8-4 阈值边界：恰好等于首折阈值就 fold，少 1 token 不 fold"] = async () => {
+  const { Engine, graphDir } = await load();
+  // 少 1 token
+  const sessionA = s8Session("sess-s8-edge-a");
+  const ctxA = makeCtx({ window: S8_WINDOW, measureTotal: () => S8_FIRST - 1 });
+  const engineA = new Engine(ctxA, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const a = await engineA.compactIfNeeded({ session: sessionA, options: {} }, "pressure", undefined);
+  if (a !== null) throw new Error(`少 1 token（${S8_FIRST - 1}）不该 fold`);
+  // 恰好等于
+  const sessionB = s8Session("sess-s8-edge-b");
+  const ctxB = makeCtx({ window: S8_WINDOW, measureTotal: () => S8_FIRST });
+  const engineB = new Engine(ctxB, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const b = await engineB.compactIfNeeded({ session: sessionB, options: {} }, "pressure", undefined);
+  if (!b) throw new Error(`恰好等于阈值（${S8_FIRST}）必须 fold（判定是 total < threshold 才跳过）`);
+};
+
+tests["S8-5 fold 次数不增：首折只把第一次提前，之后的判定点与关闭 S8 完全一致"] = async () => {
+  const { Engine, graphDir } = await load();
+  const run = async (id, config) => {
+    const session = s8Session(id, 19);
+    let total = 0;
+    const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => total });
+    const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, ...config });
+    const points = [];
+    for (const step of [50_000, 61_000, 80_000, 91_000, 150_000, 300_000]) {
+      total = step;
+      for (let i = 0; i < 10; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "z" }] });
+      const r = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+      if (r) points.push(step);
+    }
+    return points;
+  };
+  const withS8 = await run("sess-s8-count-on", {});
+  const withoutS8 = await run("sess-s8-count-off", { firstFoldRatio: 0 });
+  if (withS8.length < 1) throw new Error("至少应当有一次 fold");
+  // 首折削峰的全部效果 = 第一次 fold 从 90K 提前到 60K，**最多多一次**；
+  // 之后的判定点必须与关掉 S8 时逐点相同（否则就是「削峰把 fold 变密了」）。
+  if (withS8.length > withoutS8.length + 1) throw new Error(`首折削峰让 fold 次数变多了：${withS8.length} > ${withoutS8.length} + 1`);
+  const restWith = withS8.slice(1);
+  if (JSON.stringify(restWith) !== JSON.stringify(withoutS8)) {
+    throw new Error(`首折之后的判定点必须与关闭 S8 一致：开=${JSON.stringify(restWith)} 关=${JSON.stringify(withoutS8)}`);
+  }
+  if (withS8[0] !== 61_000) throw new Error(`第一次 fold 应在 61K（首折阈值 60K），实际 ${withS8[0]}`);
+  if (withoutS8[0] !== 91_000) throw new Error(`关掉 S8 时第一次 fold 应在 91K（0.45），实际 ${withoutS8[0]}`);
+};
+
+tests["S8-6 首折阈值 <= retainTokens 时回退正常阈值（不许让压缩后端起不来）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = s8Session("sess-s8-guard");
+  let total = S8_FIRST + 1_000;
+  const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => total });
+  // retainRatio 0.16 ⇒ retainTokens = 0.16×195904 ≈ 31K；firstFoldRatio 0.05 ⇒ 10K < retainTokens
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.16, firstFoldRatio: 0.05 });
+  const early = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (early !== null) throw new Error("首折阈值低于 retainTokens 时必须回退到正常阈值（61K 不该 fold）");
+  total = S8_NORMAL + 1_000;
+  const later = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!later) throw new Error("回退后 91K 应当 fold");
+};
+
+tests["S8-7 溢出自救不受首折影响（overflow 的 threshold 恒为 0）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = s8Session("sess-s8-overflow");
+  const ctx = makeCtx({ window: S8_WINDOW, measureTotal: () => 1_000 });
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 10_000_000, minFoldTokens: 10_000_000 });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+  if (!result) throw new Error("溢出自救必须能压（与 firstFoldRatio 无关）");
+};

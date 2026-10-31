@@ -530,7 +530,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         );
       }
       const reserved = session.requestHeader()?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
-      spec = resolveSpec(policy, info.context.contextWindow, reserved);
+      // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
+      spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
       if (measurement.totalTokens < spec.thresholdTokens) return null;
       const prune = this.ctx.get("toolResultPruner");
       if (prune !== undefined) {
@@ -699,7 +700,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
 /** resolveChess 的键序（与 A2-4 之前逐键同序；`onLedgerBudget` 是 engine 的注入位，不进 SCHEMA）。 */
 const RESOLVE_ORDER = [
-  "summaryMode", "thresholdRatio", "headroomTokens", "retainRatio", "retainTokens",
+  "summaryMode", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens",
   "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
   "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
   "onLedgerBudget", "transposition", "tier2After", "graphDir", "worldHashMaxFiles",
@@ -722,10 +723,27 @@ function routedTarget(session) {
 }
 
 function resolvePolicy(chess, target) {
-  return { target, thresholdRatio: chess.thresholdRatio, headroomTokens: chess.headroomTokens, retainRatio: chess.retainRatio, retainTokens: chess.retainTokens };
+  return {
+    target,
+    thresholdRatio: chess.thresholdRatio,
+    firstFoldRatio: chess.firstFoldRatio,
+    headroomTokens: chess.headroomTokens,
+    retainRatio: chess.retainRatio,
+    retainTokens: chess.retainTokens,
+  };
 }
 
-function resolveSpec(policy, contextWindow, reservedCompletionTokens) {
+/**
+ * 压力阈值与保留量（S8：首折削峰）。
+ *
+ * `firstFold` 为真且 `firstFoldRatio > 0` 时，阈值用 `min(窗口×firstFoldRatio, pressureBudget)`；
+ * 否则用 `thresholdRatio`（0.45）。**overflow 路径不经过这里**（那边 thresholdTokens=0）。
+ *
+ * 边界：如果首折阈值小到 `<= retainTokens`（例如 firstFoldRatio 配得比 retainRatio 还低），
+ * 退回正常阈值 —— 否则会撞上下面的 "retainTokens must be less than threshold" 抛错，
+ * 一个「想省首折」的配置不该让整个压缩后端起不来。
+ */
+function resolveSpec(policy, contextWindow, reservedCompletionTokens, firstFold = false) {
   const messageBudget = contextWindow - (reservedCompletionTokens ?? 0);
   if (messageBudget <= 0) throw new Error(`chess-context: ${contextWindow}-token window reserves ${reservedCompletionTokens} completion tokens; no message budget`);
   const pressureBudget = messageBudget - policy.headroomTokens;
@@ -734,8 +752,11 @@ function resolveSpec(policy, contextWindow, reservedCompletionTokens) {
       `chess-context: ${contextWindow}-token window reserves ${reservedCompletionTokens} + ${policy.headroomTokens} headroom; no pressure budget (lower maxTokens/headroomTokens)`,
     );
   }
-  const thresholdTokens = Math.floor(Math.min(contextWindow * policy.thresholdRatio, pressureBudget));
+  const normalThreshold = Math.floor(Math.min(contextWindow * policy.thresholdRatio, pressureBudget));
+  const useFirstFold = firstFold === true && Number(policy.firstFoldRatio) > 0;
+  let thresholdTokens = useFirstFold ? Math.floor(Math.min(contextWindow * policy.firstFoldRatio, pressureBudget)) : normalThreshold;
   const retainTokens = policy.retainTokens === undefined ? Math.floor(messageBudget * policy.retainRatio) : policy.retainTokens;
+  if (useFirstFold && thresholdTokens <= retainTokens) thresholdTokens = normalThreshold;
   if (retainTokens >= thresholdTokens) {
     throw new Error(`chess-context: retainTokens (${retainTokens}) must be less than threshold (${thresholdTokens})`);
   }

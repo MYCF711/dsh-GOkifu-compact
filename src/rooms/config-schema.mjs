@@ -8,7 +8,7 @@
  *
  * 本房间是**唯一真值**：
  *   · `SCHEMA` 23 行（key / type / default / where / range / values / label / desc）
- *   · `PRESET_KEYS` 16（含顺序 —— `engineBlock()` 的模板顺序必须与它一致，`test/config-schema` 钉住）
+ *   · `PRESET_KEYS` 17（含顺序 —— `engineBlock()` 的模板顺序必须与它一致，`test/config-schema` 钉住）
  *   · `BASE_KEYS` 11（透传给官方基类的那批同名键）
  *   · `configDefaults()` / `fieldLabels()` / `describe(key)` —— 派生只读表
  *   · `resolveConfig(raw)` —— 引擎侧「原始配置 → 生效配置」（含净化与 `retainRatio` 修正）
@@ -21,7 +21,7 @@
  * 依赖：**零依赖**（不 import 任何东西）—— 它同时被 R09（engine）、R11（ui）、R13（install）消费。
  */
 
-/** 23 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
+/** 24 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
 export const SCHEMA = Object.freeze([
   // —— 与官方后端同名（语义一致，默认值不同）——
   {
@@ -32,6 +32,15 @@ export const SCHEMA = Object.freeze([
     range: [0.05, 0.95],
     label: "触发阈值（占窗口）",
     desc: "窗口占比：压力超过 min(窗口×该值, 窗口−输出预留−余量) 才 fold",
+  },
+  {
+    key: "firstFoldRatio",
+    type: "number",
+    default: 0.3,
+    where: "preset",
+    range: [0, 0.95],
+    label: "首折阈值（占窗口）",
+    desc: "只作用于本会话第一次 fold 的压力阈值（默认 0.30）；0 = 关闭，直接用 thresholdRatio",
   },
   {
     key: "headroomTokens",
@@ -91,10 +100,11 @@ export const SCHEMA = Object.freeze([
 
 const BY_KEY = new Map(SCHEMA.map((entry) => [entry.key, entry]));
 
-/** preset 里允许出现的 16 个键（**顺序即 `engineBlock()` 的模板顺序**，`maxTokens` 今天不在模板里）。 */
+/** preset 里允许出现的 17 个键（**顺序即 `engineBlock()` 的模板顺序**，`maxTokens` 今天不在模板里）。 */
 export const PRESET_KEYS = Object.freeze([
   "auto",
   "thresholdRatio",
+  "firstFoldRatio",
   "headroomTokens",
   "retainRatio",
   "growthFloorTokens",
@@ -142,6 +152,7 @@ export function configDefaults() {
 const LABEL_ORDER = Object.freeze([
   "auto",
   "thresholdRatio",
+  "firstFoldRatio",
   "headroomTokens",
   "retainRatio",
   "growthFloorTokens",
@@ -196,6 +207,7 @@ export function resolveConfig(raw = {}) {
   const out = {
     summaryMode: describe("summaryMode").values.includes(c.summaryMode) ? c.summaryMode : describe("summaryMode").default,
     thresholdRatio: num(c.thresholdRatio, describe("thresholdRatio").default),
+    firstFoldRatio: num(c.firstFoldRatio, describe("firstFoldRatio").default),
     headroomTokens: num(c.headroomTokens, describe("headroomTokens").default),
     retainRatio: num(c.retainRatio, describe("retainRatio").default),
     retainTokens: numberOrUndefined(c.retainTokens),
