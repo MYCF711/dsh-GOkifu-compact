@@ -337,3 +337,51 @@ tests["S5 · 预算只剩几 token 时先丢 recent、不超预算（dropped-for
     throw new Error(`夹具构造失败：预算 ${budget} 下带 recent 也只有 ${estimateTokens(withRecent)} token（没超）`);
   }
 };
+
+/* ═════════════ S3 降级可见（task-186） ═════════════ */
+
+tests["S3-1 lastFoldMode=rules ⇒ 热清单固定出现「⚠ 上次摘要是规则生成」，hybrid/缺字段不出现"] = () => {
+  const base = () => buildGraph({ failures: 3, constraints: ["必须保持 API 不变。"] });
+  const rules = base();
+  rules.lastFoldMode = "rules";
+  const withRules = renderLedger(rules).text;
+  if (!withRules.includes("⚠ 上次摘要是规则生成（无模型润色）")) throw new Error(`规则摘要后必须有提示行：\n${withRules.slice(0, 200)}`);
+  // 别名字段也认（task-186 允许 lastFoldDegraded）
+  const alias = base();
+  alias.lastFoldDegraded = true;
+  if (!renderLedger(alias).text.includes("⚠ 上次摘要是规则生成")) throw new Error("lastFoldDegraded=true 必须同样显示");
+
+  const hybrid = base();
+  hybrid.lastFoldMode = "hybrid";
+  hybrid.lastFoldDegraded = false;
+  const withHybrid = renderLedger(hybrid).text;
+  if (withHybrid.includes("上次摘要是规则生成")) throw new Error("正常 hybrid 摘要不许显示降级提示");
+
+  const legacy = base(); // 旧图：两个字段都没有
+  const withLegacy = renderLedger(legacy).text;
+  if (withLegacy.includes("上次摘要是规则生成")) throw new Error("旧图缺字段时不许显示（向后兼容）");
+
+  const llm = base();
+  llm.lastFoldMode = "llm";
+  if (renderLedger(llm).text.includes("上次摘要是规则生成")) throw new Error("llm 模式不许显示降级提示");
+};
+
+tests["S3-2 降级提示行在各档位都在，且预算口径成立（500 预算的常规会话装得下）"] = () => {
+  const g = buildGraph({ failures: 40, constraints: ["必须保持 API 不变。"] });
+  g.lastFoldMode = "rules";
+  const seen = new Set();
+  // 预算从宽到窄扫：命中 L0/L1/L2/L3/L5（L4 只在「20~60 条失败边且预算特定」时出现，见别的用例）
+  for (const maxTokens of [4000, 2000, 1500, 1200, 900, 700, 500, 300]) {
+    const r = renderLedger(g, { maxTokens });
+    if (!r.text.includes("⚠ 上次摘要是规则生成")) throw new Error(`maxTokens=${maxTokens} 时提示行丢了（L${r.level}）`);
+    seen.add(r.level);
+    if (r.fallback !== "over-budget" && r.tokens > maxTokens) throw new Error(`maxTokens=${maxTokens} 实际 ${r.tokens} tokens（L${r.level}）超预算`);
+  }
+  if (seen.size < 3) throw new Error(`档位覆盖不足：${[...seen].join(",")}`);
+  // 500 预算的常规夹具：S3 的提示行不许把正常会话挤出预算
+  const normal = buildGraph({ failures: 3, constraints: ["必须保持 API 不变。"] });
+  normal.lastFoldMode = "rules";
+  const r500 = renderLedger(normal, { maxTokens: 500 });
+  if (r500.tokens > 500) throw new Error(`500 预算下 ${r500.tokens} tokens（L${r500.level}）`);
+  if (!r500.text.includes("⚠ 上次摘要是规则生成")) throw new Error("500 预算下提示行不该被裁掉");
+};

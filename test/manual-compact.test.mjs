@@ -239,6 +239,10 @@ export const tests = {
         t.eq(closedError.diagnosis?.kind === "open-turn", false, `closed turn 不许再报 open-turn，实际 ${closedError.diagnosis?.kind}：${closedError.rawMessage ?? closedError.message}`);
       } else {
         t.ok(closedResult !== null && closedResult !== undefined, "closed turn 成功时必须返回结果（成功路径不许被包装丢值）");
+        // ★ S3（task-186）：manual compactNow 也必须写降级标记（本探针 summaryMode=rules ⇒ rules）
+        const g = engine.graphs.get("probe-manual");
+        t.eq(g?.lastFoldMode, "rules", "manual compactNow 也必须写 lastFoldMode=rules（本轮 summaryMode=rules）");
+        t.eq(g?.lastFoldDegraded, true, "manual compactNow 的 lastFoldDegraded 应为 true");
         t.ok(Array.isArray(closedResult.summary), "成功结果必须带 summary（与基类返回同形）");
       }
     })();

@@ -1049,3 +1049,145 @@ tests["S8-7 溢出自救不受首折影响（overflow 的 threshold 恒为 0）"
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压（与 firstFoldRatio 无关）");
 };
+
+/* ═════════════ S3 降级可见 / S4 minFold 缩放（task-186） ═════════════ */
+
+/** 造一个「有失败边、可 fold」的会话（19 个 user 节点 + 1 条失败边）。 */
+async function s34Session(ctx, id, { tokensPerNode = 7000 } = {}) {
+  const session = makeSession({ id, tokensPerNode });
+  for (let i = 0; i < 19; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  return session;
+}
+
+tests["S3-3 hybrid 摘要模型挂掉 ⇒ 规则摘要并把 lastFoldMode=rules 写进图（auto 路径同源）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "s3-degraded");
+  const session = makeSession({ id: "sess-s3-degraded" });
+  const ctx = makeCtx({ failModels: new Set(["m"]) });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || out.degraded !== "rules") throw new Error("hybrid 下模型挂了应退回规则摘要");
+  const g = engine.graphs.get("sess-s3-degraded");
+  if (g?.lastFoldMode !== "rules") throw new Error(`内存图 lastFoldMode 应为 rules，实际 ${JSON.stringify(g?.lastFoldMode)}`);
+  if (g?.lastFoldDegraded !== true) throw new Error("内存图 lastFoldDegraded 应为 true");
+  // 落盘（回合边界 flush）后从 graph.json 读回，字段必须还在
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const disk = readGraph(dir, "sess-s3-degraded");
+  if (disk.lastFoldMode !== "rules") throw new Error(`graph.json 里 lastFoldMode 应为 rules，实际 ${JSON.stringify(disk.lastFoldMode)}`);
+  if (disk.lastFoldDegraded !== true) throw new Error("graph.json 里 lastFoldDegraded 应为 true");
+};
+
+tests["S3-4 正常 hybrid 摘要 ⇒ lastFoldMode=hybrid，热清单不显示降级提示"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-s3-normal" });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, "s3-normal"), auto: false });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || out.llmStreamCall !== true) throw new Error("正常 hybrid 必须走模型（llmStreamCall=true）");
+  const g = engine.graphs.get("sess-s3-normal");
+  if (g?.lastFoldMode !== "hybrid") throw new Error(`lastFoldMode 应为 hybrid，实际 ${JSON.stringify(g?.lastFoldMode)}`);
+  if (g?.lastFoldDegraded !== false) throw new Error("lastFoldDegraded 应为 false");
+
+  const agent = { session, options: {} };
+  const claimed = [{ id: "claimed-s3", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 9 }, () => ({ kind: "enter", messages: claimed }));
+  const injected = decision.messages.filter((m) => m.source?.kind === "chess-context").map((m) => m.content[0].text).join("\n");
+  if (injected.includes("上次摘要是规则生成")) throw new Error(`正常 hybrid 摘要后的热清单不许带降级提示：\n${injected.slice(0, 240)}`);
+};
+
+tests["S3-5 规则摘要之后的热清单固定带「⚠ 上次摘要是规则生成」且 ≤500 tokens"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-s3-ledger" });
+  const ctx = makeCtx({ failModels: new Set(["m"]) });
+  const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, "s3-ledger"), auto: false });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。必须保持 API 不变。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || out.degraded !== "rules") throw new Error("前置：应退回规则摘要");
+
+  const agent = { session, options: {} };
+  const claimed = [{ id: "claimed-s3b", role: "user", content: [{ type: "text", text: "继续" }] }];
+  const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 9 }, () => ({ kind: "enter", messages: claimed }));
+  const texts = decision.messages.filter((m) => m.source?.kind === "chess-context").map((m) => m.content[0].text);
+  if (texts.length !== 1) throw new Error(`应注入 1 条清单，实际 ${texts.length}`);
+  if (!texts[0].includes("⚠ 上次摘要是规则生成（无模型润色）")) throw new Error(`规则摘要后的热清单必须带提示：\n${texts[0].slice(0, 240)}`);
+  const { estimateTokens } = await import("../src/rooms/ledger.mjs");
+  const tokens = estimateTokens(texts[0]);
+  if (tokens > 500) throw new Error(`带提示行的热清单 ${tokens} tokens 超预算`);
+  // 清单里同一条提示只出现一次（固定一行，不重复）
+  const count = texts[0].split("上次摘要是规则生成").length - 1;
+  if (count !== 1) throw new Error(`提示行应恰好 1 次，实际 ${count}`);
+};
+
+tests["S4-1 200K 窗口：minFold 默认缩放到 16000 —— 12000 的可压量不再触发 fold"] = async () => {
+  const { Engine, graphDir } = await load();
+  const build = async (id) => {
+    const ctx = makeCtx({ window: 200_000, measureTotal: () => 100_000 });
+    const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, id), auto: false, growthFloorTokens: 0, retainRatio: 0.1 });
+    const session = makeSession({ id, tokensPerNode: 2_000 });
+    for (let i = 0; i < 16; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+    return { engine, session, ctx };
+  };
+  // 默认（缩放 16000）：可压 6 节点 × 2000 = 12000 < 16000 ⇒ 不 fold
+  const a = await build("sess-s4-scaled");
+  const scaled = await a.engine.compactIfNeeded({ session: a.session, options: {} }, "pressure", undefined);
+  if (scaled !== null) throw new Error("默认缩放到 16000 后，12000 的可压量不该 fold（旧的 8000 会 fold）");
+  // 显式 8000 ⇒ 立即 fold（显式配置优先）
+  const b = await build("sess-s4-explicit");
+  const explicitEngine = new Engine(b.ctx, { graphDir: nodePath.join(graphDir, "sess-s4-explicit"), auto: false, growthFloorTokens: 0, minFoldTokens: 9000, retainRatio: 0.1 });
+  const explicit = await explicitEngine.compactIfNeeded({ session: b.session, options: {} }, "pressure", undefined);
+  if (!explicit) throw new Error("显式 minFoldTokens: 9000 时必须 fold（显式配置优先）");
+};
+
+tests["S4-2 1M 窗口：minFold 缩放到 80000 —— 20000 的可压量不 fold；显式 8000 才 fold"] = async () => {
+  const { Engine, graphDir } = await load();
+  const build = async (id) => {
+    const ctx = makeCtx({ window: 1_000_000, measureTotal: () => 320_000 });
+    const session = makeSession({ id, tokensPerNode: 2_000 });
+    for (let i = 0; i < 60; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+    return { ctx, session };
+  };
+  const a = await build("sess-s4-1m");
+  const engineA = new Engine(a.ctx, { graphDir: nodePath.join(graphDir, "sess-s4-1m"), auto: false, growthFloorTokens: 0, retainRatio: 0.1 });
+  const scaled = await engineA.compactIfNeeded({ session: a.session, options: {} }, "pressure", undefined);
+  if (scaled !== null) throw new Error("1M 窗口默认 minFold=80000 时，20000 的可压量不该 fold");
+  const b = await build("sess-s4-1m-explicit");
+  const engineB = new Engine(b.ctx, { graphDir: nodePath.join(graphDir, "sess-s4-1m-explicit"), auto: false, growthFloorTokens: 0, minFoldTokens: 9000, retainRatio: 0.1 });
+  const explicit = await engineB.compactIfNeeded({ session: b.session, options: {} }, "pressure", undefined);
+  if (!explicit) throw new Error("1M 窗口 + 显式 9000 必须 fold");
+};
+
+tests["S4-3 50K 小窗口：缩放值仍是 8000（max(8000, 4000)），照常 fold"] = async () => {
+  const { Engine, graphDir } = await load();
+  const ctx = makeCtx({ window: 50_000, measureTotal: () => 20_000 });
+  const session = makeSession({ id: "sess-s4-small", tokensPerNode: 2_000 });
+  for (let i = 0; i < 20; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, "sess-s4-small"), auto: false, growthFloorTokens: 0, headroomTokens: 4096, retainRatio: 0.1 });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("50K 窗口下 minFold 仍是 8000，34000 的可压量必须 fold（不许被缩放误伤）");
+};
+
+tests["S4-4 overflow 路径不受缩放影响（spec.minFoldTokens 缺省时回落配置值）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const ctx = makeCtx({ window: 200_000, measureTotal: () => 1_000 });
+  const session = makeSession({ id: "sess-s4-overflow", tokensPerNode: 2_000 });
+  for (let i = 0; i < 20; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, "sess-s4-overflow"), auto: false, growthFloorTokens: 10_000_000, minFoldTokens: 10_000_000 });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+  if (!result) throw new Error("溢出自救必须能压（minFold 缩放不该拦住 overflow）");
+};
