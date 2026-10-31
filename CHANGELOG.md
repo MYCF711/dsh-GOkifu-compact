@@ -1,5 +1,61 @@
 # 更新记录
 
+## 1.11.13 — 2026-10-31
+
+### ① 手动压缩失败**说人话**（新增房间 R16 `manual-compact`）
+
+**问题**：`compactNow()` 失败时抛的是宿主底层错误 —— 用户看到 `Error: cannot compact while turn is open`
+之类的原文，**不知道是自己点早了、还是插件卡了、还是真出 bug**。
+
+- 新增 **`src/rooms/manual-compact.mjs`**（零依赖）：`classify` / `describe` / `annotate`
+- 分类九种：`open-turn` · `idle` · `busy-lock` · `cancelled` · `summary` · `persistence` · `commit` · `changed` · `unknown`；
+  **原始 `code` 与 `cause` 一字不改地保留**（诊断加人话，不吞证据）
+- `engine` 覆盖 `compactNow`：**成功路径原样返回**；失败时把诊断挂到原错误上、换成人话 message，**仍 rethrow 原错误**
+  （调用方拿到的仍是原来的 error 对象，只是多了 `.diagnosis`）
+- 测试 4 条：纯函数四态 + **真实 Basic 探针**（开着的 turn ⇒ `busy/open-turn`；`turn/end` 之后不再命中）
+- `rooms` 登记 **R16**（房间集合 **12 → 13**）；变异：不诊断 / open turn 分类失效 / annotate 改 code —— 三条逐条红
+
+### ② TRACE 行带上「最近三个节点」（S5）
+
+**问题**：TRACE 原来只说「细节在 `sessions/<sid>/index.md`」—— 模型不知道最近走了哪三步，想定位就得先读盘
+（一次工具调用 + 一轮上下文）。
+
+- `ledger` 的 TRACE 行现在附带**最近 3 个路径节点的 id + 一句话**（短语取 agent 的 `goal` / user 的 `text`，按
+  `TRACE_PHRASE_CHARS` 截断）
+- **不新增 IO**：只用已经算好的路径节点对象与节点自带字段
+- **绝对路径照旧打码**：TRACE 行不泄漏盘符/用户名的既有硬约束不变（`goal` 里完全可能写着路径）
+
+### ③ P6-C 停窗预检与执行手册
+
+- 新增 **`scripts/p6c-preflight.mjs`**：迁移**之前**的只读预检 —— 端口可连接 / 同名进程在跑 ⇒ **拒绝 apply（exit 1）**；
+  正常时打印会话数与 graph 哈希；`--port=0 --proc-name=` 可跳过外部探测（供夹具用）
+- 新增 **`docs/P6-C 停窗执行手册.md`**（190 行）：只在**主人明确给停窗授权**后使用；未授权只做只读部分
+  （预检 + dry-run）；只归档 `settled residue`，`candidate` 一条不动
+- 测试 4 条：夹具就绪时 exit 0 且带会话数/哈希 · 端口可连必须 exit 1 · 同名进程必须 exit 1 ·
+  **只读保证**（跑前跑后夹具整树 sha256 不变）
+
+### ④ 发布脚本：拒绝脏树 + 发布物核对
+
+- **脏树硬门禁**：`git status --porcelain` 非空即红、exit 1（**含未跟踪文件**；`evidence/` 等噪声**不豁免**），
+  打印前 20 行与恢复办法。旧实现只查 `git diff`，**看不见未跟踪文件**。
+- 新增 **`scripts/verify-release.mjs`**：`git archive <tag>` 的树 vs tarball 的 `package/` **逐文件比对**；
+  比较键 = **去 CR 后的内容 sha256**（Windows 工作树 CRLF / archive LF ⇒ 按原始 shasum 必假红），
+  行尾差异**只警告不红**；tarball 多出文件 / 内容真变 ⇒ 红。
+- `release.mjs` 接上 `--verify-tarball=`：npm publish 成功后、建 Release 之前核对，不过就 abort。
+
+### 验证
+
+- 全量：**533 passed / 0 skipped / 0 failed**（**45 个测试文件**）
+- `manual-compact` **4/0** · `ledger` **29/0** · `p6c-preflight` **4/0** · `rooms` 15/0 · `release-hardening` **22/0**
+- `verify-install` **16/16**
+- `npm pack --dry-run --json`：**75 文件**（71 → 75：`manual-compact.mjs` / `p6c-preflight.mjs` / `P6-C 手册` / `verify-release.mjs`）
+
+**未验证**
+
+- 手动压缩诊断是**分类正确性**的证据（夹具 + 真实 Basic 探针），**没有在真机上制造过一次真实失败**去验 message 是否好读。
+- P6-C 的**真实 apply 仍未执行**（需主人授权 + 停窗窗口）；预检与手册只是把「怎么安全做」准备好。
+- `--verify-tarball` 的 abort 分支**没有被真发版触发过**（本版发布时未传该参数）。
+
 ## 1.11.12 — 2026-10-31
 
 ### S8 首折削峰：第一次 fold 提前到 30%，之后回到 45%
