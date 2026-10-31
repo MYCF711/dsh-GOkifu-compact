@@ -239,20 +239,53 @@ export function dryRun(root, { now = Date.now(), only = null } = {}) {
 }
 
 /**
- * 新鲜度守卫：返回「最近 maxAgeMs 内被写过」的会话（apply 前必须为空）。
- * 为什么需要：运行中的插件会在内存 flush 时把清理结果覆盖回去（实测 netCleaned=0）。
- * @returns {string[]} 会话目录名
+ * 增量帧文件名。
+ * ⚠ 必须与 `kifu-persist.sessionPaths().deltaFile` 的 basename 一致（那里的值由
+ * `<graphFile>.delta.jsonl` 拼出）。测试 `test/migrate.test.mjs` 有断言盯着这两个名字。
  */
-export function freshSessions(root, { now = Date.now(), maxAgeMs = APPLY_FRESHNESS_MS, only = null } = {}) {
+export const DELTA_NAME = "graph.json.delta.jsonl";
+
+/**
+ * 新鲜度**证据**：返回每个「最近 maxAgeMs 内被写过」的会话及**具体文件**。
+ *
+ * 为什么要看 delta：1.9.2 起是**增量落盘** —— `graph.json` 只在回合边界写，
+ * 插件活跃时往往只有 `graph.json.delta.jsonl` 在动。旧实现只 stat `graph.json`，
+ * 真实库实测有 8 个会话的 delta 在 120s 内被写却没人拦 ⇒ apply 可能在插件
+ * 仍活跃时放行，随后内存 flush 覆盖迁移结果。
+ *
+ * 判据：
+ *   · `graph.json` 必看（缺失照旧抛 ENOENT，不静默跳过）；
+ *   · `graph.json.delta.jsonl` 存在才看；
+ *   · 任一文件的 |now - mtime| < maxAgeMs ⇒ 该会话算 fresh。
+ *
+ * 用**绝对值**：NTFS 的时间戳可能比 `Date.now()` 超前几毫秒（时钟粒度/回拨），
+ * 只看 age>=0 会把「刚写过」误判成「旧文件」，守卫就失效了。
+ *
+ * @returns {{session: string, file: string, ageMs: number}[]} 命中的（会话, 文件）对
+ */
+export function freshEvidence(root, { now = Date.now(), maxAgeMs = APPLY_FRESHNESS_MS, only = null } = {}) {
   const out = [];
   for (const dir of selectedSessions(root, only)) {
-    const st = nodeFs.statSync(nodePath.join(dir, "graph.json"));
-    // 用绝对值：NTFS 的时间戳可能比 Date.now() 超前几毫秒（时钟粒度/回拨），
-    // 只看 age>=0 会把「刚写过」误判成「旧文件」，守卫就失效了。
-    const age = now - st.mtimeMs;
-    if (Math.abs(age) < maxAgeMs) out.push(nodePath.basename(dir));
+    const session = nodePath.basename(dir);
+    for (const name of ["graph.json", DELTA_NAME]) {
+      const file = nodePath.join(dir, name);
+      // graph.json 缺失时 statSync 照旧抛错（与旧行为一致）；delta 允许不存在。
+      if (name !== "graph.json" && !nodeFs.existsSync(file)) continue;
+      const ageMs = Math.abs(now - nodeFs.statSync(file).mtimeMs);
+      if (ageMs < maxAgeMs) out.push({ session, file: name, ageMs });
+    }
   }
   return out;
+}
+
+/**
+ * 新鲜度守卫：返回「最近 maxAgeMs 内被写过」的会话（apply 前必须为空）。
+ * 为什么需要：运行中的插件会在内存 flush 时把清理结果覆盖回去（实测 netCleaned=0）。
+ * 同时看 `graph.json` 与 `graph.json.delta.jsonl`（增量落盘，见 `freshEvidence`）。
+ * @returns {string[]} 会话目录名（去重，保留发现顺序）
+ */
+export function freshSessions(root, opts = {}) {
+  return [...new Set(freshEvidence(root, opts).map((hit) => hit.session))];
 }
 
 /* ───────────────────────────── 备份 ───────────────────────────── */
@@ -310,10 +343,14 @@ export function rollback(backupDir) {
  * @throws 有「最近 120s 内被写过」的会话时拒绝执行（插件可能正在跑）
  */
 export function apply(root, { now = Date.now(), backupRoot = backupsRoot(), stamp = new Date(), maxAgeMs = APPLY_FRESHNESS_MS, only = null } = {}) {
-  const fresh = freshSessions(root, { now, maxAgeMs, only });
+  // 守卫必须点名**具体文件**：图在 1.9.2 起是增量落盘，只报「graph.json 新鲜」
+  // 会让人误以为主图没动就能 apply —— 真正在写的是 delta。
+  const fresh = freshEvidence(root, { now, maxAgeMs, only });
   if (fresh.length > 0) {
+    const sessions = new Set(fresh.map((hit) => hit.session));
+    const detail = fresh.slice(0, 3).map((hit) => `${hit.session} 的 ${hit.file}`).join("、");
     throw new Error(
-      `migrate: 拒绝 apply —— ${fresh.length} 个会话的 graph.json 在 ${maxAgeMs / 1000}s 内被写过（${fresh.slice(0, 3).join(", ")}${fresh.length > 3 ? " …" : ""}）。` +
+      `migrate: 拒绝 apply —— ${sessions.size} 个会话的文件在 ${maxAgeMs / 1000}s 内被写过（${detail}${fresh.length > 3 ? " …" : ""}）。` +
         " 运行中的插件会用内存图 flush 覆盖磁盘清理（实测 netCleaned=0）；先停插件窗口再重试。",
     );
   }
