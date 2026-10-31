@@ -20,7 +20,9 @@ import {
   ledgerDigest,
   messageText,
 } from "../src/rooms/hot-inject.mjs";
-import { addUserNodeId, createGraph } from "./graph-fixtures.mjs";
+import { addUserNodeId, addEdge, addAgentNode, settleEdge, createGraph } from "./graph-fixtures.mjs";
+import { failureEdges, sha } from "../src/rooms/kifu-model.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 import { observeEvent } from "../src/rooms/keeper.mjs";
 
 /* ───────────────────────── 夹具 ───────────────────────── */
@@ -301,3 +303,73 @@ export const tests = {
     t.ok(LEDGER_STUB_TEXT.length < 200, "占位必须 <200 字符（幂等判据）");
   },
 };
+/* ═══════════ OPT-EMPTY（task-130）：零失败边也要有最小注入 ═══════════ */
+
+/** 一张**没有失败边**的图（有根目标 / 约束 / 当前目标 / 一条成功边）；`content=false` 时是空图。 */
+function graphWithoutFailure({ content = true } = {}) {
+  const g = createGraph({ sessionId: "s0", cwd: "D:/tmp/proj" });
+  if (!content) return g;
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通" });
+  g.nodes[u].constraints = ["不要动 prod 配置", "只改 tests/"];
+  const e = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)" });
+  const a = addAgentNode(g, { seq: 3, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e }).id;
+  g.edges[e].to = a;
+  settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  return g;
+}
+
+Object.assign(tests, {
+  "OPT-E-1 零失败边 + 有 goal/constraints ⇒ 注入一次，内容含 GOAL / CONSTRAINTS / no failed attempts"(t) {
+    const g = graphWithoutFailure();
+    t.eq(failureEdges(g).length, 0, "夹具必须零失败边");
+    const session = makeSession({ id: "s0" });
+    const state = makeState();
+    const first = run(session, g, state);
+    t.eq(first.action, "append", "零失败但有内容 ⇒ 必须注入（旧版会 skip no-ledger）");
+    const message = commitAppend(session, first);
+    const text = messageText(message);
+    t.includes(text, "<chess-ledger>", "仍用既有清单格式");
+    t.includes(text, "GOAL: 跑测试", "必须带目标");
+    t.includes(text, "CONSTRAINTS: 2", "必须带约束数量");
+    t.includes(text, "NO_FAILED_ATTEMPTS_YET", "必须明说「还没有失败」");
+    const lineCount = text.split("\n").length;
+    t.eq(lineCount <= 6, true, `极简注入必须短（实际 ${lineCount} 行）`);
+    // 第二步：同 digest 且清单还在 ⇒ 不重复注入（避免每步刷屏）
+    const second = run(session, g, state);
+    t.eq(second.action, "skip", "内容没变 ⇒ skip");
+    t.ok(["identical", "same-digest"].includes(second.reason), `内容没变必须 skip（identical/same-digest），实际 ${second.reason}`);
+  },
+
+  "OPT-E-2 零失败边 + 无内容（空图）⇒ 仍然 skip"(t) {
+    const g = graphWithoutFailure({ content: false });
+    const session = makeSession({ id: "s-empty" });
+    const state = makeState();
+    const r = run(session, g, state);
+    t.eq(r.action, "skip", "空图不许注入空壳");
+    t.eq(r.reason, "no-ledger", `应为 no-ledger，实际 ${r.reason}`);
+  },
+
+  "OPT-E-3 有失败边路径字节不变（渲染 sha 逐字节钉住）"(t) {
+    const g = graphWithFailure();
+    const out = renderLedger(g, { maxTokens: 500 });
+    t.eq(out.text.includes("NO_FAILED_ATTEMPTS_YET"), false, "有失败边时不许出现零失败行");
+    t.eq(sha(out.text), "c234c80ae19e5070caf2faedc2af4bd73240bfe3f26b60e9ae90ae22fac0bc72", "有失败边的清单必须逐字节不变（OPT-EMPTY 前的基线 sha）");
+    t.eq(out.text.length, 186, "字符数也必须不变");
+  },
+
+  "OPT-E-4 零失败清单被 fold 遮蔽 ⇒ 同源补回（绕过限流）"(t) {
+    const g = graphWithoutFailure();
+    const session = makeSession({ id: "s0b" });
+    const state = makeState();
+    const first = run(session, g, state);
+    commitAppend(session, first);
+    t.eq(ledgerMessagesIn(session).length, 1, "先有一条");
+    // 模拟 fold 把它压掉：surface 上不再有清单节点
+    session.surface.nodes.splice(session.surface.nodes.indexOf(ledgerMessagesIn(session)[0]), 1);
+    t.eq(ledgerMessagesIn(session).length, 0, "清单已被遮蔽");
+    const again = run(session, g, state);
+    t.eq(again.action, "append", "被 fold 遮蔽后必须补回（lostToFold 绕过限流）");
+    const text = messageText(commitAppend(session, again));
+    t.includes(text, "NO_FAILED_ATTEMPTS_YET", "补回的仍是零失败清单");
+  },
+});

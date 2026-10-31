@@ -25,7 +25,7 @@
  */
 
 import { failureEdges, sha } from "./kifu-model.mjs";
-import { renderLedger } from "./ledger.mjs";
+import { renderLedger, renderMinimalLedger } from "./ledger.mjs";
 
 /** 限流：两次注入至少隔这么多事件。 */
 export const INJECT_MIN_EVENTS = 40;
@@ -45,6 +45,17 @@ export function messageText(message) {
     .filter((block) => block?.type === "text" && typeof block.text === "string")
     .map((block) => block.text)
     .join("\n");
+}
+
+/**
+ * ★ OPT-EMPTY（task-130）：这张图有没有「值得注入」的最小状态？
+ * 空图（连 root / agent / constraints 都没有）⇒ 仍然 skip，不拿一行空壳占位。
+ */
+export function hasLedgerState(graph) {
+  const nodes = graph?.nodes ?? {};
+  if ((graph?.rootUserNodeIds ?? []).some((id) => nodes[id])) return true;
+  if (Object.values(nodes).some((n) => n?.kind === "agent" && (n.goal || n.worldHash))) return true;
+  return Object.values(nodes).some((n) => (n.constraints ?? []).length > 0);
 }
 
 /**
@@ -187,14 +198,23 @@ export function decideInjection({
     // ★ 2026-10-29（三份评估共同的 P0-2）：压缩「连续失败」必须被看见。
     //   一条失败边都没有时也要注入 —— 「没有失败边 + 压缩坏了」才是最危险的组合。
     const warning = foldFailureWarning(state);
-    if (failureEdges(graph).length === 0 && warning === "") return { decision, action: "skip", reason: "no-ledger" };
+    // ★ OPT-EMPTY（task-130）：零失败边 **不再整段跳过** —— 26% 的真实会话没有任何失败边，
+    //   旧逻辑让它们连根目标/约束都拿不到。现在仍然走 renderLedger（零失败时它输出
+    //   ROOT / CONSTRAINTS / CURRENT GOAL / WORKING + 一行 NO_FAILED_ATTEMPTS_YET）；
+    //   只有**空图**（无 root / 无 agent / 无约束）才 skip。
+    //   限流与 digest 全部沿用既有规则：digest = 根目标 + 约束（零失败时天然稳定），
+    //   同源且清单还在 ⇒ same-digest skip；被 fold 遮蔽 ⇒ lostToFold 补回。
+    const zeroFailure = failureEdges(graph).length === 0 && warning === "";
+    if (zeroFailure && !hasLedgerState(graph)) return { decision, action: "skip", reason: "no-ledger" };
 
-    const ledger = renderLedger(graph, {
-      maxTokens: config.hotLedgerMaxTokens ?? 500,
-      markers: config.hotLedgerMarkers,
-      treeDir: sessionDir,
-      traceRoot: config.hotLedgerTraceRoot,
-    });
+    const ledger = zeroFailure
+      ? renderMinimalLedger(graph, { maxTokens: config.hotLedgerMaxTokens ?? 500 })
+      : renderLedger(graph, {
+          maxTokens: config.hotLedgerMaxTokens ?? 500,
+          markers: config.hotLedgerMarkers,
+          treeDir: sessionDir,
+          traceRoot: config.hotLedgerTraceRoot,
+        });
     // ★ P7：消费 fallback（over-budget 记 warn + overBudgetBy；impossible 记 error），并落盘给 doctor。
     try {
       onBudget(ledger, session);
