@@ -172,7 +172,7 @@ tests["A2 不存在的目标：解析为「目标不存在」（负例的基本�
 
 tests["A3 Windows 大小写差异：同一真实目录，不许造出假 RED"] = (t) => {
   if (!WIN) {
-    console.log("    (跳过：本机非 Windows，大小写敏感，差异本来就该判不同)");
+    t.skip("本机非 Windows，大小写敏感，差异本来就该判不同");
     return;
   }
   withHome("a3", {}, ({ pkgSrc, spec }) => {
@@ -224,7 +224,7 @@ tests["A6 file: 与 link: 同义；版本号归 registry（不是本地链接）
 
 tests["A7 MSYS 风格 /d/… 在 Windows 上按 D:/… 解析（不许变成 D:\\d\\…）"] = (t) => {
   if (!WIN) {
-    console.log("    (跳过：本机非 Windows)");
+    t.skip("本机非 Windows");
     return;
   }
   const got = resolveSpecPath("/d/主工作区/projects", "E:\\base");
@@ -252,7 +252,7 @@ tests["B1 junction：创建 / 识别 / 定向 / 删除，且不动目标内容"]
     } catch (error) {
       // 权限不允许时明确跳过（本机实测不需要管理员，这里只是兜底）
       if (["EPERM", "EACCES", "ENOTSUP", "UNKNOWN"].includes(error.code)) {
-        console.log(`    (跳过：本机不允许建目录链接 ${error.code})`);
+        t.skip(`本机不允许建目录链接 ${error.code}`);
         return;
       }
       throw error;
@@ -274,7 +274,7 @@ tests["B1 junction：创建 / 识别 / 定向 / 删除，且不动目标内容"]
 
 tests["B2 断链：目录项在、目标不在 —— 必须能与「没有」区分开"] = (t) => {
   if (!WIN) {
-    console.log("    (跳过：夹具用 junction，本机非 Windows)");
+    t.skip("夹具用 junction，本机非 Windows");
     return;
   }
   const home = mkTempRoot("b2");
@@ -346,7 +346,7 @@ tests["C2 node_modules 指着别的目录 → 安装器必须重建链接"] = (t
 
 tests["C3 断链 → 安装器必须重建（不能因为 existsSync=false 就报 EEXIST）"] = (t) => {
   if (!WIN) {
-    console.log("    (跳过：夹具用 junction，本机非 Windows)");
+    t.skip("夹具用 junction，本机非 Windows");
     return;
   }
   const fixture = makeHome("c3");
@@ -480,7 +480,7 @@ tests["D4 变异 3：声明指向 A、node_modules 却指向 B → 必须红"] =
 
 tests["D5 变异 4：node_modules 断链 → 必须红，且不能被 existsSync 骗过"] = (t) => {
   if (!WIN) {
-    console.log("    (跳过：夹具用 junction，本机非 Windows)");
+    t.skip("夹具用 junction，本机非 Windows");
     return;
   }
   const fixture = makeHome("d5");
