@@ -1,5 +1,57 @@
 # 更新记录
 
+## 1.11.16 — 2026-10-31
+
+### P2-1 · 同一份日志、换模型比：脚本 + 一组真实数据
+
+**问题**：「哪个模型做摘要更好/更快」一直靠感觉。要比就必须**喂同一份东西**，否则比的是切片大小差异。
+
+**新增 `scripts/compare-models.mjs`**（纯函数 + CLI，只读 `DSH_HOME`，唯一写出的是 `--out`）
+
+| 固定住的变量 | 做法 |
+|---|---|
+| **同一折叠切片** | 取**最近一条 `foldMark` 的 `[seqStart, seqEnd]`**，没有就全量；`renderFacts(g,{range})` **逐字节相同** ⇒ 不同模型看到的不是不同大小的切片 |
+| **同一 instruction** | `buildChessInstruction`，**不按模型改写** |
+| **同一 `maxTokens`** 与 `temperature: 0` | 命令行显式给，默认生产值 |
+| **每模型 N 次**（默认 3） | **只对成功样本取中位**；失败单独计数 + 保留错误原文（**不把失败当 0 拉低中位**） |
+
+记录：延迟中位 / usage / 失败数 / 摘要长度 / **四章节完整度**（目标·死路·已验证事实·原始坐标）。
+`--dry-run` 只读图不发请求；不给 `--session` 时自动挑「失败边最多」的真实会话。
+
+**真跑一组**（`evidence/compare-models.json`，session `session-d288e7a2…`，9 条失败边、facts 1830 tok，`maxTokens=8192`，repeat 3）
+
+| 模型 | 成功 | 延迟中位 | 摘要中位 | 四章节 | usage 中位 |
+|---|---|---|---|---|---|
+| `group/deepseek-v4.1-flash1017` | **3/3** | **11451 ms** | **1769 字符** | 4/4 | 4808 tok |
+| `group/gokifu-compact` | **3/3** | **27076 ms** | **2211 字符** | 4/4 | **网关回 0（无真实 usage）** |
+
+- **gokifu-compact 慢约 2.4×、长 25%，四章节一样齐**；但它的 **usage 全是 0**（网关不回真实用量）
+  ⇒ **这一组数据算不出成本对比**，只能比延迟与长度。
+- **附带发现（重要）**：`maxTokens=900` 时 `flash1017` **0/3** —— 预算被 reasoning 吃光，
+  `finish_reason=length` 且 `content: null`。**maxTokens 给小了不是「摘要短一点」，是「完全拿不到摘要」**。
+  （该组原文留在 `tmp/` 里，**故意不进包**。）
+
+**测试 +11（546 → 557）**：`parseArgs`（未知开关必须报错）/ `median` / `pickFoldSlice` / prompt 字节一致 /
+**切片外失败边不许进 prompt** / 四章节口径 / `parseChatResponse` / 假 fetch 四态（成功·HTTP 500·网络异常·空摘要）/
+中位只算成功 / 报表形状 / CLI `--dry-run` 端到端。
+变异（逐条红）：未知开关静默忽略 / 中位混入失败 / HTTP 失败当成功 / 忽略 range。
+
+### 验证
+
+- 全量：**557 passed / 0 skipped / 0 failed**（**46 个测试文件**；546 + 11）
+- `compare-models` **11/0**
+- `npm pack --dry-run --json`：**77 文件**（75 + `scripts/compare-models.mjs` + `evidence/compare-models.json`
+  —— 证据写进 `evidence/` 就会被 `files` 打进包）
+- **`verify-install`：14/16** —— 仍是 **live profile 环境漂移**（本包在 live profile 里没有依赖声明、也没挂载），
+  与 1.11.16 内容无关；**没有动 live**
+
+### 未验证 / 已知问题
+
+- 对比只做了**一组会话**（9 条失败边、facts 1830 tok）；**换会话/换切片长度结论可能不同**，不能当普遍结论。
+- **成本对比不可算**：`gokifu-compact` 的 usage 全 0；`flash1017` 的 usage 是真实的，但没有可比对的一侧。
+- 「四章节完整度」是**按标题/关键词命中**判的，判的是「有没有写」，**不判内容对不对**。
+- `verify-install` 14/16 如实记录（同 1.11.15，环境问题，未动 live）。
+
 ## 1.11.15 — 2026-10-31
 
 ### P2-2 · fold 变成可观测的：每一次都能查到「走了哪条路由、多久、花了多少 token」
