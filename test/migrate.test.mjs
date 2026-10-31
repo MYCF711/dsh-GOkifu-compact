@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
-import { planSession, buildSidecar, dryRun, apply, verify, rollback, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
+import { planSession, buildSidecar, dryRun, apply, verify, rollback, mergeSidecar, mergeMany, readSidecar, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
 
 const TMP = nodePath.resolve(os.tmpdir());
 const NOW = 1_800_000_000_000;
@@ -437,3 +437,184 @@ export const tests = {
     }
   },
 };
+
+/* ═════════════ P6C-MERGE（task-155）：sidecar 回灌 ═════════════ */
+
+/** 造一个已归档的会话：3 条 residue 进 sidecar、主图里删掉。 */
+function archivedSession(label) {
+  const root = tmpRoot(label);
+  const backupRoot = tmpRoot(`${label}-bak`);
+  const sessionId = "sess-merge";
+  const { dir } = makeSessionDir(root, sessionId, () => shiftEdgeTimes(mixedGraph(sessionId).g, NOW - Date.now()));
+  // 让 apply 的新鲜度守卫放行（文件 mtime 挪到 2 小时前）
+  const old = Date.now() - 2 * 3600 * 1000;
+  setMtime(nodePath.join(dir, "graph.json"), old);
+  if (nodeFs.existsSync(nodePath.join(dir, DELTA_NAME))) setMtime(nodePath.join(dir, DELTA_NAME), old);
+  const before = JSON.parse(nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8"));
+  const archived = apply(root, { now: Date.now(), backupRoot });
+  return { root, backupRoot, dir, before, archived };
+}
+
+Object.assign(tests, {
+  "P6C-M1 归档 3 条 → merge 回灌：边恢复、residue 回 3、index.md 重建、有显式备份"(t) {
+    const fx = archivedSession("merge1");
+    try {
+      t.eq(fx.archived.archived, 3, "前置：apply 应归档 3 条");
+      const graphFile = nodePath.join(fx.dir, "graph.json");
+      const beforeMerge = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      t.eq(Object.keys(beforeMerge.edges).length, Object.keys(fx.before.edges).length - 3, "主图少了 3 条边");
+      t.eq(planSession(beforeMerge, { now: Date.now() }).residue.length, 0, "归档后 residue 应为 0");
+
+      // ── dry-run：只报告，不写 ──
+      const dry = mergeSidecar(fx.dir, { backupRoot: fx.backupRoot });
+      t.eq(dry.ok, true, `dry-run 应成功：${dry.errors.join("; ")}`);
+      t.eq(dry.dryRun, true, "默认必须 dry-run");
+      t.eq(dry.merged, 3, "dry-run 报告将合并 3 条");
+      t.eq(dry.backupDir, "", "dry-run 不建备份目录");
+      t.eq(nodeFs.readFileSync(graphFile, "utf8"), toJSON(beforeMerge), "dry-run 一个字节都不许写");
+
+      // ── apply：真回灌 ──
+      const res = mergeSidecar(fx.dir, { apply: true, backupRoot: fx.backupRoot });
+      t.eq(res.ok, true, `merge 应成功：${res.errors.join("; ")}`);
+      t.eq(res.merged, 3, "3 条边全部回灌");
+      t.eq(res.skipped, 0, "没有重复边");
+      t.eq(res.indexRebuilt, true, "必须重建 index.md");
+      t.ok(res.backupDir.length > 0 && nodeFs.existsSync(res.backupDir), "必须建备份目录");
+      t.ok(nodeFs.existsSync(nodePath.join(res.backupDir, "graph.json")), "备份里必须有 graph.json");
+      t.ok(nodeFs.existsSync(nodePath.join(res.backupDir, "index.md")), "备份里必须有 index.md");
+      t.ok(nodeFs.existsSync(nodePath.join(res.backupDir, "MERGE.json")), "必须有 MERGE.json 审计");
+
+      const after = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      t.eq(Object.keys(after.edges).length, Object.keys(fx.before.edges).length, "边数必须回到归档前");
+      t.eq(planSession(after, { now: Date.now() }).residue.length, 3, "residue 必须回到 3");
+      // sidecar 里每条边的字段必须逐字段相同（不重算、不改写）
+      const sidecar = JSON.parse(nodeFs.readFileSync(nodePath.join(fx.dir, SIDECAR_NAME), "utf8"));
+      for (const edge of sidecar.edges) t.eq(after.edges[edge.id], edge, `回灌的边必须与 sidecar 逐字段相同：${edge.id}`);
+      // index.md 必须被重建（内容与当前图一致）
+      t.eq(nodeFs.readFileSync(nodePath.join(fx.dir, "index.md"), "utf8"), renderIndexMd(after), "index.md 必须与当前图一致（重建过）");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-M2 幂等：同一个 sidecar 再 merge 一次 ⇒ merged 0 / skipped 3，且不写盘不建备份"(t) {
+    const fx = archivedSession("merge2");
+    try {
+      mergeSidecar(fx.dir, { apply: true, backupRoot: fx.backupRoot });
+      const graphFile = nodePath.join(fx.dir, "graph.json");
+      const indexFile = nodePath.join(fx.dir, "index.md");
+      const graphText = nodeFs.readFileSync(graphFile, "utf8");
+      const indexText = nodeFs.readFileSync(indexFile, "utf8");
+      const graphMtime = nodeFs.statSync(graphFile).mtimeMs;
+      const backupsBefore = nodeFs.readdirSync(fx.backupRoot).length;
+
+      const again = mergeSidecar(fx.dir, { apply: true, backupRoot: fx.backupRoot });
+      t.eq(again.ok, true, "第二次 merge 仍应成功（幂等，不是错误）");
+      t.eq(again.merged, 0, "第二次不该再合并");
+      t.eq(again.skipped, 3, "3 条都已存在 ⇒ 全部 skipped");
+      t.eq(again.backupDir, "", "没有改动就不建备份");
+      t.eq(nodeFs.readFileSync(graphFile, "utf8"), graphText, "graph.json 一个字节都不许变");
+      t.eq(nodeFs.readFileSync(indexFile, "utf8"), indexText, "index.md 一个字节都不许变");
+      t.eq(nodeFs.statSync(graphFile).mtimeMs, graphMtime, "连 mtime 都不许变（没写盘）");
+      t.eq(nodeFs.readdirSync(fx.backupRoot).length, backupsBefore, "不许新增备份目录");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-M3 坏 format / 坏 version / 空边 / 坏 JSON / 别的会话 ⇒ 拒绝，且图一个字节不改"(t) {
+    const fx = archivedSession("merge3");
+    try {
+      const graphFile = nodePath.join(fx.dir, "graph.json");
+      const original = nodeFs.readFileSync(graphFile, "utf8");
+      const sidecarFile = nodePath.join(fx.dir, SIDECAR_NAME);
+      const good = JSON.parse(nodeFs.readFileSync(sidecarFile, "utf8"));
+      const cases = [
+        ["format", { ...good, format: "wrong-format" }, "format"],
+        ["version", { ...good, version: 99 }, "version"],
+        ["empty", { ...good, edges: [] }, "没有边"],
+      ];
+      for (const [label, payload, needle] of cases) {
+        const bad = nodePath.join(fx.dir, `bad-${label}.json`);
+        nodeFs.writeFileSync(bad, JSON.stringify(payload), "utf8");
+        const r = mergeSidecar(fx.dir, { sidecarFile: bad, apply: true, backupRoot: fx.backupRoot });
+        t.eq(r.ok, false, `${label}: 必须拒绝`);
+        t.eq(r.merged, 0, `${label}: 不许合并任何边`);
+        t.ok(r.errors.some((e) => e.includes(needle)), `${label}: 错误信息应提到 ${needle}，实际 ${r.errors.join("; ")}`);
+        t.eq(nodeFs.readFileSync(graphFile, "utf8"), original, `${label}: 图一个字节都不许改`);
+      }
+      const brokenFile = nodePath.join(fx.dir, "broken.json");
+      nodeFs.writeFileSync(brokenFile, "{ 不是 JSON", "utf8");
+      const broken = mergeSidecar(fx.dir, { sidecarFile: brokenFile, apply: true, backupRoot: fx.backupRoot });
+      t.eq(broken.ok, false, "坏 JSON 必须拒绝");
+      t.eq(nodeFs.readFileSync(graphFile, "utf8"), original, "坏 JSON 后图不许改");
+      const foreignFile = nodePath.join(fx.dir, "foreign.json");
+      nodeFs.writeFileSync(foreignFile, JSON.stringify({ ...good, sessionId: "someone-else" }), "utf8");
+      const f = mergeSidecar(fx.dir, { sidecarFile: foreignFile, apply: true, backupRoot: fx.backupRoot });
+      t.eq(f.ok, false, "别的会话的 sidecar 必须拒绝");
+      t.ok(f.errors.some((e) => e.includes("别的会话")), "错误信息应说明会话不匹配");
+      const probe = readSidecar(foreignFile, { sessionId: "sess-merge" });
+      t.eq(probe.ok, false, "readSidecar 也要拒绝");
+      t.eq(probe.edges.length, 0, "拒绝时不返回任何边");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-M4 同 id 已存在 ⇒ 跳过、不覆盖当前边；只有新 id 才合并"(t) {
+    const fx = archivedSession("merge4");
+    try {
+      const sidecar = JSON.parse(nodeFs.readFileSync(nodePath.join(fx.dir, SIDECAR_NAME), "utf8"));
+      const ids = sidecar.edges.map((e) => e.id);
+      const graphFile = nodePath.join(fx.dir, "graph.json");
+      // 先手工把其中 1 条放回图里，但字段被改过（模拟「当前边」）
+      const g = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      g.edges[ids[0]] = { ...JSON.parse(JSON.stringify(sidecar.edges[0])), intent: "当前边的意图（不许被覆盖）" };
+      nodeFs.writeFileSync(graphFile, toJSON(g), "utf8");
+
+      const r = mergeSidecar(fx.dir, { apply: true, backupRoot: fx.backupRoot });
+      t.eq(r.ok, true, `应成功：${r.errors.join("; ")}`);
+      t.eq(r.merged, 2, "只有 2 条是新 id");
+      t.eq(r.skipped, 1, "已存在的 1 条必须跳过");
+      t.eq(r.mergedIds.includes(ids[0]), false, "已存在的 id 不许进 mergedIds");
+      const after = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      t.eq(after.edges[ids[0]].intent, "当前边的意图（不许被覆盖）", "已存在的边绝不允许被 sidecar 覆盖");
+      for (const id of ids.slice(1)) t.eq(after.edges[id], sidecar.edges.find((e) => e.id === id), `新 id ${id} 应逐字段回灌`);
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-M5 mergeMany：整个会话根批量回灌（CLI 入口）"(t) {
+    const root = tmpRoot("merge5");
+    const backupRoot = tmpRoot("merge5-bak");
+    try {
+      for (const id of ["sess-a", "sess-b"]) {
+        const { dir } = makeSessionDir(root, id, () => shiftEdgeTimes(mixedGraph(id).g, NOW - Date.now()));
+        const old = Date.now() - 2 * 3600 * 1000;
+        setMtime(nodePath.join(dir, "graph.json"), old);
+        if (nodeFs.existsSync(nodePath.join(dir, DELTA_NAME))) setMtime(nodePath.join(dir, DELTA_NAME), old);
+      }
+      apply(root, { now: Date.now(), backupRoot });
+      const dry = mergeMany(root, { backupRoot });
+      t.eq(dry.ok, true, `dry 应成功：${dry.errors.join("; ")}`);
+      t.eq(dry.sessions, 2, "两个会话都有 sidecar");
+      t.eq(dry.merged, 6, "两个会话各 3 条");
+      const res = mergeMany(root, { apply: true, backupRoot });
+      t.eq(res.ok, true, `apply 应成功：${res.errors.join("; ")}`);
+      t.eq(res.merged, 6, "共回灌 6 条");
+      t.eq(res.backupDirs.length, 2, "两个会话各自建备份");
+      for (const id of ["sess-a", "sess-b"]) {
+        const g = fromJSON(nodeFs.readFileSync(nodePath.join(root, id, "graph.json"), "utf8"));
+        t.eq(planSession(g, { now: Date.now() }).residue.length, 3, `${id} 的 residue 应回到 3`);
+      }
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+      nodeFs.rmSync(backupRoot, { recursive: true, force: true });
+    }
+  },
+});
