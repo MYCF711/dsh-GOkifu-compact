@@ -1,5 +1,53 @@
 # 更新记录
 
+## 1.11.4 — 2026-10-31
+
+### 发布脚本加固：坏 remote 在预演阶段就红，git 步骤事务化
+
+**背景是一起真实事故**：1.11.3 发布时 `scripts/release.mjs --yes --npm` 返回 **EXIT 1** ——
+仓库 `remote.origin.url` 被写成 `git+https://…`（那串正是 `package.json` 的 `repository.url`，
+在 npm 里是规范写法，**但不是合法的 git remote**）。旧体检用正则匹配 `github.com:` 照样通过；
+真做时 `git push` 全崩，**而脚本继续建 Release、继续 `npm publish`**，留下
+「npm 已发 / Release 已建 / main 没推 / tag 指向旧 commit」的半途状态。
+
+**新增 `scripts/release-lib.mjs`**（纯逻辑、可单测、零副作用）
+
+| 导出 | 作用 |
+|---|---|
+| `parseRepo(url)` | 只认 scp 式 `git@github.com:o/r(.git)`、`ssh://git@github.com/o/r`、`https://github.com/o/r`；`git+*`、`file://`、非 GitHub、空 → `null` |
+| `classifyRemote(url)` | **先判 scheme 再判仓库**；`git+…` 直接拒，并给出可执行的修法（`git remote set-url origin git@github.com:<owner>/<repo>.git`） |
+| `runTransaction(steps)` | 顺序执行 + **首步失败即中止**，返回 `{ok, done, failed, error, aborted}` |
+
+**`scripts/release.mjs` 体检从 5 项增到 8 项**
+
+- ⑤ **remote 必须是合法 GitHub URL**（不再「正则匹配到 github.com 就算过」）
+- ⑥ **`git ls-remote --heads origin` 必须成功** —— 远端不可达直接红
+- ⑦ **`git fetch` 失败从 note 改成 red** —— 旧版把「不知道远端正不正常」当成「跳过检查继续发版」
+- ⑧ **tag 已存在时区分两种情况**：指向本 commit ⇒「不能发两次」；**指向别的 commit**（1.11.3 的现场：Release API 自动建了轻量 tag）⇒ **不自动 force**，报错并给 `git push --force origin refs/tags/<tag>:refs/tags/<tag>` 的人工修法
+
+**真做改成事务**：`runTransaction([push 分支, tag -a && push tag])` → 任一失败即 `abort()`，
+打印「已完成 / 未执行：tag · npm · Release」；**`npm publish` 移到 Release 之前** ——
+npm 失败就不建 Release（避免「Release 说有、npm 上没有」）；Release 失败仍 exit 1。
+
+**`scripts/check-maintenance.mjs` 也补了两项**（日常维护就能提前发现）
+
+- ⑧ `remote.origin` 必须是合法 GitHub URL（复用 `classifyRemote`，同一份判据）
+- ⑨ `git rev-parse --show-toplevel` 必须等于 cwd（防串仓 —— `ROOT` 取 `process.cwd()`，
+  在子目录或别人的仓库里跑会把版本号/CHANGELOG/tag 写错对象而看起来一切正常）
+
+**验证**
+
+- 全量：**473 passed / 0 failed**（36 个测试文件；463 + 10 条 `release-hardening`）
+- `check-maintenance`：**9 项**
+- `npm pack --dry-run --json`：**71 文件**（70 + `scripts/release-lib.mjs`；`release.mjs` 运行时依赖它，必须随包）
+- **预演**：release-ready 的临时克隆上 `node scripts/release.mjs` → **EXIT 0**；
+  同一克隆把 remote 换成 `git+https://…` → **EXIT 1**，报错点名协议并给修法
+
+**未验证**
+
+- 未改 `.github/workflows/release.yml`（存在时脚本走「推 tag 自动建 Release」分支，本次未触碰）。
+- `check-maintenance` 的 ⑧ 只判 URL 形状，**不探远端可达性**（保持「不需要网络」的定位；可达性由 `release.mjs` 的 ⑥ 在发版时把关）。
+
 ## 1.11.3 — 2026-10-31
 
 ### P0-1 · `exit` 判据收紧：不再被正文子串误判
