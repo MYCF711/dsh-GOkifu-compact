@@ -769,6 +769,49 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
 }
 
 /**
+ * ★ OPT-EMPTY（task-130）：**零失败边**会话的最小注入内容。
+ *
+ * 背景：真实 167 个会话里 42 个（25.1%）没有任何失败边 —— 旧版 `decideInjection` 直接
+ * `skip("no-ledger")`，这些会话连根目标/约束都拿不到。但它们**不是空的**：42/42 有 root，
+ * 32/42 有 constraints（见 ws-opt-empty-ledger/REPORT.md 的只读统计）。
+ *
+ * 为什么不用 `renderLedger` 的最小档：那档仍会带 ROOT 原文，实测 42 个零失败会话
+ * avg 386 tok / max 497 —— 对「没有任何失败记忆」的会话是纯噪声。
+ * 这里只给三行事实（仍是既有的 `<chess-ledger>` 包裹，不是新的消息格式）：
+ *   GOAL: …            （有 goal 用 goal，否则用 root 原话）
+ *   CONSTRAINTS: N     （数量，不展开原文）
+ *   NO_FAILED_ATTEMPTS_YET
+ *
+ * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number, fallback:string, budgetMax:number, overBudgetBy:number}}
+ */
+export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
+  const root = g?.rootNode ?? (g?.rootUserNodeIds ?? []).map((id) => g?.nodes?.[id]).filter(Boolean)[0];
+  const latest = latestAgentNode(g);
+  const goalText = clip(String(latest?.goal ?? root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
+  const constraints = root?.constraints ?? [];
+  const lines = ["<chess-ledger>"];
+  if (goalText) lines.push(`GOAL: ${goalText}`);
+  lines.push(`CONSTRAINTS: ${constraints.length}`);
+  lines.push("NO_FAILED_ATTEMPTS_YET");
+  lines.push("</chess-ledger>");
+  const text = lines.join("\n");
+  const tokens = estimateTokens(text);
+  const over = Math.max(0, tokens - maxTokens);
+  return {
+    text,
+    tokens,
+    level: 5,
+    omittedEdges: 0,
+    failureCount: 0,
+    shownFailures: 0,
+    fallback: over > 0 ? "over-budget" : "none",
+    budgetMax: maxTokens,
+    overBudgetBy: over,
+    minimal: true,
+  };
+}
+
+/**
  * L4/L5 的裁决（C-17）。两个兜底档都可能越过预算，选的时候按三层优先：
  *   1. 预算内优先（`tokens <= maxTokens`）；
  *   2. 可比时 tokens 小者胜 —— 预算内、预算外分别比；
