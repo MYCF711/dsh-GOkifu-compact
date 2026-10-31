@@ -1,5 +1,48 @@
 # 更新记录
 
+## 1.11.8 — 2026-10-31
+
+### sidecar 现在能**回灌**：归档掉的悬空边可以放回图里
+
+1.11.1 起 `migrate-dangling --apply` 把 settled residue 归档到 `graph.dangling.json`（sidecar），
+**但一直没有回灌工具** —— 报告里写「字段齐全、可回灌」，实际只能靠人手写 JSON。这一版把这条路补完。
+
+**新增（R14 `src/rooms/migrate.mjs`）**
+
+| 导出 | 作用 |
+|---|---|
+| `readSidecar(file)` | 读 + 校验：`format` / `version` / **非空 `edges`** / 每条边必须有 `id` / 会话匹配；**坏文件一律拒绝且不动图** |
+| `mergeSidecar(graph, sidecar, opts)` | 按 `edge.id` 合并；**同 id 跳过、不覆盖**；保留 sidecar 原字段；**原子写 `graph.json` + 重建 `index.md`** |
+| `mergeMany(target, opts)` | 目标可以是**文件或目录**；批量 |
+| `mergeBackupDir(opts)` | 回灌前先备份 `graph.json` / `index.md` 并落 `MERGE.json` |
+
+- **默认 dry-run**：只有 `--apply` 才写盘；**幂等** —— 二次 merge 0 条命中且**不写盘**。
+- CLI：`--merge-sidecar=<file|dir> [--apply] [--backup-dir=] [--json]`；有错误 **exit 1**。
+
+**CLI 摘要（`scripts/migrate-dangling.mjs`）**
+
+- 修掉 `main()` 里 merge 分支的**重复执行链**（只留 `mergeMany`，错误 exit 1），人类摘要移到输出链。
+- 无 `--json` 时打印：标题 / target / `sessions|merged|skipped` / 逐会话行 / backup 目录 / errors / dry-run 或已回灌提示；
+  **`--json` 仍是纯 JSON**（可 `JSON.parse`）。
+- `mergeMany`：目标不存在时**直接报「目标不存在」**（不再默默去读 `./graph.json`）。
+
+**测试 +7**（486 → 493）
+
+- M1 回灌与备份 · M2 幂等 · M3 **五类拒绝**（format/version/空 edges/边无 id/会话不匹配）· M4 同 id 不覆盖 · M5 `mergeMany` 批量
+- C1 **真跑 CLI 六态**（人类摘要 / `--json` / apply 备份 / 幂等 / 坏 version / 目标不存在）· C2 结构回归（merge 分支恰好 2 处）
+- 变异自检：覆盖已存在边 / dry-run 写盘 / 不校验 version / 执行链重复分支 / `--json` 走人类摘要 / 删人类摘要分支 —— 逐条红
+
+### 验证
+
+- 全量：**493 passed / 0 skipped / 0 failed**（37 个测试文件）
+- `migrate` **21/0** · `rooms` 15/0 · `verify-install` **16/16**
+- `npm pack --dry-run --json`：**71 文件**（数量不变；只改 `src/` `scripts/` `test/`）
+
+**未验证**
+
+- 回灌**没有对真实库跑过** —— 全部证据来自夹具；真实 `sessions/**` 的 apply 仍需主人授权 + 停插件窗口。
+- 回灌只按 `edge.id` 去重：**同一个「边」若在 sidecar 里 id 不同（历史重复归档），会被当成两条各插一次**。
+
 ## 1.11.7 — 2026-10-31
 
 ### 真实测试与门禁都不再「靠输出猜」
