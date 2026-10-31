@@ -1,31 +1,51 @@
 {
-  "generatedAt": "2026-10-28T07:54:08.545Z",
+  "generatedAt": "2026-10-31T07:57:46.306Z",
   "model": "group/deepseek-v4.1-flash1017",
   "window": 200000,
   "threshold": 90000,
   "results": [
     {
       "step": "below-threshold",
-      "folded": false
+      "folded": false,
+      "status": "ok"
     },
     {
       "step": "over-threshold",
-      "folded": false,
+      "folded": true,
       "before": 25,
-      "after": 25,
-      "summaryChars": 0
+      "after": 6,
+      "summaryChars": 368,
+      "status": "ok"
     },
     {
       "step": "growth-gate",
-      "folded": false
+      "folded": false,
+      "status": "ok"
     },
     {
       "step": "second-fold",
-      "folded": false
+      "folded": true,
+      "status": "ok"
     },
     {
       "step": "overflow",
-      "folded": true
+      "folded": true,
+      "injected": 6,
+      "compressibleTail": 7,
+      "status": "ok"
     }
-  ]
+  ],
+  "summary": {
+    "ok": 5,
+    "na": 0,
+    "fail": 0,
+    "total": 5
+  },
+  "usage": {
+    "calls": 3,
+    "prompt": 1534,
+    "completion": 2738,
+    "total": 4272,
+    "empty": 0
+  }
 }
