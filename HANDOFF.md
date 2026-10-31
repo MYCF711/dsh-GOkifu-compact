@@ -1,12 +1,26 @@
 # dsh-GOkifu-compact · 交接文件
 
-> 2026-10-28 · 给下一个会话
+> 2026-10-31 · 给下一个会话
 > **先读这一页，再读 `docs/最终报告.md`。不要重新推导。**
-> ⚠ **最紧急的一件事**：v1.3.5 修了 P0（worldHash 类型 bug 导致压缩 98.7% 失败 → 模型死循环），
-> 代码已在工作区、单测全绿，但**插件在 DSH 启动时加载，必须重启才生效**。
-> 重启后第一件事：`node test/verify-graphs.mjs`（见 `evidence/P0-worldhash-修复验证.md`）。
+> 当前版本 **1.11.14**（npm latest 同值）；单测 **542 / 0 skipped / 0 failed**（45 个测试文件）。
+> **⚠ 桌面 live 仍停在 1.11.2** —— npm 发了不等于用上了；升级要改 profile 依赖并重装（属「运行中禁改 profile」风险面，需停窗或走安装器）。
 
-## ⚠ 最新状态（2026-10-29 · 1.9.1）
+## ⚠ 最新状态（2026-10-31 · 1.11.14）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.11.14**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.11.14`） |
+| tag / npm | `v1.11.14` annotated · npm `latest = 1.11.14` · `dist.shasum 765ff0aa…` |
+| 单测 | **542 passed / 0 skipped / 0 failed**（45 个测试文件）· `engine` 39/0 · `ledger` 31/0 · `release-hardening` 22/0 |
+| 安装校验 | `node test/verify-install.mjs` **16 ✓ / 0 ✗** |
+| `check-maintenance` | **9 通过 / 0 警告 / 0 失败** |
+| **桌面 live** | **仍是 1.11.2**（`profiles/desktop/package.json` 指向 `github:…/dsh-GOkifu-compact#v1.11.2`）—— **落后 12 个版本，那 11 版的收益在 live 上一个都没生效** |
+| 工作树 | HEAD `4804173` 已含**未发布**的 P2-2（`engine: fold 可观测字段`）⇒ 当前树全量 **546/0/0**，**下次发版要 bump 1.11.15** |
+| 下一步（唯一档停的事） | **P6-C 真实 apply 仍未执行** —— 需主人授权 + 停插件窗口；预检 `scripts/p6c-preflight.mjs` · 手册 `docs/P6C-停窗执行手册.md`；**真跑不带 `--force`**；`--verify` 已在 **6,219 条真实规模 PASS** |
+
+> 其余仍未做：**M2/M3**（UI 暂停中）· **tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）。
+
+## 历史状态（2026-10-29 · 1.9.1）—— **已被上方取代，留作时间线**
 
 | 项 | 值 |
 |---|---|
