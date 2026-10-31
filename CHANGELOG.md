@@ -1,5 +1,38 @@
 # 更新记录
 
+## 1.11.5 — 2026-10-31
+
+### S10d · 测试运行器终于能区分「跳过」与「通过」，「空壳用例」不再是绿的
+
+**问题**：旧 `run.mjs` 里，平台/权限不对时用 `return` 早退，**会计入 passed** —— 单看
+「N passed」根本排除不了跳过；而且一个**一条断言都没有**的用例也会静默算通过。
+
+**改法**
+
+| 能力 | 说明 |
+|---|---|
+| `t.skip(reason)` | 计入 `skipped`，不计 pass/failed；**exit code 只由 failed 决定** |
+| 汇总行 | `== N passed, M skipped, K failed ==`（新增中间那段，跳过不再藏在 passed 里） |
+| **零断言检测** | `assertions === 0` **且**源码里没有 `throw` / `assert` 证明 ⇒ 计入 `zeroAssertions` 并**按失败处理**。本仓 300+ 用例是 throw 风格（算有证明），空壳用例从此不再静默算 pass |
+| `--dir=` | 仅供 `run-skip` 夹具指向临时目录 |
+
+- **`install-link` 6 处平台/权限早退改为 `t.skip(...)`**，原有断言一字未改。
+- 新增 `test/run-skip.test.mjs` **3 条**：四态（pass/fail/skip/零断言）可区分、skip 不导致失败、零断言严格红。
+
+**变异自检**：删掉 skip 分支 ⇒ `run-skip` 红；删掉零断言检测 ⇒ `run-skip` 红。
+
+### 验证
+
+- 全量：**476 passed / 0 failed / 0 skipped**（36 个测试文件；473 + 3）
+- `install-link` **29/0** · `run-skip` **3/0** · `rooms` 15/0 · `verify-install` **16/16**
+- `bench 2000`：**351 tokens**（与基线一致）
+- `npm pack --dry-run --json`：**71 文件**（数量不变，只改 `test/`）
+
+**未验证**
+
+- 零断言检测只认 `assertions` 计数与 `throw`/`assert` 的**文本证据**：如果一个用例用别的方式实打实地检查了东西（例如把结果写进外部文件再断言），仍可能被误判 —— 目前本仓没有这种写法。
+- `skipped` 总数现在是 0（本机 Windows）。**跨平台**（Linux/macOS 上那 6 条会真的 skip）没有实跑过。
+
 ## 1.11.4 — 2026-10-31
 
 ### 发布脚本加固：坏 remote 在预演阶段就红，git 步骤事务化

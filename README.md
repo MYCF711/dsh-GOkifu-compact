@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.11.4`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.11.5`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 351 tokens 的热清单」。**
 
