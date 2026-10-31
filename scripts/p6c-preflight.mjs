@@ -71,15 +71,31 @@ function portOpen(port) {
   });
 }
 
-/** 当前用户可见的同名进程数（Windows 用 tasklist；其它平台返回 null = 不适用）。 */
+/**
+ * 当前用户可见的同名进程数（Windows 用 tasklist /FO CSV；其它平台不适用）。
+ *
+ * ⚠ 为什么必须用 CSV 而不是默认表格格式（2026-10-31 实测，P6-C 停窗流程因此完全卡死）：
+ * `tasklist` 在**没有匹配进程**时会打印一行**本地化提示** —— 中文系统是
+ * 「信息: 没有运行的任务匹配指定标准。」。默认表格格式下这一行既不是空行、
+ * 也不以 `INFO:` 开头（`INFO:` 只出现在英文系统），而 `spawnSync(..., encoding:"utf8")`
+ * 会把 GBK 字节解成 U+FFFD，于是旧逻辑的过滤条件全部放行 ⇒ 把它算成 **1 个进程**
+ * ⇒ `running = portOpen || count > 0` 恒为 true ⇒ **预检永远拒绝**。
+ * 实测现场：主人已完全退出桌面实例（`portOpen=false`），预检却报 `procCount=1`
+ * 并 exit 1，脚本窗口显示「退出码 1」。
+ *
+ * CSV 模式下**匹配到的进程行一定以 `"` 开头**，本地化提示行不会，因此计数可靠；
+ * 再按映像名（第一个 CSV 字段）复核一次，双重保险。
+ */
 function processCount(name) {
   if (process.platform !== "win32" || !name) return { applicable: process.platform === "win32", count: 0 };
-  const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/NH"], { encoding: "utf8", timeout: 15000, windowsHide: true });
+  const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { encoding: "utf8", timeout: 15000, windowsHide: true });
   if (r.status !== 0) return { applicable: true, count: 0, error: String(r.stderr ?? "").trim() };
+  const want = name.toLowerCase();
   const count = String(r.stdout ?? "")
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith("INFO:")).length;
+    .filter((l) => l.startsWith('"'))
+    .filter((l) => l.slice(1, 1 + want.length).toLowerCase() === want).length;
   return { applicable: true, count };
 }
 
