@@ -12,7 +12,7 @@
 | 项 | 变化 |
 |---|---|
 | 新配置 **`firstFoldRatio`** | preset 里的键（`PRESET_KEYS` **16 → 17**）；范围 **0 – 0.95**，**默认 0.30** |
-| 生效范围 | **只作用于本会话第一次 fold**：首折阈值 = **min(窗口 × 0.30, pressureBudget)**；之后回到 `thresholdRatio`（0.45） |
+| 生效范围 | **只作用于本会话第一次 fold**：首折阈值 = **min(窗口 × 0.30, pressureBudget)**；之后回到 `thresholdRatio`（0.45）。**200K 窗口下的具体值：首折 60K / 正常 90K** |
 | 不受影响 | **overflow 分支照旧**（它有自己的触发条件）；若首折阈值 ≤ `retainTokens` ⇒ **回退正常阈值**（不会压到留不住尾巴） |
 | preset 块格式 | `engineBlock` 增 `firstFoldRatio` 行（**21 → 22 行 / 15 → 16 键**）；`rooms` 的 preset 块 golden 已同步 |
 
