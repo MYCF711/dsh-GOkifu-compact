@@ -131,6 +131,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     /** ★ P3：每会话基线 graph.json 的内容哈希（16 位）；delta 帧用它做 generation 保护。 */
     /** ★ P3：已进入 graph.json/delta 但还没写过 nodes/<id>.md 的节点（fold 时补写）。 */
     this.runtime = new Map();
+    /** ★ TIER2-SEMANTICS（task-142）：tier-2 重入保护 —— 常规 fold 之后与 pressure 分支都会收 checkpoint，
+     *  同一时刻只允许一个 tier-2 在跑（防递归 / 二次 compactRegion）。 */
+    this._tier2InFlight = false;
     /** ★ P7：热清单预算统计（跨会话累计；doctor 从这里读）。 */
     this.ledgerBudget = { none: 0, "over-budget": 0, impossible: 0, 未采集: 0, maxOverBudgetBy: 0, updatedAt: 0, samples: 0 };
     if (this.chess.hotLedger) this.#bindLedger();
@@ -608,7 +611,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
     });
-    this.#tier2(session, g);
     // ★ 2026-10-29 修复：这里原来传的是 `{ md: true }`，而 `#flush(session, { tree = false })`
     //   只认 `tree` —— 参数名不匹配 ⇒ fold 后**从不**重写 `nodes/*.md`，
     //   压缩后的节点详情停在第一次落盘的样子（Kimi 评估实测发现）。
@@ -616,6 +618,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     this.ctx.logger?.info?.(
       `chess-context: fold #${g.foldCount} 遮蔽 ${range.end - range.start >= 0 ? `${range.start}-${range.end}` : "?"} (~${range.shadowedTokens} tokens) → 总 ${after.totalTokens} tokens（死路 ${failureEdges(g).length} 条，节点 ${g.order.length}）`,
     );
+    // ★ TIER2-SEMANTICS（task-142，方案 A）：checkpoint 常驻成本与「压力」无关，常规 fold 之后也要收。
+    //   证据（ws-tier2-semantics/REPORT.md）：fold 的 range 从**上一个 checkpoint 之后**开始
+    //   （实测 8 个 checkpoint 之后 start=1009 > cp8=1008）⇒ 旧 checkpoint 全部留在 surface 上，
+    //   每 fold 一次 +1，数量随 fold 次数线性增长。旧版只在 trigger === "pressure" 收，
+    //   auto / context-overflow 路径会无限堆积（旧的空 `#tier2` 调用不做事）。
+    //   安全性：`#tier2IfNeeded` 只调 `compactRegion`（不会回到 `compactIfNeeded`）⇒ 无递归；
+    //   另有 `_tier2InFlight` 防重入；`tier2After = 0` 直接跳过（与 compactIfNeeded 的守卫一致）。
+    if (this.chess.tier2After > 0) {
+      try {
+        await this.#tier2IfNeeded(agent, signal);
+      } catch (error) {
+        this.ctx.logger?.warn?.(`chess-context: fold 后 tier-2 失败（不影响本次 fold）：${String(error)}`);
+      }
+    }
     return result;
   }
 
@@ -640,6 +656,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @returns 合并结果，或 null（不需要/无法合并）
    */
   async #tier2IfNeeded(agent, signal) {
+    // ★ TIER2-SEMANTICS（task-142）：防重入 —— 常规 fold 之后与 pressure 分支都会调它。
+    //   重入时直接放弃（宁可少合并一次，也不要在一个 fold 事务里套第二个 compactRegion）。
+    if (this._tier2InFlight) return null;
+    this._tier2InFlight = true;
+    try {
+      return await this.#tier2IfNeededUnsafe(agent, signal);
+    } finally {
+      this._tier2InFlight = false;
+    }
+  }
+
+  async #tier2IfNeededUnsafe(agent, signal) {
     const session = agent.session;
     const cps = checkpointSeqs(session);
     if (cps.length < this.chess.tier2After) return null;
@@ -664,11 +692,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);
     }
     return result;
-  }
-
-  /** 记录一次常规 fold 的元数据（tier-2 由 #tier2IfNeeded 自己记）。 */
-  #tier2(_session, _g) {
-    /* 保留方法名以免外部调用点断裂；真正的合并在 #tier2IfNeeded。 */
   }
 }
 

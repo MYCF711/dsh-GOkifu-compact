@@ -66,25 +66,21 @@ const tier2Marks = (graph) => (graph.foldMarks ?? []).filter((m) => m.tier2 === 
 
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
-tests["T2-0 只读核实：`#tier2` 有调用点但方法体是空的；真正干活的是 `#tier2IfNeeded`"] = async () => {
+tests["T2-0 只读核实（A 方案后）：空 `#tier2` 已删，常规 fold 之后直接调 `#tier2IfNeeded`"] = async () => {
   const src = nodeFs.readFileSync(ENGINE_SRC, "utf8");
-  // ① 空方法确实被调用（评审报告说「无调用点」是错的）
-  if (!src.includes("this.#tier2(session, g);")) throw new Error("`#tier2` 的调用点不见了 —— 先确认代码是否被改过");
-  // ② 方法体是空的（只有注释）
-  const body = /#tier2\(_session, _g\) \{\n([\s\S]*?)\n  \}/.exec(src);
-  if (body === null) throw new Error("找不到 `#tier2` 定义");
-  const code = body[1]
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith("/*") && !l.startsWith("*") && !l.startsWith("//") && !l.endsWith("*/"))
-    .join("");
-  if (code !== "") throw new Error(`\`#tier2\` 不再是空方法（现在有代码：${code}）—— 本测试的前提变了，需要复核`);
-  // ③ 真正干活的那个只在 pressure 分支被调用
-  const calls = [...src.matchAll(/this\.#tier2IfNeeded\(/g)].length;
-  if (calls !== 1) throw new Error(`#tier2IfNeeded 调用点应为 1 处，实际 ${calls}`);
-  const guard = /if \(trigger === "pressure" && this\.chess\.tier2After > 0\) \{/.test(src);
-  if (!guard) throw new Error("找不到 pressure + tier2After>0 的守卫");
-  // ④ 空调用**无副作用**：跑一次常规 fold，foldMarks 只多一条**非 tier2** 记录
+  // ① 空的 #tier2 已彻底删掉（调用点与方法定义都不能再出现）
+  if (src.includes("this.#tier2(session, g);")) throw new Error("空的 #tier2 调用点还在 —— A 方案应当已经删掉");
+  if (/#tier2\(_session, _g\)/.test(src)) throw new Error("空的 #tier2 方法定义还在 —— A 方案应当已经删掉");
+  // ② 常规 fold 之后确实调 #tier2IfNeeded，且带 tier2After>0 守卫
+  if (!src.includes("await this.#tier2IfNeeded(agent, signal);")) throw new Error("常规 fold 之后找不到 #tier2IfNeeded 调用（A 方案的核心触发点）");
+  if (!/if \(this\.chess\.tier2After > 0\) \{/.test(src)) throw new Error("找不到 tier2After>0 的守卫");
+  // ③ pressure 分支的触发仍在（两条路径共用同一个方法）
+  if (!/if \(trigger === "pressure" && this\.chess\.tier2After > 0\) \{/.test(src)) throw new Error("pressure 分支的触发被弄丢了");
+  const calls = [...src.matchAll(/this\.#tier2IfNeeded\(agent, signal\)/g)].length;
+  if (calls !== 2) throw new Error(`#tier2IfNeeded 应恰好 2 处调用（pressure 分支 + fold 之后），实际 ${calls}`);
+  // ④ 防重入：有 in-flight 标记（重入直接返回 null）
+  if (!/if \(this\._tier2InFlight\) return null;/.test(src)) throw new Error("缺少 _tier2InFlight 防重入");
+  // ⑤ 没有 checkpoint 时，常规 fold 之后不该产生 tier2 记录（不该乱合并）
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-t2-noop" });
   const ctx = makeCtx({ measureTotal: () => 300_000 });
@@ -95,7 +91,8 @@ tests["T2-0 只读核实：`#tier2` 有调用点但方法体是空的；真正�
   const g = readGraph(nodePath.join(graphDir, "tier2-noop"), "sess-t2-noop");
   if ((g.foldMarks ?? []).length !== 1) throw new Error(`只有一条 normal foldMark，实际 ${(g.foldMarks ?? []).length}`);
   if (g.foldMarks[0].tier2 === true) throw new Error("normal fold 的记录不该带 tier2 标记");
-  if (tier2Marks(g).length !== 0) throw new Error("`#tier2` 空调用不该产生 tier2 记录");
+  if (tier2Marks(g).length !== 0) throw new Error("没有 checkpoint 时不该产生 tier2 记录");
+  if (engine.compactCalls.length !== 1) throw new Error(`没有 checkpoint 时只该有常规 fold 一次 compactRegion，实际 ${engine.compactCalls.length}`);
 };
 
 tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最老两条（不是最老一条、不是最新）"] = async () => {
@@ -204,32 +201,60 @@ tests["T2-4 tier2After=0：永不触发（12 个 checkpoint 也不合并）"] = 
   }
 };
 
-tests["T2-5 非 pressure 不触发（现状）：auto/context-overflow 都不走 tier-2"] = async () => {
+tests["T2-5 压力无关（A 方案）：auto 常规 fold 之后也按 tier2After 收 checkpoint"] = async () => {
   const { Engine, graphDir } = await load();
-  // ① auto + 低于阈值：既不 fold 也不 tier-2
   const dir = nodePath.join(graphDir, "tier2-auto");
   const session = makeSession({ id: "sess-t2-auto" });
-  const ctx = makeCtx({ measureTotal: () => 30_000 });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 8 });
   const cps = pushCheckpoints(session, 8);
-  pushPlain(session, 3);
-  const r1 = await engine.compactIfNeeded({ session, options: {} }, "auto", undefined);
-  if (r1 !== null) throw new Error(`auto + 低水位应当不 fold，实际 ${JSON.stringify(r1)?.slice(0, 60)}`);
-  if (engine.compactCalls.length !== 0) throw new Error("auto 分支不该调用 compactRegion");
-  for (const seq of cps) {
-    if (!session.surface.nodes.includes(seq)) throw new Error("非 pressure 分支不许合并 checkpoint");
-  }
-  // ② auto + 高于阈值：走常规 fold（说明「8 个 checkpoint 在非 pressure 下也没被 tier-2 吃掉」）
-  const ctx2 = makeCtx({ measureTotal: () => 300_000 });
-  const dir2 = nodePath.join(graphDir, "tier2-auto2");
-  const session2 = makeSession({ id: "sess-t2-auto2" });
-  const engine2 = new Engine(ctx2, { graphDir: dir2, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 8 });
-  const cps2 = pushCheckpoints(session2, 8);
-  pushPlain(session2, 19);
-  await engine2.compactIfNeeded({ session: session2, options: {} }, "auto", undefined);
-  const g2 = readGraphFull(dir2, "sess-t2-auto2");
-  if (tier2Marks(g2).length !== 0) throw new Error("非 pressure 触发绝不允许产生 tier2 记录");
-  for (const seq of cps2) {
-    if (!session2.surface.nodes.includes(seq)) throw new Error(`非 pressure 下 checkpoint ${seq} 不该被合并`);
-  }
+  pushPlain(session, 19);
+  const result = await engine.compactIfNeeded({ session, options: {} }, "auto", undefined);
+  if (!result) throw new Error("auto 高水位应当 normal fold");
+  // 两次 compactRegion：① 常规 fold ② fold 之后收 checkpoint
+  if (engine.compactCalls.length !== 2) throw new Error(`应为「fold + tier-2」共 2 次 compactRegion，实际 ${engine.compactCalls.length}`);
+  const tier = engine.compactCalls[1];
+  if (tier.start !== cps[0] || tier.end !== cps[1]) throw new Error(`tier-2 范围必须是最老两条 ${cps[0]}–${cps[1]}，实际 ${tier.start}–${tier.end}`);
+  for (const gone of [cps[0], cps[1]]) if (session.surface.nodes.includes(gone)) throw new Error(`checkpoint ${gone} 应已被合并`);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 标量（foldMarks）靠回合边界全量 flush 提交
+  const g = readGraphFull(dir, "sess-t2-auto");
+  const marks = tier2Marks(g);
+  if (marks.length !== 1) throw new Error(`auto 路径应产生 1 条 tier2 记录，实际 ${marks.length}`);
+  if (marks[0].seqStart !== cps[0] || marks[0].seqEnd !== cps[1]) throw new Error("tier2 记账范围错");
 };
+
+tests["T2-6 A 方案收口：不递归、tier2After=0 不收、checkpoint 数量被压回上限内"] = async () => {
+  const { Engine, graphDir } = await load();
+  // ① auto 路径：一次 fold 只触发一次 tier-2（不递归、不重复）
+  const dir = nodePath.join(graphDir, "tier2-norecurse");
+  const session = makeSession({ id: "sess-t2-norecurse" });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 8 });
+  pushCheckpoints(session, 9);
+  pushPlain(session, 19);
+  await engine.compactIfNeeded({ session, options: {} }, "auto", undefined);
+  if (engine.compactCalls.length !== 2) throw new Error(`一次 fold 最多「fold + 1 次 tier-2」，实际 ${engine.compactCalls.length} 次 —— 疑似递归`);
+  if (engine._tier2InFlight !== false) throw new Error("tier-2 结束后 _tier2InFlight 必须复位");
+  // 9 → 7：两个被合并（stub 的 fold 新 checkpoint 不注册事件，所以只减不增）⇒ 数量回到上限内
+  const cpsAfter = session.surface.nodes.filter((s) => session.eventAt(s)?.data?.source?.kind === "compact-checkpoint");
+  if (cpsAfter.length !== 7) throw new Error(`9 个 checkpoint 合并两条后应剩 7 个，实际 ${cpsAfter.length}`);
+  if (cpsAfter.length > 8) throw new Error("checkpoint 数量必须被压回 tier2After 以内");
+
+  // ② 再折一次（checkpoint 仍不足 8）⇒ 只做常规 fold，不再叠加 tier-2
+  pushPlain(session, 19);
+  const before = engine.compactCalls.length;
+  await engine.compactIfNeeded({ session, options: {} }, "auto", undefined);
+  if (engine.compactCalls.length - before !== 1) throw new Error(`第二次 fold 只该有 1 次 compactRegion，实际 ${engine.compactCalls.length - before}`);
+
+  // ③ tier2After=0 ⇒ 永不收（与 compactIfNeeded 的守卫一致）
+  const dir0 = nodePath.join(graphDir, "tier2-zero2");
+  const session0 = makeSession({ id: "sess-t2-zero2" });
+  const engine0 = new Engine(ctx, { graphDir: dir0, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 0 });
+  const cps0 = pushCheckpoints(session0, 12);
+  pushPlain(session0, 19);
+  await engine0.compactIfNeeded({ session: session0, options: {} }, "auto", undefined);
+  if (engine0.compactCalls.length !== 1) throw new Error(`tier2After=0 时只该有常规 fold，实际 ${engine0.compactCalls.length} 次`);
+  for (const seq of cps0) if (!session0.surface.nodes.includes(seq)) throw new Error(`tier2After=0 时 checkpoint ${seq} 不该被合并`);
+};
+
+
