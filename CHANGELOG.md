@@ -1,5 +1,71 @@
 # 更新记录
 
+## 1.11.3 — 2026-10-31
+
+### P0-1 · `exit` 判据收紧：不再被正文子串误判
+
+旧实现用 `slice(-200)` 在尾部 200 字符里**子串搜索** `[exit code: N]` ⇒ 命令**输出正文里提到**这串就误判成「有退出码」，
+且「标记之后还有输出」时前后结论不一致。
+
+- 新增 `lastLineExitCode()`：取**末条非空行**，**整行等于** `[exit code: N]` 才算有退出码；否则视为 no-exit。
+- `verify.mjs` 顶部注释同步；`_internal` 导出 `LOCAL_MUTATE_TOOLS` / `lastLineExitCode`。
+- 测试 +3（`verifier` OPT-V-1 / OPT-V-2、`weak-shell` S2b-14）；变异：退回 `slice(-200)` ⇒ OPT-V-1 变红。
+
+### P0-2 · `local-mutate` 从只读表拆出（不再被当成「只读工具」）
+
+`todo_write` / `update_goal` / `create_goal` / `hindsight_ingest_document` / `team_task_*` / `send_message` /
+`spawn_teammate` / `subagent` / `schedule_*` / `job_kill` … 这些**会改状态但不是文件写**的工具，原先把它们混在只读表里，
+分类结果自相矛盾。现在：
+
+- 新增 `LOCAL_MUTATE_TOOLS`；`toolClass()` 返回 **`local-mutate`**（与 `read-only` / `write` 并列）
+- `classify()` 对 local-mutate 给 **`unverified` + kind `none`，且不带 `weak`**（它既不是「进展」也不是「失败」）
+- `WRITE_TOOLS` / `present` 与 `isError` 的**优先级不变**
+- 变异：把 local-mutate 放回只读表 ⇒ S2b-14 + OPT-V-2 变红
+
+### 外部入口 · 新增 `dsh-gokifu-compact/graph` 与 `/persist`
+
+1.11.2 的 README 教外部工具去读 `node_modules/dsh-gokifu-compact/src/rooms/kifu-model.mjs` —— 那是**深层路径**，
+`exports` 里没有 ⇒ 现代 ESM 解析会直接拒绝。现在补两个正式入口：
+
+| 入口 | 目标 | 用途 |
+|---|---|---|
+| `dsh-gokifu-compact/graph` | `src/rooms/kifu-model.mjs` | `fromJSON` / `toJSON` / `decodeDeltaFrames` / `applyDelta` / `renderIndexMd` … |
+| `dsh-gokifu-compact/persist` | `src/rooms/kifu-persist.mjs` | `graphRoot` / `sessionPaths` / `createPersistStore` / `load` / `flush` … |
+
+- 新增 `test/package-exports.test.mjs`（**7 条**）：声明齐全、子路径可解析、真实 `import` 成功、导出面非空、不泄漏内部路径
+- README 的「怎么拿最新状态」一行改为指向这两个入口
+
+### 零失败边最小注入（OPTIONS 之后又一刀「别让热清单吃白饭」）
+
+**问题**：只读统计 **167 个真实会话**，**42 个（25.1%）零失败边** —— 它们照样要付一份完整热清单的 token。
+
+**改法**：
+
+- `ledger.mjs` 新增 `renderMinimalLedger`：`<chess-ledger>` 内只有三行 —— `GOAL` / `CONSTRAINTS: N` / `NO_FAILED_ATTEMPTS_YET`；
+  **`renderLedger` 一个字节不动**（167 会话新旧对比 `byteDiff=0`）
+- `hot-inject.decideInjection`：零失败边且 `hasLedgerState` ⇒ 用最小渲染走**原注入流程**（digest / 限流 / replace / fold 补回全不变）；空图仍 `skip no-ledger`
+- 实测（42 个零失败会话）：最小注入 **avg 25.4 tok / max 57**（同批会话的完整最小档 avg 386 / max 497）
+- 分布：root 覆盖 **42/42**、constraints **32/42**、完全空 **0**（不会出现「三行全空」的哑注入）
+- 测试 +4：OPT-E-1 触发与三项内容 / OPT-E-2 空图 skip / OPT-E-3 有失败边时字节不变（sha 钉死）/ OPT-E-4 fold 补回
+- 变异：零失败退回 skip ⇒ E-1/E-4 红；删 `NO_FAILED_ATTEMPTS_YET` 行 ⇒ E-1/E-4 红
+
+### tier-2 行为矩阵
+
+- 新增 `test/tier2.test.mjs`（**6 条**，engine 零改动）+ `engine-harness` 导出 4 个 helper —— 把此前「文档说有、代码没测」的第二档行为逐条核实。
+
+### 验证
+
+- 全量：**463 passed / 0 failed**（36 个测试文件；443 + 7 exports + 3 verify + 6 tier2 + 4 hot-inject）
+- `rooms` **15/0** · `hot-inject` **12/0** · `verify-install` **16/16**
+- `bench 2000`：**351 tokens** / 1.336 ms（81,260 / 386,945 字符、1.41 MB、2001 节点）
+- `npm pack --dry-run --json`：**70 文件**（数量不变）/ 562,344 B；`test/`·`tmp/` 命中 0
+
+**未验证（必须知道）**
+
+- 最小注入的**运行期收益未在真机观测** —— 25.4 tok 是离线夹具口径，167 会话统计是只读扫描。
+- tier-2 矩阵跑在假 ctx 上，不是真机行为。
+- README 里的「真实包 8/8 †」「真实进程 fold 3~6/6 †」带 **†** = 历史口径，**本版未复跑**。
+
 ## 1.11.2 — 2026-10-30
 
 ### 本包改成 DSH bundle（UI 挂载不再需要用户手改 YAML）
