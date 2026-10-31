@@ -1,5 +1,50 @@
 # 更新记录
 
+## 1.11.11 — 2026-10-31
+
+### 修 `check-maintenance` 的一个**假红**：`git status --porcelain` 的首行空格被 `.trim()` 吃掉
+
+**现场**：终审时 `check-maintenance` 报 **8 通过 / 1 失败**，而工作树其实只有 `evidence/bench-2000.json` 这一个
+本该被豁免的噪声文件 —— 也就是说，**它把「只改了 evidence」误判成「改了代码没 bump 版本」**。
+
+**根因（一个字符的事）**：`git status --porcelain` 的首行形如 ` M evidence/x.json` ——
+**状态码 X 位是一个空格**。旧实现把整段 stdout `.trim()` 了，首行的那个空格被吃掉，再按固定列 `slice(3)`：
+
+```
+" M evidence/x.json"  → trim → "M evidence/x.json" → slice(3) → "vidence/x.json"   ← 少了 v
+```
+
+于是 `evidence/` 过滤失效 ⇒ 假红。（后续行没有行首空格问题，所以**只有第一行会歪** —— 这类 bug 极难靠肉眼发现。）
+
+**改法**
+
+- 新增 **`gitRaw()`**：返回**未 trim** 的 stdout，专供解析用；`git()` 保持原来的 trim 行为（其余检查不变）。
+- 脏文件改用 **`git status --porcelain -z`** + 新增 **`parsePorcelainZ()`**：按 NUL 切记录，
+  每条记录是 `XY <path>`，**逐条** `slice(3)` 取路径；rename/copy 记录后面紧跟一个「原路径」token
+  （没有 XY 前缀），解析时跳过。
+  用 `-z` 还顺带解决另一个坑：普通 porcelain 会给**含空格 / 非 ASCII** 的路径加引号并转义
+  （`"a b.txt"` 之类），`-z` 给的是**原始路径**，不用反解义。
+
+**新增 `test/check-maintenance.test.mjs`（4 条回归，全部真跑脚本）**
+
+| 用例 | 钉住什么 |
+|---|---|
+| 基线 | 干净夹具必须 **9/0** |
+| **首行空格** | 脏 `evidence/bench-2000.json` 必须**仍 9/0**（这就是那个假红的原样复现） |
+| 不放过代码 | 脏 `src/` 仍必须**红**（不能为了 evidence 把代码变更也放过） |
+| 可恢复 | `git checkout -- evidence/` 之后回到 **9/0** |
+
+### 验证
+
+- 全量：**505 passed / 0 skipped / 0 failed**（**43 个测试文件**；501 + 4）
+- `check-maintenance` 专项 **4/0** · `release-hardening` 15/0 · `verify-install` **16/16**
+- `npm pack --dry-run --json`：**71 文件**（数量不变；`test/` 不进包）
+
+**未验证**
+
+- 假红只在 `check-maintenance` 里修了；**别的脚本若也用 `.trim()` + 固定列解析 `--porcelain`，可能有同样的歪一字符问题** ——
+  本次没有全仓排查（`grep` 过一遍，只有这一处按列切）。
+
 ## 1.11.10 — 2026-10-31
 
 ### 修一个会**悄悄吞掉备份**的真 bug：回灌备份按会话分子目录
