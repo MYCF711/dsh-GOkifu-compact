@@ -25,28 +25,28 @@ const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, r
 
 /* ───────────────────────── golden（A2-4 之前的实测输出） ───────────────────────── */
 
-const GOLDEN_KEYS = ["thresholdRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "graphDir", "worldHashMaxFiles"];
+const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "graphDir", "worldHashMaxFiles"];
 
-const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "transposition", "tier2After"];
+const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "transposition", "tier2After"];
 
 const GOLDEN_BASE_KEYS = ["thresholdRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto"];
 
-const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, transposition: true, tier2After: 8 };
+const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, transposition: true, tier2After: 8 };
 
-const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
+const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
 
-const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, graphDir: "", worldHashMaxFiles: 200 };
+const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, graphDir: "", worldHashMaxFiles: 200 };
 
-const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, transposition: true, tier2After: 8 }, origins: { auto: "preset", thresholdRatio: "preset", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", transposition: "default", tier2After: "default" }, unconfiguredKeys: ["growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
+const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, transposition: true, tier2After: 8 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", transposition: "default", tier2After: "default" }, unconfiguredKeys: ["firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
 
-const RANGES = { thresholdRatio: [0.05, 0.95], headroomTokens: [0, 512000], retainRatio: [0, 0.9], growthFloorTokens: [0, 1000000], minFoldTokens: [0, 1000000], maxTokens: [256, 65536], hotLedgerMaxTokens: [0, 20000], tier2After: [0, 100] };
+const RANGES = { thresholdRatio: [0.05, 0.95], firstFoldRatio: [0, 0.95], headroomTokens: [0, 512000], retainRatio: [0, 0.9], growthFloorTokens: [0, 1000000], minFoldTokens: [0, 1000000], maxTokens: [256, 65536], hotLedgerMaxTokens: [0, 20000], tier2After: [0, 100] };
 const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["semantic", "terse", "off"] };
 
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "SCHEMA：23 行、键集合与顺序逐键一致"(t) {
-    t.eq(SCHEMA.length, 23, "SCHEMA 行数");
+  "SCHEMA：24 行、键集合与顺序逐键一致"(t) {
+    t.eq(SCHEMA.length, 24, "SCHEMA 行数");
     t.eq(SCHEMA.map((e) => e.key), GOLDEN_KEYS, "键与顺序");
   },
 
@@ -68,19 +68,19 @@ export const tests = {
     t.eq(describe("no-such-key"), null, "未知键返回 null");
   },
 
-  "PRESET_KEYS 16 / BASE_KEYS 11：顺序与集合"(t) {
+  "PRESET_KEYS 17 / BASE_KEYS 11：顺序与集合"(t) {
     t.eq([...PRESET_KEYS], GOLDEN_PRESET_KEYS, "PRESET_KEYS 顺序");
     t.eq([...BASE_KEYS], GOLDEN_BASE_KEYS, "BASE_KEYS 顺序");
     const derived = SCHEMA.filter((e) => e.where === "preset").map((e) => e.key).sort();
     t.eq([...PRESET_KEYS].sort(), derived, "PRESET_KEYS 与 SCHEMA 的 preset 集一致");
   },
 
-  "configDefaults：16 键逐键等于 A2-4 之前的 DEFAULTS"(t) {
+  "configDefaults：17 键逐键等于 A2-4 之前的 DEFAULTS（+firstFoldRatio）"(t) {
     t.eq(configDefaults(), GOLDEN_DEFAULTS, "golden");
     t.eq(Object.keys(configDefaults()), Object.keys(GOLDEN_DEFAULTS), "键序也必须一致（JSON.stringify 会被比对）");
   },
 
-  "fieldLabels：16 键逐键等于 A2-4 之前的 FIELD_LABELS"(t) {
+  "fieldLabels：17 键逐键等于 A2-4 之前的 FIELD_LABELS（+firstFoldRatio）"(t) {
     t.eq(fieldLabels(), GOLDEN_LABELS, "golden");
     t.eq(Object.keys(fieldLabels()), Object.keys(GOLDEN_LABELS), "键序");
   },
@@ -152,7 +152,7 @@ export const tests = {
     t.includes(ui, "return describeConfigFromSchema(presetConfig);", "describeConfig 必须委托");
   },
 
-  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，15 行逐字节未变"(t) {
+  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，16 行（S8 加 firstFoldRatio）"(t) {
     return import(PRESET_FORMAT).then((pf) => {
       const lines = pf.engineBlock();
       const keys = [];
@@ -167,11 +167,12 @@ export const tests = {
       t.eq(keys, PRESET_KEYS.filter((k) => k !== "maxTokens"), "engineBlock 的键序必须 = PRESET_KEYS 去掉 maxTokens");
       t.eq(values.auto, "true", "auto");
       t.eq(values.thresholdRatio, String(describe("thresholdRatio").default), "thresholdRatio 值");
+      t.eq(Number(values.firstFoldRatio), describe("firstFoldRatio").default, "firstFoldRatio 值（模板写 0.30）");
       t.eq(values.headroomTokens, String(describe("headroomTokens").default), "headroomTokens 值");
       t.eq(values.summaryMode, describe("summaryMode").default, "summaryMode 写裸值");
       t.eq(values.summarizationProvider, "''", "空串写成 ''");
       t.eq(values.tier2After, String(describe("tier2After").default), "tier2After 值");
-      t.eq(lines.length, 21, "engineBlock 总行数（3 注释 + id + name + config + 15 键）");
+      t.eq(lines.length, 22, "engineBlock 总行数（3 注释 + id + name + config + 16 键）");
       return undefined;
     });
   },

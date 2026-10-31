@@ -67,6 +67,7 @@ export function engineBlock() {
     `  config:`,
     `    auto: true                # 自动压缩：继承基类的 between-step 压力触发`,
     `    thresholdRatio: 0.45      # 压力闸：min(窗口×0.45, 窗口−输出预留−64K)`,
+    `    firstFoldRatio: 0.30      # 首折阈值：只作用于本会话第一次 fold（0 = 关闭）`,
     `    headroomTokens: 65536`,
     `    retainRatio: 0.16         # 逐字保留的近期尾部`,
     `    growthFloorTokens: 40000  # 增长闸：距上次 fold 至少新增这么多 token`,

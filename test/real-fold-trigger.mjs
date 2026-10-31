@@ -233,10 +233,10 @@ async function main() {
   console.log(`== real-fold-trigger（${MODEL}）==`);
   console.log(`窗口 ${WINDOW}，阈值 ${THRESHOLD}；surface ${session.surface.nodes.length} 个节点`);
 
-  /* ① 低于阈值：不压 */
-  total.value = 60_000;
+  /* ① 低于阈值：不压（S8 之后首折阈值是 0.30×200K = 60K，所以这里取 50K） */
+  total.value = 50_000;
   const r0 = await engine.compactIfNeeded(agent, "pressure", undefined);
-  console.log(`① 60K < 90K：${r0 === null ? "未 fold ✓" : "居然 fold 了 ✗"}`);
+  console.log(`① 50K < 60K（首折阈值）：${r0 === null ? "未 fold ✓" : "居然 fold 了 ✗"}`);
   results.push({ step: "below-threshold", folded: r0 !== null, status: r0 === null ? "ok" : "fail" });
 
   /* ② 超过阈值：压 */
