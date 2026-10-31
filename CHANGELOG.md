@@ -1,5 +1,60 @@
 # 更新记录
 
+## 1.11.6 — 2026-10-31
+
+### tier-2 解耦：checkpoint 的常驻成本不再随 fold 次数线性涨
+
+**问题（只读核实）**：fold 的 range 从**上一个 checkpoint 之后**开始 ⇒ 旧 checkpoint **全部留在 surface**
+（实测 `start=1009 > cp8=1008`），每 fold 一次就 +1 条；而旧代码**只在 pressure 分支**才收 tier-2。
+⇒ auto 路径连做 12 次 fold，surface 上就线性涨到 **12 条旧 checkpoint**。
+
+**改法**
+
+- `src/engine.mjs`：删掉那个**空的 `#tier2`**（调用点 + 定义一起删）；常规 fold **成功后**
+  （`tier2After > 0`）`await #tier2IfNeeded()`；**失败只 warn，不影响本次 fold**。
+- `#tier2IfNeeded` 加 `_tier2InFlight` **防重入**（同一时刻只允许一个 tier-2 在跑，防递归 / 二次 `compactRegion`）。
+
+**前后对照（同一会话 12 次 fold）**
+
+| | surface 上旧 checkpoint 条数 | tier-2 次数 |
+|---|---|---|
+| 旧 | **12**（`[1..12]`，max 12） | 0（auto 路径从不触发） |
+| 新 | **8**（`[1..8,7,8,7,8]`，max 8） | 14 次 = 12 fold + **2 tier-2** |
+
+**测试 6 → 7**：T2-0 改写（空方法已删、fold 后调用、防重入）、T2-5 改写（auto 也触发）、
+T2-6 新增（不递归 / 压回上限 / `tier2After=0` 不触发）。变异：删掉 fold 后的触发 ⇒ T2-0/T2-5/T2-6 红。
+
+### 迁移守卫补上 delta：只看 `graph.json` 会漏掉「插件其实在写」
+
+**问题**：`migrate-dangling --apply` 的 120s 新鲜度守卫**只 stat `graph.json`**。但 1.9.2 起是**增量落盘** ——
+`graph.json` 只在回合边界写，插件活跃时往往**只有 `graph.json.delta.jsonl` 在动**。
+真实库实测：**8 个会话的 delta 在 120s 内被写过，而旧守卫一个都没拦住** ⇒ apply 可能在插件仍活跃时放行，
+随后内存 flush 把迁移结果覆盖回去（这正是 P6-C 反复强调的 `netCleaned=0` 场景）。
+
+**改法**
+
+- 新增导出 **`DELTA_NAME = "graph.json.delta.jsonl"`**（与 `kifu-persist.sessionPaths().deltaFile` 的 basename
+  必须一致，测试有断言盯着这两个名字）。
+- 新增 **`freshEvidence()`**：返回每个「120s 内被写过」的会话**及具体文件**；`freshSessions()` 在其上去重。
+- 判据：`graph.json` **必看**（缺失照旧抛 ENOENT，不静默跳过）；**delta 存在就看 delta**；
+  delta 缺失不判 fresh（老库没有 delta 文件也照样能迁移）。
+- 拒绝 apply 时的报错会**点名会话与文件**，而不是只说「有会话新鲜」。
+
+**测试 +4**：P6C-11（只有 delta 在写 ⇒ 拦住并点名文件）/ P6C-12（delta 缺失不影响）/ P6C-13（两者都旧 ⇒ 放行）/
+P6C-14（多会话混判：按会话去重，逐个点名）。
+
+### 验证
+
+- 全量：**481 passed / 0 skipped / 0 failed**（36 个测试文件；476 + 1 tier-2 + 4 migrate）
+- `tier2` **7/0** · `migrate` **14/0** · `engine-harness` 25/0 · `rooms` 15/0 · `verify-install` **16/16**
+- `bench 2000`：**351 tokens**（与基线一致）
+- `npm pack --dry-run --json`：**71 文件**（数量不变：只改 `src/` 与 `test/`，无新增文件）
+
+**未验证**
+
+- tier-2 的**运行期**收益未在真机观测 —— 8 vs 12 是引擎级前后对照（同一会话、同一 fold 序列）。
+- delta 守卫只在测试夹具与**只读扫描**真实库上验证过；**真实 apply 仍未执行**（需主人授权 + 停插件窗口）。
+
 ## 1.11.5 — 2026-10-31
 
 ### S10d · 测试运行器终于能区分「跳过」与「通过」，「空壳用例」不再是绿的
