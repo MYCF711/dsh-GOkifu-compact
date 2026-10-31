@@ -20,7 +20,7 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { parseRepo, classifyRemote, runTransaction } from "../scripts/release-lib.mjs";
+import { parseRepo, classifyRemote, runTransaction, checkTestFileCount, declaredTestFiles } from "../scripts/release-lib.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -201,4 +201,40 @@ t["RH-10 源码：远端 tag 指向别的 commit 时只提示人工 force，不�
   if (!src.includes("不会自动 force")) throw new Error("必须明说「不会自动 force」");
   if (!src.includes("--force origin refs/tags/")) throw new Error("必须给出手工 force 的命令");
   if (src.includes("run(`git push --force")) throw new Error("脚本里不得出现自动 force 的调用");
+};
+
+// ── ⑥ 「N 个测试文件」声明的三态（task-160）────────────────────────────
+
+t["TG-COUNT-1 一致：声明数 == 实际数 ⇒ 放行"] = () => {
+  const r = checkTestFileCount("- 全量：（42 个测试文件）", 42);
+  if (!r.ok) throw new Error(`应放行，实际 ${JSON.stringify(r)}`);
+  if (r.declared !== 42) throw new Error(`declared 应为 42，实际 ${r.declared}`);
+};
+
+t["TG-COUNT-2 不一致：声明数 ≠ 实际数 ⇒ 红，且理由里两个数字都在"] = () => {
+  const r = checkTestFileCount("- 全量：（37 个测试文件）", 42);
+  if (r.ok) throw new Error("数字不符必须判红");
+  if (r.declared !== 37 || r.actual !== 42) throw new Error(`declared/actual 错：${JSON.stringify(r)}`);
+  if (!r.reason.includes("37") || !r.reason.includes("42")) {
+    throw new Error(`理由必须同时写出声明值与实际值：${r.reason}`);
+  }
+  // 还要给出「怎么数」的写法建议（含历史版本的 git ls-tree 数法）
+  if (!r.reason.includes("ls test/*.test.mjs") || !r.reason.includes("ls-tree")) {
+    throw new Error(`理由必须给出计数方法：${r.reason}`);
+  }
+};
+
+t["TG-COUNT-3 无声明：没写「N 个测试文件」⇒ 不报错（允许不写）"] = () => {
+  const r = checkTestFileCount("- 全量：493 passed / 0 failed", 42);
+  if (!r.ok) throw new Error(`没声明不该红：${JSON.stringify(r)}`);
+  if (r.declared !== null) throw new Error(`declared 应为 null，实际 ${r.declared}`);
+};
+
+t["TG-COUNT-4 解析容错：`**42** 个测试文件` / `42 个测试文件；493 + 7` 都要能读"] = () => {
+  const cases = ["（**42** 个测试文件）", "（42 个测试文件；493 + 7）", "42 个测试文件", "（42个测试文件）"];
+  for (const c of cases) {
+    const got = declaredTestFiles(c);
+    if (got !== 42) throw new Error(`解析失败：${JSON.stringify(c)} ⇒ ${got}`);
+  }
+  if (declaredTestFiles("没有任何数字声明") !== null) throw new Error("无声明应返回 null");
 };
