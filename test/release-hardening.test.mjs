@@ -252,15 +252,16 @@ t["TG-COUNT-5 一节里出现多个数字：全部都要等于实际，否则红
   if (!okAll.ok) throw new Error("全部一致应放行：" + JSON.stringify(okAll));
 };
 
-// ── ⑦ 发布物核对：tarball 必须逐文件等于 git archive <tag>（task-181）──────────
+// ── ⑦ 发布物核对：tarball 与 git archive <tag> 逐文件比对（task-181）──────────
+// 比较键 = **去 CR 后的内容 sha256**（Windows 工作树 CRLF / archive LF ⇒ 原始 shasum 必然不同）
+const tree = (pairs) => new Map(pairs.map(([p, h]) => [p, { sha256: "raw-" + h, sha256NoCR: h }]));
+const bare = (pairs) => new Map(pairs);
 
-const tree = (pairs) => new Map(pairs);
-
-t["V-1 发布物一致：同名同 sha ⇒ 放行"] = () => {
-  const a = tree([["a.mjs", "h1"], ["b.md", "h2"]]);
-  const r = compareReleaseTrees(a, tree([["a.mjs", "h1"], ["b.md", "h2"]]));
+t["V-1 发布物一致：去 CR 后同名同哈希 ⇒ 放行"] = () => {
+  const r = compareReleaseTrees(tree([["a.mjs", "h1"], ["b.md", "h2"]]), tree([["a.mjs", "h1"], ["b.md", "h2"]]));
   if (!r.ok) throw new Error("应放行：" + JSON.stringify(r));
   if (r.checked !== 2) throw new Error("checked 应为 2，实际 " + r.checked);
+  if (r.eol.length !== 0) throw new Error("原始字节也相同，不该有 eol 警告");
 };
 
 t["V-2 tarball 多出文件 ⇒ 红（发布物含 tag 里没有的东西）"] = () => {
@@ -269,7 +270,7 @@ t["V-2 tarball 多出文件 ⇒ 红（发布物含 tag 里没有的东西）"] =
   if (r.extra.join() !== "evil.js") throw new Error("extra 应列出 evil.js：" + JSON.stringify(r.extra));
 };
 
-t["V-3 同名但内容不同 ⇒ 红；tag 有、包里没有 ⇒ 只记 notPacked 不算失败"] = () => {
+t["V-3 去 CR 后仍不同 ⇒ 红；tag 有、包里没有 ⇒ 只记 notPacked 不算失败"] = () => {
   const r = compareReleaseTrees(tree([["a.mjs", "h1"], ["README.md", "h2"]]), tree([["a.mjs", "hX"]]));
   if (r.ok) throw new Error("内容不同必须判红");
   if (r.changed.join() !== "a.mjs") throw new Error("changed 应列出 a.mjs：" + JSON.stringify(r.changed));
@@ -286,19 +287,26 @@ t["V-5 npm bin 归一化判定：只差 `./` 前缀算等价，真改内容不�
   const base = { name: "x", version: "1.0.0", bin: { x: "./scripts/cli.mjs" } };
   const normalized = { name: "x", version: "1.0.0", bin: { x: "scripts/cli.mjs" } };
   const changed = { name: "x", version: "1.0.1", bin: { x: "scripts/cli.mjs" } };
-  if (!isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(normalized))) {
-    throw new Error("只差 ./ 前缀应判为等价");
-  }
-  if (isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(changed))) {
-    throw new Error("版本号变了不该算等价");
-  }
+  if (!isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(normalized))) throw new Error("只差 ./ 前缀应判为等价");
+  if (isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(changed))) throw new Error("版本号变了不该算等价");
   if (isOnlyBinNormalization("{坏 json", JSON.stringify(base))) throw new Error("坏 JSON 应判 false");
 };
 
-t["V-6 发布物核对脚本存在且可执行（结构回归）"] = () => {
+t["V-6 行尾差异只警告不红（CRLF 工作树 vs LF archive）"] = () => {
+  // 去 CR 后相同、原始 shasum 不同 ⇒ ok:true + eol 里有它
+  const archive = new Map([["docs/a.md", { sha256: "rawCrlfDifferent", sha256NoCR: "sameContent" }]]);
+  const packed = new Map([["docs/a.md", { sha256: "rawOther", sha256NoCR: "sameContent" }]]);
+  const r = compareReleaseTrees(archive, packed);
+  if (!r.ok) throw new Error("行尾差异不该判红：" + JSON.stringify(r));
+  if (r.eol.join() !== "docs/a.md") throw new Error("应记 eol 警告：" + JSON.stringify(r));
+  if (r.changed.length !== 0) throw new Error("不该进 changed");
+};
+
+t["V-7 发布物核对脚本存在且结构正确（回归）"] = () => {
   const p = nodePath.join(ROOT, "scripts", "verify-release.mjs");
   if (!nodeFs.existsSync(p)) throw new Error("缺 scripts/verify-release.mjs");
   const src = nodeFs.readFileSync(p, "utf8");
   if (!src.includes("git archive")) throw new Error("必须用 git archive 取 tag 树");
   if (!src.includes("compareReleaseTrees")) throw new Error("必须复用 release-lib 的比较判据（单一来源）");
+  if (!src.includes("sha256NoCR")) throw new Error("必须按去 CR 后的内容哈希比较");
 };

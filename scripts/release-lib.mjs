@@ -170,15 +170,20 @@ export function checkTestFileCount(section, actual) {
 /**
  * 比较「`git archive <ref>` 的树」与「发布 tarball 的树」，逐文件比对 sha256。
  *
- * 规则（task-181）：
+ * 规则（task-181，2026-10-31 按实测更正）：
+ *   · **比较键 = 去 CR 后的内容 sha256**（`sha256NoCR`）—— **不是**原始字节的 shasum。
+ *     原因：Windows 工作树是 CRLF、`git archive` 按 autocrlf 出 LF、npm 打的又是工作树字节 ⇒
+ *     同一份内容在两边**原始 shasum 必然不同**（实测 1.11.12 因此差 1,546 B / 2 个文件）。
+ *     按原始 shasum 死磕 tag 树 ⇒ **每次发布都假红**。
+ *   · **行尾差异**（去 CR 后相同、原始不同）⇒ 只记 `eol` **警告**，不判失败
  *   · **tarball 里多出文件** ⇒ 失败（发布物有 tag 里没有的东西）
- *   · **同名但内容不同**     ⇒ 失败（例外：`normalize(path, a, b)` 返回 true 时记为「已归一」，不算失败）
- *   · **archive 里有、tarball 里没有** ⇒ **不算失败**（npm 只打包 `files` 里的子集），单独列在 `notPacked`
+ *   · **同名且去 CR 后仍不同** ⇒ 失败（例外：`normalize(path)` 为真，例如 npm 的 bin `./` 归一化）
+ *   · **archive 里有、tarball 里没有** ⇒ **不算失败**（npm 只打包 `files` 里的子集），列在 `notPacked`
  *
- * @param {Map<string, string>} archive  path → sha256
- * @param {Map<string, string>} tarball  path → sha256
+ * @param {Map<string, string|{sha256:string, sha256NoCR:string}>} archive  path → sha256（或带 sha256NoCR）
+ * @param {Map<string, string|{sha256:string, sha256NoCR:string}>} tarball  同上
  * @param {{normalize?:(path:string)=>boolean}} [opts]
- * @returns {{ok:boolean, extra:string[], changed:string[], normalized:string[], notPacked:string[], checked:number}}
+ * @returns {{ok:boolean, extra:string[], changed:string[], eol:string[], normalized:string[], notPacked:string[], checked:number}}
  */
 export function compareReleaseTrees(archive, tarball, opts = {}) {
   const norm = typeof opts.normalize === "function" ? opts.normalize : () => false
@@ -186,12 +191,21 @@ export function compareReleaseTrees(archive, tarball, opts = {}) {
   const changed = []
   const normalized = []
   const notPacked = []
-  for (const [path, sha] of tarball) {
+  const eol = []
+  /** 条目可以是字符串（= sha256）或 `{sha256, sha256NoCR}`；比较**以去 CR 后的内容哈希为准**。 */
+  const keyOf = (entry) => (entry && typeof entry === "object" ? (entry.sha256NoCR ?? entry.sha256) : entry)
+  const rawOf = (entry) => (entry && typeof entry === "object" ? entry.sha256 : entry)
+  for (const [path, entry] of tarball) {
     if (!archive.has(path)) {
       extra.push(path)
       continue
     }
-    if (archive.get(path) === sha) continue
+    const a = archive.get(path)
+    if (keyOf(a) === keyOf(entry)) {
+      // 去 CR 后一致，但原始字节不同 ⇒ 只是行尾差异（Windows 工作树 CRLF vs git archive LF）
+      if (rawOf(a) !== rawOf(entry)) eol.push(path)
+      continue
+    }
     if (norm(path)) {
       normalized.push(path)
       continue
@@ -201,9 +215,18 @@ export function compareReleaseTrees(archive, tarball, opts = {}) {
   for (const path of archive.keys()) if (!tarball.has(path)) notPacked.push(path)
   extra.sort()
   changed.sort()
+  eol.sort()
   normalized.sort()
   notPacked.sort()
-  return { ok: extra.length === 0 && changed.length === 0, extra, changed, normalized, notPacked, checked: tarball.size }
+  return {
+    ok: extra.length === 0 && changed.length === 0,
+    extra,
+    changed,
+    eol,
+    normalized,
+    notPacked,
+    checked: tarball.size,
+  }
 }
 
 /**
