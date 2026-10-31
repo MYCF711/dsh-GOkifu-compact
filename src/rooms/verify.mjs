@@ -12,8 +12,9 @@
  *
  *   现在的分层（顺序即优先级）：
  *     ① isError（宿主标记）                → failure（任何工具）
- *     ② 有 [exit code: N]：N≠0 → failure；N=0 → success（**最终裁决**）
- *     ②.b shell 但没有退出码                → unverified（**不猜**：输出可以是任何东西）
+ *     ①.b local-mutate（本地状态写入类）    → unverified + kind:"none"，**不带 weak**
+ *     ② 末条非空行**精确**是 [exit code: N]：N≠0 → failure；N=0 → success（**最终裁决**）
+ *     ②.b shell 但没有精确退出码             → unverified（**不猜**：输出可以是任何东西）
  *     ③ 非 shell：N passed / N failing      → success / failure
  *     ④ 非 shell：行首错误行                → failure
  *     ④.b 只读工具：行首硬错误（ENOENT…）    → failure（注释里的 EACCES 不算）
@@ -26,10 +27,15 @@
  *   为什么改这里而不是新加判据：`verify.kind === "read"` 就是 classify 自己给出的
  *   「只读工具、没抓到外部验证信号」的判定（toolClass 的显式表 + MCP query/mutate 词形），
  *   旧图里已经落盘了这个字段 —— 复用它，就不必在渲染阶段重新猜工具名。
- *   ⚠ 已知局限（实测）：toolClass 的只读表里混着 `todo_write` / `hindsight_ingest_document`
- *   这类「实际会改本地状态」的工具（25 个最新会话 641 条只读结果里 48 条，7.5%）。
- *   它们被标 weak 的语义仍然成立（工具自报无错、但无外部验证），但标记文案只用 `[weak]`，
- *   不说 "read-only"，避免把写操作说成读。
+ *
+ * ★ OPT-VERIFY（task-124）：上面那条「已知局限」已修 —— `todo_write` / `update_goal` /
+ *   `create_goal` / `hindsight_ingest_document` / `team_task_*` / `send_message` / `schedule_*` /
+ *   `job_kill` / `spawn_teammate` / `subagent` 这些**会改本地状态**的工具，已从只读表拆到
+ *   `LOCAL_MUTATE_TOOLS`（toolClass → `local-mutate`），classify 给
+ *   `result:"unverified"` + `kind:"none"` 且**不带 weak** ⇒ 不再进 WORKING 路径。
+ *   `weak:"read"` 现在只属于真正只读的工具（read / grep / web_fetch / list_* 等）。
+ *   兼容：旧图里这些工具已落盘 `kind:"read"` + `N chars`，`weakKindOf` 仍按旧形态识别它们
+ *   （历史数据不改写；新产生的边不再这样标）。
  *
  * 纯函数，零依赖，可单测。
  */
@@ -37,10 +43,35 @@
 const READ_ONLY_TOOLS = new Set([
   "read", "read_file", "glob", "grep", "ls", "list", "list_dir", "find",
   "web_search", "web_fetch", "read_page", "read_image", "library_search",
-  "todo_write", "todo_read", "todo_list", "ask_user_question",
-  "get_goal", "update_goal", "create_goal", "exit_plan_mode",
+  "todo_read", "todo_list", "ask_user_question",
+  "get_goal",
   "skill", "load_workspace_dependencies", "list_agents", "list_subagent_models",
   "job_list", "job_output", "team_task_list", "team_task_get",
+]);
+
+/**
+ * ★ OPT-VERIFY（task-124）：**本地状态写入类**工具 —— 既不是只读，也不是仓库写入。
+ *
+ * 它们不产生外部验证信号（没有 exit code / 测试计数 / diff），但**确实改了本地状态**
+ * （todo 列表、goal、记忆库、任务板、消息、定时任务、子 agent、job）。
+ * 旧版把它们混在 `READ_ONLY_TOOLS` 里 ⇒ 走 ⑥ 兜底分支拿到 `weak:"read"`，
+ * 于是热清单的 WORKING 路径会把「写了一条 todo」当成「读过一眼的弱成功」——
+ * 25 个最新会话 641 条只读结果里 48 条（7.5%）正是这种形态（S2a 注释里已记为已知局限）。
+ *
+ * 现在的语义：`toolClass` 返回 **`local-mutate`**，`classify` 给
+ * `result:"unverified"` + `kind:"none"`，**不带任何 weak** —— 不进 WORKING 路径，
+ * 也不进 success / failureEdges / facts / tewari。
+ *
+ * ⚠ 与 `WRITE_TOOLS` 的区别：`WRITE_TOOLS` 是**仓库写入**（write / edit / present …），
+ * 它们的回执本身算成功信号（`kind:"write"` / `kind:"diff"`），**本刀一个字不改**。
+ */
+const LOCAL_MUTATE_TOOLS = new Set([
+  "todo_write", "update_goal", "create_goal", "exit_plan_mode",
+  "hindsight_ingest_document", "hindsight_capture_initiative",
+  "team_task_create", "team_task_update", "team_task_delete",
+  "send_message", "spawn_teammate", "subagent", "subagent_fork", "subagent_role",
+  "schedule_create", "schedule_update", "schedule_delete",
+  "job_kill", "job_start",
 ]);
 
 const WRITE_TOOLS = new Set([
@@ -58,6 +89,8 @@ export function toolClass(name) {
   const n = raw.toLowerCase();
   if (SHELL_TOOLS.has(n)) return "shell";
   if (WRITE_TOOLS.has(n)) return "write";
+  // ★ 顺序要紧：local-mutate 必须排在 read 之前，否则这些工具又会被当只读。
+  if (LOCAL_MUTATE_TOOLS.has(n)) return "local-mutate";
   if (READ_ONLY_TOOLS.has(n)) return "read";
   const isMcp = n.startsWith("mcp__") || n.includes("__") || n.startsWith("hindsight_") || n.startsWith("bili_");
   if (isMcp) return MUTATE_RE.test(n) && !QUERY_RE.test(n) ? "mcp-write" : "mcp-read";
@@ -75,7 +108,28 @@ const ERR_LINE_RE = /^\s*(?:bash: line \d+: )?(?:Error:|error:|ERROR:|Exception\
 /** 行首硬错误（只读工具也认——读一个不存在的文件）。 */
 const HARD_LINE_RE = /^\s*(?:ENOENT|EACCES|EPERM|ETIMEDOUT|ECONNREFUSED|No such file|Permission denied|Error:|error:|Traceback|Cannot find module|MODULE_NOT_FOUND)/;
 
-const EXIT_RE = /\[exit code:\s*(-?\d+)\]/;
+/**
+ * ★ OPT-VERIFY（task-124）：退出码 marker 必须**独占最后一条非空行**（允许行内前后空白）。
+ *
+ * 旧写法 `EXIT_RE.exec(body.slice(-200))` 双向都有错：
+ *   ① 只搜末尾 200 字符 ⇒ 标记之后还有别的输出时，**真退出码直接丢失**（判成 no-exit）；
+ *   ② 只要落在末尾 200 字符内就命中 ⇒ `cat` 出来的源码里写着 `const text = "[exit code: 1]" + …`
+ *      这种**正文子串**会被误当成命令退出码（独立复核活证据 e8）。
+ * 现在的判据只有一条：末条非空行整行等于 `[exit code: N]`；否则一律 no-exit（**不猜**）。
+ */
+const EXIT_LINE_RE = /^\s*\[exit code:\s*(-?\d+)\]\s*$/;
+
+/** 末条非空行的精确退出码；不是精确 marker ⇒ `null`。 */
+export function lastLineExitCode(body) {
+  const lines = String(body ?? "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim().length === 0) continue;
+    const m = EXIT_LINE_RE.exec(lines[i]);
+    return m === null ? null : Number(m[1]);
+  }
+  return null;
+}
+
 const TEST_PASS_RE = /(\d+)\s+(?:passed|passing|tests? passed|个?通过)|all tests passed|0 failing/i;
 const TEST_FAIL_RE = /\b([1-9]\d*)\s+(?:failed|failing|个?失败|errors?)\b/i;
 const DIFF_RE = /(\d+)\s*(?:insertions?\(\+\)|deletions?\(-\))/;
@@ -224,6 +278,7 @@ export function classify({ tool, text, isError = false }) {
   const body = String(text ?? "");
   const cls = toolClass(tool);
   const readOnly = cls === "read" || cls === "mcp-read";
+  const localMutate = cls === "local-mutate";
 
   if (isError) {
     return {
@@ -233,16 +288,29 @@ export function classify({ tool, text, isError = false }) {
     };
   }
 
+  // ★ OPT-VERIFY（task-124）：本地状态写入类工具（todo_write / update_goal / send_message /
+  //   team_task_update / hindsight_ingest_document …）没有外部验证信号，也**不是**「读了一眼」。
+  //   ⇒ unverified + kind:"none" + **不带 weak**：不许进 WORKING 路径，更不许当进展证据。
+  //   放在 isError 之后、shell 之前：宿主报错仍然是 failure（isError 优先级最高，不变）。
+  if (localMutate) {
+    return {
+      result: "unverified",
+      verify: { kind: "none", summary: body ? `${body.length} chars` : "empty" },
+      errorSnippet: "",
+    };
+  }
+
   // ★ 退出码只对 shell 有意义。真实踩坑：`read` 读一个包含 `[exit code: 1]` 字样的测试文件，
   //   旧逻辑会把那行字当成「这个 read 的退出码」→ 整条 read 被判 failure。
   //   read/write/mcp 工具的输出是**内容**，不是执行结果。
   if (cls === "shell") {
     // P1-7：退出码只看**末尾**。DSH 把 `[exit code: N]` 追加在结果最后；
-    //   从全文第一处匹配会抓到输出正文里的字样（比如 sed 打印的测试文件里写着 `[exit code: 1]`），
-    //   把一条 exit 0 的命令判成失败（真实日志里 e119/e189/e227 都是这么误报的）。
-    const exit = EXIT_RE.exec(body.slice(-200));
-    if (exit) {
-      const code = Number(exit[1]);
+    // P1-7 → OPT-VERIFY（task-124）：判据从「末尾 200 字符里搜到 marker」改成
+    //   **末条非空行整行等于 `[exit code: N]`**。旧写法两头都错：标记后面还有输出时真退出码丢失；
+    //   正文里恰好出现 `[exit code: 1]` 子串时误判失败（复核活证据 e8）。
+    //   不是精确 marker ⇒ 走下面的 no-exit（**不猜**）。
+    const code = lastLineExitCode(body);
+    if (code !== null) {
       if (code !== 0) {
         return { result: "failure", verify: { kind: "exit", summary: `exit ${code}` }, errorSnippet: errorSnippet(body) };
       }
@@ -322,4 +390,4 @@ function firstLine(text) {
   return line.trim().slice(0, 160);
 }
 
-export const _internal = { READ_ONLY_TOOLS, WRITE_TOOLS, SHELL_TOOLS, firstLine, HARD_ERR_RE, ERR_LINE_RE, HARD_LINE_RE };
+export const _internal = { READ_ONLY_TOOLS, LOCAL_MUTATE_TOOLS, WRITE_TOOLS, SHELL_TOOLS, firstLine, lastLineExitCode, HARD_ERR_RE, ERR_LINE_RE, HARD_LINE_RE };

@@ -10,7 +10,7 @@
  *   3. 真实形态：node 栈迹、Python traceback、管道、空输出、CRLF、旧图兼容。
  */
 
-import { classify, weakKindOf, shellWeakVetoHits, SHELL_WEAK_VETO_RULES } from "../src/rooms/verify.mjs";
+import { classify, toolClass, weakKindOf, shellWeakVetoHits, SHELL_WEAK_VETO_RULES } from "../src/rooms/verify.mjs";
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, tewariAnalysis } from "./graph-fixtures.mjs";
 import { renderLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
@@ -203,3 +203,39 @@ export const tests = {
     if (r.level <= 2) t.ok(r.text.includes("WORKING:"), "L0-L2 必须有 WORKING");
   },
 };
+
+/* ═════════ OPT-VERIFY（task-124）：local-mutate 不得产生 weak ═════════ */
+
+Object.assign(tests, {
+  "S2b-14 local-mutate（todo_write / send_message / team_task_update …）不许当弱成功边"(t) {
+    // ① classify 层面：不给 weak
+    for (const tool of ["todo_write", "update_goal", "hindsight_ingest_document", "team_task_update", "send_message", "job_kill", "spawn_teammate", "subagent"]) {
+      const c = classify({ tool, text: "ok · 已写入" });
+      t.eq(toolClass(tool), "local-mutate", `${tool} 必须分类 local-mutate`);
+      t.eq(c.result, "unverified", `${tool} result 必须是 unverified`);
+      t.eq(c.weak, undefined, `${tool} 不许带 weak`);
+      t.eq(c.verify.kind, "none", `${tool} kind 必须是 none`);
+    }
+    // ② 图层面：这样的边不算弱成功 ⇒ weakKindOf 为 null ⇒ 不进 WORKING 锚点
+    const g = createGraph({ sessionId: "fx-local-mutate" });
+    const u = addUserNodeId(g, { seq: 1, text: "整理任务板。" });
+    const e = addEdge(g, { from: u, intent: "写一条 todo", action: "todo_write(…)" });
+    const a = addAgentNode(g, { seq: 3, goal: "写 todo", worldHash: "W1", constraintHash: "C1", via: e }).id;
+    g.edges[e].to = a;
+    const c = classify({ tool: "todo_write", text: "ok" });
+    settleEdge(g, e, { result: c.result, weak: c.weak, verify: c.verify });
+    t.eq(weakKindOf(g.edges[e]), null, "local-mutate 边不许被 weakKindOf 认成弱成功");
+    const r = renderLedger(g, { maxTokens: 500 });
+    t.eq(/\[weak \d+\/\d+\]/.test(r.text), false, `不许出现 weak 标记：\n${r.text}`);
+    // ③ 对照：真正只读的边仍然算弱成功（判据没有误伤）
+    const g2 = createGraph({ sessionId: "fx-read-still" });
+    const u2 = addUserNodeId(g2, { seq: 1, text: "看一眼文件。" });
+    const e2 = addEdge(g2, { from: u2, intent: "读文件", action: "read(a.mjs)" });
+    const a2 = addAgentNode(g2, { seq: 3, goal: "读文件", worldHash: "W1", constraintHash: "C1", via: e2 }).id;
+    g2.edges[e2].to = a2;
+    const c2 = classify({ tool: "read", text: "some content" });
+    t.eq(c2.weak, "read", "只读工具必须仍有 weak:read");
+    settleEdge(g2, e2, { result: c2.result, weak: c2.weak, verify: c2.verify });
+    t.eq(weakKindOf(g2.edges[e2]), "read", "只读边必须仍被认成弱成功");
+  },
+});
