@@ -19,6 +19,8 @@
     },
     "./engine": "./src/engine.mjs",
     "./client": "./lib/client.js",
+    "./graph": "./src/rooms/kifu-model.mjs",
+    "./persist": "./src/rooms/kifu-persist.mjs",
     "./package.json": "./package.json",
     "./cordis.patch.yml": "./cordis.patch.yml"
   },
