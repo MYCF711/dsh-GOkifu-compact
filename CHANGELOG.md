@@ -1,5 +1,40 @@
 # 更新记录
 
+## 1.11.10 — 2026-10-31
+
+### 修一个会**悄悄吞掉备份**的真 bug：回灌备份按会话分子目录
+
+**现场**：`migrate-dangling --merge-sidecar --apply` 的备份目录原本是**每次运行一个**（`merge-<iso>/`），
+同一次 `mergeMany` 里的多个会话**共用同一个目录** ⇒ 后一个会话的 `graph.json` / `MERGE.json`
+把前一个**覆盖掉**。真实规模演练时 **48 个会话最后只剩 1 份备份**，而且**没有任何报错**。
+
+**改法**
+
+| 项 | 变化 |
+|---|---|
+| `mergeBackupDir()` | 新增 `session` 参数：备份写到 **`<run>/<session>/`**（会话名做 `[^A-Za-z0-9._-] → _` 清洗）；不传 `session` 时仍是原来的 `<run>` |
+| `mergeMany().backupDirs` | 用 **`uniqueBackupDirs()` 去重** —— 同一次运行里 N 个会话共用同一个 run 目录，汇总列表只留一条（`perSession[].backupDir` 仍是各自的**精确路径**，不受影响） |
+| `mergeSidecar` / `mergeMany` 的 JSDoc | 明确写出：**merge 不是字节级还原** —— `updatedAt` 会被刷新、`stateIndex` 可能与原图不同。**要逐字节恢复，请用 `apply` 的整目录备份 + `rollback`** |
+
+**测试 +3（498 → 501）**
+
+- **B1** `uniqueBackupDirs` 去重：同一 run 目录只出现一次，顺序保留
+- **B2** 同一 root 的两份备份**都不丢**（回归上面那个「48 会话只剩 1 份」的 bug）
+- **B3** 非字节级还原：行为断言（`updatedAt` 刷新后与原图不同）+ 文档断言（JSDoc 里写了「不是字节级」）
+
+变异自检：不去重 / 不分子目录 / 删掉「非字节级」说明 —— 三条逐条红。
+
+### 验证
+
+- 全量：**501 passed / 0 skipped / 0 failed**（**42 个测试文件**；498 + 3）
+- `migrate` **24/0** · `release-hardening` 15/0 · `verify-install` **16/16**
+- `npm pack --dry-run --json`：**71 文件**（数量不变；只改 `src/` 与 `test/`）
+
+**未验证**
+
+- 备份修复只在夹具上验证；**真实库的 merge 仍未执行过**（真实 `sessions/**` 的 apply / merge 都需主人授权 + 停插件窗口）。
+- 「非字节级还原」只是**把差异写清楚**，没有提供「让 merge 变成字节级」的选项 —— 需要逐字节就用 `apply` 备份 + `rollback`。
+
 ## 1.11.9 — 2026-10-31
 
 ### 发布脚本新增门禁：CHANGELOG 写的「N 个测试文件」必须等于事实
