@@ -104,7 +104,7 @@ export class BasicCompactionEngine extends CompactionEngine {
 
 /* ───────────────────────── 假 session / ctx ───────────────────────── */
 
-function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
+export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   let seq = 1000;
   const events = new Map();
   const nodes = [];
@@ -162,7 +162,7 @@ function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   return session;
 }
 
-function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set() } = {}) {
+export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set() } = {}) {
   const listeners = new Map();
   const overlay = {};
   const ctx = {
@@ -259,7 +259,7 @@ function resultEvent(callId, text, seq, isError = false) {
 /* ───────────────────────── 测试 ───────────────────────── */
 
 let cached;
-async function load() {
+export async function load() {
   if (cached) return cached;
   // 每次运行从空图开始（否则上一轮的 graph.json 会被当成历史加载，门控全乱）
   nodeFs.rmSync(GRAPHS, { recursive: true, force: true });
@@ -278,7 +278,7 @@ function applyDecision(session, decision, claimed) {
   }
 }
 
-function readGraph(graphDir, sessionId) {
+export function readGraph(graphDir, sessionId) {
   const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, "_");
   const file = nodePath.join(graphDir, "sessions", safe, "graph.json");
   return JSON.parse(nodeFs.readFileSync(file, "utf8"));
