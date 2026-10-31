@@ -11,6 +11,8 @@
  *   node scripts/migrate-dangling.mjs --apply                # 真执行（先整目录备份；120s 新鲜度守卫）
  *   node scripts/migrate-dangling.mjs --verify --backup=<dir>  # 只读校验
  *   node scripts/migrate-dangling.mjs --rollback=<dir>       # 从备份逐字恢复
+ *   node scripts/migrate-dangling.mjs --merge-sidecar=<file|dir>          # 回灌 sidecar（默认 dry-run）
+ *   node scripts/migrate-dangling.mjs --merge-sidecar=<file|dir> --apply  # 真回灌（备份到 --backup-dir）
  *   --root=<sessionsRoot>  --backup-dir=<dir>  --now=<epochMs>
  *
  * 退出码：0 正常；1 校验失败/执行失败；2 参数错误。
@@ -18,13 +20,13 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import { dryRun, apply, verify, rollback, sessionsRoot, backupsRoot } from "../src/rooms/migrate.mjs";
+import { dryRun, apply, verify, rollback, mergeMany, sessionsRoot, backupsRoot } from "../src/rooms/migrate.mjs";
 
 function parseArgs(argv) {
-  const opts = { mode: "dry-run", json: false, force: false, only: null, root: sessionsRoot(), backupRoot: backupsRoot(), backupDir: "", now: Date.now() };
+  const opts = { mode: "dry-run", json: false, force: false, only: null, root: sessionsRoot(), backupRoot: backupsRoot(), backupDir: "", mergeTarget: "", now: Date.now() };
   for (const arg of argv) {
     if (arg === "--dry-run") opts.mode = "dry-run";
-    else if (arg === "--apply") opts.mode = "apply";
+    else if (arg === "--apply") { opts.applyMerge = true; if (!opts.mergeTarget) opts.mode = "apply"; }
     else if (arg === "--force") opts.force = true;
     else if (arg === "--verify") opts.mode = "verify";
     else if (arg === "--json") opts.json = true;
@@ -34,6 +36,13 @@ function parseArgs(argv) {
     else if (arg.startsWith("--rollback=")) {
       opts.mode = "rollback";
       opts.backupDir = arg.slice("--rollback=".length);
+    } else if (arg.startsWith("--merge-sidecar=")) {
+      opts.mode = "merge";
+      opts.mergeTarget = arg.slice("--merge-sidecar=".length);
+      if (opts.mergeTarget.length === 0) {
+        console.error("--merge-sidecar= 需要一个 sidecar 文件或会话目录");
+        process.exit(2);
+      }
     } else if (arg.startsWith("--sessions=")) {
       opts.only = arg.slice("--sessions=".length).split(",").map((x) => x.trim()).filter(Boolean);
     } else if (arg.startsWith("--now=")) opts.now = Number(arg.slice("--now=".length));
@@ -55,6 +64,8 @@ function printHelp() {
   node scripts/migrate-dangling.mjs --apply [--force]                   # 执行（整目录备份 + 120s 新鲜度守卫）
   node scripts/migrate-dangling.mjs --verify --backup=<backupDir>       # 只读校验
   node scripts/migrate-dangling.mjs --rollback=<backupDir>              # 从备份恢复
+  node scripts/migrate-dangling.mjs --merge-sidecar=<file|dir> [--apply] [--backup-dir=<dir>]
+        # 回灌 sidecar：默认 dry-run（只报告将合并几条）；--apply 才写（先备份 graph.json/index.md）
 
 默认路径：<DSH_HOME>/chess-context/sessions ；备份：<DSH_HOME>/chess-context/migrate-backups`);
 }
@@ -68,7 +79,17 @@ function main() {
       result = dryRun(opts.root, { now: opts.now, only: opts.only });
     } else if (opts.mode === "apply") {
       result = apply(opts.root, { now: opts.now, backupRoot: opts.backupRoot, only: opts.only, maxAgeMs: opts.force ? 0 : undefined });
-    } else if (opts.mode === "verify") {
+    } else if (opts.mode === "merge") {
+      result = mergeMany(opts.mergeTarget, { apply: opts.applyMerge, backupRoot: opts.backupRoot, now: opts.now });
+      if (!result.ok) code = 1;
+    } else if (opts.mode === "merge") {
+    console.log(`== migrate-dangling ${result.mode} ==`);
+    console.log(`target: ${result.target}`);
+    console.log(`sessions: ${result.sessions}｜merged ${result.merged}｜skipped ${result.skipped}`);
+    if (result.backupDirs.length) console.log(`backup: ${result.backupDirs.join(", ")}`);
+    if (result.errors.length) console.log(`errors:\n- ${result.errors.join("\n- ")}`);
+    if (!opts.applyMerge) console.log("（dry-run：什么都没写；加 --apply 才回灌）");
+  } else if (opts.mode === "verify") {
       result = verify(opts.root, { now: opts.now, backupDir: opts.backupDir, only: opts.only });
       if (!result.ok) code = 1;
     } else {

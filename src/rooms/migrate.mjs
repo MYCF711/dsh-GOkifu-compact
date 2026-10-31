@@ -410,6 +410,197 @@ export function apply(root, { now = Date.now(), backupRoot = backupsRoot(), stam
   return summary;
 }
 
+/* ───────────────────────────── merge（sidecar 回灌） ───────────────────────────── */
+
+/**
+ * merge 的备份目录：`<backupRoot>/merge-<iso>`（apply 且真的写了才创建）。
+ * 与 apply 的整目录备份同根（`<DSH_HOME>/chess-context/migrate-backups`），便于排障时一处找齐。
+ */
+export function mergeBackupDir({ backupRoot = backupsRoot(), stamp = new Date() } = {}) {
+  const dir = nodePath.join(backupRoot, `merge-${stamp.toISOString().replace(/[:.]/g, "-")}`);
+  nodeFs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * 校验 sidecar 并读出边（纯只读，不碰图）。
+ * @returns {{ok:boolean, errors:string[], sidecar:any, edges:any[]}}
+ */
+export function readSidecar(file, { sessionId = "" } = {}) {
+  const errors = [];
+  let sidecar = null;
+  if (!nodeFs.existsSync(file)) return { ok: false, errors: [`sidecar 不存在：${file}`], sidecar: null, edges: [] };
+  try {
+    sidecar = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  } catch (error) {
+    return { ok: false, errors: [`sidecar 不是合法 JSON（${String(error?.message ?? error)}）`], sidecar: null, edges: [] };
+  }
+  if (sidecar === null || typeof sidecar !== "object") errors.push("sidecar 顶层不是对象");
+  if (sidecar?.format !== SIDECAR_FORMAT) errors.push(`sidecar format 不对：${String(sidecar?.format)}（应为 ${SIDECAR_FORMAT}）`);
+  if (sidecar?.version !== SIDECAR_VERSION) errors.push(`sidecar version 不支持：${String(sidecar?.version)}（应为 ${SIDECAR_VERSION}）`);
+  if (sessionId && typeof sidecar?.sessionId === "string" && sidecar.sessionId.length > 0 && sidecar.sessionId !== sessionId) {
+    errors.push(`sidecar 属于别的会话：${sidecar.sessionId}（当前 ${sessionId}）`);
+  }
+  const edges = Array.isArray(sidecar?.edges) ? sidecar.edges : null;
+  if (edges === null) errors.push("sidecar.edges 不是数组");
+  else if (edges.length === 0) errors.push("sidecar 里没有边（空边）");
+  if (Array.isArray(edges)) {
+    edges.forEach((edge, i) => {
+      if (edge === null || typeof edge !== "object") errors.push(`edges[${i}] 不是对象`);
+      else if (typeof edge.id !== "string" || edge.id.length === 0) errors.push(`edges[${i}] 缺 id`);
+    });
+  }
+  return { ok: errors.length === 0, errors, sidecar, edges: errors.length === 0 ? edges : [] };
+}
+
+/**
+ * 把一个 sidecar 回灌进会话图（R14）。
+ *
+ * 语义（与 apply 对称）：
+ *   · 按 **edge.id** 合并；图里已有同 id ⇒ **跳过**（绝不覆盖当前边）；
+ *   · 保留 sidecar 里的原字段（JSON 深拷贝，不重算/不改写）；
+ *   · 有改动才 `updatedAt = now`、原子写 graph.json、**重建 index.md**；
+ *   · **默认 dry-run**（不写任何文件）；`apply:true` 才写，写之前把 graph.json / index.md
+ *     备份到 `<backupRoot>/merge-<iso>/`，并落一份 `MERGE.json` 审计；
+ *   · 幂等：同一 sidecar 回灌第二次 ⇒ `merged:0`、`skipped:N`、不写盘、不建备份。
+ *
+ * @param {string} dir 会话目录（含 graph.json）
+ * @param {{sidecarFile?:string, apply?:boolean, backupRoot?:string, stamp?:Date, now?:number}} [options]
+ * @returns {{mode:string, session:string, sidecar:string, ok:boolean, dryRun:boolean, total:number, merged:number, skipped:number, duplicates:number, mergedIds:string[], errors:string[], backupDir:string, graphBytesBefore:number, graphBytesAfter:number, indexRebuilt:boolean}}
+ */
+export function mergeSidecar(dir, { sidecarFile = "", apply = false, backupRoot = backupsRoot(), stamp = new Date(), now = Date.now() } = {}) {
+  const session = nodePath.basename(dir);
+  const file = sidecarFile || nodePath.join(dir, SIDECAR_NAME);
+  const result = {
+    mode: apply ? "merge-apply" : "merge-dry-run",
+    session,
+    sidecar: file,
+    ok: false,
+    dryRun: !apply,
+    total: 0,
+    merged: 0,
+    skipped: 0,
+    duplicates: 0,
+    mergedIds: [],
+    errors: [],
+    backupDir: "",
+    graphBytesBefore: 0,
+    graphBytesAfter: 0,
+    indexRebuilt: false,
+  };
+
+  const graphFile = nodePath.join(dir, "graph.json");
+  if (!nodeFs.existsSync(graphFile)) {
+    result.errors.push(`会话目录里没有 graph.json：${graphFile}`);
+    return result;
+  }
+  const read = readSidecar(file, { sessionId: session });
+  if (!read.ok) {
+    result.errors.push(...read.errors);
+    return result;
+  }
+  result.total = read.edges.length;
+
+  let text;
+  let g;
+  try {
+    text = nodeFs.readFileSync(graphFile, "utf8");
+    g = fromJSON(text);
+  } catch (error) {
+    result.errors.push(`graph.json 读不出（${String(error?.message ?? error)}）`);
+    return result;
+  }
+  result.graphBytesBefore = Buffer.byteLength(text);
+
+  const seen = new Set();
+  for (const edge of read.edges) {
+    if (seen.has(edge.id)) {
+      result.duplicates += 1;
+      continue;
+    }
+    seen.add(edge.id);
+    if (g.edges && g.edges[edge.id]) {
+      result.skipped += 1;
+      continue;
+    }
+    g.edges[edge.id] = JSON.parse(JSON.stringify(edge));
+    result.mergedIds.push(edge.id);
+    result.merged += 1;
+  }
+
+  if (result.merged === 0) {
+    // 幂等：没有新边 ⇒ 一个字节都不写（不建备份、不碰 index.md）
+    result.graphBytesAfter = result.graphBytesBefore;
+    result.ok = true;
+    return result;
+  }
+
+  g.updatedAt = now;
+  const next = toJSON(g);
+  result.graphBytesAfter = Buffer.byteLength(next);
+
+  if (!apply) {
+    result.ok = true;
+    return result;
+  }
+
+  // ① 显式备份（graph.json + index.md）；② 原子写 graph.json；③ 重建 index.md；④ MERGE.json 审计
+  const backupDir = mergeBackupDir({ backupRoot, stamp });
+  result.backupDir = backupDir;
+  nodeFs.copyFileSync(graphFile, nodePath.join(backupDir, "graph.json"));
+  const indexFile = nodePath.join(dir, "index.md");
+  if (nodeFs.existsSync(indexFile)) nodeFs.copyFileSync(indexFile, nodePath.join(backupDir, "index.md"));
+  writeFileAtomic(graphFile, next);
+  writeFileAtomic(indexFile, renderIndexMd(g));
+  result.indexRebuilt = true;
+  writeFileAtomic(
+    nodePath.join(backupDir, "MERGE.json"),
+    JSON.stringify({ ...result, appliedAt: new Date(now).toISOString(), root: dir }, null, 1),
+  );
+  result.ok = true;
+  return result;
+}
+
+/**
+ * 回灌一批会话（CLI 用）：`target` 可以是单个 sidecar 文件、单个会话目录、或会话根目录。
+ * 返回汇总 + 每会话结果。任何一条出错 ⇒ `ok:false`（但已成功的仍然写完了，逐条可查）。
+ */
+export function mergeMany(target, { apply = false, backupRoot = backupsRoot(), stamp = new Date(), now = Date.now() } = {}) {
+  const dirs = [];
+  const sidecars = [];
+  if (nodeFs.existsSync(target) && nodeFs.statSync(target).isDirectory()) {
+    const direct = nodePath.join(target, SIDECAR_NAME);
+    if (nodeFs.existsSync(direct) && nodeFs.existsSync(nodePath.join(target, "graph.json"))) {
+      dirs.push(target);
+    } else {
+      for (const dir of listSessions(target)) {
+        if (nodeFs.existsSync(nodePath.join(dir, SIDECAR_NAME))) dirs.push(dir);
+      }
+    }
+  } else {
+    sidecars.push(target);
+  }
+  const perSession = dirs.map((dir) => mergeSidecar(dir, { apply, backupRoot, stamp, now }));
+  for (const file of sidecars) {
+    // sidecar 文件 → 会话目录 = 它的父目录
+    perSession.push(mergeSidecar(nodePath.dirname(file), { sidecarFile: file, apply, backupRoot, stamp, now }));
+  }
+  const merged = perSession.reduce((n, r) => n + r.merged, 0);
+  const skipped = perSession.reduce((n, r) => n + r.skipped, 0);
+  const errors = perSession.flatMap((r) => r.errors.map((e) => `${r.session}: ${e}`));
+  return {
+    mode: apply ? "merge-apply" : "merge-dry-run",
+    target,
+    sessions: perSession.length,
+    merged,
+    skipped,
+    ok: perSession.length > 0 && errors.length === 0,
+    errors,
+    backupDirs: perSession.map((r) => r.backupDir).filter(Boolean),
+    perSession,
+  };
+}
+
 /* ───────────────────────────── verify ───────────────────────────── */
 
 /**
