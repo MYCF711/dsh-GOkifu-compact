@@ -13,8 +13,12 @@
 // 体检项（任一不过就退出码 1，且 --yes 也不动手）：
 //   ① package.json 有 version               ② CHANGELOG 有这一版那一段
 //   ③ 工作区干净                            ④ 当前在默认分支
-//   ⑤ 不落后远端                            ⑥ tag 还没被占
-//   ⑦ 推得上去（远端可达）
+//   ⑤ remote 是合法 GitHub URL（拒 git+https 之类）  ⑥ 远端可达（ls-remote 必须成功）
+//   ⑦ 不落后远端（fetch 必须成功，失败=红，不再吞成 note）  ⑧ tag 还没被占
+//
+// 执行顺序（**事务化**：前一步失败 ⇒ 后面一步根本不执行）：
+//   push 分支 → tag -a + push tag → npm publish（--npm 时）→ GitHub Release
+//   ⇒ git 步骤没过，绝不会出现「npm 已发 / Release 已建，但 main 没推」的半途状态。
 //
 // 需要 GitHub token 才能建 Release：
 //   GITHUB_TOKEN / GH_TOKEN 环境变量。没有也能跑 —— 它会打印手工建 Release 的命令。
@@ -22,6 +26,7 @@
 import { execSync, execFileSync } from "node:child_process"
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
+import { classifyRemote, runTransaction } from "./release-lib.mjs"
 
 const ROOT = process.cwd()
 const argv = new Set(process.argv.slice(2))
@@ -136,40 +141,70 @@ if (branch) {
   if (!dirty) bad("工作区有未提交的改动 —— 发布的内容必须和提交一致")
 }
 
-/** owner/repo —— 支持 ssh 与 https 两种 remote */
-function parseRepo(url) {
-  const m = String(url).match(/github\.com[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/)
-  return m ? { owner: m[1], repo: m[2] } : null
-}
-const gh = remote ? parseRepo(remote) : null
-if (!gh) bad(`remote.origin 不是 GitHub 仓库（${remote || "空"}）—— 这个脚本只处理 GitHub`)
+/**
+ * remote 能不能用 —— 先判 scheme 再判仓库。
+ * 这一层是 2026-10-31 事故的直接产物：`git+https://…` 曾被当成合法 GitHub URL，
+ * 体检全绿、push 全崩。判定逻辑在 release-lib.mjs 里（可单测）。
+ */
+const remoteCheck = remote ? classifyRemote(remote) : { ok: false, reason: "没有 remote.origin" }
+const gh = remoteCheck.ok ? remoteCheck.repo : null
+if (!remoteCheck.ok) bad(remoteCheck.reason)
 
 let behind = 0
 if (gh && branch) {
-  try {
-    sh("git fetch origin --quiet")
-    const counts = sh(`git rev-list --left-right --count origin/${branch}...HEAD`)
-    const [b, a] = counts.split(/\s+/).map(Number)
-    behind = b || 0
-    if (behind > 0) bad(`落后远端 ${behind} 个提交 —— 先 pull / merge，别在旧基线上发版`)
-    if (a > 0) note(`本地领先远端 ${a} 个提交（发布时会一起推上去）`)
-  } catch {
-    note("git fetch 失败 —— 跳过「是否落后远端」检查")
+  // ⑤/⑥ 远端可达：ls-remote 必须成功。失败 ⇒ 红（不许「跳过检查」继续发版）。
+  if (!shOk("git ls-remote --heads origin")) {
+    bad(
+      "git ls-remote origin 失败 —— 远端不可达（URL 写错 / 凭据失效 / 网络不通）。" +
+        "先跑 `git ls-remote origin` 亲自确认能通，再发版。",
+    )
+  } else {
+    try {
+      sh("git fetch origin --quiet")
+      const counts = sh(`git rev-list --left-right --count origin/${branch}...HEAD`)
+      const [b, a] = counts.split(/\s+/).map(Number)
+      behind = b || 0
+      if (behind > 0) bad(`落后远端 ${behind} 个提交 —— 先 pull / merge，别在旧基线上发版`)
+      if (a > 0) note(`本地领先远端 ${a} 个提交（发布时会一起推上去）`)
+    } catch (e) {
+      // ⑦ fetch 失败不再是 note —— 那就是「不知道远端正不正常」，不能发版。
+      bad(`git fetch origin 失败（${String(e.stderr || e.message).trim().split("\n")[0]}）—— 远端状态未知，先修好再发版`)
+    }
   }
 }
 
-// ── ⑥ tag 是否已被占 ─────────────────────────────────────────────────
+// ── ⑧ tag 是否已被占（并区分「指向本 commit」与「指向别的 commit」）──────
+// 1.11.3 的现场：Release API 在 push 失败后**自动建了一个轻量 tag**，指向当时远端的旧 commit。
+// 那种情况不能默默 force —— 必须让人确认「这个 tag 是不是发错了」。
 
 let tagExistsLocal = false
 let tagExistsRemote = false
+let tagCommitLocal = ""
+let tagCommitRemote = ""
 if (gh) {
   tagExistsLocal = shOk(`git rev-parse -q --verify refs/tags/${tag}`)
+  if (tagExistsLocal) tagCommitLocal = sh(`git rev-parse -q --verify refs/tags/${tag}^{commit}`)
   try {
     const out = sh(`git ls-remote --tags origin refs/tags/${tag}`)
     tagExistsRemote = out.length > 0
+    // ls-remote 对 annotated tag 会同时给 `<tagobj>\trefs/tags/x` 和 `<commit>\trefs/tags/x^{}`；
+    // 取 deref 行（`^{}`）的 sha 才是它指向的 commit。
+    const deref = out.split("\n").find((l) => l.includes(`refs/tags/${tag}^{}`))
+    const plain = out.split("\n").find((l) => l.endsWith(`refs/tags/${tag}`))
+    tagCommitRemote = (deref ?? plain ?? "").split(/\s+/)[0] ?? ""
   } catch {}
+  const headSha = shOk("git rev-parse HEAD") ? sh("git rev-parse HEAD") : ""
+  const pointsAtHead = (sha) => !!sha && !!headSha && (sha === headSha || headSha.startsWith(sha))
   if (tagExistsLocal || tagExistsRemote) {
-    bad(`tag ${tag} 已存在 —— 同一个版本号不能发两次；先 bump version`)
+    if (tagExistsRemote && tagCommitRemote && !pointsAtHead(tagCommitRemote)) {
+      bad(
+        `远端 tag ${tag} 已存在，但指向 ${tagCommitRemote.slice(0, 12)}（不是 HEAD ${headSha.slice(0, 12)}）—— ` +
+          `可能是上次发布中断时由 Release API 自动建的轻量 tag。脚本**不会自动 force**。` +
+          `确认这个 tag 发错之后，手工修：git push --force origin refs/tags/${tag}:refs/tags/${tag}`,
+      )
+    } else {
+      bad(`tag ${tag} 已存在 —— 同一个版本号不能发两次；先 bump version`)
+    }
   }
 }
 
@@ -205,16 +240,16 @@ for (const n of notes) console.log(C.yellow(`  ! ${n}`))
 // ── 计划 ─────────────────────────────────────────────────────────────
 
 const plan = []
-plan.push({ what: `git push origin ${branch}`, why: "第 4 步：git 源检测看默认分支 HEAD" })
+plan.push({ what: `git push origin ${branch}`, why: "第 4 步：git 源检测看默认分支 HEAD（**失败即中止，后面一步都不做**）" })
 plan.push({ what: `git tag -a ${tag} -m "release ${tag}" && git push origin ${tag}`, why: "第 6 步：annotated tag（带消息）让「某 bug 出在哪版」可查，且 GitHub Release 才有说明" })
+if (ALSO_NPM) {
+  const script = pkg.scripts?.["publish:npm"] ? "npm run publish:npm" : "npm publish"
+  plan.push({ what: script, why: "第 5 步：npm 源的用户比 registry 上的 version（**排在 Release 之前**：npm 失败就不建 Release）" })
+}
 plan.push({
   what: `POST /repos/${gh.owner}/${gh.repo}/releases`,
   why: `第 6 步：Release 正文 = CHANGELOG 的 ${version} 段（${releaseBody.split("\n").length} 行，已去掉 > 起因）`,
 })
-if (ALSO_NPM) {
-  const script = pkg.scripts?.["publish:npm"] ? "npm run publish:npm" : "npm publish"
-  plan.push({ what: script, why: "第 5 步：npm 源的用户比 registry 上的 version" })
-}
 plan.push({ what: "四条验证", why: "第 7 步：npm 版本 / tarball 内容 / magpie plugin list / Release 在" })
 
 console.log(C.bold("计划：\n"))
@@ -228,26 +263,83 @@ if (DRY) {
   process.exit(0)
 }
 
-// ── 真做 ─────────────────────────────────────────────────────────────
+// ── 真做（事务化：前一步失败 ⇒ 后面一步根本不执行）────────────────────
 
 const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ""
 console.log()
 
-function run(cmd, label) {
-  process.stdout.write(`  ${label} … `)
-  try {
-    sh(cmd, { stdio: "pipe" })
-    console.log(C.green("ok"))
-    return true
-  } catch (e) {
-    console.log(C.red("失败"))
-    console.log(C.dim(String(e.stderr || e.message).trim().split("\n").slice(0, 4).join("\n")))
-    return false
-  }
+const doneSteps = []
+
+/**
+ * 失败即中止：把「后面还有什么没做」写清楚，然后退出 1。
+ * 这是 2026-10-31 事故的教训 —— 当时 push/tag 全失败，脚本却继续建 Release、继续 npm publish，
+ * 留下「npm 有、main 没推、tag 指向旧 commit」的半途状态。
+ */
+function abort(step, detail) {
+  console.log(C.red(`\n✗ 已中止：${step} 失败 —— 后续步骤全部未执行`))
+  console.log(C.dim(`  已完成：${doneSteps.length ? doneSteps.join(" → ") : "（无）"}`))
+  if (detail) console.log(C.dim(`  ${detail}`))
+  console.log(
+    C.dim(
+      `  未执行：${["tag -a " + tag, ALSO_NPM ? "npm publish" : null, "GitHub Release"]
+        .filter(Boolean)
+        .join(" · ")}`,
+    ),
+  )
+  console.log(C.dim("  ⇒ 没有任何新的对外副作用被制造出来。修好远端后重跑同一条命令。\n"))
+  process.exit(1)
 }
 
-const pushed = run(`git push origin ${branch}`, `push ${branch}`)
-const tagged = run(`git tag -a ${tag} -m "release ${tag}" && git push origin ${tag}`, `tag ${tag}`)
+// ①② 推分支 + annotated tag —— 走 runTransaction（首步失败 ⇒ tag 步根本不执行）
+const gitTx = runTransaction(
+  [
+    {
+      name: `push ${branch}`,
+      label: `push ${branch}`,
+      run: () => sh(`git push origin ${branch}`, { stdio: "pipe" }),
+      hint: "远端不可达或被拒。**tag / npm / Release 一件都没做。**",
+    },
+    {
+      name: `tag ${tag}`,
+      label: `tag ${tag}`,
+      run: () => sh(`git tag -a ${tag} -m "release ${tag}" && git push origin ${tag}`, { stdio: "pipe" }),
+      hint: "本地 tag 可能已建；远端 tag 没上去。修好后单独补：git push origin " + tag,
+    },
+  ],
+  {
+    onStart: (step) => process.stdout.write(`  ${step.label} … `),
+    onSettled: (step, err) => {
+      if (!err) return console.log(C.green("ok"))
+      console.log(C.red("失败"))
+      console.log(C.dim(String(err.stderr || err.message).trim().split("\n").slice(0, 4).join("\n")))
+    },
+  },
+)
+if (!gitTx.ok) {
+  const failedStep = gitTx.done.length === 0 ? `git push origin ${branch}` : `tag -a ${tag} && git push origin ${tag}`
+  const hint = gitTx.done.length === 0
+    ? "远端不可达或被拒。**tag / npm / Release 一件都没做。**"
+    : "本地 tag 可能已建；远端 tag 没上去。修好后单独补：git push origin " + tag
+  abort(failedStep, hint)
+}
+doneSteps.push(`push ${branch}`, `tag ${tag}`)
+
+// ③ npm 发布（在 Release 之前：npm 失败就不该留下一个「Release 说有、npm 上没有」的状态）
+let published = null
+if (ALSO_NPM) {
+  const npmScript = pkg.scripts?.["publish:npm"] ? "npm run publish:npm" : "npm publish"
+  console.log(C.dim(`\n  ${npmScript}（npm 登记有 1~2 分钟延迟，别在这窗口里重试）\n`))
+  try {
+    execSync(npmScript, { cwd: ROOT, stdio: "inherit" })
+    published = true
+    doneSteps.push(`npm publish ${version}`)
+  } catch {
+    published = false
+  }
+  if (!published) {
+    abort(`${npmScript}`, "npm 没发出去（OTP / 2FA / 权限 / 网络）。**GitHub Release 未创建。**")
+  }
+}
 
 let released = false
 
@@ -354,19 +446,6 @@ if (token) {
   console.log(C.dim("    正文直接把 CHANGELOG 里 " + version + " 那一段粘过去"))
 }
 
-let published = null
-if (ALSO_NPM) {
-  const script = pkg.scripts?.["publish:npm"] ? "npm run publish:npm" : "npm publish"
-  console.log(C.dim(`\n  ${script}（npm 登记有 1~2 分钟延迟，别在这窗口里重试）\n`))
-  try {
-    execSync(script, { cwd: ROOT, stdio: "inherit" })
-    published = true
-  } catch {
-    published = false
-    console.log(C.red("  npm 发布失败"))
-  }
-}
-
 // ── 第 7 步留给人看的清单 ─────────────────────────────────────────────
 
 console.log(C.bold("\n第 7 步 · 四条验证（逐条跑，别只看版本号）：\n"))
@@ -385,5 +464,11 @@ console.log(
   ),
 )
 
-const failed = !pushed || !tagged || (ALSO_NPM && !published)
+// 走到这里说明 push / tag /（npm）全部成功。Release 失败仍是失败（否则「npm 有、Release 没有」）。
+const failed = !!token && !released
+if (failed) {
+  console.log(C.red("\n✗ GitHub Release 没建成 —— push/tag/npm 都已完成，只差 Release："))
+  console.log(C.dim("  手工建：GitHub → Releases → Draft a new release → 选 " + tag))
+  console.log(C.dim("  或重跑本脚本（tag 已存在会先被 ⑧ 拦住；那就手工建一次）"))
+}
 process.exit(failed ? 1 : 0)
