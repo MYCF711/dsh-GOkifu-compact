@@ -67,7 +67,7 @@ graph.json = 最新             graph.json              = 上一个回合边界�
 
 | 你要什么 | 怎么拿 |
 |---|---|
-| **最新状态**（推荐） | **基线 + 增量一起读**：`fromJSON(graph.json 文本)` → 用基线内容哈希 `decodeDeltaFrames(delta 文本, baseHash)` → 逐帧 `applyDelta(g, frame)`。三个函数都在 `src/graph.mjs`（插件源码随包发布：`node_modules/dsh-gokifu-compact/src/graph.mjs`） |
+| **最新状态**（推荐） | **基线 + 增量一起读**：`fromJSON(graph.json 文本)` → 用基线内容哈希 `decodeDeltaFrames(delta 文本, baseHash)` → 逐帧 `applyDelta(g, frame)`。三个函数都从包入口 `dsh-gokifu-compact/graph` 导出（源码 `src/rooms/kifu-model.mjs`，随包发布）；落盘/读盘侧（`graphRoot` / `sessionPaths` / `createPersistStore` 等）走 `dsh-gokifu-compact/persist` |
 | 上一回合基线（做 diff / 审计） | 直接读 `graph.json` 可以，但**要说明「这是基线不是最新」** |
 | 崩溃安全 | 每帧带 `baseHash`（generation）+ `checksum31`：半写帧解码时就地停止，加载时把 delta 截到最后一条好帧；**旧 generation 的帧整体忽略** |
 
