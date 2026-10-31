@@ -203,6 +203,8 @@ let objectHash = 0;
 let indexStale = 0;
 let newestFlush = 0;
 let lastFold = null;
+/** ★ P2-2（task-192）：跨会话收集 foldMarks（带 session 名），供「最近 5 次 fold」展示。 */
+const recentFoldMarks = [];
 let todayFolds = 0;
 let todayShadow = 0;
 let todaySessions = 0;
@@ -240,6 +242,7 @@ if (nodeFs.existsSync(chessRoot)) {
         if (node.worldHash && typeof node.worldHash === "object") objectHash += 1;
       }
       const marks = g.foldMarks ?? [];
+      for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
       const todayMarks = marks.filter((m) => (m.at ?? 0) >= today0);
       if (todayMarks.length > 0) todaySessions += 1;
       todayFolds += todayMarks.length;
@@ -288,6 +291,31 @@ add(
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
       `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
 );
+/* ★ P2-2（task-192）：最近 5 次 fold 的 route / fallback / ms / usage。
+   旧图的 foldMark 没有这些字段 ⇒ 明确写「—」（不许用 0/undefined 冒充数据）。
+   tier-2 的合并记录不是 fold（没有 route/usage），也按「—」显示。 */
+{
+  const fmt = (value) => (value === null || value === undefined || value === "" ? "—" : String(value));
+  const sorted = recentFoldMarks
+    .filter((m) => typeof m.at === "number")
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 5);
+  if (sorted.length === 0) {
+    add("最近 5 次 fold（route/fallback/ms/usage）", "warn", "没有任何 fold 记录");
+  } else {
+    const lines = sorted.map((m) => {
+      const when = new Date(m.at).toISOString();
+      const route = m.route ? `${fmt(m.route.provider)}/${fmt(m.route.model)}` : "—";
+      const usage = m.usage ? `in ${fmt(m.usage.inputTokens)} / out ${fmt(m.usage.outputTokens)}` : "—";
+      const shadow = fmt(m.shadowedTokens);
+      const ms = fmt(m.ms);
+      const fb = fmt(m.fallback);
+      const kind = m.tier2 === true ? "tier-2 " : "";
+      return `${when} ${kind}#${fmt(m.foldCount)} 遮蔽 ${shadow} tok · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+    });
+    add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
+  }
+}
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
 /* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──

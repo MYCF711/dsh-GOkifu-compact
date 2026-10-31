@@ -149,7 +149,7 @@ tests["T2-2 不足阈值不触发：7 个 checkpoint（tier2After=8）一次都�
   }
 };
 
-tests["T2-3 裁剪：foldMarks 超过 tier2After×2 时只留最后 tier2After 条"] = async () => {
+tests["T2-3 裁剪：foldMarks 统一上限 20 条（P2-2 与 tier-2 共用同一条规则）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "tier2-trim");
   const sessionId = "sess-t2-trim";
@@ -159,7 +159,9 @@ tests["T2-3 裁剪：foldMarks 超过 tier2After×2 时只留最后 tier2After �
   const dirSessions = nodePath.join(dir, "sessions", sessionId);
   nodeFs.mkdirSync(dirSessions, { recursive: true });
   const seeded = createGraph({ sessionId });
-  seeded.foldMarks = Array.from({ length: 16 }, (_, i) => ({ at: 1 + i, seqStart: 100 + i, seqEnd: 200 + i, tier2: i % 2 === 0 }));
+  // ★ P2-2（task-192）：上限统一成 20（foldMark 的可观测字段也需要更多历史）；
+  //   旧规则是 tier2After×2（默认 16）。这里预置 25 条，验证「不管哪条路径 push，都按 20 裁」。
+  seeded.foldMarks = Array.from({ length: 25 }, (_, i) => ({ at: 1 + i, seqStart: 100 + i, seqEnd: 200 + i, tier2: i % 2 === 0 }));
   nodeFs.writeFileSync(nodePath.join(dirSessions, "graph.json"), toJSON(seeded), "utf8");
 
   const session = makeSession({ id: sessionId });
@@ -171,16 +173,15 @@ tests["T2-3 裁剪：foldMarks 超过 tier2After×2 时只留最后 tier2After �
   // 标量（foldMarks）不单独触发 delta —— 回合边界 idle 的全量 flush 才是提交点（与真实 engine 一致）
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const g = readGraphFull(dir, sessionId);
-  // 16 条历史 + 1 条新的 = 17 > tier2After×2 = 16 ⇒ 裁到 8
-  if (g.foldMarks.length !== 8) throw new Error(`裁剪后应留 8 条，实际 ${g.foldMarks.length}`);
-  // 保留的是**最后** 8 条：最后一条必须是刚写入的 tier2 记录
+  // 25 条历史 + 1 条新的 = 26 > 20 ⇒ 裁到 20
+  if (g.foldMarks.length !== 20) throw new Error(`裁剪后应留 20 条，实际 ${g.foldMarks.length}`);
+  // 保留的是**最后** 20 条：最后一条必须是刚写入的 tier2 记录
   const last = g.foldMarks.at(-1);
   if (last.tier2 !== true) throw new Error("保留的最后一条应当是刚写的 tier2 记录");
   if (last.seqStart !== cps[0] || last.seqEnd !== cps[1]) throw new Error("tier2 记账范围错");
   // 裁剪留的是「最近」的：最老的历史记录（at=1）必须已被丢掉
   if (g.foldMarks.some((m) => m.at === 1)) throw new Error("最老的历史 foldMark 应被裁掉");
 };
-
 tests["T2-4 tier2After=0：永不触发（12 个 checkpoint 也不合并）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "tier2-zero");
