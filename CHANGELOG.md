@@ -34,7 +34,7 @@
 
 ### 验证
 
-- 全量：**493 passed / 0 skipped / 0 failed**（37 个测试文件）
+- 全量：**493 passed / 0 skipped / 0 failed**（**42** 个测试文件 —— 发布时误写 37，此处已按实际更正；npm 上 1.11.8 的 CHANGELOG 仍是 37，无法改）
 - `migrate` **21/0** · `rooms` 15/0 · `verify-install` **16/16**
 - `npm pack --dry-run --json`：**71 文件**（数量不变；只改 `src/` `scripts/` `test/`）
 

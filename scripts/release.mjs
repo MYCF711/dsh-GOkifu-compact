@@ -12,6 +12,7 @@
 //
 // 体检项（任一不过就退出码 1，且 --yes 也不动手）：
 //   ① package.json 有 version               ② CHANGELOG 有这一版那一段
+//   ②b 「N 个测试文件」的声明 == test/*.test.mjs 实际数（**没写这句不报错**）
 //   ③ 工作区干净                            ④ 当前在默认分支
 //   ⑤ remote 是合法 GitHub URL（拒 git+https 之类）  ⑥ 远端可达（ls-remote 必须成功）
 //   ⑦ 不落后远端（fetch 必须成功，失败=红，不再吞成 note）  ⑧ tag 还没被占
@@ -24,9 +25,9 @@
 //   GITHUB_TOKEN / GH_TOKEN 环境变量。没有也能跑 —— 它会打印手工建 Release 的命令。
 
 import { execSync, execFileSync } from "node:child_process"
-import { readFileSync, existsSync } from "node:fs"
+import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { classifyRemote, runTransaction } from "./release-lib.mjs"
+import { classifyRemote, runTransaction, checkTestFileCount } from "./release-lib.mjs"
 
 const ROOT = process.cwd()
 const argv = new Set(process.argv.slice(2))
@@ -93,6 +94,20 @@ function changelogSection(v) {
 }
 const section = version ? changelogSection(version) : ""
 if (version && !section) bad(`CHANGELOG.md 里没有「## ${version}」那一段 —— 先写更新内容再发版`)
+
+// ── 「N 个测试文件」的声明必须等于事实 ────────────────────────────────
+// 这条是 task-160 加的：本仓 CHANGELOG 连续 5 个版本写「37 个测试文件」，实际早就是 42
+// —— 数字漂了没人发现，而用户会拿它判断覆盖面。**没写这句不报错**（允许不写）。
+const testDir = join(ROOT, "test")
+const actualTestFiles = existsSync(testDir)
+  ? readdirSync(testDir).filter((f) => f.endsWith(".test.mjs")).length
+  : 0
+const testFileCheck = checkTestFileCount(section, actualTestFiles)
+if (testFileCheck.declared === null) {
+  note(`CHANGELOG 没写「N 个测试文件」⇒ 跳过该数字校验（实际 ${actualTestFiles} 个）`)
+} else if (!testFileCheck.ok) {
+  bad(testFileCheck.reason)
+}
 
 /**
  * 去掉 `> 起因：…` 那段 —— 它写给维护者，不进 Release 正文。
@@ -183,22 +198,45 @@ let tagCommitLocal = ""
 let tagCommitRemote = ""
 if (gh) {
   tagExistsLocal = shOk(`git rev-parse -q --verify refs/tags/${tag}`)
-  if (tagExistsLocal) tagCommitLocal = sh(`git rev-parse -q --verify refs/tags/${tag}^{commit}`)
+  // ⚠ 不能用 `refs/tags/x^{commit}`：Windows 上 execSync 走 cmd.exe，`^` 是转义字符 ⇒
+  // 会被吃成 `refs/tags/x{commit}`，命令失败、脚本崩（2026-10-31 实测：tag 已存在时跑预演直接抛异常）。
+  // `rev-list -n1` 对 annotated / lightweight tag 都会剥到 commit，且没有 shell 元字符。
+  if (tagExistsLocal) {
+    try {
+      tagCommitLocal = sh(`git rev-list -n1 refs/tags/${tag}`)
+    } catch {
+      tagCommitLocal = ""
+    }
+  }
   try {
-    const out = sh(`git ls-remote --tags origin refs/tags/${tag}`)
-    tagExistsRemote = out.length > 0
-    // ls-remote 对 annotated tag 会同时给 `<tagobj>\trefs/tags/x` 和 `<commit>\trefs/tags/x^{}`；
-    // 取 deref 行（`^{}`）的 sha 才是它指向的 commit。
-    const deref = out.split("\n").find((l) => l.includes(`refs/tags/${tag}^{}`))
-    const plain = out.split("\n").find((l) => l.endsWith(`refs/tags/${tag}`))
-    tagCommitRemote = (deref ?? plain ?? "").split(/\s+/)[0] ?? ""
+    // ⚠ 不能给 ls-remote 传 `refs/tags/x` 这种精确 pattern：那样**不会**输出 `^{}` 剥皮行，
+    // 拿到的只是 tag 对象 sha（annotated tag 时 ≠ commit）。列全部 tag 再由 JS 过滤。
+    const out = sh(`git ls-remote --tags origin`)
+    const lines = out.split("\n").filter(Boolean)
+    const deref = lines.find((l) => l.endsWith(`refs/tags/${tag}^{}`))
+    const plain = lines.find((l) => l.endsWith(`refs/tags/${tag}`))
+    tagExistsRemote = Boolean(plain || deref)
+    // annotated tag：deref 行的 sha 才是 commit；lightweight tag：只有 plain 行且它本身就是 commit。
+    tagCommitRemote = ((deref ?? plain ?? "").split(/\s+/)[0] ?? "").trim()
   } catch {}
   const headSha = shOk("git rev-parse HEAD") ? sh("git rev-parse HEAD") : ""
-  const pointsAtHead = (sha) => !!sha && !!headSha && (sha === headSha || headSha.startsWith(sha))
+  /** tag 指向的 commit 是不是 HEAD 本身或 HEAD 的祖先（= 正常「发过了，之后又提交了几次」） */
+  const tagIsBehindHead = (sha) => {
+    if (!sha) return false
+    if (!headSha) return false
+    if (sha === headSha || headSha.startsWith(sha)) return true
+    try {
+      sh(`git merge-base --is-ancestor ${sha} HEAD`)
+      return true
+    } catch {
+      return false
+    }
+  }
   if (tagExistsLocal || tagExistsRemote) {
-    if (tagExistsRemote && tagCommitRemote && !pointsAtHead(tagCommitRemote)) {
+    const remoteSha = tagCommitRemote || tagCommitLocal
+    if (tagExistsRemote && remoteSha && !tagIsBehindHead(remoteSha)) {
       bad(
-        `远端 tag ${tag} 已存在，但指向 ${tagCommitRemote.slice(0, 12)}（不是 HEAD ${headSha.slice(0, 12)}）—— ` +
+        `远端 tag ${tag} 已存在，但指向 ${remoteSha.slice(0, 12)}，既不是 HEAD 也不是 HEAD 的祖先 —— ` +
           `可能是上次发布中断时由 Release API 自动建的轻量 tag。脚本**不会自动 force**。` +
           `确认这个 tag 发错之后，手工修：git push --force origin refs/tags/${tag}:refs/tags/${tag}`,
       )

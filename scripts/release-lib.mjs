@@ -101,3 +101,45 @@ export function runTransaction(steps, opts = {}) {
   }
   return { ok: true, done, failed: null, error: null, aborted: [] }
 }
+
+/**
+ * 从 CHANGELOG 某节里读出「N 个测试文件」的**声明**。
+ * 支持这些写法（本仓历史都用过）：
+ *   `（37 个测试文件）` · `（37 个测试文件；481 + 5）` · `37 个测试文件`
+ * @returns {number|null} 没写就返回 null（不是错误）
+ */
+export function declaredTestFiles(section) {
+  // 允许 markdown 强调：`42 个测试文件` 与 `**42** 个测试文件` 都要能读出来
+  const m = String(section ?? "").match(/(\d+)\s*\*{0,2}\s*个测试文件/)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * 校验「N 个测试文件」的声明与实际发现的 `test/*.test.mjs` 数量是否一致。
+ *
+ * **三态**（这是 task-160 的契约）：
+ *   · 一致     ⇒ `{ ok: true,  declared: N }`
+ *   · 不一致   ⇒ `{ ok: false, declared: N, reason }` —— 发布必须被拦住
+ *   · 没有声明 ⇒ `{ ok: true,  declared: null }` —— 不报错（允许不写这个数）
+ *
+ * 为什么要有这条：本仓 CHANGELOG 长期写「N 个测试文件」，而 N 从 1.11.5 起就停在 37、
+ * 实际已经 42 —— 数字漂了 5 个版本没人发现。用户会拿这个数判断覆盖面。
+ *
+ * @param {string} section 当前版本那一节的正文
+ * @param {number} actual 实际 `test/*.test.mjs` 文件数
+ */
+export function checkTestFileCount(section, actual) {
+  const declared = declaredTestFiles(section)
+  if (declared === null) return { ok: true, declared: null, actual }
+  if (declared === actual) return { ok: true, declared, actual }
+  return {
+    ok: false,
+    declared,
+    actual,
+    reason:
+      `CHANGELOG 写的「${declared} 个测试文件」与实际 ${actual} 个不符 —— ` +
+      `改了测试文件就必须同步这句（或删掉它，脚本不会因此报错）。` +
+      `实际值怎么数：ls test/*.test.mjs | wc -l（看历史版本：` +
+      `git ls-tree -r --name-only <tag>^{commit} test/ | grep -c '\\.test\\.mjs$'）`,
+  }
+}
