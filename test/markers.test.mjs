@@ -241,3 +241,42 @@ tests['L4/L5 兜底档：markers 三态仍生效，且标记不改变兜底裁�
     throw new Error(`标记应逐级更省：off=${off.tokens} terse=${terse.tokens} semantic=${sem.tokens}`);
   }
 };
+
+/* ───────────────────── S5：TRACE 最近节点（与标记/相对路径契约共存） ───────────────────── */
+
+/** 成功链（有 path）+ 资源类失败（有 LEARNED 和 [blocked]）⇒ TRACE 行与标记同时出现。 */
+function tracedBlockedGraph() {
+  const g = createGraph({ sessionId: "markers-trace" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。不要动 prod 配置。" });
+  let cursor = u;
+  const ids = [u];
+  const goals = ["读 package.json", "改 dev 配置", "跑 npm test"];
+  for (let i = 0; i < goals.length; i += 1) {
+    const e = addEdge(g, { from: cursor, intent: goals[i], action: "bash(step)" });
+    const a = addAgentNode(g, { seq: 2 + i, goal: goals[i], worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
+    g.edges[e].to = a;
+    settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    cursor = a;
+    ids.push(a);
+  }
+  const fe = addEdge(g, { from: u, intent: "直接改 prod 配置", action: "write(file_path=prod.yml)" });
+  settleEdge(g, fe, { to: u, result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "Error: EACCES: permission denied" });
+  return { g, ids };
+}
+
+tests["S5 · TRACE recent 与标记/相对路径契约共存，且不泄漏绝对路径"] = () => {
+  const { g, ids } = tracedBlockedGraph();
+  const r = renderLedger(g, { maxTokens: 500, markers: "semantic", treeDir: "D:/x/chess-context/sessions/markers-trace" });
+  const line = r.text.split("\n").find((l) => l.startsWith("TRACE:"));
+  if (!line) throw new Error(`缺 TRACE 行：\n${r.text}`);
+  if (!line.startsWith("TRACE: markers-trace/index.md")) throw new Error(`相对路径前缀被破坏：${line}`);
+  if (!line.includes("recent: ")) throw new Error(`TRACE 缺 recent 段：${line}`);
+  for (const id of ids.slice(-3)) {
+    if (!line.includes(id)) throw new Error(`recent 缺 ${id}：${line}`);
+  }
+  // P6a 硬约束在这个新段上同样成立
+  if (/[A-Za-z]:[\\/]/.test(line) || /\/Users\/|\/home\/|\/d\//.test(line)) throw new Error(`TRACE 泄漏绝对路径：${line}`);
+  // 标记照旧（recent 段不能把失败标记挤掉）
+  if (!r.text.includes("[blocked:permission]")) throw new Error(`recent 段挤掉了失败标记：\n${r.text}`);
+  if (r.tokens > 500) throw new Error(`超预算：${r.tokens} > 500`);
+};

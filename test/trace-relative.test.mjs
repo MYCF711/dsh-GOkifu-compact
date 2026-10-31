@@ -42,6 +42,12 @@ const ABS_USER = "C:/Users/Administrator/chess-context/sessions/abc-123";
 
 const traceLine = (text) => text.split("\n").find((l) => l.startsWith("TRACE:")) ?? "";
 const ABSOLUTE_RE = /(?:[A-Za-z]:[\\/]|^\/|\/Users\/|\/home\/|DeepSeek Harness|Administrator)/;
+/**
+ * ★ S5（2026-10-31）：TRACE 行现在可能是 `TRACE: <rel>/index.md · recent: …`。
+ * P6a 的四条不变量（相对、可解析、traceRoot 可配、无绝对路径）必须继续成立，
+ * 但不能再要求「整行恰好等于相对路径」—— 这里把 **路径段** 与 **recent 段** 分开。
+ */
+const tracePathPart = (line) => line.split(" · recent: ")[0];
 
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
@@ -52,7 +58,8 @@ export const tests = {
     const r = renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN });
     const line = traceLine(r.text);
     t.ok(line.length > 0, `必须有 TRACE 行：${r.text.slice(0, 400)}`);
-    t.eq(line, "TRACE: abc-123/index.md", `TRACE 行必须是相对路径，实际 ${JSON.stringify(line)}`);
+    t.eq(tracePathPart(line), "TRACE: abc-123/index.md", `TRACE 路径段必须是相对路径，实际 ${JSON.stringify(line)}`);
+    t.ok(line.includes(" · recent: "), `S5 之后应带 recent 段（本图有路径），实际 ${JSON.stringify(line)}`);
     t.eq(ABSOLUTE_RE.test(line), false, `TRACE 行不得含绝对路径成分：${line}`);
   },
 
@@ -62,7 +69,7 @@ export const tests = {
     const { g } = failingGraph({ sessionId: "fx-trace-2" });
     for (const dir of [ABS_POSIX, ABS_USER]) {
       const line = traceLine(renderLedger(g, { maxTokens: 500, treeDir: dir }).text);
-      t.eq(line, "TRACE: abc-123/index.md", `目录 ${dir} 的 TRACE 行`);
+      t.eq(tracePathPart(line), "TRACE: abc-123/index.md", `目录 ${dir} 的 TRACE 路径段`);
       t.eq(ABSOLUTE_RE.test(line), false, `不得泄漏绝对路径：${line}`);
     }
   },
@@ -71,8 +78,8 @@ export const tests = {
     t.eq(traceRelativeDir(ABS_WIN, "sessions"), "sessions/abc-123", "可配置根");
     t.eq(traceRelativeDir(ABS_WIN, "chess-context/sessions"), "chess-context/sessions/abc-123", "多级根");
     const { g } = failingGraph({ sessionId: "fx-trace-3" });
-    t.eq(traceLine(renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN, traceRoot: "sessions" }).text), "TRACE: sessions/abc-123/index.md", "renderLedger 的 traceRoot");
-    t.eq(traceLine(renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN }).text), "TRACE: abc-123/index.md", "默认无前缀");
+    t.eq(tracePathPart(traceLine(renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN, traceRoot: "sessions" }).text)), "TRACE: sessions/abc-123/index.md", "renderLedger 的 traceRoot");
+    t.eq(tracePathPart(traceLine(renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN }).text)), "TRACE: abc-123/index.md", "默认无前缀");
   },
 
   "P6a-4 边界：空/怪路径不崩、不产绝对路径"(t) {
@@ -91,7 +98,7 @@ export const tests = {
   "P6a-5 TRACE 行仍可解析：`TRACE: <rel>/index.md`，能拼回会话目录里的 index.md"(t) {
     const { g } = failingGraph({ sessionId: "fx-trace-5" });
     const line = traceLine(renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN, traceRoot: "sessions" }).text);
-    const m = /^TRACE: ([A-Za-z0-9._\-\/]+)\/index\.md$/.exec(line);
+    const m = /^TRACE: ([A-Za-z0-9._\-\/]+)\/index\.md(?: · recent: .+)?$/.exec(line);
     t.ok(Boolean(m), `TRACE 行必须可被正则解析，实际 ${JSON.stringify(line)}`);
     t.eq(m[1], "sessions/abc-123", "相对目录");
     // 相对路径拼接后必须能定位（等价于 sessions 根 + 相对路径）
@@ -111,7 +118,10 @@ export const tests = {
     const { g } = failingGraph({ sessionId: "fx-trace-7", failures: 20 });
     const rel = renderLedger(g, { maxTokens: 500, treeDir: ABS_WIN });
     const relLine = traceLine(rel.text);
-    t.ok(relLine.length <= 40, `相对 TRACE 行必须 ≤40 字符，实际 ${relLine.length}：${relLine}`);
+    t.ok(tracePathPart(relLine).length <= 40, `相对 TRACE 路径段必须 ≤40 字符，实际 ${tracePathPart(relLine).length}：${relLine}`);
+    // ★ S5：recent 段是**新信息**（最近 3 个节点 + 一句话），给它单独的上限，
+    //   不能因为「原来 40 字符够」就把新信息判死；整行仍必须远小于 P6a 之前的绝对路径（137.7 字符 × 6）。
+    t.ok(relLine.length <= 140, `S5 之后 TRACE 整行（含 recent）≤140 字符，实际 ${relLine.length}：${relLine}`);
     t.ok(rel.tokens <= 500, `必须 ≤500，实际 ${rel.tokens}`);
     t.eq(rel.fallback, "none", "正常预算应为 none");
   },

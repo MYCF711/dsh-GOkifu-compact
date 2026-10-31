@@ -1,5 +1,7 @@
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, _internal } from "../src/rooms/ledger.mjs";
+
+const { traceRecentSegment } = _internal;
 
 export const tests = {};
 
@@ -197,5 +199,141 @@ tests["L4/L5 边界：失败边 ≤10 时两档同文，必须全列，且不许
     if (r.text.includes("earlier dead ends omitted")) throw new Error(`没有省略却印了省略汇总行（预算 ${r.budget}）：\n${r.text}`);
     const failureLines = r.text.split("\n").filter((l) => /^- e\d+ /.test(l));
     if (failureLines.length !== 10) throw new Error(`兜底必须列全 10 条，实际 ${failureLines.length}（预算 ${r.budget}）`);
+  }
+};
+
+/* ───────────────────── S5：TRACE 最近节点 ───────────────────── */
+
+/**
+ * 一条成功链（user → n2 → … → n(hops+1)）+ 一条失败边。
+ * 有成功链才有 `path`，有失败边才有 `TRACE:` 行 —— 两者缺一这条用例就测不到东西。
+ */
+function traceGraph({ hops = 4, goals = null, sessionId = "ledger-trace" } = {}) {
+  const g = createGraph({ sessionId });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。不要动 prod 配置。" });
+  let cursor = u;
+  const ids = [u];
+  for (let i = 0; i < hops; i += 1) {
+    const goal = goals?.[i] ?? `第 ${i + 1} 步`;
+    const e = addEdge(g, { from: cursor, intent: goal, action: `bash(step ${i})` });
+    const a = addAgentNode(g, { seq: 2 + i, goal, worldHash: `W${i}`, constraintHash: "C1", via: e }).id;
+    g.edges[e].to = a;
+    settleEdge(g, e, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    cursor = a;
+    ids.push(a);
+  }
+  const fe = addEdge(g, { from: u, intent: "直接改 prod", action: "write(file_path=prod.yml)" });
+  settleEdge(g, fe, { to: u, result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "Error: EACCES" });
+  return { g, ids };
+}
+
+/** 取 TRACE 行（没有就报错）。 */
+function traceLine(text) {
+  const line = text.split("\n").find((l) => l.startsWith("TRACE:"));
+  if (!line) throw new Error(`清单里没有 TRACE 行：\n${text}`);
+  return line;
+}
+
+tests["S5 · TRACE 行带最近 3 个路径节点 id + 一句话（不多不少）"] = () => {
+  const { g, ids } = traceGraph({ hops: 4, goals: ["读 package.json", "改 dev 配置", "跑 npm test", "看覆盖率"] });
+  const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/s5" });
+  const line = traceLine(r.text);
+  if (!line.includes("TRACE: s5/index.md")) throw new Error(`相对路径契约被破坏：${line}`);
+  const last3 = ids.slice(-3);
+  const recentAt = line.indexOf("recent: ");
+  if (recentAt < 0) throw new Error(`TRACE 行没有 recent 段：${line}`);
+  const recent = line.slice(recentAt);
+  // 顺序必须与路径一致
+  let cursor = -1;
+  for (const id of last3) {
+    const at = recent.indexOf(id, cursor + 1);
+    if (at < 0) throw new Error(`recent 里缺节点 ${id} 或顺序错：${recent}`);
+    cursor = at;
+  }
+  // 第 4 个（更早的）节点不许出现 —— 只要最近 3 个
+  const earlier = ids[ids.length - 4];
+  if (recent.includes(earlier)) throw new Error(`recent 混进了更早的节点 ${earlier}：${recent}`);
+  // 每个节点都带一句话（来自 goal；last3 = n3/n4/n5）
+  for (const phrase of ["改 dev 配置", "跑 npm test", "看覆盖率"]) {
+    if (!recent.includes(phrase)) throw new Error(`recent 缺节点短语「${phrase}」：${recent}`);
+  }
+  if (recent.includes("读 package.json")) throw new Error(`recent 混进了更早节点的短语：${recent}`);
+  // 一句话形态：`recent: nX … → nY … → nZ …`
+  if ((recent.match(/→/g) ?? []).length !== 2) throw new Error(`应恰好 3 个节点 2 个箭头：${recent}`);
+};
+
+tests["S5 · 空路径时 TRACE 逐字不变（不凭空造 recent）"] = () => {
+  // 只有 user + 失败边 ⇒ latestAgentNode 为 null ⇒ path=[]；
+  // 但 TRACE 行照旧出现（它在 failures 块里）
+  const g = createGraph({ sessionId: "ledger-trace-empty" });
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通。" });
+  const e = addEdge(g, { from: u, intent: "直接改 prod", action: "write(file_path=prod.yml)" });
+  settleEdge(g, e, { to: u, result: "failure", verify: { kind: "exit", summary: "EACCES" }, errorSnippet: "EACCES" });
+  const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/empty" });
+  const line = traceLine(r.text);
+  if (line !== "TRACE: empty/index.md") throw new Error(`空路径时 TRACE 必须逐字不变，实际：${line}`);
+  if (r.text.includes("recent:")) throw new Error("空路径却印了 recent");
+};
+
+tests["S5 · 短路径不补齐；短语截断；绝对路径被打码（P6a 硬约束）"] = () => {
+  const { g, ids } = traceGraph({
+    hops: 2,
+    goals: ["读 D:/repo/secret/config.yaml 并检查超长的一句话到底会不会被截断", "跑 npm test"],
+    sessionId: "ledger-trace-short",
+  });
+  const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/short" });
+  const line = traceLine(r.text);
+  // 只有 2 个 agent 节点 + user = 3 个路径节点 ⇒ recent 就是这 3 个（user 没 goal，只出 id）
+  if ((line.match(/→/g) ?? []).length !== 2) throw new Error(`3 个路径节点应有 2 个箭头：${line}`);
+  for (const id of ids) {
+    if (!line.includes(id)) throw new Error(`recent 缺路径节点 ${id}：${line}`);
+  }
+  // 绝对路径必须打码，且不能出现盘符/家目录
+  if (/[A-Za-z]:[\\/]/.test(line) || line.includes("/Users/") || line.includes("/home/")) {
+    throw new Error(`TRACE 行泄漏绝对路径：${line}`);
+  }
+  if (!line.includes("…")) throw new Error(`被截断/打码的短语应留省略号：${line}`);
+  // 长短语不得整句进入（18 字符上限 + 打码）
+  if (line.includes("并检查超长的一句话到底会不会被截断")) throw new Error(`recent 没截断长短语：${line}`);
+  // 短路径 = 2 个 agent + user，不该被补到 3 个 agent
+  if (line.includes("n9") || line.includes("n10")) throw new Error(`recent 补了不存在的节点：${line}`);
+};
+
+tests["S5 · 500 token 预算下不超预算，且 recent 仍在"] = () => {
+  const { g } = traceGraph({ hops: 6, sessionId: "ledger-trace-budget" });
+  for (let i = 0; i < 80; i += 1) {
+    const e = addEdge(g, { from: g.order[0], intent: `失败 ${i}`, action: "bash(x)" });
+    settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: `AssertionError: boom ${i}` });
+  }
+  const r = renderLedger(g, { maxTokens: 500, treeDir: "D:/x/chess-context/sessions/s5-budget" });
+  if (r.tokens > 500) throw new Error(`超预算：${r.tokens} > 500（fallback=${r.fallback}）`);
+  if (r.fallback !== "none") throw new Error(`应落在预算内：fallback=${r.fallback}`);
+  if (!traceLine(r.text).includes("recent: ")) throw new Error(`降级后 TRACE recent 丢了：\n${traceLine(r.text)}`);
+};
+
+tests["S5 · 预算只剩几 token 时先丢 recent、不超预算（dropped-for-budget）"] = () => {
+  const { g } = traceGraph({ hops: 3, sessionId: "ledger-trace-drop", goals: ["读配置", "改配置", "跑测试"] });
+  // 扫一遍预算，找那个「带 recent 会超、丢掉 recent 正好装得下」的临界值。
+  // 找不到就说明这个降级分支没被任何夹具覆盖 —— 直接红，不许假绿。
+  let hit = null;
+  for (let budget = 120; budget <= 400; budget += 1) {
+    const r = renderLedger(g, { maxTokens: budget, treeDir: "D:/x/chess-context/sessions/s5-drop" });
+    if (r.traceRecent === "dropped-for-budget") {
+      hit = { budget, r };
+      break;
+    }
+  }
+  if (hit === null) throw new Error("没有任何预算能触发 dropped-for-budget —— 降级分支未被覆盖");
+  const { budget, r } = hit;
+  if (r.tokens > budget) throw new Error(`丢掉 recent 后仍超预算：${r.tokens} > ${budget}`);
+  if (r.text.includes(" · recent: ")) throw new Error(`标了 dropped-for-budget 却仍带 recent 段：\n${r.text}`);
+  const line = traceLine(r.text);
+  if (!line.startsWith("TRACE: s5-drop/index.md")) throw new Error(`退回旧形态的 TRACE 行不对：${line}`);
+  // 反事实：同一预算下把 recent 加回去必须超预算 —— 否则这个降级就是无谓的
+  const seg = traceRecentSegment(currentPath(g, g.order.at(-1)));
+  if (seg === "") throw new Error("夹具没有路径节点，recent 段为空 —— 用例无效");
+  const withRecent = r.text.replace(line, `${line} · ${seg}`);
+  if (estimateTokens(withRecent) <= budget) {
+    throw new Error(`夹具构造失败：预算 ${budget} 下带 recent 也只有 ${estimateTokens(withRecent)} token（没超）`);
   }
 };

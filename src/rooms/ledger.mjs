@@ -173,6 +173,50 @@ export function traceRelativeDir(treeDir, root = "") {
 }
 
 /**
+ * ★ S5（2026-10-31）：TRACE 行附带「最近 3 个路径节点 id + 一句话」。
+ *
+ * 为什么：TRACE 原来只说「细节在 sessions/<sid>/index.md」—— 模型不知道最近走了哪三步，
+ *   想定位就得先读 index.md（一次工具调用 + 一轮上下文）。把最近三步的 id 与一句话直接放进清单，
+ *   模型不读盘也能认出「我刚刚在改哪个文件 / 跑哪个测试」。
+ *
+ * 约束：
+ *   · **不新增 IO**：只用已经算好的 `path`（`currentPath` 返回的节点对象）与节点自带字段；
+ *   · 短语取 agent 的 `goal` / user 的 `text`，截 {@link TRACE_PHRASE_CHARS} 字符；
+ *   · **绝对路径必须打码**：P6a 的硬约束是 TRACE 行不泄漏盘符/用户名，而 goal 里完全可能写着
+ *     `D:/repo/x.mjs` —— 这里把盘符路径 / `/Users/` / `/d/` / `/home/` 一律换成 `…`；
+ *   · 路径为空 ⇒ 返回空串，TRACE 行逐字不变（「无路径时保持现状」）；
+ *   · 路径短于 3 个节点时按实际个数给，不补齐。
+ */
+const TRACE_RECENT_MAX = 3;
+const TRACE_PHRASE_CHARS = 18;
+/** 绝对路径样式的片段（盘符 / POSIX 家目录 / Git-Bash 风格 /d/）—— 命中即打码。 */
+const ABS_PATH_RE = /(?:[A-Za-z]:[\\/]|\/Users\/|\/home\/|\/d\/)[^\s，。；、,;)\]]*/g;
+
+function tracePhraseOf(node) {
+  const raw = node?.kind === "user" ? node.text : (node?.goal ?? node?.text ?? "");
+  const text = norm(raw).replace(ABS_PATH_RE, "…");
+  return text === "" ? "" : clip(text, TRACE_PHRASE_CHARS);
+}
+
+/**
+ * `recent: n120 读文件 → n121 跑测试 → n122`。
+ * @param {Array<object>} path currentPath 的结果（节点对象数组）
+ */
+function traceRecentSegment(path) {
+  if (!Array.isArray(path) || path.length === 0) return "";
+  const parts = path
+    .slice(-TRACE_RECENT_MAX)
+    .map((node) => {
+      const id = String(node?.id ?? "");
+      if (id === "") return "";
+      const phrase = tracePhraseOf(node);
+      return phrase === "" ? id : `${id} ${phrase}`;
+    })
+    .filter(Boolean);
+  return parts.length === 0 ? "" : `recent: ${parts.join(" → ")}`;
+}
+
+/**
  * 只取哈希的前 n 位。兼容字符串与历史脏数据里的 { hash, mode, files } 对象 ——
  * 旧版直接 `.slice()`，遇到对象就抛 "latest?.worldHash?.slice is not a function"，
  * 导致 renderLedger 整体失败、压缩链路 100% 中断。
@@ -532,6 +576,13 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   /** 各档渲染结果（L4/L5 比过再定，见循环末尾）。 */
   const attempts = [];
 
+  // ★ S5（2026-10-31）：TRACE 行两形态。带 recent 的版本在**预算装不下时退回旧形态**，
+  //   否则「加一条新信息」会把本来刚好装下的会话顶到 500 以上（真实语料实测 30→31 个超预算）。
+  //   先算好两条候选行，各档按预算选（见循环末尾的 dropped 逻辑）。
+  const traceBaseLine = treeDir ? `TRACE: ${traceRelativeDir(treeDir, traceRoot)}/index.md` : null;
+  const traceRecentSeg = traceBaseLine === null ? "" : traceRecentSegment(path);
+  const traceRecentLine = traceRecentSeg === "" ? null : `${traceBaseLine} · ${traceRecentSeg}`;
+
   /** 某一档「注定装不下」的下界（只会跳过铁定超预算的档，不误伤）。 */
   const doomed = (lv) => {
     if (failures.length === 0) return false;
@@ -589,7 +640,10 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   实测 137.7 字符/行）——既把本机用户名/盘符泄漏给模型，又白烧 token（生产口径 94/133 个会话
       //   带 TRACE 行，平均 +45 token）。相对路径对模型足够定位（会话根 = DSH_HOME/chess-context），
       //   且 `traceRoot` 可配置（默认 "sessions"）。
-      if (treeDir) tailLines.push(`TRACE: ${traceRelativeDir(treeDir, traceRoot)}/index.md`);
+      // ★ S5（2026-10-31）：TRACE 行在相对路径后面附「最近 3 个路径节点 + 一句话」。
+      //   仍是一行；空路径时 traceRecentLine 为 null ⇒ 这一行与旧版逐字相同。
+      if (traceRecentLine !== null) tailLines.push(traceRecentLine);
+      else if (traceBaseLine !== null) tailLines.push(traceBaseLine);
       // 手割分析（tewari）：每条边一次 BFS，防 O(E²) —— 只对**最近 30 条**做。
       // ★ 2026-10-29：旧版是「显示条数 ≤30 才算」⇒ 一次有 40 条失败边的会话里，
       //   手割标记**一条都没有**（而模型永远只对最近几步做决策）。改成对尾部 30 条算，
@@ -738,9 +792,22 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
 
     for (const tailLine of tailLines) lines.push(tailLine);
     lines.push("</chess-ledger>");
-    const text = lines.join("\n");
-    const tokens = estimateTokens(text);
-    attempts.push({ text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length });
+    let text = lines.join("\n");
+    let tokens = estimateTokens(text);
+    // ★ S5：带 recent 的 TRACE 把这一档顶出预算时，**先退回旧 TRACE 形态**再判档 ——
+    //   宁可少给一条新信息，也不让本来装得下的会话变成 over-budget（真实语料实测 30→31）。
+    //   没有失败边时 TRACE 行根本不出现（它在 LEARNED 块里）⇒ 记 "none"，别让调用方以为给了。
+    let traceRecent = traceRecentLine === null || failures.length === 0 ? "none" : "full";
+    if (traceRecent === "full" && tokens > maxTokens) {
+      const stripped = text.replace(traceRecentLine, traceBaseLine);
+      const strippedTokens = estimateTokens(stripped);
+      if (strippedTokens <= maxTokens) {
+        text = stripped;
+        tokens = strippedTokens;
+        traceRecent = "dropped-for-budget";
+      }
+    }
+    attempts.push({ text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length, traceRecent });
     // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
     //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
     //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。
@@ -964,4 +1031,4 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
 }
 
 /** 仅供测试的内部控制面（不在包导出面里；改这些等于改行为，必须有测试）。 */
-export const _internal = { pickFallback, fitPaths };
+export const _internal = { pickFallback, fitPaths, traceRecentSegment, tracePhraseOf };
