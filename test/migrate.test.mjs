@@ -14,10 +14,14 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
 import { planSession, buildSidecar, dryRun, apply, verify, rollback, mergeSidecar, mergeMany, readSidecar, hashTree, sha256, listSessions, sessionsRoot, backupsRoot, freshSessions, freshEvidence, APPLY_FRESHNESS_MS, DELTA_NAME, SIDECAR_NAME } from "../src/rooms/migrate.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 const TMP = nodePath.resolve(os.tmpdir());
 const NOW = 1_800_000_000_000;
@@ -616,5 +620,83 @@ Object.assign(tests, {
       nodeFs.rmSync(root, { recursive: true, force: true });
       nodeFs.rmSync(backupRoot, { recursive: true, force: true });
     }
+  },
+});
+
+/* ═════════════ P6C-CLI（task-157）：merge 的 --json 与人类摘要 ═════════════ */
+
+Object.assign(tests, {
+  "P6C-C1 CLI 输出：不带 --json 打人类摘要（merged/skipped/backup），带 --json 才是 JSON"(t) {
+    const fx = archivedSession("cli1");
+    const cli = nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs");
+    const run = (args) => {
+      try {
+        const out = execFileSync(process.execPath, [cli, ...args], { encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });
+        return { code: 0, out };
+      } catch (error) {
+        return { code: error.status ?? "spawn-error", out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+      }
+    };
+    try {
+      // ① dry-run（人类摘要）
+      const humanDry = run([`--merge-sidecar=${fx.dir}`, `--backup-dir=${fx.backupRoot}`]);
+      t.eq(humanDry.code, 0, `dry-run 人类摘要必须 exit 0，实际 ${humanDry.code}\n${humanDry.out}`);
+      t.includes(humanDry.out, "== migrate-dangling merge-dry-run ==", "必须打人类摘要标题（不是裸 JSON）");
+      t.includes(humanDry.out, "merged 3", `摘要必须写 merged 3，实际：\n${humanDry.out}`);
+      t.includes(humanDry.out, "skipped 0", "摘要必须写 skipped 0");
+      t.includes(humanDry.out, "dry-run：什么都没写", "dry-run 必须说明没写盘");
+      t.notIncludes(humanDry.out, '{\n "mode"', "不带 --json 时不该是 JSON");
+
+      // ② --json 必须是纯 JSON（可直接 parse）
+      const jsonDry = run([`--merge-sidecar=${fx.dir}`, `--backup-dir=${fx.backupRoot}`, "--json"]);
+      t.eq(jsonDry.code, 0, "--json 必须 exit 0");
+      let parsed = null;
+      try {
+        parsed = JSON.parse(jsonDry.out);
+      } catch (error) {
+        throw new Error(`--json 输出必须是合法 JSON：${String(error?.message ?? error)}\n${jsonDry.out.slice(0, 300)}`);
+      }
+      t.eq(parsed.merged, 3, "--json 里 merged 必须是 3");
+      t.eq(parsed.dryRun ?? true, true, "--json 里 dryRun 必须是 true");
+
+      // ③ apply（人类摘要）要打 backup 目录
+      const humanApply = run([`--merge-sidecar=${fx.dir}`, "--apply", `--backup-dir=${fx.backupRoot}`]);
+      t.eq(humanApply.code, 0, `apply 人类摘要必须 exit 0，实际 ${humanApply.code}\n${humanApply.out}`);
+      t.includes(humanApply.out, "merged 3", "apply 摘要必须写 merged 3");
+      t.includes(humanApply.out, "backup:", `apply 必须打备份目录，实际：\n${humanApply.out}`);
+      t.includes(humanApply.out, "已回灌并重建 index.md", "apply 必须说明已写盘");
+
+      // ④ 幂等（人类摘要）：第二次 merged 0 / skipped 3
+      const again = run([`--merge-sidecar=${fx.dir}`, "--apply", `--backup-dir=${fx.backupRoot}`]);
+      t.eq(again.code, 0, "幂等 merge 必须 exit 0");
+      t.includes(again.out, "merged 0", "第二次 merged 必须是 0");
+      t.includes(again.out, "skipped 3", "第二次 skipped 必须是 3");
+
+      // ⑤ 坏 sidecar：exit 1 且摘要里能看见错误
+      const bad = JSON.parse(nodeFs.readFileSync(nodePath.join(fx.dir, SIDECAR_NAME), "utf8"));
+      const badFile = nodePath.join(fx.root, "bad-version.json");
+      nodeFs.writeFileSync(badFile, JSON.stringify({ ...bad, version: 99 }), "utf8");
+      const badRun = run([`--merge-sidecar=${badFile}`, "--json"]);
+      t.eq(badRun.code, 1, "坏 sidecar 必须 exit 1");
+      t.includes(badRun.out, "version", "错误信息必须提到 version");
+
+      // ⑥ 目标根本不存在：exit 1 且明确说「目标不存在」（不许默默读 . )
+      const missing = run(["--merge-sidecar=DOES-NOT-EXIST-xyz", "--json"]);
+      t.eq(missing.code, 1, "目标不存在必须 exit 1");
+      t.includes(missing.out, "目标不存在", "错误信息必须说清目标不存在");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
+  },
+
+  "P6C-C2 结构回归：main() 里 merge 的 dispatch 与输出分支各恰好一处（不许再重复）"(t) {
+    const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
+    const count = (src.match(/opts\.mode === "merge"/g) ?? []).length;
+    t.eq(count, 2, `merge 分支必须恰好 2 处（执行 + 输出），实际 ${count}`);
+    // 执行链里必须调 mergeMany，输出链里必须有 backup:
+    t.includes(src, "mergeMany(opts.mergeTarget", "必须调 mergeMany");
+    t.includes(src, "backup:", "人类摘要必须打印备份目录");
+    t.includes(src, "已回灌并重建 index.md", "apply 人类摘要必须说明写了什么");
   },
 });
