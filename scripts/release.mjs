@@ -33,6 +33,12 @@ const ROOT = process.cwd()
 const argv = new Set(process.argv.slice(2))
 const DRY = !argv.has("--yes")
 const ALSO_NPM = argv.has("--npm")
+/** 读 `--name=value` 形式的参数；没给返回 ""，给了 `--name` 但没值返回 true。 */
+function flagValue(name) {
+  const hit = process.argv.slice(2).find((a) => a === `--${name}` || a.startsWith(`--${name}=`))
+  if (!hit) return ""
+  return hit === `--${name}` ? true : hit.slice(name.length + 3)
+}
 
 const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
@@ -44,6 +50,10 @@ const C = {
 
 function sh(cmd, opts = {}) {
   return execSync(cmd, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts }).trim()
+}
+/** 同 `sh`，但**不 trim** —— 逐行/逐记录解析时必须用这个（porcelain 首行状态位可能是空格）。 */
+function shRaw(cmd, opts = {}) {
+  return execSync(cmd, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts })
 }
 function shOk(cmd) {
   try {
@@ -152,8 +162,23 @@ if (branch) {
   if (branch !== def) bad(`当前分支是 ${branch}，默认分支是 ${def} —— magpie 的 git 源只认默认分支`)
 }
 if (branch) {
-  const dirty = shOk("git diff --quiet") && shOk("git diff --cached --quiet")
-  if (!dirty) bad("工作区有未提交的改动 —— 发布的内容必须和提交一致")
+  // ★ task-181：**硬门禁** —— `git status --porcelain` 非空就红。
+  // 旧实现只查 `git diff --quiet && git diff --cached --quiet`，**看不见未跟踪文件**：
+  // 一个 `?? tmp/x.json`、一个忘了 add 的新脚本，都能在「工作区干净」的假象下发出去。
+  // 用 `-z` + 不 trim（见 gitRaw 同款理由）：porcelain 首行的状态位可能是空格，trim 会把列切歪。
+  const dirtyRaw = shRaw("git status --porcelain -z")
+  const dirtyPaths = dirtyRaw
+    .split("\0")
+    .filter((rec) => rec.length >= 4)
+    .map((rec) => `${rec.slice(0, 2).trim() || "??"} ${rec.slice(3)}`)
+    .filter((_, i, all) => all.indexOf(all[i]) === i)
+  if (dirtyPaths.length > 0) {
+    const shown = dirtyPaths.slice(0, 10).join(" · ")
+    bad(
+      `工作区有 ${dirtyPaths.length} 处未提交改动（**含未跟踪文件**）—— 发布的内容必须和提交一致：${shown}` +
+        (dirtyPaths.length > 10 ? ` … 还有 ${dirtyPaths.length - 10} 处` : ""),
+    )
+  }
 }
 
 /**
@@ -379,6 +404,29 @@ if (ALSO_NPM) {
   }
 }
 
+// ③b 发布物核对（task-181）：tarball 必须逐文件等于 `git archive <tag>`
+// 给了 --verify-tarball=<本地 .tgz | https URL> 就先核对再建 Release ——
+// 「Release 说 vX，但用户下到的包和 tag 不是同一棵树」是这本脚本唯一回答不了的问题，
+// 所以把它做成显式一步：不过就不建 Release。
+const verifyTarball = flagValue("verify-tarball")
+if (verifyTarball) {
+  console.log(C.dim(`\n  发布物核对 · ${tag} ← ${verifyTarball}\n`))
+  let verifyOk = false
+  try {
+    execFileSync(process.execPath, ["scripts/verify-release.mjs", `--ref=${tag}`, `--tarball=${verifyTarball}`], {
+      cwd: ROOT,
+      stdio: "inherit",
+    })
+    verifyOk = true
+  } catch {
+    verifyOk = false
+  }
+  if (!verifyOk) {
+    abort(`发布物核对（${tag} vs tarball）`, "**GitHub Release 未创建**；先查清包里多了/改了什么，再补建 Release")
+  }
+  doneSteps.push("发布物核对")
+}
+
 let released = false
 
 /** 这个仓库有没有 release.yml（有的话推 tag 就会自动建 Release，我们不该再建一遍） */
@@ -495,10 +543,12 @@ console.log(`  ③ magpie plugin list                       # 本机认得新版
 console.log(`  ④ curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \\`)
 console.log(`       https://api.github.com/repos/${gh.owner}/${gh.repo}/releases/tags/${tag}`)
 console.log(`     # 200 且 "draft": false`)
+console.log(`  ⑤ node scripts/verify-release.mjs --tag=${tag} --tarball=$(npm view ${name}@${version} dist.tarball)`)
+console.log(`     # 逐文件比对「用户下到的包」与 git archive ${tag}（tarball 多出文件 / 内容不同 ⇒ 非 0）`)
 console.log()
 console.log(
   C.dim(
-    "没过这四条，不要说「已发布」。detail: https://github.com/MYCF711/magpie-plugin-scaffold/blob/main/UPDATING.md\n",
+    "没过这几条，不要说「已发布」。detail: https://github.com/MYCF711/magpie-plugin-scaffold/blob/main/UPDATING.md\n",
   ),
 )
 

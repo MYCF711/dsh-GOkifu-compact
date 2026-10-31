@@ -20,7 +20,7 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { parseRepo, classifyRemote, runTransaction, checkTestFileCount, declaredTestFiles, declaredTestFilesAll } from "../scripts/release-lib.mjs";
+import { parseRepo, classifyRemote, runTransaction, checkTestFileCount, declaredTestFiles, declaredTestFilesAll, compareReleaseTrees, isOnlyBinNormalization } from "../scripts/release-lib.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -250,4 +250,55 @@ t["TG-COUNT-5 一节里出现多个数字：全部都要等于实际，否则红
   // 全一致则放行
   const okAll = checkTestFileCount("（42 个测试文件）\n…（**42** 个测试文件）", 42);
   if (!okAll.ok) throw new Error("全部一致应放行：" + JSON.stringify(okAll));
+};
+
+// ── ⑦ 发布物核对：tarball 必须逐文件等于 git archive <tag>（task-181）──────────
+
+const tree = (pairs) => new Map(pairs);
+
+t["V-1 发布物一致：同名同 sha ⇒ 放行"] = () => {
+  const a = tree([["a.mjs", "h1"], ["b.md", "h2"]]);
+  const r = compareReleaseTrees(a, tree([["a.mjs", "h1"], ["b.md", "h2"]]));
+  if (!r.ok) throw new Error("应放行：" + JSON.stringify(r));
+  if (r.checked !== 2) throw new Error("checked 应为 2，实际 " + r.checked);
+};
+
+t["V-2 tarball 多出文件 ⇒ 红（发布物含 tag 里没有的东西）"] = () => {
+  const r = compareReleaseTrees(tree([["a.mjs", "h1"]]), tree([["a.mjs", "h1"], ["evil.js", "h9"]]));
+  if (r.ok) throw new Error("多出文件必须判红");
+  if (r.extra.join() !== "evil.js") throw new Error("extra 应列出 evil.js：" + JSON.stringify(r.extra));
+};
+
+t["V-3 同名但内容不同 ⇒ 红；tag 有、包里没有 ⇒ 只记 notPacked 不算失败"] = () => {
+  const r = compareReleaseTrees(tree([["a.mjs", "h1"], ["README.md", "h2"]]), tree([["a.mjs", "hX"]]));
+  if (r.ok) throw new Error("内容不同必须判红");
+  if (r.changed.join() !== "a.mjs") throw new Error("changed 应列出 a.mjs：" + JSON.stringify(r.changed));
+  if (!r.notPacked.includes("README.md")) throw new Error("README.md 应进 notPacked：" + JSON.stringify(r.notPacked));
+};
+
+t["V-4 归一化例外：normalize(path) 为真时记 normalized、不算失败"] = () => {
+  const r = compareReleaseTrees(tree([["package.json", "h1"]]), tree([["package.json", "h2"]]), { normalize: () => true });
+  if (!r.ok) throw new Error("归一化后应放行：" + JSON.stringify(r));
+  if (r.normalized.join() !== "package.json") throw new Error("应记 normalized");
+};
+
+t["V-5 npm bin 归一化判定：只差 `./` 前缀算等价，真改内容不算"] = () => {
+  const base = { name: "x", version: "1.0.0", bin: { x: "./scripts/cli.mjs" } };
+  const normalized = { name: "x", version: "1.0.0", bin: { x: "scripts/cli.mjs" } };
+  const changed = { name: "x", version: "1.0.1", bin: { x: "scripts/cli.mjs" } };
+  if (!isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(normalized))) {
+    throw new Error("只差 ./ 前缀应判为等价");
+  }
+  if (isOnlyBinNormalization(JSON.stringify(base), JSON.stringify(changed))) {
+    throw new Error("版本号变了不该算等价");
+  }
+  if (isOnlyBinNormalization("{坏 json", JSON.stringify(base))) throw new Error("坏 JSON 应判 false");
+};
+
+t["V-6 发布物核对脚本存在且可执行（结构回归）"] = () => {
+  const p = nodePath.join(ROOT, "scripts", "verify-release.mjs");
+  if (!nodeFs.existsSync(p)) throw new Error("缺 scripts/verify-release.mjs");
+  const src = nodeFs.readFileSync(p, "utf8");
+  if (!src.includes("git archive")) throw new Error("必须用 git archive 取 tag 树");
+  if (!src.includes("compareReleaseTrees")) throw new Error("必须复用 release-lib 的比较判据（单一来源）");
 };

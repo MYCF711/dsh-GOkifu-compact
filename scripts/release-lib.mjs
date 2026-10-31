@@ -166,3 +166,70 @@ export function checkTestFileCount(section, actual) {
           `git ls-tree -r --name-only <tag>^{commit} test/ | grep -c '\\.test\\.mjs$'）`,
   }
 }
+
+/**
+ * 比较「`git archive <ref>` 的树」与「发布 tarball 的树」，逐文件比对 sha256。
+ *
+ * 规则（task-181）：
+ *   · **tarball 里多出文件** ⇒ 失败（发布物有 tag 里没有的东西）
+ *   · **同名但内容不同**     ⇒ 失败（例外：`normalize(path, a, b)` 返回 true 时记为「已归一」，不算失败）
+ *   · **archive 里有、tarball 里没有** ⇒ **不算失败**（npm 只打包 `files` 里的子集），单独列在 `notPacked`
+ *
+ * @param {Map<string, string>} archive  path → sha256
+ * @param {Map<string, string>} tarball  path → sha256
+ * @param {{normalize?:(path:string)=>boolean}} [opts]
+ * @returns {{ok:boolean, extra:string[], changed:string[], normalized:string[], notPacked:string[], checked:number}}
+ */
+export function compareReleaseTrees(archive, tarball, opts = {}) {
+  const norm = typeof opts.normalize === "function" ? opts.normalize : () => false
+  const extra = []
+  const changed = []
+  const normalized = []
+  const notPacked = []
+  for (const [path, sha] of tarball) {
+    if (!archive.has(path)) {
+      extra.push(path)
+      continue
+    }
+    if (archive.get(path) === sha) continue
+    if (norm(path)) {
+      normalized.push(path)
+      continue
+    }
+    changed.push(path)
+  }
+  for (const path of archive.keys()) if (!tarball.has(path)) notPacked.push(path)
+  extra.sort()
+  changed.sort()
+  normalized.sort()
+  notPacked.sort()
+  return { ok: extra.length === 0 && changed.length === 0, extra, changed, normalized, notPacked, checked: tarball.size }
+}
+
+/**
+ * 判断两份 `package.json` 文本的差异是否**只是 npm 的 bin 归一化**（`./x` → `x`）。
+ * npm publish 会把 `bin` 里带前导 `./` 的值改写掉（实测本仓每版都有这条 warn），
+ * 这不代表发布物与 tag 不一致，所以单独归类。
+ */
+export function isOnlyBinNormalization(aText, bText) {
+  let a
+  let b
+  try {
+    a = JSON.parse(String(aText))
+    b = JSON.parse(String(bText))
+  } catch {
+    return false
+  }
+  const strip = (pkg) => {
+    const out = JSON.parse(JSON.stringify(pkg))
+    if (out && typeof out.bin === "object" && out.bin !== null) {
+      for (const k of Object.keys(out.bin)) {
+        if (typeof out.bin[k] === "string") out.bin[k] = out.bin[k].replace(/^\.\//, "")
+      }
+    } else if (typeof out?.bin === "string") {
+      out.bin = out.bin.replace(/^\.\//, "")
+    }
+    return out
+  }
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
