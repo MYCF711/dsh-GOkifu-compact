@@ -57,7 +57,7 @@ export function contentHasImage(blocks) { return Array.isArray(blocks) && blocks
 export function createUserMessage(input) { return { id: "m" + Math.random().toString(36).slice(2), role: "user", ...input }; }
 export class BlockAssembler {
   constructor() { this.chunks = []; this.finish = { kind: "stop" }; this.usage = undefined; }
-  push(chunk) { this.chunks.push(chunk); }
+  push(chunk) { this.chunks.push(chunk); if (chunk && chunk.usage !== undefined) this.usage = chunk.usage; }
   blocks() { return [{ type: "text", text: "## 目标\\n- mock summary" }]; }
 }
 `,
@@ -162,7 +162,7 @@ export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   return session;
 }
 
-export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set() } = {}) {
+export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null } = {}) {
   const listeners = new Map();
   const overlay = {};
   const ctx = {
@@ -201,6 +201,8 @@ export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failMod
           throw new Error(`pi-ai provider "${options.provider}" has no configured model "${options.model}"`);
         }
         yield { type: "text-delta", text: "## 目标\n- mock" };
+        // ★ P2-2：只在显式传 usage 时产出（默认不产出 ⇒ 其它用例的 assembler.usage 仍是 undefined）
+        if (usage !== null) yield { type: "usage", usage };
       },
     },
     sessions: { flush: async () => {} },
@@ -1191,3 +1193,127 @@ tests["S4-4 overflow 路径不受缩放影响（spec.minFoldTokens 缺省时回�
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压（minFold 缩放不该拦住 overflow）");
 };
+
+/* ═════════════ P2-2 fold 可观测（task-192） ═════════════ */
+
+/** 造一个可 fold 的会话并给 graph 记上失败边（让 selectRange 有东西可压）。 */
+async function p22Session(ctx, id, n = 19) {
+  const session = makeSession({ id });
+  for (let i = 0; i < n; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
+  return session;
+}
+
+tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "p22-fields");
+  // 让桩 provider 回一次 usage —— 才能断言 foldMark.usage 真的把摘要 usage 记下来了
+  const ctx = makeCtx({ measureTotal: () => 300_000, usage: { inputTokens: 1200, outputTokens: 300 } });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-p22");
+  // 真实流程里 fold 的 compactRegion 会调 summarize；stub 不会 ⇒ 先手动调一次，让 _lastSummary* 有值
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("应当 fold");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 标量 foldMarks 靠 idle 全量 flush 提交
+  const g = readGraph(dir, "sess-p22");
+  const mark = (g.foldMarks ?? []).at(-1);
+  if (!mark) throw new Error("没有 foldMark");
+  if (mark.foldCount !== 1) throw new Error(`foldCount 应为 1，实际 ${mark.foldCount}`);
+  if (!mark.route || mark.route.provider !== "p" || mark.route.model !== "m") throw new Error(`route 不对：${JSON.stringify(mark.route)}`);
+  if (mark.fallback !== null) throw new Error(`正常 hybrid 的 fallback 应为 null，实际 ${JSON.stringify(mark.fallback)}`);
+  if (typeof mark.ms !== "number" || mark.ms < 0) throw new Error(`ms 应为非负数字，实际 ${JSON.stringify(mark.ms)}`);
+  if (mark.usage === null || typeof mark.usage !== "object") throw new Error(`usage 应记录本次摘要 usage，实际 ${JSON.stringify(mark.usage)}`);
+  if (typeof mark.usage.inputTokens !== "number" && typeof mark.usage.outputTokens !== "number") {
+    throw new Error(`usage 必须带 inputTokens/outputTokens：${JSON.stringify(mark.usage)}`);
+  }
+};
+
+tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "p22-degraded");
+  const ctx = makeCtx({ measureTotal: () => 300_000, failModels: new Set(["m"]) });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-p22-degraded");
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("模型挂掉时也必须 fold 成功（规则兜底）");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 标量 foldMarks 靠 idle 全量 flush 提交
+  const mark = (readGraph(dir, "sess-p22-degraded").foldMarks ?? []).at(-1);
+  if (mark?.fallback !== "rules") throw new Error(`降级时 fallback 应为 rules，实际 ${JSON.stringify(mark?.fallback)}`);
+};
+
+tests["P2-2-3 foldMarks 只保留最近 20 条（旧版无限增长）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "p22-trim");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-p22-trim");
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!(await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined))) throw new Error("第一次应 fold");
+  // 手工塞到 25 条（模拟长期会话的历史积累），再折一次 → 必须裁到 20
+  const file = nodePath.join(dir, "sessions", "sess-p22-trim", "graph.json");
+  const g = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  g.foldMarks = Array.from({ length: 25 }, (_, i) => ({ at: 1_700_000_000_000 + i, seqStart: i, seqEnd: i + 1, shadowedTokens: 100, totalAfter: 1000 }));
+  nodeFs.writeFileSync(file, JSON.stringify(g, null, 1), "utf8");
+  // 新引擎从磁盘重新加载（旧引擎缓存的是内存图）
+  const ctx2 = makeCtx({ measureTotal: () => 300_000 });
+  const engine2 = new Engine(ctx2, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session2 = makeSession({ id: "sess-p22-trim" });
+  for (let i = 0; i < 30; i += 1) session2.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  await engine2.summarize({ messages: [] }, { session: session2, options: {} }, undefined);
+  if (!(await engine2.compactIfNeeded({ session: session2, options: {} }, "pressure", undefined))) throw new Error("第二次应 fold");
+  // graph.json 是「上一回合基线快照」——标量 foldMarks 靠回合边界 idle 的全量 flush 提交
+  await ctx2.emitRaw("agent/status", { agent: { session: session2 }, status: "idle" });
+  const after = readGraph(dir, "sess-p22-trim");
+  if (after.foldMarks.length !== 20) throw new Error(`foldMarks 必须裁到 20 条，实际 ${after.foldMarks.length}`);
+  if (after.foldMarks.at(-1).route === undefined) throw new Error("最新一条必须是刚写的（带 route 字段）");
+};
+
+tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"] = async () => {
+  const { execFileSync } = await import("node:child_process");
+  const home = nodePath.join(GRAPH_PATH_HOME(), "p22-home");
+  nodeFs.rmSync(home, { recursive: true, force: true });
+  const sessDir = nodePath.join(home, "chess-context", "sessions", "sess-p22-doc");
+  nodeFs.mkdirSync(sessDir, { recursive: true });
+  const marks = [
+    { at: 1_800_000_600_000, seqStart: 9, seqEnd: 20, shadowedTokens: 12000, foldCount: 6, route: { provider: "magpie", model: "m" }, fallback: null, ms: 42, usage: { inputTokens: 1200, outputTokens: 300 } },
+    // 5 条旧图（没有 route/fallback/ms/usage）
+    ...[5, 4, 3, 2, 1].map((k) => ({ at: 1_800_000_000_000 + k, seqStart: k, seqEnd: k + 1, shadowedTokens: 1000 * k })),
+  ];
+  const graph = {
+    version: 1, sessionId: "sess-p22-doc", cwd: "/tmp", createdAt: 1, updatedAt: 1,
+    nodes: {}, edges: {}, order: [], rootUserNodeIds: [], checkpointSeq: null,
+    foldCount: 6, lastFoldTotalTokens: 0, foldMarks: marks,
+  };
+  nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(graph, null, 1), "utf8");
+  const doctor = nodePath.join(HERE, "..", "scripts", "doctor.mjs");
+  let parsed;
+  try {
+    const out = execFileSync(process.execPath, [doctor, "--json"], { encoding: "utf8", env: { ...process.env, DSH_HOME: home }, timeout: 30000 });
+    parsed = JSON.parse(out);
+  } catch (error) {
+    parsed = JSON.parse(String(error.stdout ?? "{}"));
+  }
+  const check = (parsed.checks ?? []).find((c) => c.name.includes("最近 5 次 fold"));
+  if (!check) throw new Error(`doctor 缺「最近 5 次 fold」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
+  const lines = check.detail.split("\n");
+  if (lines.length !== 5) throw new Error(`应显示 5 条（总共 6 条，取最近 5 条），实际 ${lines.length}：\n${check.detail}`);
+  if (!lines[0].includes("magpie/m")) throw new Error(`最新一条必须显示路由：${lines[0]}`);
+  if (!lines[0].includes("42 ms")) throw new Error(`最新一条必须显示耗时：${lines[0]}`);
+  if (!lines[0].includes("in 1200 / out 300")) throw new Error(`最新一条必须显示 usage：${lines[0]}`);
+  if (!lines[0].includes("fallback —")) throw new Error(`正常 fold 的 fallback 应显示「—」：${lines[0]}`);
+  // 旧图那几条：route/ms/usage 都必须是「—」
+  for (const line of lines.slice(1)) {
+    if (!line.includes("路由 —")) throw new Error(`旧图缺 route 必须显示「—」：${line}`);
+    if (!line.includes("— ms")) throw new Error(`旧图缺 ms 必须显示「—」：${line}`);
+    if (!line.includes("· —")) throw new Error(`旧图缺 usage 必须显示「—」：${line}`);
+  }
+};
+
+/** doctor 夹具的上级目录（test/.harness/graphs）。 */
+function GRAPH_PATH_HOME() {
+  return GRAPHS;
+}

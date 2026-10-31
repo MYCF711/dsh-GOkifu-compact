@@ -35,6 +35,11 @@ import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
 
+/** ★ P2-2（task-192）：foldMarks 只留最近这么多条（可观测用，不是审计日志）。
+ *  这是一条**统一规则**：常规 fold 与 tier-2 合并共用同一个上限（旧版 tier-2 单独用
+ *  `tier2After×2`，两条路径各裁各的 ⇒ 行为不可预测）。要改只改这一个常量。 */
+const FOLD_MARKS_KEEP = 20;
+
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 
 /* ───────────────── P7：fallback 仪表盘（engine 侧） ───────────────── */
@@ -339,6 +344,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   #markFoldMode(g, mode) {
     try {
       if (g === null || typeof g !== "object") return;
+      this._lastSummaryMode = mode;
       g.lastFoldMode = mode;
       g.lastFoldDegraded = mode === "rules";
     } catch {
@@ -479,11 +485,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
     // 记账：这次摘要调用了多少 token（provider 真实 usage）。#commit 会把它写进 graph.lastFoldUsage，
     // doctor / 计费对账直接读，不用再翻会话日志里的 compaction/summary 事件。
-    if (assembler.usage !== undefined) {
-      this._lastSummaryUsage = assembler.usage;
-      this._lastSummaryProvider = used.provider;
-      this._lastSummaryModel = used.model;
-    }
+    // ★ P2-2（task-192）：**路由无条件记录**（有的 provider 不回 usage，但 route 永远可得）；
+    //   usage 只在真返回时记 —— foldMark.route 因此不会因为缺 usage 变成 null。
+    this._lastSummaryProvider = used.provider;
+    this._lastSummaryModel = used.model;
+    if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
     this.#markFoldMode(g, mode);
     return {
       summary,
@@ -607,6 +613,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       return null;
     }
 
+    // ★ P2-2（task-192）：fold 端到端耗时（summary + commit + flush）—— 写进 foldMarks.ms
+    const foldStartedAt = Date.now();
     this._chessActiveRange = { start: range.start, end: range.end };
     let result;
     try {
@@ -635,6 +643,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // 记「checkpoint 消息的 seq」，不是被遮蔽区间的起点 —— 后者 fold 之后已不在 surface 上，
     // 任何读这个字段做判断的地方都会拿到一个不存在的 seq（2026-10-29 实机：值一直是 9）。
     g.checkpointSeq = checkpointSeqs(session).at(-1) ?? null;
+    // ★ P2-2（task-192）：每次 fold 的可观测字段 —— 路由、是否降级、耗时、真实 usage。
+    //   旧图里的 foldMark 没有这些字段 ⇒ doctor 显示「—」（向后兼容）。
+    //   **快照必须在下面清空 _lastSummary* 之前取**（否则 route 永远是 null —— 踩过）。
+    const summaryMode = this._lastSummaryMode ?? null;
+    const summaryUsage = this._lastSummaryUsage ?? null;
+    const summaryRoute = { provider: this._lastSummaryProvider ?? null, model: this._lastSummaryModel ?? null };
+    this._lastSummaryMode = undefined;
     if (this._lastSummaryUsage !== undefined) {
       g.lastFoldUsage = {
         ...this._lastSummaryUsage,
@@ -652,7 +667,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       seqEnd: range.end,
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
+      foldCount: g.foldCount,
+      route: summaryRoute,
+      fallback: summaryMode === "rules" ? "rules" : null,
+      ms: Math.max(0, Date.now() - foldStartedAt),
+      usage: summaryUsage === null ? null : { ...summaryUsage },
     });
+    // ★ P2-2：只保留最近 20 条（旧版无限增长 —— 2000 边/长期会话里 foldMarks 是纯膨胀）
+    if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
     // ★ 2026-10-29 修复：这里原来传的是 `{ md: true }`，而 `#flush(session, { tree = false })`
     //   只认 `tree` —— 参数名不匹配 ⇒ fold 后**从不**重写 `nodes/*.md`，
     //   压缩后的节点详情停在第一次落盘的样子（Kimi 评估实测发现）。
@@ -730,7 +752,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     if (result !== null && result !== undefined) {
       const g = this.#graph(session);
       g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true });
-      if (g.foldMarks.length > this.chess.tier2After * 2) g.foldMarks = g.foldMarks.slice(-this.chess.tier2After);
+      if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);
     }
