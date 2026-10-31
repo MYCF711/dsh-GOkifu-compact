@@ -31,6 +31,7 @@ import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-pr
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
+import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
 
@@ -484,6 +485,23 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       return await super.compactRegion(start, end, agent, signal);
     } finally {
       this._chessActiveRange = prev;
+    }
+  }
+
+  /**
+   * ★ task-174：官方 `/compact` 在「回合还开着」时抛
+   *   `ManualCompactionError("busy", "manual compaction: the session already has an open turn")` ——
+   *   用户只看到一句英文，不知道「要等本轮结束」。这里**只改错误可读性**：
+   *   · 成功路径原样返回（不包装、不改返回值形状）；
+   *   · 失败时把分类诊断挂到**原错误对象**上（`diagnosis` / `rawMessage`），并把 message 换成人话；
+   *     `name` / `code` / `cause` / `stack` 全部保留（宿主按 code 分类，不按 message）。
+   */
+  async compactNow(agent, signal, sourceCommandId) {
+    try {
+      return await super.compactNow(agent, signal, sourceCommandId);
+    } catch (error) {
+      annotateManualCompactError(error);
+      throw error;
     }
   }
 

@@ -94,6 +94,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "manual-compact": {
+    file: "manual-compact.mjs",
+    // R16（task-174）：手动压缩失败诊断。零依赖纯函数 —— 只吃 error 对象，不许碰宿主/engine/scripts/lib。
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "migrate": {
     file: "migrate.mjs",
     // 契约 R14 + P6C-2：R00 只读、R01 路径规则（graphRoot）、R06 判据（classifyDangling 单一来源）、
@@ -429,7 +435,7 @@ export const tests = {
     const bad = roomPathViolations();
     t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
     // 契约最终路径集合：11 个房间（顺序无关）
-    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "migrate", "preset-format", "verify", "world"], "房间集合必须与契约 12 个一致（P6C-2 创建 R14 migrate）");
+    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "verify", "world"], "房间集合必须与契约 13 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact）");
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
     t.eq(roomPathViolations({ ghost: { file: "ghost.mjs" } }), ["ghost: src/rooms/ghost.mjs 不存在"], "文件不存在必须被检出");
