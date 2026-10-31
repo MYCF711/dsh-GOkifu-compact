@@ -18,6 +18,7 @@
 import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
+import { classifyRemote } from "./release-lib.mjs"
 
 const ROOT = resolve(process.argv[2] ?? ".")
 const results = []
@@ -140,6 +141,28 @@ ok(usesAnnotated,
    "release.mjs 打的是 annotated tag（git tag -a … -m …）",
    "用 lightweight tag ⇒ Release 页没有 tag 说明、`git cat-file -t` 只看到 commit，历史无法解释",
    '把 scripts/release.mjs 里的 "git tag <tag>" 改成 "git tag -a <tag> -m \\"release <tag>\\""')
+
+// ── ⑧ remote 必须是合法的 GitHub URL ─────────────────────────────────
+// 2026-10-31 事故：`remote.origin.url` 被写成 `git+https://github.com/…`（从 package.json 的
+// repository.url 抄来的写法）。旧判据用正则匹配 `github.com:` ⇒ 照样通过；真做时 `git push`
+// 全崩（git 去找 remote helper `git-remote-git+https`）。这里复用 release-lib 的同一份判据，
+// 让日常维护就能提前发现坏 remote，而不是等到发版那一刻。
+const remoteUrl = git(["config", "--get", "remote.origin.url"]) ?? ""
+const remoteCheck = classifyRemote(remoteUrl)
+ok(remoteCheck.ok,
+   "remote.origin 是合法的 GitHub URL",
+   remoteCheck.ok ? "" : remoteCheck.reason,
+   "git remote set-url origin git@github.com:<owner>/<repo>.git")
+
+// ── ⑨ 当前目录必须就是仓库根（防串仓）──────────────────────────────
+// `ROOT` 取 `process.cwd()`：若在子目录或另一个仓库里跑，版本号 / CHANGELOG / tag
+// 全会指向错误的对象，而输出看起来一切正常。
+const topLevel = git(["rev-parse", "--show-toplevel"])
+const sameRepo = !!topLevel && resolve(topLevel) === resolve(ROOT)
+ok(sameRepo,
+   "当前目录就是仓库根（git rev-parse --show-toplevel === cwd）",
+   sameRepo ? "" : `cwd=${ROOT}，仓库根=${topLevel || "(取不到)"} —— 发布脚本会写错对象`,
+   "cd 到 git rev-parse --show-toplevel 打印的那个目录再跑")
 
 // ── 输出 ──────────────────────────────────────────────────────────────
 
