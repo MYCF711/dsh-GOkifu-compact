@@ -568,7 +568,20 @@ export function mergeSidecar(dir, { sidecarFile = "", apply = false, backupRoot 
 export function mergeMany(target, { apply = false, backupRoot = backupsRoot(), stamp = new Date(), now = Date.now() } = {}) {
   const dirs = [];
   const sidecars = [];
-  if (nodeFs.existsSync(target) && nodeFs.statSync(target).isDirectory()) {
+  if (!nodeFs.existsSync(target)) {
+    return {
+      mode: apply ? "merge-apply" : "merge-dry-run",
+      target,
+      sessions: 0,
+      merged: 0,
+      skipped: 0,
+      ok: false,
+      errors: [`目标不存在：${target}`],
+      backupDirs: [],
+      perSession: [],
+    };
+  }
+  if (nodeFs.statSync(target).isDirectory()) {
     const direct = nodePath.join(target, SIDECAR_NAME);
     if (nodeFs.existsSync(direct) && nodeFs.existsSync(nodePath.join(target, "graph.json"))) {
       dirs.push(target);

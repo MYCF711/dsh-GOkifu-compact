@@ -82,14 +82,7 @@ function main() {
     } else if (opts.mode === "merge") {
       result = mergeMany(opts.mergeTarget, { apply: opts.applyMerge, backupRoot: opts.backupRoot, now: opts.now });
       if (!result.ok) code = 1;
-    } else if (opts.mode === "merge") {
-    console.log(`== migrate-dangling ${result.mode} ==`);
-    console.log(`target: ${result.target}`);
-    console.log(`sessions: ${result.sessions}｜merged ${result.merged}｜skipped ${result.skipped}`);
-    if (result.backupDirs.length) console.log(`backup: ${result.backupDirs.join(", ")}`);
-    if (result.errors.length) console.log(`errors:\n- ${result.errors.join("\n- ")}`);
-    if (!opts.applyMerge) console.log("（dry-run：什么都没写；加 --apply 才回灌）");
-  } else if (opts.mode === "verify") {
+    } else if (opts.mode === "verify") {
       result = verify(opts.root, { now: opts.now, backupDir: opts.backupDir, only: opts.only });
       if (!result.ok) code = 1;
     } else {
@@ -102,6 +95,24 @@ function main() {
   }
   if (opts.json) {
     console.log(JSON.stringify(result, null, 1));
+  } else if (opts.mode === "merge") {
+    // ★ task-157：merge 的人类摘要（--json 时走上一条分支给 JSON）。
+    //   旧版这里的 merge 分支被误插进**执行链**里（与同条件的 dispatch 分支重复），
+    //   结果永远不执行 ⇒ 不带 --json 时只能看到兜底的 JSON。
+    console.log(`== migrate-dangling ${result.mode} ==`);
+    console.log(`target: ${result.target}`);
+    console.log(`sessions: ${result.sessions}｜merged ${result.merged}｜skipped ${result.skipped}`);
+    for (const one of result.perSession ?? []) {
+      const bad = one.errors.length ? ` errors ${one.errors.length}` : "";
+      console.log(`  · ${one.session}: merged ${one.merged} / skipped ${one.skipped}${bad}`);
+      for (const err of one.errors) console.log(`      ✗ ${err}`);
+    }
+    if (result.backupDirs.length) console.log(`backup: ${result.backupDirs.join(", ")}`);
+    if (result.errors.length) {
+      console.log("errors:");
+      for (const err of result.errors) console.log(`- ${err}`);
+    }
+    console.log(opts.applyMerge ? "（已回灌并重建 index.md）" : "（dry-run：什么都没写；加 --apply 才回灌）");
   } else if (opts.mode === "dry-run") {
     console.log("== migrate-dangling dry-run ==");
     console.log(`root: ${result.root}`);
