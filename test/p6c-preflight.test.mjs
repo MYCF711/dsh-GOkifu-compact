@@ -139,3 +139,23 @@ tests["p6c-preflight 只读：跑前跑后夹具整树 sha256 不变"] = (t) => 
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
 };
+
+tests["p6c-preflight 计数：进程名不存在时 procCount 必须是 0（tasklist 的本地化提示行不得被算成进程）"] = (t) => {
+  const { root, sessions } = makeFixture();
+  try {
+    // 墓碑测试（2026-10-31 事故）：中文 Windows 上 `tasklist /FI IMAGENAME eq <不存在>` 会打印
+    // 「信息: 没有运行的任务匹配指定标准。」，默认表格格式 + utf8 解码后首字符是 U+FFFD，
+    // 旧逻辑（过滤空行 + 不以 `INFO:` 开头）会把它算成 **1 个进程** ⇒ running=true ⇒ 预检永远拒绝，
+    // P6-C 停窗流程在「DSH 已完全退出」的情况下仍然报「退出码 1」。
+    // 这条用例在旧实现上必红（procCount=1、exit 1），在 /FO CSV 实现上必绿。
+    const r = run([`--root=${sessions}`, "--port=0", "--proc-name=definitely-not-a-real-process-xyz.exe", "--json"]);
+    t.ok(r.json !== null, "必须输出 JSON");
+    t.eq(r.json.runtime.procCount, 0, `无匹配进程时 procCount 必须为 0，实际 ${r.json.runtime.procCount}`);
+    t.eq(r.json.runtime.procApplicable, true, "Windows 上 procApplicable 必须为 true");
+    t.eq(r.json.runtime.running, false, "无端口、无进程时 running 必须 false");
+    t.eq(r.json.ready, true, "ready 必须 true");
+    t.eq(r.status, 0, `夹具就绪且 DSH 未运行时应 exit 0，实际 ${r.status}\n${r.out}`);
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
