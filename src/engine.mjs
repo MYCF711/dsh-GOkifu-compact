@@ -331,6 +331,21 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   }
   /* ────────────────────────── 摘要（唯一官方钩子） ────────────────────────── */
 
+  /**
+   * ★ S3（task-186）：把「本次 fold 的摘要来源」写进图（auto 与 manual 都经过 summarize）。
+   *   `lastFoldMode` = "rules" | "hybrid" | "llm"；`lastFoldDegraded` 是同一个事实的布尔别名
+   *   （热清单/诊断读哪个都行）。写失败绝不影响摘要本身。
+   */
+  #markFoldMode(g, mode) {
+    try {
+      if (g === null || typeof g !== "object") return;
+      g.lastFoldMode = mode;
+      g.lastFoldDegraded = mode === "rules";
+    } catch {
+      /* 图不可写时不打断摘要 */
+    }
+  }
+
   async summarize(input, agent, signal) {
     const session = agent.session;
     const g = this.#graph(session);
@@ -352,11 +367,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       model: routed?.model ?? "rules",
     });
 
-    if (mode === "rules") return ruleResult();
+    if (mode === "rules") {
+      this.#markFoldMode(g, "rules");
+      return ruleResult();
+    }
 
     const target = summarizeTarget(this.chess, session, agent);
     if (target === undefined) {
-      if (mode === "hybrid") return ruleResult();
+      if (mode === "hybrid") {
+        this.#markFoldMode(g, "rules");
+        return ruleResult();
+      }
       throw new Error("chess-context: no provider/model available for summarization");
     }
 
@@ -431,6 +452,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       this.ctx.logger?.warn?.(
         `chess-context: 摘要模型全部不可用（${String(error?.message ?? error)}）——退回规则摘要（零模型调用），保证 fold 能落地`,
       );
+      this.#markFoldMode(g, "rules");
       return {
         summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
         rawOutput: undefined,
@@ -462,6 +484,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryProvider = used.provider;
       this._lastSummaryModel = used.model;
     }
+    this.#markFoldMode(g, mode);
     return {
       summary,
       rawOutput: raw,
@@ -660,7 +683,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       pricedNodes: measurement.nodes,
       eventAt: (seq) => session.eventAt(seq),
       retainTokens: spec.retainTokens,
-      minFoldTokens: this.chess.minFoldTokens,
+      // ★ S4：用 resolveSpec 算出的窗口缩放值；overflow 路径没有 spec.minFoldTokens ⇒ 回落配置值
+      minFoldTokens: spec.minFoldTokens ?? this.chess.minFoldTokens,
       overflow,
       balancedBefore: (seq) => toolPairingBalancedBefore(session, seq),
       balancedAfter: (seq) => toolPairingBalancedAfter(session, seq),
@@ -748,6 +772,7 @@ function resolvePolicy(chess, target) {
     headroomTokens: chess.headroomTokens,
     retainRatio: chess.retainRatio,
     retainTokens: chess.retainTokens,
+    minFoldTokens: chess.minFoldTokens,
   };
 }
 
@@ -778,7 +803,15 @@ function resolveSpec(policy, contextWindow, reservedCompletionTokens, firstFold 
   if (retainTokens >= thresholdTokens) {
     throw new Error(`chess-context: retainTokens (${retainTokens}) must be less than threshold (${thresholdTokens})`);
   }
-  return { thresholdTokens, retainTokens, contextWindow };
+  // ★ S4（task-186）：minFoldTokens 默认按窗口缩放 —— `max(8000, 窗口×0.08)`。
+  //   旧默认恒 8000：小窗口下「1.2 步就够 fold」的夹具会被反复触发（每步都在压）。
+  //   显式配置优先：`minFoldTokens` 只要不是默认哨兵值 8000（preset 模板总写 8000 ⇒ 无法区分
+  //   「没配」与「配了默认值」），就按用户给的值走。
+  const DEFAULT_MIN_FOLD = 8000;
+  const configuredMinFold = Number(policy.minFoldTokens);
+  const scaledMinFold = Math.max(DEFAULT_MIN_FOLD, Math.floor(contextWindow * 0.08));
+  const minFoldTokens = Number.isFinite(configuredMinFold) && configuredMinFold !== DEFAULT_MIN_FOLD ? configuredMinFold : scaledMinFold;
+  return { thresholdTokens, retainTokens, contextWindow, minFoldTokens };
 }
 
 function summarizeTarget(chess, session, agent) {
