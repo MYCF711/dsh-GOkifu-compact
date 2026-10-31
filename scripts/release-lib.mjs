@@ -103,24 +103,40 @@ export function runTransaction(steps, opts = {}) {
 }
 
 /**
- * 从 CHANGELOG 某节里读出「N 个测试文件」的**声明**。
+ * 从 CHANGELOG 某节里读出**所有**「N 个测试文件」的声明。
  * 支持这些写法（本仓历史都用过）：
- *   `（37 个测试文件）` · `（37 个测试文件；481 + 5）` · `37 个测试文件`
+ *   `（37 个测试文件）` · `（37 个测试文件；481 + 5）` · `37 个测试文件` · `**42** 个测试文件`
+ * @returns {number[]} 没写就是空数组（不是错误）
+ */
+export function declaredTestFilesAll(section) {
+  const text = String(section ?? "")
+  const re = /(\d+)\s*\*{0,2}\s*个测试文件/g
+  const out = []
+  let m
+  while ((m = re.exec(text)) !== null) out.push(Number(m[1]))
+  return out
+}
+
+/**
+ * 从 CHANGELOG 某节里读出「N 个测试文件」的**声明**（第一个）。
  * @returns {number|null} 没写就返回 null（不是错误）
  */
 export function declaredTestFiles(section) {
-  // 允许 markdown 强调：`42 个测试文件` 与 `**42** 个测试文件` 都要能读出来
-  const m = String(section ?? "").match(/(\d+)\s*\*{0,2}\s*个测试文件/)
-  return m ? Number(m[1]) : null
+  const all = declaredTestFilesAll(section)
+  return all.length > 0 ? all[0] : null
 }
 
 /**
  * 校验「N 个测试文件」的声明与实际发现的 `test/*.test.mjs` 数量是否一致。
  *
- * **三态**（这是 task-160 的契约）：
+ * **三态**（task-160 的契约）：
  *   · 一致     ⇒ `{ ok: true,  declared: N }`
  *   · 不一致   ⇒ `{ ok: false, declared: N, reason }` —— 发布必须被拦住
  *   · 没有声明 ⇒ `{ ok: true,  declared: null }` —— 不报错（允许不写这个数）
+ *
+ * ⚠ 一节里可能出现**多个**数字（例如正文引用了旧版报错原文）。那种情况按「**全部都要等**」判：
+ * 只要出现一个不等于实际的数字就红，并把所有值列出来 —— 否则这段文档自己就是一锅粥，
+ * 门禁被自己的举例骗过（1.11.9 起草时真实发生过）。
  *
  * 为什么要有这条：本仓 CHANGELOG 长期写「N 个测试文件」，而 N 从 1.11.5 起就停在 37、
  * 实际已经 42 —— 数字漂了 5 个版本没人发现。用户会拿这个数判断覆盖面。
@@ -129,17 +145,24 @@ export function declaredTestFiles(section) {
  * @param {number} actual 实际 `test/*.test.mjs` 文件数
  */
 export function checkTestFileCount(section, actual) {
-  const declared = declaredTestFiles(section)
-  if (declared === null) return { ok: true, declared: null, actual }
-  if (declared === actual) return { ok: true, declared, actual }
+  const all = declaredTestFilesAll(section)
+  if (all.length === 0) return { ok: true, declared: null, actual, declaredAll: [] }
+  const declared = all[0]
+  const bad = all.filter((n) => n !== actual)
+  if (bad.length === 0) return { ok: true, declared, actual, declaredAll: all }
+  const distinct = [...new Set(all)]
   return {
     ok: false,
     declared,
     actual,
+    declaredAll: all,
     reason:
-      `CHANGELOG 写的「${declared} 个测试文件」与实际 ${actual} 个不符 —— ` +
-      `改了测试文件就必须同步这句（或删掉它，脚本不会因此报错）。` +
-      `实际值怎么数：ls test/*.test.mjs | wc -l（看历史版本：` +
-      `git ls-tree -r --name-only <tag>^{commit} test/ | grep -c '\\.test\\.mjs$'）`,
+      distinct.length > 1
+        ? `CHANGELOG 这一节里出现了多个不一致的「N 个测试文件」：${distinct.join(" / ")}（实际 ${actual} 个）—— ` +
+          `一处写对、另一处写错同样会误导；引用旧数字时请用占位符（如「N 个测试文件」），别写真实旧值`
+        : `CHANGELOG 写的「${declared} 个测试文件」与实际 ${actual} 个不符 —— ` +
+          `改了测试文件就必须同步这句（或删掉它，脚本不会因此报错）。` +
+          `实际值怎么数：ls test/*.test.mjs | wc -l（看历史版本：` +
+          `git ls-tree -r --name-only <tag>^{commit} test/ | grep -c '\\.test\\.mjs$'）`,
   }
 }

@@ -20,7 +20,7 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { parseRepo, classifyRemote, runTransaction, checkTestFileCount, declaredTestFiles } from "../scripts/release-lib.mjs";
+import { parseRepo, classifyRemote, runTransaction, checkTestFileCount, declaredTestFiles, declaredTestFilesAll } from "../scripts/release-lib.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -237,4 +237,17 @@ t["TG-COUNT-4 解析容错：`**42** 个测试文件` / `42 个测试文件；49
     if (got !== 42) throw new Error(`解析失败：${JSON.stringify(c)} ⇒ ${got}`);
   }
   if (declaredTestFiles("没有任何数字声明") !== null) throw new Error("无声明应返回 null");
+};
+
+t["TG-COUNT-5 一节里出现多个数字：全部都要等于实际，否则红并列出所有值"] = () => {
+  // 真实场景：正文引用了旧版报错原文（含 37），汇总行写 42 —— 门禁不能被自己的举例骗过
+  const mixed = "旧版写（37 个测试文件），这次是（42 个测试文件）";
+  const r = checkTestFileCount(mixed, 42);
+  if (r.ok) throw new Error("一节里 37 与 42 并存必须判红（否则门禁被自己的举例骗过）");
+  if (!r.reason.includes("37") || !r.reason.includes("42")) throw new Error("理由要列出所有值：" + r.reason);
+  if (!r.reason.includes("占位符")) throw new Error("理由要说明「引用旧数字请用占位符」：" + r.reason);
+  if (declaredTestFilesAll(mixed).join(",") !== "37,42") throw new Error("应读出全部值：" + declaredTestFilesAll(mixed));
+  // 全一致则放行
+  const okAll = checkTestFileCount("（42 个测试文件）\n…（**42** 个测试文件）", 42);
+  if (!okAll.ok) throw new Error("全部一致应放行：" + JSON.stringify(okAll));
 };
