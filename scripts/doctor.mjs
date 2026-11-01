@@ -227,6 +227,9 @@ let newestFlush = 0;
 let lastFold = null;
 /** ★ P2-2（task-192）：跨会话收集 foldMarks（带 session 名），供「最近 5 次 fold」展示。 */
 const recentFoldMarks = [];
+/** ★ 2026-11-01：出现「压缩无效」的会话数 / 最深连续次数。 */
+let thrashGraphs = 0;
+let maxThrash = 0;
 let todayFolds = 0;
 let todayShadow = 0;
 let todaySessions = 0;
@@ -265,6 +268,11 @@ if (nodeFs.existsSync(chessRoot)) {
       }
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
+      // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 连续两次 fold 间隔 < 30 事件的会话数。
+      if (typeof g.foldThrash === "number" && g.foldThrash >= 2) {
+        thrashGraphs += 1;
+        maxThrash = Math.max(maxThrash, g.foldThrash);
+      }
       const todayMarks = marks.filter((m) => (m.at ?? 0) >= today0);
       if (todayMarks.length > 0) todaySessions += 1;
       todayFolds += todayMarks.length;
@@ -338,6 +346,14 @@ add(
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+  // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 与有没有 fold 记录无关，单独一行。
+  add(
+    "压缩无效（thrashing）",
+    thrashGraphs === 0 ? "ok" : "warn",
+    thrashGraphs === 0
+      ? "没有会话出现「连续两次 fold 间隔 < 30 事件」"
+      : `${thrashGraphs} 个会话出现压缩未回收足够空间（最深连续 ${maxThrash} 次）—— 热清单里会有 ⚠ 提示`,
+  );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
 /* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──
