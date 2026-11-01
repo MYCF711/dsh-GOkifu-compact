@@ -165,6 +165,7 @@ tests["C66-4 热清单预算：无 ledger-budget.json ⇒ warn 未采集；分�
       sectionsAvg: { root: 100, constraints: 100, failures: 600, options: 0, unverified: 0, path: 100, other: 0, total: 900 },
       minimalRenders: 7,
       renderErrors: 3,
+      skipReasons: { identical: 12, "throttled-events": 4, "no-ledger": 2 },
       updatedAt: Date.now(),
     },
   });
@@ -177,6 +178,9 @@ tests["C66-4 热清单预算：无 ledger-budget.json ⇒ warn 未采集；分�
     t.eq(String(budget.detail).includes("最小清单"), true, `预算行应带最小清单次数：${budget.detail}`);
     // C90：注入渲染失败必须在预算行可见（否则「本该注入却没注入」在指标里消失）
     t.eq(String(budget.detail).includes("注入渲染失败 3 次"), true, `预算行应带渲染失败次数：${budget.detail}`);
+    // C91：跳过原因分布（前 3 名）要出现在预算行
+    t.eq(String(budget.detail).includes("跳过分布"), true, `预算行应带跳过分布：${budget.detail}`);
+    t.eq(String(budget.detail).includes("identical=12"), true, `分布要带具体原因与次数：${budget.detail}`);
     const sections = r.find("热清单分项占用");
     t.eq(!!sections, true, "必须有分项占用检查项");
     t.eq(String(sections.detail).includes("失败边"), true, `detail 应给出失败边占比：${sections.detail}`);

@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C91 · 注入跳过原因分布（「热清单到底在哪一步被省掉」）
+
+**问题**：C90 记了「渲染失败」这一种跳过，但注入被省掉还有多种正常原因
+（`identical` 内容没变 / `throttled-events` 限流 / `no-ledger` 空图 …）——
+它们不是缺陷，但**分布**没人看得见，因此「注入到底省了多少步」一直是个盲区。
+
+**做法**：
+
+- 纯函数 **`skipReasonKey(result)`**（普通 skip ⇒ 原因键；`error:` 仍归 `renderErrors`，不重复记）；
+- 纯函数 **`bumpSkipReason(map, key, limit=8)`**：有界累加，超过 8 个键后新键归 `other`（防统计表被撑爆）；
+- engine 记账到 `ledgerBudget.skipReasons`（每累计 20 次落一次盘，避免每步写文件）；
+- doctor 预算行显示 **「跳过分布 identical=N / throttled-events=M / …」（前 3 名）**。
+
+**测试**：engine-harness 六条断言（普通原因计入 / `error:` 不计 / 成功不计 / 累加 / 有界归并 / 已有键仍可累加），
+doctor-cli 断言分布出现在预算行（含具体 `identical=12`）。
+
 ### C90 · 注入渲染失败的可观测性（此前只在日志里，指标里完全消失）
 
 **问题**：`decideInjection` 的 catch 会返回 `{action:"skip", reason:"error:…"}` 并只写一行 warn 日志 ——

@@ -1031,6 +1031,16 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (mod.injectionErrorDelta({ action: "skip", reason: "no-ledger" }) !== 0) throw new Error("普通 skip 不许计错");
   if (mod.injectionErrorDelta({ action: "append" }) !== 0) throw new Error("成功注入不许计错");
   if (mod.injectionErrorDelta(null) !== 0) throw new Error("null 不许抛/计数");
+  // ★ C91：跳过原因分布（error: 交给 renderErrors，不在这里重复记）
+  if (mod.skipReasonKey({ action: "skip", reason: "identical" }) !== "identical") throw new Error("普通跳过要记原因");
+  if (mod.skipReasonKey({ action: "skip", reason: "error:boom" }) !== null) throw new Error("error: 不许重复记");
+  if (mod.skipReasonKey({ action: "append" }) !== null) throw new Error("成功注入不记原因");
+  const bumped = ["a", "a", "b"].reduce((m, k) => mod.bumpSkipReason(m, k), {});
+  if (bumped.a !== 2 || bumped.b !== 1) throw new Error(`分布累加错：${JSON.stringify(bumped)}`);
+  // 有界：超过 8 个键后新键一律归 other
+  const many = ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9"].reduce((m, k) => mod.bumpSkipReason(m, k), {});
+  if (many.k9 !== undefined || many.other !== 1) throw new Error(`有界归并错：${JSON.stringify(many)}`);
+  if (many.k1 !== 1) throw new Error("已有键仍要正常累加");
   // ★ C49：已列全失败边仍超 ⇒ budgetIrreducible（设计内）；还有更省形式（shown < count）⇒ 不计
   const irre = mod.accumulateLedgerBudget({}, {
     fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 300,

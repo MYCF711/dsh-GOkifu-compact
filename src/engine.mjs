@@ -88,6 +88,33 @@ export function injectionErrorDelta(result) {
   return typeof result.reason === "string" && result.reason.startsWith("error:") ? 1 : 0;
 }
 
+/**
+ * ★ C91：跳过原因分布（与 C90 的 renderErrors 互补）。
+ *   「注入没发生」有很多原因：identical（内容没变）/ throttled-events（限流）/ no-ledger（空图）…
+ *   它们都不是缺陷，但**分布**能回答「热清单注入到底在哪一步被省掉」。
+ *   error: 前缀交给 renderErrors（有形）单独计数，这里不重复记。
+ * @returns {string|null} 要计入分布的原因键（null = 不计）
+ */
+export function skipReasonKey(result) {
+  if (result === null || typeof result !== "object") return null;
+  if (result.action !== "skip") return null;
+  const reason = typeof result.reason === "string" ? result.reason : "";
+  if (reason === "" || reason.startsWith("error:")) return null;
+  return reason;
+}
+
+/** 有界累加：最多记 8 个原因键，其余归 "other"（防止某个极端 reason 把统计表撑爆）。 */
+export function bumpSkipReason(map, key, limit = 8) {
+  if (!key) return map;
+  const stats = map && typeof map === "object" ? map : {};
+  if (stats[key] !== undefined || Object.keys(stats).length < limit) {
+    stats[key] = (Number.isFinite(stats[key]) ? stats[key] : 0) + 1;
+  } else {
+    stats.other = (Number.isFinite(stats.other) ? stats.other : 0) + 1;
+  }
+  return stats;
+}
+
 export function ledgerBudgetMetrics(ledger) {
   const fallback = ledger && typeof ledger.fallback === "string" ? ledger.fallback : "未采集";
   return {
@@ -472,6 +499,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         if (injectionErrorDelta(result) === 1) {
           this.ledgerBudget.renderErrors = (Number.isFinite(this.ledgerBudget.renderErrors) ? this.ledgerBudget.renderErrors : 0) + 1;
           this.#persistLedgerBudget();
+        }
+        // ★ C91：跳过原因分布（identical / throttled-events / no-ledger …），每 20 次落一次盘即可
+        const skipKey = skipReasonKey(result);
+        if (skipKey !== null) {
+          this.ledgerBudget.skipReasons = bumpSkipReason(this.ledgerBudget.skipReasons, skipKey);
+          const total = Object.values(this.ledgerBudget.skipReasons).reduce((sum, n) => sum + n, 0);
+          if (total % 20 === 0) this.#persistLedgerBudget();
         }
         return result.decision;
       } catch (error) {
