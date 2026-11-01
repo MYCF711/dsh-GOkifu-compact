@@ -89,3 +89,9 @@ tests["C112 每个回滚点（restore()）之后必须走 tree 落盘"] = (t) =>
     t.includes(window, "#flush(session, { tree: true })", `第 ${lineNo + 1} 行回滚后必须 tree 落盘（否则 index.md / nodes/*.md 与图不一致）`);
   }
 };
+
+tests["C113 engine 的回滚必须用 restoreFromSnapshot（不许裸 Object.assign）"] = (t) => {
+  const text = nodeFs.readFileSync(ENGINE, "utf8");
+  t.includes(text, "restoreFromSnapshot(g, graphSnapshot)", "回滚必须走 restoreFromSnapshot（连 dirty 一起清）");
+  t.eq(/Object\.assign\(g, fromJSON\(/.test(text), false, "不许再出现裸的 Object.assign(g, fromJSON(...)) —— 它会留下陈旧的 delNodes");
+};

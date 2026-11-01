@@ -22,7 +22,7 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-ai/dsh-compaction";
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
+import { restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
 import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
@@ -863,7 +863,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const graphSnapshot = toJSON(g);
     const restore = () => {
       try {
-        Object.assign(g, fromJSON(graphSnapshot));
+        // ★ C113：必须连 dirty 一起清 —— 否则失败尝试期间的 `delNodes` 会随下一个 delta 帧落盘，
+        //   下次 load 回放时把已恢复的节点再删一遍（重启后节点消失）。
+        restoreFromSnapshot(g, graphSnapshot);
       } catch {
         /* 快照本身坏了就放弃恢复（不掩盖原始错误） */
       }

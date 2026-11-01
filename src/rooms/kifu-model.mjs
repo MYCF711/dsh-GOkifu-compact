@@ -1035,6 +1035,22 @@ export function markEdgeDirty(g, id) {
   if (id) dirtyOf(g).edges.add(id);
 }
 /** 标记节点被删（order 里也要去掉）。 */
+/**
+ * ★ C113：从快照恢复图。**必须同时清 dirty**。
+ *
+ * 为什么单独做成函数：`Object.assign(g, fromJSON(snapshot))` 只覆盖图数据，
+ * 而 dirty 记账（`delNodes` / `orderDrop` …）不在快照的可枚举字段里 ⇒ 回滚后它**还留着**
+ * 失败尝试期间的删除记录。下一次非 full 落盘会把这个 delta 帧写进 `delta.jsonl`，
+ * 之后 `load` 回放时**把已经恢复的节点再删一遍** —— 下次重启后节点凭空消失。
+ *
+ * 快照本身是在干净状态下拍的，所以恢复后清 dirty 是语义上正确的。
+ */
+export function restoreFromSnapshot(g, snapshot) {
+  Object.assign(g, fromJSON(snapshot));
+  clearDirty(g);
+  return g;
+}
+
 export function markNodeDeleted(g, id) {
   if (!id) return;
   const d = dirtyOf(g);

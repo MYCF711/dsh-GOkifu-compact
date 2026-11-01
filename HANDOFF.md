@@ -123,6 +123,7 @@
 | **C110 节点文档一致性（2026-11-02）** | 缺 `nodes/<id>.md` = 热清单省略行空指针 ⇒ doctor 新增检查（缺 warn / 陈旧仅计数）；live 24 会话：缺 0、陈旧 94；纯函数 `node-docs.mjs` + 2 例 + doctor-cli 1 例；夹具陷阱：makeHome 默认会话也要补 |
 | **C111 陈旧 md 自愈（2026-11-02）** | 94 个陈旧 `nodes/*.md` 全部紧邻 maxNode = 「写了又回滚」残骸；`tree` 落盘时删掉「不在图里」的 `n<数字>.md`（其它文件不碰、失败静默）；测试 C111 + **C111-2 假 port 接口必须与 createFsPort 一致**（缺 readdirSync 会被 catch 吞掉） |
 | **C112 回滚后 tree 落盘（2026-11-02）** | 三处 restore() 后的 flush 从非 tree 改为 tree:true：index.md 不会停在回滚前、nodes/*.md 当场自愈（94 残骸的根因）；静态 C112 + 行为 C112（删节点后索引必须同步） |
+| **C113 回滚清 dirty（2026-11-02）** | 裸 `Object.assign(g, fromJSON(snap))` 回滚会留下失败尝试的 `delNodes` ⇒ 下一个 delta 帧落盘后，load 回放把已恢复节点再删一遍；新增 `restoreFromSnapshot`（图+dirty 一起回到快照）+ 静态禁用裸 assign；测试 C113-1（记录 bug）/C113-2（修复语义） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

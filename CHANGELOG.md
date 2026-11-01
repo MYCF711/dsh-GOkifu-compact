@@ -5,6 +5,29 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C113 · 回滚必须连 dirty 一起清（否则下次 load 会把恢复的节点再删一遍）
+
+**真实风险链（本轮查实）**：
+
+1. fold 期间 `backfillState` 会合并节点 ⇒ dirty 记下 `delNodes: [n2]`；
+2. fold 失败 / 选中范围为空 ⇒ engine 用快照恢复图；
+3. 但 `Object.assign(g, fromJSON(snapshot))` **只覆盖图数据**，dirty 记账不是可枚举快照字段 ⇒ 回滚后
+   `delNodes` 还留着；
+4. 下一次非 full 落盘把这个 delta 帧写进 `delta.jsonl`；
+5. 之后 `load` 回放 delta ⇒ **把已经恢复的节点再删一遍** —— 重启后节点凭空消失。
+
+**做法**：`kifu-model` 新增 **`restoreFromSnapshot(g, snapshot)`**（恢复图 + `clearDirty`），
+engine 的 `restore()` 改用它；并加静态判据禁止再出现裸 `Object.assign(g, fromJSON(...))`。
+
+**测试**：
+
+- **C113-1**（记录 bug 本体）：只 `Object.assign` 时 `deltaFromDirty` 确实带 `delNodes: [n2]`；
+- **C113-2**（修复语义）：`restoreFromSnapshot` 后 dirty `empty`、delta 无任何删除；
+- **静态**（`fold-mark-sites` C113）：engine 必须用 `restoreFromSnapshot`，不许裸 assign。
+
+★ 这条和 C112 是同一片区域的第二层：C112 修「回滚后 index/nodes 没跟上图」，本轮修「回滚后 **delta 记账**没跟上图」。
+两层都坏着的后果叠加起来就是：重启后既看到旧索引、又丢节点。
+
 ### C112 · 回滚后必须 `tree` 落盘（`index.md` 不许停在回滚前）
 
 **问题**：engine 有三处「恢复图快照」的路径（`range === null` / fold 抛错 / fold 返回 null），
