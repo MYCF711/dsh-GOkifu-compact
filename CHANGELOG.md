@@ -64,6 +64,11 @@
    `{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476,
    usage:{inputTokens:16595, outputTokens:934}}` ⇒ **压缩事件确实走 GOkifu 的棋谱摘要**，不是官方 8 段模板。
 
+6. **官方安装流程**：干净 profile（只含 `dsh-base` + `dsh-web-app`）跑
+   `dsh plugin --profile installprobe add D:/主工作区/repos/dsh-GOkifu-compact` —— 依赖自动写入、
+   **`dsh.profile.bundles` 自动追加本包**，随后 `--dump-config` 里四个 preset 行全部带引擎行。
+   GUI 插件市场点「安装」走的是同一条通道，所以「一键安装、无需手改 YAML」成立。
+
 单测：`node test/run.mjs` = **615 passed / 0 skipped / 0 failed**（串行；改 `bundle.test.mjs` B-2 为「UI 行 + 四个 preset 覆盖」的断言）。
 
 ### 已知代价与边界
