@@ -390,3 +390,67 @@ tests["C90 坏图时注入必须降级为 skip(error:)，绝不把异常抛给�
   t.eq(String(result.reason).startsWith("error:"), true, `reason 必须是 error: 前缀（供统计识别）：${result.reason}`);
   t.eq(result.decision.kind, "enter", "原 decision 必须原样返回（对话不中断）");
 };
+
+/* ───────────────────── C129：随机化不变量 ───────────────────── */
+
+/** 确定性 PRNG（mulberry32）。 */
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = a;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function graphWithNFailures(n) {
+  const g = createGraph({ sessionId: "prop", cwd: "D:/tmp/proj" });
+  const st = makeState();
+  observeEvent(g, userEvent("让测试变绿", 1), st);
+  for (let i = 0; i < n; i += 1) {
+    const seq = 10 + i * 4;
+    observeEvent(g, assistantEvent(`p${i}`, "bash", { command: `npm test --case=${i}` }, seq), st);
+    if (i === 0) {
+      observeEvent(g, resultEvent(`p${i}`, "AssertionError: boom", seq + 1, true), st);
+    } else {
+      // 失败边需要有终点，才不会被当成残留
+      observeEvent(g, resultEvent(`p${i}`, `ERR_${i}: unique failure ${i}`, seq + 1, true), st);
+    }
+  }
+  return g;
+}
+
+tests["C129 随机化不变量：任何输入都不崩，动作合法，注入的消息必须带 <chess-ledger>"] = (t) => {
+  const rand = rng(20261102);
+  for (let i = 0; i < 15; i += 1) {
+    const failures = Math.floor(rand() * 13); // 0..12
+    const g = graphWithNFailures(failures);
+    const session = makeSession();
+    const state = makeState();
+    const before = run(session, g, state);
+
+    t.eq(["append", "replace", "skip"].includes(before.action), true, `第 ${i + 1} 组（failures=${failures}）动作非法：${before.action}`);
+    if (before.action === "skip") {
+      t.eq(Array.isArray(before.decision.messages), true, `第 ${i + 1} 组 skip 时也必须返回 decision`);
+      continue;
+    }
+    const ledger = before.decision.messages.find((m) => m.source?.kind === "chess-context");
+    t.eq(!!ledger, true, `第 ${i + 1} 组注入后必须有一条 chess-context 消息`);
+    t.includes(messageText(ledger), "<chess-ledger>", `第 ${i + 1} 组注入的消息必须带 <chess-ledger> 骨架`);
+
+    // 提交后：再加失败边 + 推进事件，第二次决策也必须合法
+    commitAppend(session, before);
+    for (let k = 0; k < Math.floor(rand() * 4); k += 1) {
+      const seq = 400 + i * 10 + k * 2;
+      observeEvent(g, assistantEvent(`q${i}-${k}`, "bash", { command: `false ${k}` }, seq), state);
+      observeEvent(g, resultEvent(`q${i}-${k}`, `ERR_${i}_${k}: late`, seq + 1, true), state);
+    }
+    session.setSeq(session.seq + Math.floor(rand() * 60));
+    const after = run(session, g, state);
+    t.eq(["append", "replace", "skip"].includes(after.action), true, `第 ${i + 1} 组第二次动作非法：${after.action}`);
+    const ledgers = after.decision.messages.filter((m) => m.source?.kind === "chess-context");
+    t.eq(ledgers.length <= 2, true, `第 ${i + 1} 组决策里 chess-context 消息不该超过 2 条（实际 ${ledgers.length}）`);
+  }
+};
