@@ -1,11 +1,81 @@
 # dsh-GOkifu-compact · 交接文件
 
-> 2026-10-31 · 给下一个会话
+> 2026-11-01 · 给下一个会话
 > **先读这一页，再读 `docs/最终报告.md`。不要重新推导。**
-> 当前版本 **1.11.14**（npm latest 同值）；单测 **542 / 0 skipped / 0 failed**（45 个测试文件）。
-> **⚠ 桌面 live 仍停在 1.11.2** —— npm 发了不等于用上了；升级要改 profile 依赖并重装（属「运行中禁改 profile」风险面，需停窗或走安装器）。
+> 当前版本 **1.12.0**（**未发布**：无 tag、npm `latest` 仍是 1.11.17）；单测 **577 / 0 skipped / 0 failed**（**49 个测试文件**）。
+> **⚠ 桌面 live 里本插件一个版本都没装**（11-01 14:15 重建的新 home）—— 不是「停在旧版本」，是「0 个版本」。
+> 装回去要先改清单过版本闸、再走官方插件通道、再重建 preset 的引擎行 ⇒ 见下方「新版 DSH 适配」。
 
-## ⚠ 最新状态（2026-10-31 · 1.11.14）
+## ⚠ 最新状态（2026-11-01 · 1.12.0 · 未发布）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.12.0**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.12.0`） |
+| tag / npm | **都没有** —— 本版只存在于工作树；`npm latest` 仍是 **1.11.17**。发版命令是 `node scripts/release.mjs --yes`（annotated tag + npm publish + GitHub Release，见 `AGENTS.md:127` 与 `check-maintenance` 的 tag 断言） |
+| 单测 | **577 passed / 0 skipped / 0 failed**（**49 个测试文件**）· `install-link` 29/0 · `ws-install` 19/0 · `ui` 54/0 · `engine-harness` 43/0 · `rooms` 15/0 · `p6c-preflight` 6/0 · `preset-discovery` 7/0 · `preset-wiring` 4/0 · `bundle` 6/0 |
+| 安装校验（**真实新 home**） | `node test/verify-install.mjs` **18 项 = 13 ✗ / 5 !**；`node scripts/doctor.mjs` **错误 1 / 警告 11** —— 都是「插件还没装」的必然结果，**不是本版缺陷**（没为凑绿去动 live） |
+| `check-maintenance` | **8 通过 / 0 警告 / 1 失败** —— 唯一失败是「当前版本 1.12.0 有 tag」，属**发版步骤未执行** |
+| **桌面 live** | **0 个版本**：`profiles/desktop/package.json` 无本包依赖、`dsh.profile.bundles` 无本包、`<home>/chess-context` 不存在。上一版收益**一条都没生效** |
+| 下一步（唯一档停的事） | **重装到新 home** —— 需**停机窗口 + 主人授权 + 主人重启**；三段顺序见下方「新版 DSH 适配」。**不要只手改 `package.json` 加 `link:`**（会被插件管理器抹掉） |
+
+> 其余仍未做：**M2/M3**（UI 暂停中）· **tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）· **`README:3` / 本文件版本号都没有门禁**（`check-maintenance` 不读它们）。
+
+### 已了结的旧账（2026-11-01 复核，别再当待办）
+
+- **P6-C 真实 apply 已经执行了**（旧版本文件写「仍未执行」，是错的）：`D:\主工作区\tmp\dsh-gokifu-compact\LIVE-APPLY-2026-10-31T14-20-18-959Z.log`
+  → preflight **exit 0**（176 会话 / 30,341,323 B）→ dry-run → `--apply` → `migrate verify … "ok": true`、
+  **`archived=6219 deleted=6219 sessions=48`**、`[exit 0]`（2026-10-31 22:20 本地）。整目录备份在
+  `D:\主工作区\tmp\dsh-gokifu-compact\live-apply-backup-2026-10-31T14-20-18-959Z\`。
+  **没做完的是「重启后读日志验收」** —— 而 11-01 的 home 重建让那一步**永久不可复现**。
+- **S1b（清理 2 张历史自环图）可关**：对上述归档快照实测 `test/rewash-selfloop.mjs` dry-run
+  = **176 个 graph.json / 0 个含自环 / 全库自环 0 / 37,194 = 0.0%**（点名的两张图仍在，但已无自环）。
+
+## 新版 DSH 适配（0.2.1-rc.5）—— 装回去之前必读
+
+> 完整方案（逐行源码实测）：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\compat-deploy.md`。
+> 本节只留结论与顺序，别整段抄。
+
+**三道版本闸（缺一不可，全在宿主 `dsh-app-boot` 里）**
+
+| # | 时机 | 不满足的后果 |
+|---|---|---|
+| ① | 安装前 `installBundle` 的兼容性检查 | **直接拒装**（`incompatible-version`），pnpm 都没跑 |
+| ② | 启动：bundle 层 `evaluatePluginCompatibility` | **整层 patch 静默跳过**（源码注释原话 "nothing is printed"）⇒ UI 行也不会被插入 |
+| ③ | 启动：行级 `preflight()` | 该行被 `disabled`，往 stderr 打一行 |
+
+②③ 只认 profile 自己的豁免文件 `$DSH_HOME/profiles/<p>/compatibility.json`（键必须是精确 `name@version`，
+**插件升级与 DSH 升级都不继承**）。
+
+**本版已把闸门改成「说真话」**：4 个 `@deepseek-ai/dsh-*` peer `0.2.0-rc.2` → `^0.2.0-rc.2`（**条目一条都没删** ——
+peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 range 能过闸**依赖宿主继续传
+`{ includePrerelease: true }`**（实测见 CHANGELOG 1.12.0 的 F1 节）。
+
+**三段重装（停机窗口里按序做，任一步失败就停在原状）**
+
+1. **过闸** —— 本版已改好清单，正常情况无需豁免；若要用旧包，走官方
+   `dsh plugin --profile desktop allow-version <pkg@ver> --dsh-version <exact> --accept-risk`。
+2. **装 bundle** —— 走**官方插件通道**（Web 侧栏 Plugins 页 / `plugin_manager` 的 `install_bundle` / `dsh plugin add`）。
+   **不要**用插件自带的 `node scripts/cli.mjs install`：它会去读已不存在的 `preset-bundles/`、往 profile patch 手写 UI 行
+   （与 bundle 通道只能二选一，双挂载 = `duplicate prefix route` 启动失败）、且完全不知道版本闸。
+3. **重建 preset 的引擎行** —— 引擎**不能**放在 profile/bundle 级 patch，必须替换 **preset 的 compaction group**
+   里的 `- id: compaction-basic`。做法：新建自己的 preset bundle（**别整份覆盖官方 `standard`**，那等于冻结快照会丢新版新增行），
+   在它的 `plugins[compaction].config` 里写 `- id: gokifu-compact` / `name: 'dsh-gokifu-compact/engine'`，
+   **保留** `command-compact` 与 `tool-result-pruner` 两行。
+
+**两条硬教训（都有磁盘证据，别再踩）**
+
+1. **「安装态与 preset 必须同源」，而手加的 `link:` 会被插件管理器抹掉**：2026-10-31 22:02:22 DSH 插件管理器重写
+   `profile/package.json` 时是**按自己的托管清单重建**，把插件 `cli.mjs install` 手加的 `link:` 依赖与 bundle 项一起丢了
+   （现场备份 `D:\主工作区\.trash\2026-10-31\live-profile-before-gokifu-reinstall\package.json`），而 preset 还指着它
+   ⇒ 所有相关 resume 报 `gokifu-compact (dsh-gokifu-compact): never started (gateway/internal)`。
+   **⇒ 必须走官方通道装，不要只手改 package.json。**
+2. **引擎名必须写 `dsh-gokifu-compact/engine`**，不能写包根：包根 `exports["."]` → `src/ui.mjs` 是 UI host，
+   DSH 会把 UI host 当压缩引擎，**装回去了照样挂**。
+
+> 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1306 B / 39 CRLF / 无 BOM）；
+> UTF-8 编辑器保存会让它静默失效。`live` 若用 `link:` 指向工作树，则**工作树里任何未提交改动重启后都会被直接加载**。
+
+## 历史状态（2026-10-31 · 1.11.14）—— **已被上方取代，留作时间线**（本节「P6-C 仍未执行 / live=1.11.2」两处与事实不符，见上方「已了结的旧账」与「最新状态」）
 
 | 项 | 值 |
 |---|---|
@@ -196,6 +266,11 @@ sessions/<sessionId>/
 | `evidence/` | 17 个证据文件（含 `P0-worldhash-修复验证.md`） |
 
 ## 未完成（按优先级）
+
+> **2026-11-01 复核：这一节是 2026-10-29 的旧清单，只有历史价值。**
+> 当前真正的「未完成」只有两件：**① 重装到新 home**（见顶部「最新状态」与「新版 DSH 适配」）；
+> **② 重建 preset 的 compaction group 行**（引擎名 `dsh-gokifu-compact/engine`）。
+> 下表第 1 项早已完成，第 4–6 项是旧 home 的数据问题，**新 home 上没有那些数据**（`<home>/chess-context` 不存在）。
 
 > 2026-10-29：goal 当前阶段的 ①–⑤ 全部完成（各有可复跑脚本 + 证据文件，见下方表格）。
 > 下面只剩「需要主人动一下」和「后续可选」两类。

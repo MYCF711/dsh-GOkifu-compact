@@ -25,7 +25,10 @@ import { verifyInstall } from "./verify-install.mjs";
 const WIN = process.platform === "win32";
 const PKG = "dsh-gokifu-compact";
 const PRESET = "personal-assistant";
-const MI = "0.2.0-rc.2";
+// F1（2026-11-01）：peer 写**范围**而不是精确版。宿主用
+// `semver.satisfies(runtime, range, { includePrerelease: true })` 判兼容；精确 `0.2.0-rc.2`
+// 在宿主 0.2.1-rc.5 上会被 installBundle 在 pnpm 之前拒绝、启动时整层 bundle 被静默跳过。
+const PEER_RANGE = "^0.2.0-rc.2";
 const REPO_DIR = nodePath.dirname(nodePath.dirname(fileURLToPath(import.meta.url)));
 
 export const tests = {};
@@ -50,13 +53,15 @@ function writePkg(dir, { name = PKG, main = "src/ui.mjs" } = {}) {
     name,
     version: "9.9.9-fixture",
     main,
+    // F1：夹具与真实清单同形状 —— 4 条 dsh peer 是范围，且声明 engines.dsh。
     peerDependencies: {
-      "@deepseek-ai/dsh-compaction-basic": MI,
-      "@deepseek-ai/dsh-compaction": MI,
-      "@deepseek-ai/dsh-llm": MI,
-      "@deepseek-ai/dsh-session": MI,
+      "@deepseek-ai/dsh-compaction-basic": PEER_RANGE,
+      "@deepseek-ai/dsh-compaction": PEER_RANGE,
+      "@deepseek-ai/dsh-llm": PEER_RANGE,
+      "@deepseek-ai/dsh-session": PEER_RANGE,
       "@deepseek-ai/schemastery": "^3.18.4",
     },
+    engines: { node: ">=20", dsh: PEER_RANGE },
   }, null, 2) + "\n");
   write(nodePath.join(dir, main), "export const fixture = true;\n");
 }
@@ -418,13 +423,13 @@ function verifyFixture(fixture, extra = {}) {
   return verifyInstall({ dshHome: fixture.home, profile: "desktop", preset: PRESET, ...extra });
 }
 
-tests["D1 正例：健康夹具必须 16/16 全绿（证明断言不是常量红）"] = (t) => {
+tests["D1 正例：健康夹具必须 18/18 全绿（证明断言不是常量红）"] = (t) => {
   const fixture = makeHome("d1");
   try {
     createDirLink(fixture.pkgSrc, linkDest(fixture.profileDir));
     const result = verifyFixture(fixture);
     const failedNames = result.checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.detail}`);
-    t.eq(result.checks.length, 16, "检查项数量");
+    t.eq(result.checks.length, 18, "检查项数量");
     t.eq(result.failed, 0, `健康夹具不该红：\n${failedNames.join("\n")}`);
   } finally {
     fixture.cleanup();

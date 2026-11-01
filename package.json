@@ -1,6 +1,6 @@
 {
   "name": "dsh-gokifu-compact",
-  "version": "1.11.17",
+  "version": "1.12.0",
   "description": "DSH context-compression backend with a go game record (kifu) DAG: node = position, edge = attempted move + result. Incremental fold (each span summarized once), failure memory that survives compaction, transposition detection (chess-engine style), and a tiny hot ledger rebuilt every step.",
   "repository": {
     "type": "git",
@@ -25,7 +25,8 @@
     "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": "^0.2.0-rc.2"
   },
   "files": [
     "src",
@@ -56,10 +57,10 @@
     "agent-memory"
   ],
   "peerDependencies": {
-    "@deepseek-ai/dsh-compaction": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-compaction-basic": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-compaction": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-compaction-basic": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependenciesMeta": {

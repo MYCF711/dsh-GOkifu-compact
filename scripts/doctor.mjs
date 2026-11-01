@@ -20,11 +20,21 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
+// ★ W5（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
+//   不再写死 `<home>/preset-bundles/personal-assistant/cordis.patch.yml` —— 新版 DSH 没有那个目录。
+//   选 `./install.mjs` 而不是 `../src/ui.mjs`：doctor 是 CLI 侧脚本，install.mjs 就在同目录、
+//   模块级零副作用；ui.mjs 是**宿主半**（webServer 路由 + DEFAULTS），CLI 不该为一段发现逻辑拉它进来。
+import { presetsWithCompaction } from "./install.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
 const profilePatch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
-const presetPatch = nodePath.join(home, "preset-bundles", "personal-assistant", "cordis.patch.yml");
+/* ★ W5：preset 两代兼容发现（新版：profiles/desktop/package.json 的 dsh.profile.bundles 声明的
+   bundle 包；旧版：<home>/preset-bundles/<dir>/cordis.patch.yml）。
+   语义：两代都没有 ⇒ warn「合法中间态」；有 preset 但没挂 gokifu 引擎行 ⇒ error。 */
+const presets = presetsWithCompaction(home, "desktop");
+/** 优先体检「已经挂了引擎行」的那个 preset；没有就取第一个（用于报「有 preset 但没挂」）。 */
+const preset = presets.find((p) => p.text.includes("dsh-gokifu-compact")) ?? presets[0] ?? null;
 const chessRoot = nodePath.join(home, "chess-context", "sessions");
 const sessionsRoot = nodePath.join(home, "sessions");
 
@@ -41,22 +51,31 @@ add(
   installOk ? "ok" : "error",
   installOk ? `${installState.declared} → ${installState.linked.realPath}` : installState.failure ?? installState.linkedPath,
 );
+const presetText = preset?.text ?? "";
+const hasOurName = presetText.includes("dsh-gokifu-compact");
+const hasNativeByName = /name:\s*'@deepseek-ai\/dsh-compaction-basic'/.test(presetText);
 add(
   "preset 引用了 dsh-gokifu-compact",
-  nodeFs.existsSync(presetPatch) && nodeFs.readFileSync(presetPatch, "utf8").includes("dsh-gokifu-compact") ? "ok" : "error",
-  presetPatch,
+  preset === null ? "warn" : hasOurName ? "ok" : "error",
+  preset === null
+    ? "未发现含 compaction 的 preset（新版 home 需自建 preset bundle；合法中间态，不是错误）"
+    : hasOurName
+      ? preset.file
+      : `${preset.file} 里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
 );
 add(
   "preset 里没有 compaction-basic（单实例）",
-  nodeFs.existsSync(presetPatch) && !/name:\s*'@deepseek-ai\/dsh-compaction-basic'/.test(nodeFs.readFileSync(presetPatch, "utf8")) ? "ok" : "warn",
-  "压缩后端只能有一个",
+  preset === null ? "warn" : hasNativeByName ? "warn" : "ok",
+  preset === null ? "未发现 preset（没有可让位的原生行）" : "压缩后端只能有一个",
 );
 
 /* ── 2. 摘要模型是否可解析 ── */
 function readPresetSummarizer() {
-  if (!nodeFs.existsSync(presetPatch)) return null;
-  const text = nodeFs.readFileSync(presetPatch, "utf8");
-  const block = text.slice(text.indexOf("dsh-gokifu-compact"));
+  if (preset === null) return null;
+  const text = preset.text;
+  const at = text.indexOf("dsh-gokifu-compact");
+  if (at < 0) return null; // 有 preset 但这版还没挂引擎行：没有摘要模型可核
+  const block = text.slice(at);
   const provider = /summarizationProvider:\s*'?([^'\n]*)'?/.exec(block)?.[1]?.trim() ?? "";
   const model = /summarizationModel:\s*'?([^'\n]*)'?/.exec(block)?.[1]?.trim() ?? "";
   return { provider, model };
@@ -72,23 +91,26 @@ function providerModels(name) {
   return models;
 }
 /* ── 2.5 压缩后端接管：preset 里必须是我们的引擎，且没有 compaction-basic ── */
-const presetText = nodeFs.existsSync(presetPatch) ? nodeFs.readFileSync(presetPatch, "utf8") : "";
-const hasOurEngine = presetText.includes("dsh-gokifu-compact");
+const hasOurEngine = hasOurName;
 const hasNative = /- id:\s*compaction-basic/.test(presetText);
 add(
   "压缩后端已接管（preset 里是 gokifu-compact）",
-  hasOurEngine ? "ok" : "error",
-  hasOurEngine ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）" : "preset 里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install",
+  preset === null ? "warn" : hasOurEngine ? "ok" : "error",
+  preset === null
+    ? "未发现 preset —— 新版 home 需先自建 preset bundle，再跑一次 install（合法中间态，不是错误）"
+    : hasOurEngine
+      ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）"
+      : `preset（${preset.file}）里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
 );
 add(
   "原生 compaction-basic 已让位（单实例）",
-  hasNative ? "error" : "ok",
-  hasNative ? "preset 里还有 compaction-basic ⇒ 两个 ctx.compaction 会冲突" : "没有 compaction-basic，不会双实例",
+  preset === null ? "warn" : hasNative ? "error" : "ok",
+  preset === null ? "未发现 preset（没有原生的 compaction-basic 可让位）" : hasNative ? "preset 里还有 compaction-basic ⇒ 两个 ctx.compaction 会冲突" : "没有 compaction-basic，不会双实例",
 );
 
 const sum = readPresetSummarizer();
 if (sum === null) {
-  add("摘要模型配置", "warn", "读不到 preset（跳过）");
+  add("摘要模型配置", "warn", preset === null ? "未发现 preset（跳过 —— 新版 home 需先自建 preset bundle）" : "preset 里没有 gokifu 引擎行（跳过 —— 先跑 install）");
 } else if (sum.provider === "" && sum.model === "") {
   add("摘要模型配置", "ok", "留空 = 跟随当前路由（最稳）");
 } else {
