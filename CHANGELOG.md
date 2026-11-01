@@ -368,6 +368,15 @@ cordis.patch.yml 里「换成 `dsh-gokifu-compact/engine`」的覆盖又盖回�
 测试：新增 `test/user-patch-shadow.test.mjs` 5 用例（顶层 preset 才认 / 引擎干净不误报 /
 多 preset 只报坏的 / 缩进 id 不制造假 preset / CRLF）。
 
+### C26.1 · 事故收尾：教训入库 + 验收口径补「最后生效的那一层」
+
+- `docs/工程教训集.md` 新增 §9「验证 patch 时，要验最后生效的那一层」：记录本次假绿
+  （`verify-install` 18/18 全绿但引擎被用户层 patch 遮蔽），并给出判据与检测入口；
+- `docs/压缩的重注入契约.md` §6 发版验收流程补 `verify-install`（19 项，含用户层遮蔽检查），
+  并注明「只看包内 patch 会得到假绿」；
+- 修复包新增 `verify-after-restart.cmd`：重启后双击即可跑 `verify-install` + `doctor` 两条门禁；
+- HANDOFF 增加「⏳ 当前待办」行（等主人退出 → 跑 apply-fix.cmd → 启动 → 复核）。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**681 passed / 0 skipped / 0 failed**
