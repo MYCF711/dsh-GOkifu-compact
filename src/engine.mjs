@@ -26,7 +26,7 @@ import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges } from "./r
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
-import { renderFacts } from "./rooms/ledger.mjs";
+import { renderFacts, danglingStats } from "./rooms/ledger.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
@@ -741,6 +741,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       fallback: summaryMode === "rules" ? "rules" : null,
       ms: Math.max(0, Date.now() - foldStartedAt),
       usage: summaryUsage === null ? null : { ...summaryUsage },
+      // ★ 2026-11-01（调研建议 G-5，来自 docs/research/05-agi-memory-architectures.md §4.4）：
+      //   把「边界切得好不好」从直觉变成数字 —— 记下**这次 fold 发生时**的悬空边分类快照。
+      //   纯观测：不改任何行为，只是让 doctor 能回答"跨 fold 边界还挂着多少未结算的边"。
+      //   liveUnsettled 高 = 切在了一个动作的中间（下一次 fold 前它可能永远不结算）。
+      dangling: danglingStats(g, { now: Date.now() }),
     });
     // ★ P2-2：只保留最近 20 条（旧版无限增长 —— 2000 边/长期会话里 foldMarks 是纯膨胀）
     if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);

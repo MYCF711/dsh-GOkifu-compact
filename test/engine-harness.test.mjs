@@ -574,6 +574,13 @@ tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮�
   }
   if (g.foldCount !== 1) throw new Error(`foldCount 应为 1，得到 ${g.foldCount}`);
   if (!Array.isArray(g.foldMarks) || g.foldMarks.length !== 1) throw new Error("foldMarks 应有 1 条");
+  // ★ 2026-11-01（调研建议 G-5）：每次 fold 都要留下「边界结算状态」快照 ——
+  //   让 doctor 能回答"跨 fold 边界还挂着多少未结算的边"，把边界切得好不好从直觉变成数字。
+  const dangling = g.foldMarks[0].dangling;
+  if (dangling === null || typeof dangling !== "object") throw new Error("foldMarks[0].dangling 必须是对象");
+  for (const key of ["residue", "candidates", "liveUnsettled", "fromBroken"]) {
+    if (typeof dangling[key] !== "number") throw new Error(`foldMarks[0].dangling.${key} 必须是数字，得到 ${JSON.stringify(dangling[key])}`);
+  }
 };
 
 tests["增长门控：fold 之后增量不足则不再次 fold"] = async () => {
