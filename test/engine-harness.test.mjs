@@ -1878,3 +1878,36 @@ tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了
     throw new Error(`fold 失败后 foldCount 不许变：${beforeFoldCount} → ${after.foldCount}`);
   }
 };
+
+tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（不归零、不外溢）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c135-manual");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c135");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const before = readGraph(dir, "sess-c135");
+  const beforeNodes = Object.keys(before.nodes).sort();
+  const beforeMarks = (before.foldMarks ?? []).length;
+
+  // ① 顶层调用：深度从 0 → 1 → 0
+  const first = await engine.compactNow({ session }, undefined, "cmd-1");
+  if ((engine._manualCompactDepth ?? 0) !== 0) throw new Error(`顶层调用后深度必须归零，实际 ${engine._manualCompactDepth}`);
+  if (engine._manualRange !== null && engine._manualRange !== undefined) throw new Error(`_manualRange 必须清空，实际 ${JSON.stringify(engine._manualRange)}`);
+
+  // ② 嵌套调用（外层已经深度 1）：内层结束后必须回到 1，而不是被清零
+  engine._manualCompactDepth = 1;
+  try {
+    await engine.compactNow({ session }, undefined, "cmd-2");
+    if ((engine._manualCompactDepth ?? 0) !== 1) throw new Error(`嵌套调用后深度必须回到外层值 1，实际 ${engine._manualCompactDepth}`);
+  } finally {
+    engine._manualCompactDepth = 0;
+  }
+
+  // 桩 compactNow 返回 null ⇒ 不许凭「调用过」就记 foldMark
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const after = readGraph(dir, "sess-c135");
+  if (JSON.stringify(Object.keys(after.nodes).sort()) !== JSON.stringify(beforeNodes)) throw new Error("手动压缩后节点集变了");
+  if ((after.foldMarks ?? []).length !== beforeMarks) throw new Error("compactNow 返回 null 时不许新增 foldMark（防「假装压过」）");
+  void first;
+};
