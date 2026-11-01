@@ -59,6 +59,9 @@ export const ASAR_CANDIDATES = ["D:/DeepSeek Harness/Desktop/resources/app.asar"
 export const ENGINE_ROW = { id: "gokifu-compact", name: "dsh-gokifu-compact/engine" };
 /** preset 声明行的 name（新版 agent preset 的固定形态）。 */
 export const PRESET_ROW_NAME = "@deepseek-ai/dsh-agent-preset";
+/** preset 在「新会话」选择器里显示的默认描述（用户看到的那一行「暂无描述」就是缺它）。 */
+export const DEFAULT_PRESET_DESCRIPTION =
+  "棋谱式上下文压缩 — 替换内置 compaction-basic：失败记忆逐字保留、每步热清单、置换检测；压缩永不裸截断。";
 /** 本包名（bundle patch 的 UI 行 name / registry 补丁的归属都以它为准）。 */
 export const PKG_NAME = "dsh-gokifu-compact";
 /** UI host 行的 id（与历史手工行、verify-install 的判据逐字一致）。 */
@@ -345,7 +348,8 @@ export function validatePresetPatch(patchYml, officialText) {
     .join("\n");
   if (!body.includes(PRESET_ROW_NAME)) problems.push(`缺少 ${PRESET_ROW_NAME} 声明`);
   if (!body.includes(ENGINE_ROW.name)) problems.push(`缺少引擎行 ${ENGINE_ROW.name}`);
-  if (body.includes("compaction-basic")) problems.push("仍残留 compaction-basic");
+  // 只看「行 id」，不看任意出现：preset 的 description 里会解释「把 compaction-basic 换掉」，那不是残留。
+  if (/^\s*- id: compaction-basic\s*$/m.test(body)) problems.push("仍残留 - id: compaction-basic");
   const expected = pluginIds(officialText)
     .map((id) => (id === "compaction-basic" ? ENGINE_ROW.id : id))
     .sort();
@@ -396,11 +400,17 @@ export function buildPresetBundle(options = {}) {
 
   // 显示名：默认 = id；官方 config 里的旧 name/description（属于 standard）不能带过去。
   const displayName = typeof options.name === "string" && options.name !== "" ? options.name : id;
-  const descIdx = keyIndex("description");
-  if (descIdx >= 0) configLines.splice(descIdx, 1);
+  const description =
+    typeof options.description === "string" && options.description !== "" ? options.description : DEFAULT_PRESET_DESCRIPTION;
+  // 官方 preset 的 name/description 属于 standard：先整行删掉，再写我们自己的（顺序：id → name → description → order）
+  for (let i = configLines.length - 1; i >= 0; i -= 1) {
+    if (indentOf(configLines[i]) === keyIndent && /^\s*description:/.test(configLines[i])) configLines.splice(i, 1);
+  }
   const nameIdx = configLines.findIndex((line) => indentOf(line) === keyIndent && /^\s*name:/.test(line));
   if (nameIdx >= 0) configLines[nameIdx] = `${pad}name: ${quoteYaml(displayName)}`;
   else configLines.splice(idIdx + 1, 0, `${pad}name: ${quoteYaml(displayName)}`);
+  const nameLineIdx = configLines.findIndex((line) => indentOf(line) === keyIndent && /^\s*name:/.test(line));
+  configLines.splice(nameLineIdx + 1, 0, `${pad}description: ${quoteYaml(description)}`);
 
   const header = [
     "# 由 dsh-gokifu-compact 的 scripts/make-preset.mjs 生成 —— **不要手工改**（改了会被下次重跑覆盖）。",
@@ -433,6 +443,7 @@ export function buildPresetBundle(options = {}) {
     patchYml,
     presetId: id,
     displayName,
+    description,
     order,
     groupId: rewritten.groupId,
     hostVersion,
@@ -578,6 +589,7 @@ export const USAGE = `dsh-gokifu-compact make-preset —— 从当前宿主读�
   --out <dir>          输出目录（默认 <repo>/tmp/preset-bundle；**不许落在 DSH home 里**）
   --id <presetId>      preset id（默认 gokifu；生成的 insert 行 id 是 preset-<id>）
   --name <displayName> preset 显示名（默认 = id）
+  --description <text> preset 描述（显示在「新会话」选择器里；默认写明它做了什么）
   --order <n>          覆盖官方 preset 的 order（默认沿用官方值）
   --asar <path>        宿主 app.asar 路径（默认自动找 D:\\DeepSeek Harness\\Desktop\\resources\\app.asar）
   --version <x.y.z>    写进生成物的宿主版本（默认从 asar 内 dsh/package.json 读）
@@ -600,6 +612,7 @@ export function parseArgs(argv = [], env = process.env) {
     out: DEFAULT_OUT,
     id: "gokifu",
     name: "",
+    description: "",
     order: null,
     asar: typeof env.DSH_ASAR === "string" && env.DSH_ASAR !== "" ? env.DSH_ASAR : null,
     version: null,
@@ -639,6 +652,9 @@ export function parseArgs(argv = [], env = process.env) {
       case "--name":
         opts.name = valueOf("--name");
         break;
+      case "--description":
+        opts.description = valueOf("--description");
+        break;
       case "--order": {
         const n = Number(valueOf("--order"));
         if (!Number.isFinite(n)) throw new UsageError("--order 需要一个数字");
@@ -652,7 +668,7 @@ export function parseArgs(argv = [], env = process.env) {
         opts.version = valueOf("--version");
         break;
       default:
-        throw new UsageError(`未知参数：${arg}（可用：--dry-run / --write / --bundle / --out / --id / --name / --order / --asar / --version / --help）`);
+        throw new UsageError(`未知参数：${arg}（可用：--dry-run / --write / --bundle / --out / --id / --name / --description / --order / --asar / --version / --help）`);
     }
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.id)) throw new UsageError(`--id 不是合法的 preset id：${opts.id}`);
@@ -716,7 +732,7 @@ export function run(argv = process.argv.slice(2), options = {}) {
     const asarPath = resolveAsarPath(opts.asar, env);
     const officialText = readAsarEntry(asarPath, INNER_OFFICIAL_PRESET);
     const hostVersion = opts.version ?? readHostVersion(asarPath);
-    const makeOpts = { officialText, id: opts.id, name: opts.name, order: opts.order ?? undefined, hostVersion };
+    const makeOpts = { officialText, id: opts.id, name: opts.name, description: opts.description, order: opts.order ?? undefined, hostVersion };
     const bundle = opts.bundle ? buildBundlePatch(makeOpts) : buildPresetBundle(makeOpts);
 
     if (!opts.write) {
