@@ -64,6 +64,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "build-stamp": {
+    file: "build-stamp.mjs",
+    // 读 package.json 版本 + 写 <chess-context>/build.json：只允许 fs/path/url
+    allowed: ["node:fs", "node:path", "node:url"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "user-patch": {
     file: "user-patch.mjs",
     // 只读用户层/机器级 patch、写 home 层托管段：允许 node:fs / node:path
@@ -458,8 +464,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "touched-files", "user-patch", "verify", "world"],
-      "房间集合必须与契约 16 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch）",
+      ["build-stamp", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "touched-files", "user-patch", "verify", "world"],
+      "房间集合必须与契约 17 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");

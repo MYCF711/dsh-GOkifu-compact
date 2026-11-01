@@ -27,6 +27,7 @@ import { inspectProfileInstall } from "./link-path.mjs";
 import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
+import { compareBuildStamp, readBuildStamp, repoVersion } from "../src/rooms/build-stamp.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -156,6 +157,21 @@ add(
       : drift
         ? "home 层副本比用户层旧（persona/配置已改）—— 插件退出时会自动刷新，下次启动生效"
         : "home 层与用户层一致（只差 compaction 成员）",
+  );
+}
+
+/* ── 1.7 运行实例版本（C34）：磁盘更新了但进程还是旧代码时，必须一眼看出来 ── */
+{
+  const cmp = compareBuildStamp(readBuildStamp(nodePath.join(home, "chess-context")), repoVersion());
+  const started = Number.isFinite(cmp.startedAt) ? new Date(cmp.startedAt).toISOString().slice(11, 19) + "Z" : "?";
+  add(
+    "运行实例版本（build.json）",
+    cmp.state === "ok" ? "ok" : "warn",
+    cmp.state === "ok"
+      ? `运行实例 v${cmp.running}（启动于 ${started}）与磁盘代码一致`
+      : cmp.state === "stale"
+        ? `运行实例 v${cmp.running}，磁盘已更新到 v${cmp.disk} —— **重启 DSH 后才生效**（新字段/新检查此时还不会出现）`
+        : `未采集（还没有 build.json —— 旧版本或还没重启过；磁盘代码 v${cmp.disk}）`,
   );
 }
 

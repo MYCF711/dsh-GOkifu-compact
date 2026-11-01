@@ -23,6 +23,7 @@ import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-a
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
 import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
+import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
@@ -178,6 +179,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       root: graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() }),
       onWarn: (level, line) => this.ctx?.logger?.[level]?.(line),
     });
+    // ★ C34：记下「运行实例是哪一版代码」—— doctor 用它发现「磁盘已更新、进程还是旧代码」的陷阱。
+    //   写在**图根目录的父目录**（live = <home>/chess-context；测试 = 临时目录），不碰真实 home。
+    //   诊断设施，失败静默（不许影响压缩主路径）。
+    try {
+      const root = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
+      // 只认 live 布局（<home>/chess-context）：测试/自定义 graphDir 下不写，
+      // 否则会在仓库或测试目录里留下 build.json（本轮实测踩过 test/build.json）。
+      if (nodePath.basename(root) === "chess-context") writeBuildStamp({ dir: root });
+    } catch {
+      /* ignore */
+    }
     this.graphs = new Map();
     /** 三层文件树已写过的会话（2000 边时 4000 文件会卡事件循环，只首次与 fold 后写） */
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */

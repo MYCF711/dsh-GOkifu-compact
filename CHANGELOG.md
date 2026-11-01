@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C34 · 「运行实例是哪一版代码」落盘标记（build.json）+ doctor 检查
+
+**问题**：本机踩过两次同类陷阱 —— 磁盘代码已更新，但**正在跑的进程还是旧代码**，新字段/新检查要等重启才出现
+（C26 事故；C30/C31 之后 doctor 的「未采集」）。磁盘文件、package.json 都回答不了「现在跑的是哪版」。
+
+**做法**：
+
+- `src/rooms/build-stamp.mjs`：插件启动时（engine 构造）写 `<chess-context>/build.json`
+  —— `{schema, version, startedAt, pid}`，原子替换、失败静默；
+  **写在图根目录的父目录**，所以测试跑在临时目录，不碰真实 home；
+- `doctor` 新增「运行实例版本（build.json）」：一致 ⇒ ✓；**磁盘更新而进程落后 ⇒ warn「重启 DSH 后才生效」**；
+  旧版本没有戳 ⇒ 未采集（明确写磁盘版本）。
+
+测试：新增 `build-stamp.test.mjs` 4 用例（写读往返 / compare 三态 / 失败静默 / 版本与 package.json 一致）。
+
+**当前 live 状态**：正在跑的进程（02:36 启动）早于本刀 ⇒ doctor 显示「未采集」；下次重启后写入并转 ✓。
+
 ### C33 · 非破坏合并的数据层（superseded / retargetedFrom）+ doctor 审计
 
 **问题**：`mergeNodeInto` 做置换合并时把 from 节点整个删掉 —— 图结构收拢了，但**被吞节点的身份**
