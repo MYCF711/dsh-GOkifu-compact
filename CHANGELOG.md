@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C95 · preset 覆盖唯一性（别人的 patch 可能把我们的引擎静默顶掉）
+
+**问题**：C94 发现第三方 preset 自带 `compaction-basic`。更危险的一种情况是**两个 bundle 覆盖同一个
+preset id** —— 后写的那份会**整体接管** config：若其中又带 `compaction-basic`，我们的引擎就被
+**静默顶掉**，而日志/体检里看不出任何异常。
+
+**做法**：doctor 新增 **「preset 覆盖唯一性（C95）」**：扫 `dsh.profile.bundles` 里每个
+`cordis.patch.yml` 的 `preset-*` 行，统计 owner；同一 preset 出现 ≥ 2 个覆盖者 ⇒ **warn** 并点名
+`preset←bundleA+bundleB`；只有一个覆盖者 / 没有 bundle patch ⇒ ok。
+
+**live 实测**：`✓ preset 覆盖唯一性（C95） — 5 个 preset 各只有一个覆盖者（扫了 12 个 bundle patch）`
+⇒ 当前**没有**被顶掉的风险，且这条检查会在将来出现第二个 owner 时第一时间报警。
+
+测试：`doctor-cli` 新增 C95（两 bundle 抢同一 preset ⇒ warn 点名两者；单一覆盖者 ⇒ ok）。
+
 ### C94 · 发现并登记：第三方 preset 仍在用 compaction-basic（`dsh-design-studio:preset-design`）
 
 **怎么发现的**：核对「live 已装的 bundle patch 是否与仓库一致」时，扫描 profile 的 11 个第三方

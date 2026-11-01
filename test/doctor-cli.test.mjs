@@ -24,7 +24,7 @@ const REPO = nodePath.join(HERE, "..");
 export const tests = {};
 
 /** 造最小 home；`mutate(graph)` 可在落盘前改图。 */
-function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null } = {}) {
+function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null, foreignPatches = null } = {}) {
   const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-doctor-"));
   const dir = nodePath.join(root, "chess-context", "sessions", "session-doctor-1");
   nodeFs.mkdirSync(dir, { recursive: true });
@@ -38,15 +38,18 @@ function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null } = 
   if (ledgerBudget !== null) {
     nodeFs.writeFileSync(nodePath.join(root, "chess-context", "ledger-budget.json"), JSON.stringify(ledgerBudget, null, 2), "utf8");
   }
-  if (foreignPatch !== null) {
+  const patches = foreignPatches !== null ? foreignPatches : foreignPatch !== null ? [foreignPatch] : [];
+  if (patches.length > 0) {
     const profDir = nodePath.join(root, "profiles", "desktop");
-    nodeFs.mkdirSync(nodePath.join(profDir, "node_modules", foreignPatch.bundle), { recursive: true });
+    for (const entry of patches) {
+      nodeFs.mkdirSync(nodePath.join(profDir, "node_modules", entry.bundle), { recursive: true });
+      nodeFs.writeFileSync(nodePath.join(profDir, "node_modules", entry.bundle, "cordis.patch.yml"), entry.text, "utf8");
+    }
     nodeFs.writeFileSync(
       nodePath.join(profDir, "package.json"),
-      JSON.stringify({ name: "fixture-profile", dsh: { profile: { bundles: [foreignPatch.bundle] } } }, null, 2),
+      JSON.stringify({ name: "fixture-profile", dsh: { profile: { bundles: patches.map((p) => p.bundle) } } }, null, 2),
       "utf8",
     );
-    nodeFs.writeFileSync(nodePath.join(profDir, "node_modules", foreignPatch.bundle, "cordis.patch.yml"), foreignPatch.text, "utf8");
   }
   return root;
 }
@@ -234,5 +237,36 @@ tests["C94 第三方 preset 仍用 compaction-basic ⇒ warn 并点名（设计�
     t.includes(row.detail, "未采集", "要写未采集");
   } finally {
     nodeFs.rmSync(clean, { recursive: true, force: true });
+  }
+};
+
+tests["C95 preset 覆盖唯一性：两个 bundle 覆盖同一 preset ⇒ warn 点名（压缩后端可能被静默顶掉）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  const mk = (bundle) =>
+    ["- insert:", "    - id: preset-standard", `      name: ${bundle}/preset`, "      config:", "        id: standard", "        plugins: []"].join(NL);
+  const home = makeHome({
+    foreignPatches: [
+      { bundle: "dsh-a", text: mk("dsh-a") },
+      { bundle: "dsh-b", text: mk("dsh-b") },
+    ],
+  });
+  try {
+    const row = runDoctor(home).find("preset 覆盖唯一性");
+    t.eq(!!row, true, "必须有该检查项");
+    t.eq(row.status, "warn", `同一 preset 被两个 bundle 覆盖应 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "preset-standard", "要点名是哪个 preset");
+    t.includes(row.detail, "dsh-a", "要列出覆盖者");
+    t.includes(row.detail, "dsh-b", "要列出全部覆盖者");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
+  const single = makeHome({ foreignPatches: [{ bundle: "dsh-only", text: mk("dsh-only") }] });
+  try {
+    const row = runDoctor(single).find("preset 覆盖唯一性");
+    t.eq(row.status, "ok", "只有一个覆盖者应 ok");
+    t.includes(row.detail, "各只有一个覆盖者", "文案说明唯一");
+  } finally {
+    nodeFs.rmSync(single, { recursive: true, force: true });
   }
 };

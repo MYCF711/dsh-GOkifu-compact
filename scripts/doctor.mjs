@@ -430,6 +430,48 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   }
 }
 
+/* ── 3.45 preset 覆盖唯一性（C95）──
+   多个 bundle 若覆盖**同一个 preset id**，后写的那份会整体接管 config ——
+   若别人的覆盖里又带回调 compression-basic，我们的引擎就被**静默顶掉**了。
+   live 目前每个 preset 只有一个 owner；这条检查是为了将来出现第二个 owner 时能立刻看见。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const owners = new Map();
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        for (const m of text.matchAll(/^\s*- id:\s*(preset-[a-z0-9-]+)\s*$/gm)) {
+          const id = m[1];
+          if (!owners.has(id)) owners.set(id, []);
+          if (!owners.get(id).includes(name)) owners.get(id).push(name);
+        }
+      }
+    } catch {
+      /* 读不出清单不影响其它检查 */
+    }
+  }
+  const conflicts = [...owners.entries()].filter(([, list]) => list.length > 1);
+  if (scanned === 0) {
+    add("preset 覆盖唯一性（C95）", "ok", "未采集（profile 里没有 bundle patch）");
+  } else if (conflicts.length > 0) {
+    add(
+      "preset 覆盖唯一性（C95）",
+      "warn",
+      `${conflicts.length} 个 preset 被多个 bundle 覆盖：${conflicts.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 后写者整体接管 config，压缩后端可能被静默顶掉`,
+    );
+  } else {
+    add("preset 覆盖唯一性（C95）", "ok", `${owners.size} 个 preset 各只有一个覆盖者（扫了 ${scanned} 个 bundle patch）`);
+  }
+}
+
 /* ── 3.5 置换合并可追溯（C33）：被吞节点的身份必须留有记录 ── */
 add(
   "置换合并可追溯（superseded）",
