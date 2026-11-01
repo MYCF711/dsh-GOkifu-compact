@@ -12,6 +12,7 @@
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **447 tokens**（351 → 446 来自「出处全档保留 + OPTIONS 不沉默」；446 → 447 来自失败边重试计数 `↻k`） |
 | `折叠成本-实测-2026-11-02.md` | 手工汇总 live `foldMarks[i].usage` | 2026-11-02 | 三次真实 fold：摘要 **input/shadowed = 1.43–1.63**（读整个 surface）、输出仅 362–3004 ⇒ 瓶颈在「读」 |
 | `巡检-第2次-2026-11-02.md` | 全门禁重跑 | 2026-11-02 01:0x | 668 测试 / bench 447 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警 |
+| `最终验收-2026-11-02.md` | 六道门禁 + live 现状 + 发版待办 + 已知缺口 | 2026-11-02 01:0x | **676 测试** / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警（均已解释）|
 | `fold触发验证.json` / `.md` | `node test/real-fold-trigger.mjs` | 2026-11-01 | 自动 fold 触发 5/5；**C8 之后**还能验保真度真值链路（3 次 fold 的 quality 非真空） |
 | `真实模型测试.json` / `.md` | `node test/real-model.mjs --runs 3` | 2026-11-01T15:13Z | 失败边 **6.67/8 vs 官方 5.67/8**；**约束 2/2 vs 官方 0/2**；续跑 8/8；热上下文 594 prompt tokens |
 

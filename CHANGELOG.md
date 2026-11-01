@@ -336,9 +336,19 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 测试：新增 `test/fold-closure.test.mjs` 4 用例（区间过滤 / 首尾 id 正确 / 空区间与非法 range / 纯函数+可序列化），
   engine-harness P2-2-1 与 C14、tier2 T2-1 各加「必须带 closure」断言。
 
+### C25 · 最终验收快照（六道门禁 + live 现状 + 发版待办 + 已知缺口）
+
+`evidence/最终验收-2026-11-02.md` 把当前真实状态一次写清（以后接手先看它 + HANDOFF 顶部）：
+
+- 六道门禁：**676 测试 / bench 447·8-8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警**；
+- live：11 会话 / 555 节点 / 672 边 / 自环 0 / 热清单 3543 tok；3 次历史 fold 全为旧版本（`quality/trigger/closure` 尚未产生）；
+- 版本 **1.17.0 未发布**：tag / npm publish 两步待主人授权（按铁律不由我触发）；
+- 已知缺口诚实列出：live 真值样本、`#9/#11/#17` 未做、`#12` 仅最小版。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**676 passed / 0 skipped / 0 failed**
+- 六道门禁与 live 数据见 `evidence/最终验收-2026-11-02.md`
 - `docs-index-check`：27 个文件 / **0 个未索引**
 - `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**
 - `boundary-audit`：0 条；`bench-repro`：447 / 8/8 / exit 0（1.16.0 时 615；本轮与并行会话共新增 23 条）。
