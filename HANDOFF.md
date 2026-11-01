@@ -67,6 +67,7 @@
 | **C54 会话分布 + thrash 进证据（1.17.1）** | `live-folds` 新增 `bySession`（有 fold 会话数 / multiFold≥3 / top3）与 `summary.thrash`；证据页加「会话分布」小节；live 首跑 **12 次 fold / 6 会话 / 2 个 multiFold / thrash 0**；测试 L-7 |
 | **C55 研究文档收口（2026-11-02）** | `docs/research/00` §11 重排（候选 8–26 全部归位、去重复行号）+ §11.1 状态快照（731 passed / bench 430 / handoff WARN 4 / doctor 3 警 / verify-install 19-19 / boundary 0 / folds 12-6） |
 | **C56 清冗余指针（1.17.1）** | 省略行尾与 UNVERIFIED 计数行的两处冗余指针删除（无损）；bench **430→415**；README/合同文案同步 |
+| **C57 超预算离线归因脚本（1.17.1）** | `scripts/overbudget-report.mjs`：逐会话重渲染 + 三态归因（floor / irreducible / reducible?）；live 首跑 23 会话 → within 22 / irreducible 1 / reducible? **0**（无渲染 bug）；测试 3 例 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
