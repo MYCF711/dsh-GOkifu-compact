@@ -406,7 +406,7 @@ export function laterSuccessOf(edge, successEdges = []) {
   return best;
 }
 
-export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null) {
+export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null, retried = 1) {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
   //   旧版 level ≥3 直接把 `→ 原因` 整段砍掉 ⇒ 全库实测 133 条可见失败边里只有 25 条带原因，
@@ -430,8 +430,11 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
   //   预算紧的档位改用**短格式** `(sa-b)` —— 出处（数字）一个都没少，只省掉 3 个字符/边。
   const seqTag = seq ? ` (${level <= 1 ? "seq " : "s"}${seq})` : "";
   // ★ C17：后来被同一 action 的成功边解决 —— 只给边 id（可回查），不写行动建议。
+  // ★ C18（调研候选 #15 的后半）：同一个 action 失败过 k 次（k≥2）⇒ 标 `↻k`。
+  //   这是**计数事实**（同一命令被反复尝试），暗示在原地重试；不写「别重试」（那是 AGENTS 的事）。
+  const retry = Number.isFinite(retried) && retried >= 2 ? ` ↻${retried}` : "";
   const later = resolvedBy ? ` ↑later-ok:${resolvedBy.id}` : "";
-  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${later}${tag}`;
+  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${retry}${later}${tag}`;
 }
 
 /**
@@ -691,6 +694,25 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const failuresById = new Map(failures.map((e) => [e.id, e]));
   // ★ C17：成功边索引（按 action）—— 标注「这条失败后来被同一命令跑通了」，只建一次。
   const successEdges = Object.values(g.edges).filter((e) => e?.result === "success" && typeof e.action === "string" && e.action !== "");
+  // ★ C18：同一 action 的失败次数（只在同一段历史里计数；用来标「这条命令被反复试过 k 次」）。
+  const failureActionCounts = new Map();
+  for (const e of failures) {
+    if (typeof e?.action !== "string" || e.action === "") continue;
+    failureActionCounts.set(e.action, (failureActionCounts.get(e.action) ?? 0) + 1);
+  }
+  // 只在同 action 组里**最近的那条**上标 ↻k（每条都标会白烧 token：计数是同一个数字）。
+  const endSeqOf = (edge) => (typeof edge?.evidence === "number" ? edge.evidence : Number.isFinite(edge?.evidence?.end) ? edge.evidence.end : -Infinity);
+  const latestFailureByAction = new Map();
+  for (const e of failures) {
+    if (typeof e?.action !== "string" || e.action === "") continue;
+    const prev = latestFailureByAction.get(e.action);
+    if (prev === undefined || endSeqOf(e) >= endSeqOf(prev)) latestFailureByAction.set(e.action, e);
+  }
+  const retriedTimesOf = (edge) => {
+    if (typeof edge?.action !== "string") return 1;
+    if (latestFailureByAction.get(edge.action) !== edge) return 1;
+    return failureActionCounts.get(edge.action) ?? 1;
+  };
   /** 数据缺口：这些失败边连 evidence 都没有 ⇒ 模型无法回查（不是渲染的锅，指标里单独计）。 */
   const evidenceMissing = failures.filter((e) => seqSpan(e) === "").length;
   const dangling = danglingStats(g, { now });
@@ -902,7 +924,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (per node: nodes/<id>.md) / by seq in the session log`,
         );
       }
-      for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges)));
+      for (const e of shown) {
+        tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges), retriedTimesOf(e)));
+      }
     }
     // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
   //   与 UNVERIFIED 同档 —— 它们是「下一步要不要接着做」的决策信息，预算紧张时先让位给失败记忆。

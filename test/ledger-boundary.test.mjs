@@ -176,6 +176,25 @@ tests["N 失败后来被同一 action 跑通 ⇒ 行内标 ↑later-ok:<边id>�
   t.notIncludes(renderLedger(g3, { now, maxTokens: 2000 }).text, "↑later-ok", "不同命令不能算同一件事");
 };
 
+tests["O 同一 action 失败过 k 次 ⇒ 标 ↻k（计数事实，不是「别重试」的指令）"] = (t) => {
+  const now = Date.now();
+  const action = "bash(npm test)";
+  const g = mkGraph([
+    mkEdge({ id: "e1", action, evidence: { start: 10, end: 12 } }),
+    mkEdge({ id: "e2", action, evidence: { start: 20, end: 22 } }),
+    mkEdge({ id: "e3", action: "bash(npm lint)", evidence: { start: 30, end: 32 } }),
+  ]);
+  g.nodes.n2.via = "e1";
+  const text = renderLedger(g, { now, maxTokens: 2000 }).text;
+  t.includes(text, "↻2", "同一条命令失败两次，必须标出次数（这是计数事实）");
+  t.notIncludes(text, "↻1", "只失败一次不许印 ↻1（没有「反复」可言）");
+  // 只在同 action 组里**最近的那条**上标（每条都标会白烧 token，计数是同一个数字）
+  const occurrences = text.split("↻2").length - 1;
+  t.eq(occurrences, 1, `重试计数只该出现 1 次（最近的 e2），实际 ${occurrences} 处`);
+  // 边界：只给计数，不许变成行动指令
+  t.notIncludes(text, "不要重试", "计数 ≠ 指令（行动建议归 AGENTS/persona）");
+};
+
 tests["#1 压缩无效（thrashing）状态要显示出来，但只在真的连续发生时"] = (t) => {
   const now = Date.now();
   const quiet = mkGraph([]);

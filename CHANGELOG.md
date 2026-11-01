@@ -227,9 +227,20 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 成本：live 11 会话实测 **+11 tokens**（4/33 失败边命中），2000 边夹具 446 不变（夹具 action 唯一）；
 - 测试：ledger-boundary 增 N（同 action 后来成功 → 标记；成功在前 / 不同 action → 不标；不含建议字样）。
 
+### C18 · 失败边的「重试计数」↻k（调研候选 #15 收尾）
+
+同一 action 在同一段历史里失败过 k 次，此前要模型自己比对多行才能看出来；现在直接标 `↻k`。
+这是**计数事实**（这条命令被反复试过），不是「别重试」的指令 —— 行动判断仍归 AGENTS/persona。
+
+- `renderFailureLine` 新增 `retried` 参数：k ≥ 2 时行尾标 `↻k`；
+- **只标同 action 组里最近的那一条**（每条都标会白烧 token、计数还是同一个数字）：
+  2000 边夹具先按「每条都标」试过是 **+12 tokens**，改成只标最近一条后 **+1 token**；
+- 测试：ledger-boundary 增 O（↻2 出现且只出现 1 次 / 不许 ↻1 / 不许变成「不要重试」指令）；
+- 基线更新：bench-repro `EXPECTED_TOKENS 446 → 447`、README 顶部数字同步（+1 的来源写明是 ↻k）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**665 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**666 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

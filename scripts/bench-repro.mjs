@@ -2,7 +2,7 @@
  * bench-repro.mjs —— 一条命令复现 README 顶部的两个指标
  *
  *   node scripts/bench-repro.mjs
- *   # hot-list tokens: 446 (fixture=2000-edges, tier=L5)
+ *   # hot-list tokens: 447 (fixture=2000-edges, tier=L5)
  *   # failure-retention: 8 / 8
  *
  * 退出码：
@@ -21,9 +21,10 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
 
 /** 基线：只在有意改变算法/夹具时更新，并同步 README。 */
+// ★ 2026-11-01（C18）：446 → 447 —— 失败边新增 ↻k 重试计数（只在同 action 组里最近一条上标，+1 tok）。
 // ★ 2026-11-01：351 → 446。原因：新增「出处全档保留」（失败边在 L2+ 也带 (sa-b)）与
 //   「OPTIONS 不许沉默」（L2+ 留一行计数）—— 信息多了，token 自然涨。仍在 hotLedgerMaxTokens=500 内。
-const EXPECTED_TOKENS = 446;
+const EXPECTED_TOKENS = 447;
 const EXPECTED_TIER = 5;
 const EXPECTED_RETENTION = 8;
 
