@@ -26,6 +26,11 @@
 离线验证（真实 profile，未重启）：把 plan 结果作为 home 层组装，`preset-standard` 的 compaction 变成
 `dsh-gokifu-compact/engine`，persona 1192 字符与 22 个插件成员逐字保留。
 
+**重启实测（2026-11-02 02:36，真机）**：主人重启后（新进程、新端口 56006）
+`/gokifu/api` 报 **version 1.17.1**；`doctor` **0 错误 / 1 警告**（「用户层 patch 不遮蔽压缩引擎」= ✓
+「已被机器级层接管」）；`verify-install` **19/19 全部通过**；`chess-context/sessions/` 恢复写入
+（新目录 `session-8cc34e32…` 02:36:14）。⇒ 机器级层方案在真机上接管成功。
+
 测试：`test/user-patch-heal.test.mjs` 9 用例（只换成员 / persona 逐字保留 / 空 home 生成合法 entry list /
 已有 home 内容保留并备份 / 幂等 / 已是引擎不复制 / 真写盘 / 无用户层不凭空造 / 与检测器口径一致）。
 
