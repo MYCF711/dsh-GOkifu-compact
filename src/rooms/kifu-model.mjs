@@ -634,13 +634,30 @@ function cheapKey(g) {
  *   那两个渲染器原来是 O(N×E)（每个节点都 `Object.values(g.edges).filter(...)`，BFS 每轮也是），
  *   5000 边实测 3.6s / 7.0s；现在索引一次建好后是 O(E + N)。
  */
+/**
+ * ★ C93：端点 id 的**稳定数字指纹**。
+ *   旧写法 `Number(String(id).slice(1))` 假定 id 一定是 `n<数字>`；遇到 `node7` / 老数据里的
+ *   非 `n` 前缀 id 时它会退化成 0 —— 多个不同端点全部贡献 0，导致 index 缓存键碰撞、
+ *   同毫秒内改边时**拿到过期索引**（手割分析会算出错的 reach）。
+ *   这里：优先取尾部数字；没有数字就退化成字符串指纹（长度 + 字符码和），仍然 O(1)、仍然确定。
+ * @returns {number} 非负 32 位整数
+ */
+export function endpointNumber(id) {
+  const text = String(id ?? "");
+  const m = /(\d+)$/.exec(text);
+  if (m !== null) return Number(m[1]) || 0;
+  let sum = text.length;
+  for (let i = 0; i < text.length; i += 1) sum = (sum * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(sum);
+}
+
 function graphIndex(g) {
   const edges = Object.values(g.edges);
   let toSum = 0;
   let fromSum = 0;
   for (const e of edges) {
-    if (e.to) toSum = (toSum + (Number(String(e.to).slice(1)) || 0)) | 0;
-    if (e.from) fromSum = (fromSum + (Number(String(e.from).slice(1)) || 0)) | 0;
+    if (e.to) toSum = (toSum + endpointNumber(e.to)) | 0;
+    if (e.from) fromSum = (fromSum + endpointNumber(e.from)) | 0;
   }
   const cheap = cheapKey(g);
   const sig = `${cheap}|${edges.length}|${Object.keys(g.nodes).length}|${toSum}|${fromSum}`;
