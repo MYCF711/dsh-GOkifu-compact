@@ -126,6 +126,7 @@
 | **C113 回滚清 dirty（2026-11-02）** | 裸 `Object.assign(g, fromJSON(snap))` 回滚会留下失败尝试的 `delNodes` ⇒ 下一个 delta 帧落盘后，load 回放把已恢复节点再删一遍；新增 `restoreFromSnapshot`（图+dirty 一起回到快照）+ 静态禁用裸 assign；测试 C113-1（记录 bug）/C113-2（修复语义） |
 | **C114 端到端验收 + 不变量表（2026-11-02）** | C113 补端到端：基线落盘→合并→回滚→落盘→load，两节点都在；新增 `docs/落盘与回滚不变量.md`（6 条不变量 + 允许现象 + 改动检查清单） |
 | **C115 live 第 19 次 fold（2026-11-02）** | 本会话 seq 9802–11525（pressure，c=1/f=1，openAtEnd 0）= 当前摘要来源；总数 19 / 7 会话、quality 15、boundary 12 全 0、闭包链 6 对无节点重叠；四处口径同步 |
+| **C116 docs 根索引（2026-11-02）** | 新增 `docs/README.md`（24 份文档按现状/历史分组 + 判读顺序）；`docs-index-check` 覆盖 docs 根 ⇒ 未索引 0；以后新文档不登记会红 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

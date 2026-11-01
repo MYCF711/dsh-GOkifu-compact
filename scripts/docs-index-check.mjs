@@ -28,6 +28,8 @@ const REPO = nodePath.join(HERE, "..");
 export const INDEXED_DIRS = [
   { dir: "docs/research", index: "README.md", label: "research" },
   { dir: "evidence", index: "README.md", label: "evidence" },
+  // ★ C116：docs 根目录有 24 份设计/契约/证据文档，此前**没有索引**（新文件写了没人知道）。
+  { dir: "docs", index: "README.md", label: "docs" },
 ];
 
 /** 列出一个目录下所有 .md（不含索引自身与子目录）。 */
