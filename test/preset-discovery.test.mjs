@@ -12,7 +12,7 @@
  *   ③ 旧形态：`preset-bundles/<dir>/cordis.patch.yml` 判据与行为不变（老 home 兼容）；
  *   ④ 两代都空 ⇒ `[]` 且**不抛**（home 不存在也一样）；
  *   ⑤ 两份实现（src/ui.mjs / scripts/install.mjs）在同一夹具上返回**逐字段相同**；
- *   ⑥ 本包自己的 bundle patch 不被自指当成 preset；
+ *   ⑥ 本包自己的 bundle patch：UI-only（≤1.14.0）不当 preset；1.15.0 起声明了 preset 就必须被发现；
  *   ⑦ profile 名可参数化（默认 desktop）。
  *
  * 夹具全部建在仓库 `tmp/`（已 gitignore）下，每条用例 finally 清理，**不依赖真实 home**。
@@ -82,6 +82,33 @@ const PLAIN_BUNDLE_YML = ["- insert:", "    - id: some-plugin", "      name: 'so
 
 /** 本包自己的 bundle patch（只插 UI 行，含 PKG_NAME —— 自指防护的夹具）。 */
 const OWN_BUNDLE_YML = ["- insert:", "    - id: gokifu-ui", `      name: '${PKG}'`, ""].join("\n");
+
+/**
+ * 本包 1.15.0 起的 bundle patch：UI 行 + preset 声明（引擎在 compaction group 内）。
+ * 这份**必须被发现** —— 它是「一个包装上就接管」的唯一 preset 来源。
+ */
+const OWN_PRESET_YML = [
+  "- insert:",
+  "    - id: gokifu-ui",
+  `      name: '${PKG}'`,
+  "    - id: preset-gokifu",
+  "      name: '@deepseek-ai/dsh-agent-preset'",
+  "      config:",
+  "        id: gokifu",
+  "        plugins:",
+  "          - id: compaction",
+  "            name: cordis:group",
+  "            group: true",
+  "            isolate:",
+  "              compaction: true",
+  "            config:",
+  "              - id: gokifu-compact",
+  `                name: '${PKG}/engine'`,
+  "- id: agent-preset-registry",
+  "  config:",
+  "    default: gokifu",
+  "",
+].join(String.fromCharCode(10));
 
 function mkFixture(label) {
   nodeFs.mkdirSync(TMP, { recursive: true });
@@ -187,6 +214,39 @@ export const tests = {
       const missing = nodePath.join(home, "根本不存在的-home");
       t.eq(findPresetFiles(missing), [], "home 不存在也不许抛，返回 []");
       t.eq(presetsWithCompaction(missing), [], "安装器同样不许抛");
+    } finally {
+      cleanup(home);
+    }
+  },
+
+  "1.15.0：本包 patch 自己声明 preset 时能被发现（UI-only 旧包仍排除）"(t) {
+    const mergedHome = mkFixture("own-merged");
+    const uiOnlyHome = mkFixture("own-ui-only");
+    try {
+      writeProfile(mergedHome, { bundles: [PKG], packages: { [PKG]: OWN_PRESET_YML } });
+      const found = findPresetFiles(mergedHome);
+      t.eq(found.map((p) => p.name), [PKG], "本包声明了 preset ⇒ 必须被发现（否则 UI 永远显示未接管）");
+      t.eq(found[0]?.text.includes("dsh-gokifu-compact/engine"), true, "发现的文本里必须有引擎行");
+      t.eq(presetsWithCompaction(mergedHome).map((p) => p.name), [PKG], "安装器两份实现必须一致");
+
+      writeProfile(uiOnlyHome, { bundles: [PKG], packages: { [PKG]: OWN_BUNDLE_YML } });
+      t.eq(findPresetFiles(uiOnlyHome), [], "≤1.14.0 的 UI-only 旧包仍不许被自指当 preset");
+      t.eq(presetsWithCompaction(uiOnlyHome), [], "安装器同样排除");
+    } finally {
+      cleanup(mergedHome);
+      cleanup(uiOnlyHome);
+    }
+  },
+
+  "1.15.0：只有本包声明 preset、没有 preset-bundles/ ⇒ 不许被旧一代早退吞掉"(t) {
+    const home = mkFixture("own-only");
+    try {
+      writeProfile(home, { bundles: [PKG], packages: { [PKG]: OWN_PRESET_YML } });
+      // 关键回归：home 里**没有** preset-bundles/ 目录 —— 旧实现的 `if (!existsSync(root)) return []`
+      // 会在这里直接返回空数组，把刚接管的唯一 preset 吞掉（health.mounted 假红）。
+      const found = findPresetFiles(home);
+      t.eq(found.map((p) => p.name), [PKG], "只有本包时也必须返回它，而不是 []");
+      t.eq(presetsWithCompaction(home).map((p) => p.name), [PKG], "安装器两份实现必须一致");
     } finally {
       cleanup(home);
     }

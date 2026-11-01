@@ -153,7 +153,7 @@ export function presetsWithCompaction(dshHome, profile = "desktop") {
 
   /* ── ② 旧一代：<home>/preset-bundles/<dir>/cordis.patch.yml（原行为） ── */
   const root = nodePath.join(dshHome, "preset-bundles");
-  if (!nodeFs.existsSync(root)) return [];
+  if (!nodeFs.existsSync(root)) return ownPreset === null ? [] : [ownPreset];
   try {
     for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
