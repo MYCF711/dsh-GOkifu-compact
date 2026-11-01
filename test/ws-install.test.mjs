@@ -16,7 +16,7 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { samePath, toLinkSpec, inspectProfileInstall, describePackageNameFailure } from "../scripts/link-path.mjs";
-import { verifyInstall, PKG } from "./verify-install.mjs";
+import { verifyInstall, PKG, DSH_PEERS, evaluateManifest, satisfies } from "./verify-install.mjs";
 
 const WIN = process.platform === "win32";
 const PRESET = "personal-assistant";
@@ -41,7 +41,11 @@ function write(file, text) {
 }
 
 function writePkg(dir, { name = PKG, main = "src/ui.mjs", peers = true } = {}) {
-  const MI = "0.2.0-rc.2";
+  // F1（2026-11-01）：peer 必须是**范围**不是精确版。
+  // 宿主用 `semver.satisfies(runtime, range, { includePrerelease: true })` 判（dsh-app-boot 的
+  // unmetRequirements）；钉死精确 `0.2.0-rc.2` 会在宿主升到 0.2.1-rc.5 时被直接拒绝安装 /
+  // 启动时整层 bundle 被静默跳过。夹具必须与真实清单同形状，否则测的是旧世界。
+  const PEER_RANGE = "^0.2.0-rc.2";
   write(nodePath.join(dir, "package.json"), JSON.stringify({
     name,
     version: "9.9.9-fixture",
@@ -49,12 +53,13 @@ function writePkg(dir, { name = PKG, main = "src/ui.mjs", peers = true } = {}) {
     ...(peers
       ? {
           peerDependencies: {
-            "@deepseek-ai/dsh-compaction-basic": MI,
-            "@deepseek-ai/dsh-compaction": MI,
-            "@deepseek-ai/dsh-llm": MI,
-            "@deepseek-ai/dsh-session": MI,
+            "@deepseek-ai/dsh-compaction-basic": PEER_RANGE,
+            "@deepseek-ai/dsh-compaction": PEER_RANGE,
+            "@deepseek-ai/dsh-llm": PEER_RANGE,
+            "@deepseek-ai/dsh-session": PEER_RANGE,
             "@deepseek-ai/schemastery": "^3.18.4",
           },
+          engines: { node: ">=20", dsh: PEER_RANGE },
         }
       : {}),
   }, null, 2) + "\n");
@@ -217,8 +222,8 @@ tests["S10c-3 manifestError 进 ✗ 详情：profile/package.json 缺失时说�
     t.includes(declares.detail, "profile/package.json 不存在");
     t.includes(declares.detail, nodePath.join(home, "profiles", "desktop", "package.json"));
     t.includes(resolves.detail, "profile/package.json 不存在");
-    t.eq(result.checks.length, 16, "缺清单时检查项数量仍必须是 16（门禁才可比对）");
-    t.eq(result.failed, 16, "空 home ⇒ 16 项全红");
+    t.eq(result.checks.length, 18, "缺清单时检查项数量仍必须是 18（门禁才可比对）");
+    t.eq(result.failed, 18, "空 home ⇒ 18 项全红");
 
     // 清单在但不是 JSON ⇒ manifestError 必须分档说「不是合法 JSON」（不是笼统的「读不到」）
     const profileDir = nodePath.join(home, "profiles", "desktop");
@@ -229,8 +234,8 @@ tests["S10c-3 manifestError 进 ✗ 详情：profile/package.json 缺失时说�
     t.notIncludes(st.manifestError, "不存在");
     // verify-install 这边：清单读不出内容时不许谎报绿灯（dsh.profile.bundles 那条必须跟着红）
     const bad = verify(home);
-    t.eq(bad.checks.length, 16, "坏 JSON 时检查项数量仍 16");
-    t.eq(bad.failed, 16, "坏 JSON ⇒ 16 项全红");
+    t.eq(bad.checks.length, 18, "坏 JSON 时检查项数量仍 18");
+    t.eq(bad.failed, 18, "坏 JSON ⇒ 18 项全红");
     const badDeclares = named(bad, "profile/package.json 声明了本包依赖");
     t.includes(badDeclares.detail, "不是合法 JSON");
     t.includes(badDeclares.detail, nodePath.join(home, "profiles", "desktop", "package.json"));
@@ -408,14 +413,14 @@ tests["S10c-5 分档函数边界：dir 是文件 / package.json 是目录 / 读�
 
 /* ═════════════════════ S10e · 缺失形态占位红 + EOF 换行 ═════════════════════ */
 
-tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 16"] = (t) => {
+tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 18"] = (t) => {
   const fixture = makeHealthyHome("s10e1");
   try {
     rmrf(nodePath.join(fixture.home, "preset-bundles"));
     const result = verify(fixture.home);
     const presetFile = nodePath.join(fixture.home, "preset-bundles", PRESET, "cordis.patch.yml");
     t.ok(!nodeFs.existsSync(presetFile), "前置：预设文件应不存在");
-    t.eq(result.checks.length, 16, "检查项数量");
+    t.eq(result.checks.length, 18, "检查项数量");
     const presetChecks = result.checks.filter((c) => c.name.startsWith("preset "));
     t.eq(presetChecks.length, 5, "preset 组必须是 5 条（1 条路径 + 4 条占位）");
     t.ok(presetChecks.every((c) => c.ok === false), "preset 组 5 条必须全红");
@@ -434,14 +439,14 @@ tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 16"] = (t
   }
 };
 
-tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径），总数仍 16，且首条不是含糊话"] = (t) => {
+tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径），总数仍 18，且首条不是含糊话"] = (t) => {
   const fixture = makeHealthyHome("s10e2");
   try {
     const profilePkg = nodePath.join(fixture.profileDir, "package.json");
     nodeFs.rmSync(profilePkg);
     const result = verify(fixture.home);
     t.ok(!nodeFs.existsSync(profilePkg), "前置：清单应不存在");
-    t.eq(result.checks.length, 16, "检查项数量");
+    t.eq(result.checks.length, 18, "检查项数量");
     // ② 组：从「声明了本包依赖」到「UI 挂载通道二选一」共 5 条
     const names = [
       "profile/package.json 声明了本包依赖",
@@ -460,10 +465,10 @@ tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径）�
     t.includes(first.detail, profilePkg);
     // 旧版这条只说 "profile/package.json 不存在：<路径>"；新版必须带上 manifestError 的整句（含路径与原因）
     t.includes(first.detail, `不存在：${profilePkg}`);
-    // 检查顺序恒定：①5 条 → ②5 条 → ③④⑤5 条 → ⑥1 条 = 16
-    t.eq(result.checks.length, 16, "顺序与数量都要恒定");
+    // 检查顺序恒定：①7 条（含 F1 的 3 条版本闸） → ②5 条 → ③④⑤5 条 → ⑥1 条 = 18
+    t.eq(result.checks.length, 18, "顺序与数量都要恒定");
     t.eq(result.failed, 5, "只有 ② 组 5 条红、①③④⑤⑥ 仍绿（其余部分没被牵连）");
-    t.ok(result.checks.filter((c) => c.ok).length === 11, "绿项必须是 11 条");
+    t.ok(result.checks.filter((c) => c.ok).length === 13, "绿项必须是 13 条");
     // 反例：清单缺失时，②组第一项以外的 4 条不能各说各话
     for (const c of result.checks.filter((x) => names.slice(1).includes(x.name))) {
       t.includes(c.detail, "profile/package.json 不存在");
@@ -778,5 +783,112 @@ tests["S11 挂载通道二选一：bundle / 手工行各自都算健康，两条
     t.includes(chk.detail, "没挂载");
   } finally {
     noneHome.cleanup();
+  }
+};
+
+/* ═════════════════════ F1 · 宿主版本闸（2026-11-01） ═════════════════════
+ *
+ * 事故形状：插件把 4 个 @deepseek-ai/dsh-* peer 钉死成精确 `0.2.0-rc.2`；宿主升到 0.2.1-rc.5 后
+ *   ① `dsh plugin add` 在 pnpm 之前就拒（unmet requirements）
+ *   ② 就算塞进 dsh.profile.bundles，启动时整层 bundle 被静默跳过
+ * 而 peerDependencies 同时是**模块解析路由表**（dsh-app-boot 的 routeLinked 只在
+ * 「祖先目录 package.json 的 peerDependencies 里有这个名字」时改指宿主副本）。
+ * ⇒ 判据必须同时防「值被钉死」与「条目被删」，且不许依赖某个写死的版本字符串。
+ */
+
+const PEER_RANGE_F1 = "^0.2.0-rc.2";
+
+function manifestFixture(overrides = {}) {
+  return {
+    name: PKG,
+    version: "9.9.9-fixture",
+    peerDependencies: {
+      "@deepseek-ai/dsh-compaction": PEER_RANGE_F1,
+      "@deepseek-ai/dsh-compaction-basic": PEER_RANGE_F1,
+      "@deepseek-ai/dsh-llm": PEER_RANGE_F1,
+      "@deepseek-ai/dsh-session": PEER_RANGE_F1,
+      "@deepseek-ai/schemastery": "^3.18.4",
+    },
+    engines: { node: ">=20", dsh: PEER_RANGE_F1 },
+    ...overrides,
+  };
+}
+
+tests["F1-1 范围语义与宿主一致：^0.2.0-rc.2 收 0.2.1-rc.5，精确 0.2.0-rc.2 不收（旧清单被拒的原因）"] = (t) => {
+  t.ok(satisfies("0.2.1-rc.5", "^0.2.0-rc.2"), "0.2.1-rc.5 必须落在 ^0.2.0-rc.2 内（宿主就用这个判）");
+  t.ok(!satisfies("0.2.1-rc.5", "0.2.0-rc.2"), "精确 0.2.0-rc.2 必须不收 0.2.1-rc.5 —— 这就是装不回去的硬墙");
+  t.ok(satisfies("0.2.0-rc.2", "^0.2.0-rc.2"), "下界分支也别漏");
+  t.ok(satisfies("0.2.1", "^0.2.0-rc.2"), "正式版 0.2.1 也在范围内");
+  t.ok(!satisfies("0.3.0-rc.1", "^0.2.0-rc.2"), "caret 上界是 <0.3.0-0：下一个版本的预发布不收");
+};
+
+tests["F1-2 健康清单在宿主 0.2.1-rc.5 上过闸；旧形状（精确钉死）必须红"] = (t) => {
+  const good = evaluateManifest(manifestFixture(), { hostVersion: "0.2.1-rc.5" });
+  t.eq(good.ok, true, `健康清单应过闸：${JSON.stringify(good)}`);
+  t.eq(good.peersMissing.length, 0, "4 条 dsh peer 都在");
+  t.eq(good.rangeProblems.length, 0, "范围都能覆盖宿主");
+  t.eq(good.enginesProblems.length, 0, "engines.dsh 与 peer 口径一致");
+
+  const pinned = manifestFixture({
+    peerDependencies: { ...manifestFixture().peerDependencies, "@deepseek-ai/dsh-llm": "0.2.0-rc.2" },
+  });
+  const bad = evaluateManifest(pinned, { hostVersion: "0.2.1-rc.5" });
+  t.eq(bad.ok, false, "精确钉死的旧形状必须红（否则这条判据是常量绿）");
+  t.ok(bad.rangeProblems.some((line) => line.includes("@deepseek-ai/dsh-llm")), `要指名是哪条 peer：${bad.rangeProblems.join("；")}`);
+};
+
+tests["F1-3 删掉任一 dsh peer 条目 → 红（删了宿主就解析不到该包，不是风格问题）"] = (t) => {
+  for (const name of DSH_PEERS) {
+    const peers = { ...manifestFixture().peerDependencies };
+    delete peers[name];
+    const v = evaluateManifest(manifestFixture({ peerDependencies: peers }), { hostVersion: "0.2.1-rc.5" });
+    t.eq(v.ok, false, `删掉 ${name} 后必须红`);
+    t.ok(v.peersMissing.includes(name), `peersMissing 要点出 ${name}：${v.peersMissing.join(", ")}`);
+  }
+};
+
+tests["F1-4 缺 engines.dsh / engines 与 peer 口径不一致 → 各自红（两个闸门不许各说各话）"] = (t) => {
+  const noEngines = evaluateManifest(manifestFixture({ engines: { node: ">=20" } }), { hostVersion: "0.2.1-rc.5" });
+  t.eq(noEngines.ok, false, "缺 engines.dsh 必须红");
+  t.ok(noEngines.enginesProblems.some((line) => line.includes("缺 engines.dsh")), noEngines.enginesProblems.join("；"));
+
+  const tightened = manifestFixture({
+    engines: { node: ">=20", dsh: "^0.2.1-rc.5" },
+    peerDependencies: { ...manifestFixture().peerDependencies, "@deepseek-ai/dsh-session": "^0.2.1-rc.5" },
+  });
+  const skewedOk = evaluateManifest(tightened, { hostVersion: "0.2.1-rc.5" });
+  t.eq(skewedOk.ok, true, `两处同步收紧应自洽：${JSON.stringify(skewedOk)}`);
+
+  const inconsistent = manifestFixture({
+    engines: { node: ">=20", dsh: "^0.2.0-rc.2" },
+    peerDependencies: { ...manifestFixture().peerDependencies, "@deepseek-ai/dsh-session": "^0.2.1-rc.5" },
+  });
+  const bad = evaluateManifest(inconsistent, { hostVersion: "0.2.1-rc.5" });
+  t.eq(bad.ok, false, "engines 下界 0.2.0-rc.2 掉在 peer ^0.2.1-rc.5 之外 ⇒ 必须红");
+  t.ok(bad.enginesProblems.some((line) => line.includes("口径不一致")), bad.enginesProblems.join("；"));
+};
+
+tests["F1-5 verify-install 真的挂上了这 3 条判据，健康夹具在 0.2.1-rc.5 下 18/18 全绿，改回精确钉死即转红"] = (t) => {
+  const fixture = makeHealthyHome("f1-5");
+  try {
+    const result = verifyInstall({ dshHome: fixture.home, profile: "desktop", preset: PRESET, dshVersion: "0.2.1-rc.5" });
+    for (const fragment of ["dsh peer 条目齐全", "peer 范围覆盖宿主版本", "engines.dsh 存在"]) {
+      const check = named(result, fragment);
+      t.ok(check !== undefined, `「${fragment}」这条不许消失（少了 = 闸门没查）`);
+      t.ok(check?.ok === true, `「${fragment}」在健康夹具上必须绿：${check?.detail}`);
+    }
+    t.eq(result.checks.length, 18, "检查项数量");
+    t.eq(result.failed, 0, `健康夹具应 0 红：${result.checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.detail}`).join(" / ")}`);
+
+    // 反例：把夹具清单改回精确钉死 ⇒ 版本闸必须转红（证明这 3 条不是常量绿）
+    const pkgFile = nodePath.join(fixture.pkgSrc, "package.json");
+    const manifest = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+    manifest.peerDependencies["@deepseek-ai/dsh-llm"] = "0.2.0-rc.2";
+    write(pkgFile, JSON.stringify(manifest, null, 2) + "\n");
+    const after = verifyInstall({ dshHome: fixture.home, profile: "desktop", preset: PRESET, dshVersion: "0.2.1-rc.5" });
+    t.eq(named(after, "peer 范围覆盖宿主版本")?.ok, false, "精确钉死 ⇒ 版本闸这条必须红");
+    t.eq(after.failed, 1, "只该红这一条（其余判据不受影响）");
+  } finally {
+    fixture.cleanup();
   }
 };

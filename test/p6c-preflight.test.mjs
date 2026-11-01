@@ -50,8 +50,12 @@ function snapshot(root) {
   return rows.sort().join("\n");
 }
 
-function run(args) {
-  const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO, encoding: "utf8", timeout: 60000, windowsHide: true });
+/**
+ * @param {string[]} args 传给预检脚本的参数
+ * @param {object} [extra] spawnSync 的额外选项（C1 用例用它把 PATH 置空，模拟 tasklist 不可用）
+ */
+function run(args, extra = {}) {
+  const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO, encoding: "utf8", timeout: 60000, windowsHide: true, ...extra });
   const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   let json = null;
   const start = out.indexOf("{");
@@ -87,6 +91,9 @@ tests["p6c-preflight 夹具就绪：--port=0 --proc-name=（跳过外部探测�
     t.eq(r.json.sessions.deltaFiles, 1, "delta 文件数必须 1");
     t.ok(typeof r.json.sessions.combined === "string" && r.json.sessions.combined.length === 64, "graph.json-only 汇总哈希必须是 sha256");
     t.eq(r.json.runtime.running, false, "跳过探测时 running 必须 false");
+    // ★ C1：三态之一 —— 显式跳过**不是**探测失败（否则 4 条夹具用例会误红）
+    t.eq(r.json.runtime.procSkipped, true, "--proc-name= 空必须标记 procSkipped=true");
+    t.eq(r.json.runtime.procProbed, false, "显式跳过的 procProbed 是 false，但不算失败");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
@@ -152,9 +159,48 @@ tests["p6c-preflight 计数：进程名不存在时 procCount 必须是 0（task
     t.ok(r.json !== null, "必须输出 JSON");
     t.eq(r.json.runtime.procCount, 0, `无匹配进程时 procCount 必须为 0，实际 ${r.json.runtime.procCount}`);
     t.eq(r.json.runtime.procApplicable, true, "Windows 上 procApplicable 必须为 true");
+    // ★ C1：三态之二 —— 探测**成功**且确实 0 个（这是"真的没在跑"，必须放行）
+    t.eq(r.json.runtime.procProbed, true, "能执行 tasklist 时 procProbed 必须为 true");
+    t.eq(r.json.runtime.procSkipped, false, "这不是跳过，是探测成功");
     t.eq(r.json.runtime.running, false, "无端口、无进程时 running 必须 false");
     t.eq(r.json.ready, true, "ready 必须 true");
     t.eq(r.status, 0, `夹具就绪且 DSH 未运行时应 exit 0，实际 ${r.status}\n${r.out}`);
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+/**
+ * ★ C1（2026-11-01，仓库审计 task-2 亲手复现）：**探测失败 = fail-closed**。
+ *
+ * 旧实现里 `processCount()` 在 `tasklist` 跑不起来时返回 `{count: 0}`，调用方只算 `count > 0`
+ * ⇒ 「探不到」被当成「没在跑」⇒ 输出「✓ 可以开窗：DSH 未运行」并 **exit 0**。
+ * 而它守的是全仓唯一破坏性写盘动作（P6-C / S1b / `--apply`）的开机许可：
+ * 本仓已有三次「插件在跑却写盘 ⇒ 清理被内存图覆盖（netCleaned=0）」的实测记录。
+ *
+ * 复现手法：把子进程的 `PATH` 置空 ⇒ `spawnSync("tasklist")` ENOENT ⇒ 探测失败，
+ * 而会话根 / 备份盘都正常 ⇒ **唯一不满足的条件就是"探测失败"本身**。
+ * 该用例在旧实现上必红（ready=true、exit 0），在 fail-closed 实现上必绿（exit 1）。
+ */
+tests["p6c-preflight 拒绝：进程探测失败必须 fail-closed（tasklist 不可用 ≠ 没在跑）"] = (t) => {
+  if (process.platform !== "win32") {
+    // 非 Windows 下 procApplicable=false，本来就走「跳过」语义（且任务书只要求 Windows 守护）。
+    t.skip("依赖 Windows tasklist：非 Windows 上进程探测整体不适用");
+    return;
+  }
+  const { root, sessions } = makeFixture();
+  try {
+    const r = run([`--root=${sessions}`, "--port=0", "--proc-name=DeepSeek Harness.exe", "--json"], {
+      env: { ...process.env, PATH: "" },
+    });
+    t.ok(r.json !== null, `必须输出 JSON（实际输出：${String(r.out).slice(-400)}）`);
+    if (r.json === null) return; // 解析失败时上面已记红，别在 null 上继续抛
+    t.eq(r.json.runtime.procProbed, false, "tasklist 跑不起来时 procProbed 必须为 false");
+    t.eq(r.json.runtime.procCount, 0, "探测失败时没有可信计数，procCount 仍是 0");
+    t.eq(r.json.runtime.running, true, "探测失败必须按「可能在跑」处理（fail-closed）");
+    t.eq(r.json.ready, false, "探测失败时 ready 必须 false —— 「查不到」不等于「没在跑」");
+    t.includes(r.json.verdict, "无法确认", "拒绝理由必须说清是「无法确认 DSH 是否已退出」");
+    t.eq(r.status, 1, `探测失败必须 exit 1，实际 ${r.status}\n${r.out}`);
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }

@@ -75,16 +75,86 @@ function installedLocation(dshHome, profile) {
   return real !== null && samePath(real, PROJECT_DIR);
 }
 
-function presetsWithCompaction(dshHome) {
+/** 读 profile 的 `dsh.profile.bundles[]`；任何异常都当成「没有」（发现函数不许抛）。 */
+function readProfileBundles(profileDir) {
+  const file = nodePath.join(profileDir, "package.json");
+  try {
+    if (!nodeFs.existsSync(file)) return [];
+    const pkg = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+    const bundles = pkg?.dsh?.profile?.bundles;
+    return Array.isArray(bundles) ? bundles.filter((b) => typeof b === "string" && b.trim() !== "") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 读文本；不存在 / 不是文件 / 读失败 ⇒ null（发现函数不许抛）。 */
+function readTextOrNull(file) {
+  try {
+    return nodeFs.existsSync(file) ? nodeFs.readFileSync(file, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 找含压缩后端的 preset 文件，**两代兼容**（W4，2026-11-01）。
+ *
+ * 新版 DSH（0.2.1-rc.5）**没有 `<$DSH_HOME>/preset-bundles` 目录了**：用户 preset 改成
+ * 「一个 bundle 包」——包名写进 `<home>/profiles/<p>/package.json` 的 `dsh.profile.bundles[]`，
+ * 包根 `cordis.patch.yml` 里用 `name: '@deepseek-ai/dsh-agent-preset'` 的 insert 行声明 preset。
+ * 旧 home 仍然只有 `preset-bundles/<dir>/cordis.patch.yml` 这一种形态，必须继续认。
+ *
+ * 发现顺序（**新一代命中就不再退回旧目录**；两代都空 ⇒ `[]`，不抛）：
+ *   ① 新：`profiles/<p>/package.json` → `dsh.profile.bundles[]` →
+ *      `profiles/<p>/node_modules/<bundle>/cordis.patch.yml`；
+ *      命中判据：含 `@deepseek-ai/dsh-agent-preset` / 含 `- id: compaction-basic` / 含 {@link PKG_NAME}。
+ *   ② 旧：`<home>/preset-bundles/<dir>/cordis.patch.yml`（判据与行为逐字不变）。
+ *   ③ 都没有 ⇒ `[]`（home 不存在 / package.json 坏 / 读文件失败一律当「没有」）。
+ *
+ * 返回形状固定 `{ name, file, text }`：`name` 新一代是 bundle 包名，旧一代是目录名。
+ * 本包自己的 bundle patch（`name === PKG_NAME`）**排除**：它只插 UI 行，永远不是 preset，
+ * 不排除的话在已装好的 home 上重装/回滚会把自己当成 preset 目标（自指噪音）。
+ *
+ * ⚠ 与 `src/ui.mjs` 的 `findPresetFiles()` 是**同一逻辑的两份实现**（必须行为一致）：
+ *   `install.mjs` 要能被单独复制进夹具/已装包运行（test/install-link.test.mjs F1 只复制
+ *   `scripts/{install,link-path}.mjs` + `src/rooms/preset-format.mjs`），静态 import `src/ui.mjs`
+ *   会让那份副本 ESM 解析失败；R-A 又禁止 `src/**` 反向 import `scripts/`。
+ *   `test/preset-discovery.test.mjs` 的「两处一致」用例锁着这两份 —— 改一份必须改另一份。
+ *
+ * @param {string} dshHome DSH_HOME
+ * @param {string} [profile] profile 名，默认 `desktop`
+ * @returns {{name:string,file:string,text:string}[]}
+ */
+export function presetsWithCompaction(dshHome, profile = "desktop") {
+  const profileName = profile || "desktop";
+
+  /* ── ① 新一代：profile 的 dsh.profile.bundles → 包的 cordis.patch.yml ── */
+  const profileDir = nodePath.join(dshHome, "profiles", profileName);
+  const out = [];
+  for (const bundle of readProfileBundles(profileDir)) {
+    if (bundle === PKG_NAME) continue; // 本包自己的 bundle patch 不是 preset
+    const file = nodePath.join(profileDir, "node_modules", bundle, "cordis.patch.yml");
+    const text = readTextOrNull(file);
+    if (text === null) continue;
+    if (!text.includes("@deepseek-ai/dsh-agent-preset") && !text.includes("- id: compaction-basic") && !text.includes(PKG_NAME)) continue;
+    out.push({ name: bundle, file, text });
+  }
+  if (out.length > 0) return out;
+
+  /* ── ② 旧一代：<home>/preset-bundles/<dir>/cordis.patch.yml（原行为） ── */
   const root = nodePath.join(dshHome, "preset-bundles");
   if (!nodeFs.existsSync(root)) return [];
-  const out = [];
-  for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const file = nodePath.join(root, entry.name, "cordis.patch.yml");
-    if (!nodeFs.existsSync(file)) continue;
-    const text = nodeFs.readFileSync(file, "utf8");
-    if (text.includes("- id: compaction-basic") || text.includes(PKG_NAME)) out.push({ name: entry.name, file, text });
+  try {
+    for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(root, entry.name, "cordis.patch.yml");
+      const text = readTextOrNull(file);
+      if (text === null) continue;
+      if (text.includes(PKG_NAME) || text.includes("- id: compaction-basic")) out.push({ name: entry.name, file, text });
+    }
+  } catch {
+    return [];
   }
   return out;
 }
@@ -289,9 +359,12 @@ export function run(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  const targets = presetsWithCompaction(dshHome).filter((p) => (opts.preset ? p.name === opts.preset : true));
+  const targets = presetsWithCompaction(dshHome, profile).filter((p) => (opts.preset ? p.name === opts.preset : true));
   if (targets.length === 0) {
-    console.error(`在 ${nodePath.join(dshHome, "preset-bundles")} 下没找到含 compaction-basic 的 preset`);
+    // 两代都找过：新版看 profile 的 dsh.profile.bundles，旧版看 preset-bundles/ —— 报错要把两处都点出来。
+    console.error(
+      `没找到含 compaction-basic 的 preset（已找 ${nodePath.join(dshHome, "profiles", profile, "package.json")} 的 dsh.profile.bundles 与 ${nodePath.join(dshHome, "preset-bundles")}）`,
+    );
     return 1;
   }
 

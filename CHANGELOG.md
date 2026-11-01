@@ -1,5 +1,163 @@
 # 更新记录
 
+## 1.12.0 — 2026-11-01
+
+> 本轮主题：**让插件在 0.2.1-rc.5 的宿主上重新装得回去**，外加修掉两个已实测缺陷。
+> 宿主把三道版本闸（installBundle 拒装 / bundle 层静默跳过 / 行级 preflight 禁用）同时拨到「不兼容」侧，
+> 而判据是结构化版本比较 —— **改清单 4+1 行就能过闸**，引擎/UI 的宿主 API 调用点本身都还在。
+> **本版没有发布、没有改 live、没有打 tag**（发版属下一步）。
+
+### F1 · 兼容 DSH 0.2.1-rc.5：peer 改「范围」+ 补 `engines.dsh`
+
+**问题**：桌面宿主升到 **0.2.1-rc.5**，而插件 4 个 `@deepseek-ai/dsh-*` peer 钉死精确 `0.2.0-rc.2`。
+宿主判据（`dsh-app-boot/lib/index.js` 的 `unmetRequirements()` / `evaluatePluginCompatibility()`）：
+
+```
+有 engines.dsh → 只用它判（peer 一律忽略）
+否则            → 只看 peerDependencies 里名字是 @deepseek-ai/dsh 或 @deepseek-ai/dsh-* 的项，
+                  逐条 semver.satisfies(runtimeVersion, range, { includePrerelease: true })
+```
+
+**精确版当 range = 「只等于自己」** ⇒ 4 条全 unmet ⇒ 三道闸同时关：
+
+1. 安装前 `installBundle` **直接拒装**（`incompatible-version`，pnpm 都还没跑）；
+2. 手工塞进 profile 后，只要进了 `dsh.profile.bundles`，启动时**整层 bundle 被静默跳过**（源码注释原话 "nothing is printed"）；
+3. 行级 preflight 另有一道（把该行 `disabled` 并往 stderr 打一行）。
+
+**改法（清单 4+1 行）**
+
+| 处 | 改前 | 改后 |
+|---|---|---|
+| 4 个 `@deepseek-ai/dsh-*` peer | `0.2.0-rc.2` | **`^0.2.0-rc.2`** |
+| `engines` | `{ "node": ">=20" }` | 增 **`"dsh": "^0.2.0-rc.2"`**（宿主有它时只用它判，闸门收到一处） |
+
+**peer 条目一条都没删**（这点比「改成范围」更要紧）：这套宿主里 `peerDependencies` **同时是模块解析路由表** ——
+`dsh-app-boot` 的 `routeLinked()` 只把「出现在祖先 `package.json` peer 表里的名字」改指宿主自带副本；
+名字不在表里 ⇒ 落回原生解析 ⇒ `link:` 安装下 `import '@deepseek-ai/dsh-*'` 直接解析不到。
+所以断言必须同时防「值被钉死」和「条目被删」。
+
+**⚠ 这个 range 的可行性依赖宿主保留 `includePrerelease`**（用宿主 asar 自带 semver 7.8.5 实测）：
+
+| 调用 | 结果 |
+|---|---|
+| `satisfies("0.2.1-rc.5", "^0.2.0-rc.2")` —— **默认**选项 | **false** |
+| `satisfies("0.2.1-rc.5", "^0.2.0-rc.2", { includePrerelease: true })` —— **宿主实际用法**（`dsh-app-boot/lib/index.js` 逐字） | **true** |
+| `satisfies("0.2.1-rc.5", "0.2.0-rc.2")` —— 改前的精确版 | false |
+| `satisfies("0.3.0-rc.1", "^0.2.0-rc.2", { includePrerelease: true })` —— 上界 | false（正常） |
+
+⇒ **若 DSH 哪天取消 `includePrerelease`，这个范围会重新变成不满足**（闸门重新收紧，不会静默放行）。
+这条前提已写进 `test/verify-install.mjs` 的判据注释，留给下一个升级的人。
+
+**自研断言改结构化**（`test/verify-install.mjs`，检查项 **16 → 18**）：
+① 4 条 dsh peer 条目齐（`DSH_PEERS`）② 每条范围能覆盖**当前宿主版本** ③ `engines.dsh` 存在且与 peer 口径一致。
+**不再比对写死的版本字符串**；版本解析自带（本包 `dependencies` 为空，校验器要能在没装依赖的 profile 里跑，
+所以不引 semver 依赖），语义对齐宿主的 `includePrerelease: true`，caret 上界取 `<X.Y.0-0`
+（少 `-0` 会把下一个预发布如 `0.3.0-rc.1` 误判进范围）。
+宿主版本读 `<DSH_HOME>/dsh-runtimes/<*>/runtime.json` 的 `desktopVersion`（与在跑宿主同源）；
+读不到时**只判范围形态**，不假绿。
+
+**验证**：`install-link` **29/0**、`ws-install` **19/0**（新增 F1-1…F1-5 五条：范围语义与宿主一致 /
+健康清单在 0.2.1-rc.5 上过闸且旧形状必红 / 删任一 peer 条目必红 / 缺 `engines.dsh` 或与 peer 口径不一致各自红 /
+`verify-install` 真挂上这 3 条判据且健康夹具 **18/18** 全绿）。
+
+### B1 · 摘要模型回退分支：不再往 `BlockAssembler` 回写（rc.5 上会静默降级）
+
+**问题**：宿主 `@deepseek-ai/dsh-llm@0.2.1-rc.5` 的 `BlockAssembler` **没有 `chunks`**，
+`usage` / `finish` 是**只读 getter**（严格模式赋值 `TypeError`）。旧写法在「摘要模型 ≠ 当前路由 且第一次失败」
+的回退分支里回写四个字段 ⇒ 抛错 ⇒ 被 `summarize` 外层 `catch { …退回规则摘要 }` 吞掉 ⇒
+**回退分支静默失效、fold 降级成规则摘要**（表面只留一条会误导读者的 warn「摘要模型全部不可用」）。
+不是崩溃，是**悄悄降质**，更坏。
+
+**改法**：`const assembler` → `let`；回退分支改**换引用** ——
+`assembler = await runStream(routed, new BlockAssembler())`（`runStream` 本来就 `return into`），
+后文 `assembler.blocks()` / `assembler.usage` 自然读 retry 的产物。不回写旧实例、不依赖 `chunks`。
+
+**测试（红 → 绿）**：新增 `test/engine-retry-assembler.test.mjs` **2 条** ——
+`B1-0 夹具自检：替身确实是 rc.5 形状（没有 chunks；usage/finish 只读）`、
+`B1-1 回退分支在 rc.5 形状的 BlockAssembler 上必须真的走通（不得降级成规则摘要）`。
+**改前 1 passed / 1 failed**（红在 `degraded="rules"` + 摘要不含 retry 产出 + `usage` 缺失 + 出现「全部不可用」），
+**改后 2 passed / 0 failed**；旧形状回归 `engine-harness` 43/0 不变 ⇒ 换引用是等价变换。
+
+### C1 · 停窗预检：探测失败从 fail-open 改成 fail-closed
+
+**问题**：`scripts/p6c-preflight.mjs` 的 `processCount()` 在 `tasklist` 跑不起来时返回 `{count: 0}`，
+调用方只算 `count > 0` ⇒ **「探不到」被当成「没在跑」** ⇒ 输出「✓ 可以开窗：DSH 未运行」并 **exit 0**。
+它守的是全仓唯一破坏性写盘动作（P6-C / S1b / `--apply`）的开机许可；本仓已有三次
+「插件在跑却写盘 ⇒ 清理被内存图覆盖（`netCleaned=0`）」的实测记录。
+
+**改法**：`processCount()` 拆**三态** —— 「明确跳过」（`--proc-name=` 空，`skipped:true`，不算失败）/
+「探测成功」（`probed:true` + `count`）/「探测失败」（`probed:false` + `error`，带出 `ENOENT` / `ETIMEDOUT` / 退出码）；
+调用方 `running = portIsOpen || count > 0 || procFailed`（**探测失败按「可能在跑」处理**），
+`runtime` 增 `procProbed` / `procSkipped` / `procError`，verdict 独立一档「无法确认 DSH 是否已退出（fail-closed）」。
+
+**测试（红 → 绿）**：`test/p6c-preflight.test.mjs` 新增
+`p6c-preflight 拒绝：进程探测失败必须 fail-closed（tasklist 不可用 ≠ 没在跑）`
+（子进程 `PATH` 置空 ⇒ 断言 `ready===false`、`procProbed===false`、退出码 **1**），并给既有三态各补断言。
+**旧实现上必红**（实测：`探测失败必须 exit 1，实际 0`）。
+**改前**：`✓ 可以开窗：可以开窗：DSH 未运行…` **EXIT 0** → **改后**：`✗ 不可以开窗：…无法确认 DSH 是否已退出（进程探测失败：ENOENT）…` **EXIT 1**。
+`p6c-preflight` 专项 **6/0/0**（原 5 条全绿 + 新增 1）。
+
+### W4/W5 · preset 发现两代兼容 + doctor/verify 的 preset 检查按语义分档
+
+**问题**：新版 DSH **没有 `<DSH_HOME>/preset-bundles` 目录**（全 asar grep `preset-bundles` = 0 命中）。
+用户 preset 改成「**bundle 包** + profile 的 `dsh.profile.bundles[]` 声明」，patch 里写
+`name: '@deepseek-ai/dsh-agent-preset'`。旧代码只认 `preset-bundles/` ⇒ `src/ui.mjs` 的 `findPresetFiles()`
+与 `scripts/install.mjs` 的 `presetsWithCompaction()` **双双静默返回 `[]`** ⇒ 新 home 上必然假红。
+
+**改法**：先扫新版形态（`profiles/<p>/package.json` 的 `dsh.profile.bundles[]` → `node_modules/<name>/cordis.patch.yml`，
+命中判据含 `@deepseek-ai/dsh-agent-preset` / `- id: compaction-basic` / 本包名），再回退旧 `preset-bundles/`；
+**排除本包自身 bundle**（防自指：它只插 UI 行，永远不是 preset）；profile 名可参数化。
+两份实现（`src/ui.mjs` / `scripts/install.mjs`）逻辑相同且有测试钉「同一夹具逐字段相同」。
+
+**语义分档（这条比"兼容"更要紧）**：`doctor` / `verify-install` 里 ——
+「**两代都没有 preset**」= **合法中间态**（warn / `!`，不计 failed）；
+「**有** preset 但没挂 `dsh-gokifu-compact/engine`」= **error / failed**。两种状态分开断言，不许糊成一个布尔。
+
+**真机证据**：旧 home 回退实测命中 `personal-assistant`；新 home `superagent` profile 实测命中 `dsh-superagent`；
+真实新 home 上 `verify-install` **18 项 = 13 失败 / 5 提示**、`doctor` **错误 1 / 警告 11**（改前 错误 3 / 警告 8）。
+
+**验证**：`preset-discovery` **7/0**、`preset-wiring` **4/0**（`verify-install` 与 `doctor` 两个入口都断言，防止只改对一处）。
+
+### 附带 · `scripts/bench-repro.mjs`：一条命令复现 README 顶部的两个指标
+
+新增 `scripts/bench-repro.mjs` —— 跑到 `hot-list tokens: 351 (fixture=2000-edges, tier=L5)` 与
+`failure-retention: 8 / 8`；**数字漂移则 `exit 2`**（算法或夹具变了要人工确认后再更新基线），跑不通 `exit 1`。
+基线常量集中在一处（`EXPECTED_TOKENS` / `EXPECTED_TIER` / `EXPECTED_RETENTION`），改算法时同步 README 与本脚本。
+
+### 验证
+
+- 全量：**577 passed / 0 skipped / 0 failed**（**49 个测试文件**；基线 **558/0/0、46 文件**）
+- 新增测试文件 **3 个**：`engine-retry-assembler`(2) · `preset-discovery`(7) · `preset-wiring`(4)；
+  另有既有文件扩容：`p6c-preflight` **+1**（5→6）、`ws-install` **+5**（14→19）。
+  对账：文件 **46 + 3 = 49**、用例 **558 + 2 + 7 + 4 + 1 + 5 = 577**，两处都对得上
+- 分文件（`node test/run.mjs <filter>` 口径）：`install-link` **29/0** · `ws-install` **19/0** · `preset-discovery` **7/0** · `preset-wiring` **4/0** ·
+  `p6c-preflight` **6/0** · `engine-harness` **43/0** · `ui` **54/0** · `rooms` **15/0** · `bundle` **6/0**
+- `scripts/bench-repro.mjs`：**EXIT 0**（351 tokens / 8-8）
+- `check-maintenance`（pre-tag）：**通过 8 / 警告 0 / 失败 1**（`CHANGELOG 有 1.12.0 这一节` 已转绿）—— 唯一失败是「当前版本 1.12.0 有 tag」，
+  属**发版步骤未执行**（本版不打 tag），不是内容问题
+
+### 未验证 / 已知问题
+
+- **没有真实安装到新 home**：需**停机窗口 + 主人授权 + 主人重启**。本版只把「装得回去」的条件备齐（清单过闸 + preset 两代兼容），
+  **一次都没有对真实 profile 跑过 `install`**。真实新 home 上 `verify-install` **13 失败 / 5 提示**、
+  `doctor` **错误 1 / 警告 11** 是「插件还没装」的必然结果，不是本版缺陷；**没有为了凑绿去动 live**。
+- **B1 只在「复刻 rc.5 成员表」的替身上验证过**（本机工作树没有 `node_modules`）。真实 rc.5 宿主上仍需重启后跑一次真实 fold 验收。
+- **preset 的「写回」路径未在 bundle 形态下真机验证**：`src/ui.mjs` 保存配置时写的是「发现到的 preset 文件」，
+  新版形态下那就是 bundle 包根 `cordis.patch.yml` —— 备份/`pruneBackups` 也会落在 bundle 包目录里，
+  会不会污染包或进 git **未实测**（只有发现侧有两代兼容的测试）。
+- **`.cmd` 打包形态**：桌面启动脚本必须 GBK(CP936) + CRLF（1306 B / 39 个 CRLF / 无 BOM），
+  用 UTF-8 编辑器保存会静默失效 —— 本版没动它，记录给运维窗口。
+
+### 未修项（本轮明确不做）
+
+- **`README:3` 没有任何门禁**（见 1.11.15 S11 的订正）：`check-maintenance` 不读 README、`release*.mjs` / `verify-release.mjs`
+  也没有 README 断言 ⇒ 只能靠人肉同步。**要治得给 `check-maintenance` 加一条**（`scripts/**` 属发布侧，本轮不动）。
+- **`HANDOFF.md` 的版本号同样没有门禁**（本轮靠人手改准）。
+- **tokenMeter 仍未立项**：热清单预算数学仍是 `len/3` 字符粗估（8 处硬编码 `/3`），
+  实测对 CJK 系统性低估（纯中文 **−38%**、真实热清单中位 **−9.7%**）；正解是宿主 `ctx.tokenMeter` 端口 + 预算改 token 单位，属结构变更。
+- **preset 的 compaction group 行仍待重建**：新 home 上没有可用的 preset bundle，引擎行要在运维窗口里新建（引擎名必须
+  `dsh-gokifu-compact/engine`，不能写包根 —— 包根 `exports["."]` 是 UI host）。
+
 ## 1.11.17 — 2026-10-31
 
 ### P6C-4 · 停窗预检的进程计数：解析**本地化提示行**导致的假「DSH 还在跑」
@@ -122,7 +280,7 @@
 
 | 处 | 修复 |
 |---|---|
-| `README` 版本行 | 曾写 `1.7.1` ⇒ 现**每次发版自动同步**（`README:3` 与 `package.json` 一致，由 `check-maintenance` 与发布门禁共同盯着） |
+| `README` 版本行 | 曾写 `1.7.1` ⇒ 本版一次性把 `README:3` 同步成 `1.11.15`。**⚠ 订正（2026-11-01，1.12.0）**：原文接着写「由 `check-maintenance` 与发布门禁共同盯着」——**这句是错的**：实测 `grep -c README scripts/check-maintenance.mjs` = **0**，`scripts/release*.mjs` / `scripts/verify-release.mjs` 里也没有任何 README 断言 ⇒ **`README:3` 至今没有任何门禁**，只能人肉同步（1.9.3 就因为 `README:3` 落后吃过一次冻结令）。修法见 1.12.0「未修项」。 |
 | `docs/计划表.md` | 首行标注 **「已归档」**，并注明「2026-10-29 起唯一持续任务表改为仓库根的 `计划表.md`」 |
 | `HANDOFF.md` 顶部 | 日期 `2026-10-28` → **`2026-10-31`**；删掉过期的「最紧急：v1.3.5 修 worldHash P0」三条；新增**最新状态表**（版本 / tag / npm shasum / 单测数 / verify / check / **live 仍 1.11.2、落后多版** / 未发的 P2-2 / **P6-C 真实 apply 仍欠**）；旧 1.9.1 块降级为「历史状态 …… 留作时间线」 |
 

@@ -396,7 +396,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       priorFold,
     });
 
-    const assembler = new BlockAssembler();
+    // ★ B1（2026-11-01）：`let` —— 下面的「摘要模型不可用 ⇒ 改走当前路由」分支要**换引用**，
+    //   不能往这个实例回写（新版宿主 BlockAssembler 没有 chunks，usage/finish 是只读 getter）。
+    let assembler = new BlockAssembler();
     const messages = [
       ...input.messages,
       { role: "user", content: [{ type: "text", text: instruction }] },
@@ -445,13 +447,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         this.ctx.logger?.warn?.(
           `chess-context: 摘要模型 ${target.provider}/${target.model} 不可用（${String(error?.message ?? error)}），改用当前路由 ${routed.provider}/${routed.model} 重试一次`,
         );
-        const retry = new BlockAssembler();
-        await runStream(routed, retry);
         used = routed;
-        assembler.chunks.length = 0;
-        for (const chunk of retry.chunks) assembler.push(chunk);
-        assembler.finish = retry.finish;
-        assembler.usage = retry.usage;
+        // ★ B1（2026-11-01）：宿主 `@deepseek-ai/dsh-llm` 0.2.1-rc.5 的 `BlockAssembler`
+        //   **没有 `chunks`**，且 `usage` / `finish` 是**只读 getter**（严格模式赋值抛 TypeError）。
+        //   旧写法（`assembler.chunks.length = 0` + 逐块 push + 回写 finish/usage）会在这里炸；
+        //   而外层还有一层 `catch { …退回规则摘要 }` ⇒ **回退分支静默失效、fold 降级成规则摘要**
+        //   （表面只留一条会误导读者的 warn「摘要模型全部不可用」）。
+        //   正确做法：**换引用** —— `runStream` 返回的就是装配完的那个实例，后文 `blocks()` / `usage`
+        //   自然读到 retry 的产物。不要回写旧实例，也不要依赖 `chunks`。
+        assembler = await runStream(routed, new BlockAssembler());
       }
     } catch (error) {
       if (mode !== "hybrid" || signal?.aborted) throw error;

@@ -16,7 +16,7 @@
  *   node scripts/p6c-preflight.mjs --json          # 机器可读（对账基线可存档）
  *   node scripts/p6c-preflight.mjs --root=<sessionsRoot> --port=0 --proc-name=   # 夹具/只读模式
  *
- * 退出码：0 = 可以开窗（ready）；1 = 不可以（DSH 在跑 / 空间不足 / 会话根不存在）；2 = 参数错误。
+ * 退出码：0 = 可以开窗（ready）；1 = 不可以（DSH 在跑 / **进程探测失败 fail-closed** / 空间不足 / 会话根不存在）；2 = 参数错误。
  */
 
 import nodeFs from "node:fs";
@@ -85,18 +85,33 @@ function portOpen(port) {
  *
  * CSV 模式下**匹配到的进程行一定以 `"` 开头**，本地化提示行不会，因此计数可靠；
  * 再按映像名（第一个 CSV 字段）复核一次，双重保险。
+ *
+ * ★ C1（2026-11-01）：**「明确跳过」与「探不到」必须是两件事**。
+ *   · `--proc-name=` 传空 ⇒ 操作者明确要求跳过外部探测（夹具 / 只读复跑用）⇒ `skipped: true`，不算失败；
+ *   · 真的去执行了 `tasklist` 却拿不到可信结果（spawnSync ENOENT / 超时 / 非零退出 / 输出不是字符串）
+ *     ⇒ `probed: false` + `error`，**调用方必须按「可能在跑」处理（fail-closed）**。
+ *   旧码把这两种情况都折成 `count: 0`，于是「探不到」= 「没在跑」——
+ *   而它守的是全仓唯一破坏性写盘动作的开机许可，不能靠猜。
+ *   实测（仓库审计 task-2）：`PATH` 置空后旧码输出「✓ 可以开窗：DSH 未运行」并 exit 0，
+ *   而 `tasklist` 一次都没跑起来。
  */
 function processCount(name) {
-  if (process.platform !== "win32" || !name) return { applicable: process.platform === "win32", count: 0 };
+  if (process.platform !== "win32") return { applicable: false, skipped: true, probed: false, count: 0 };
+  if (!name) return { applicable: process.platform === "win32", skipped: true, probed: false, count: 0 };
   const r = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { encoding: "utf8", timeout: 15000, windowsHide: true });
-  if (r.status !== 0) return { applicable: true, count: 0, error: String(r.stderr ?? "").trim() };
+  if (r.error || r.status !== 0 || typeof r.stdout !== "string") {
+    // 注意：spawnSync 失败时 status===null、stderr===undefined ⇒ 旧码的 String(r.stderr ?? "") 是空串，
+    // 连"为什么失败"都没留下。这里显式带出 ENOENT / ETIMEDOUT / 退出码。
+    const why = r.error?.code ? String(r.error.code) : `tasklist 退出码 ${r.status}`;
+    return { applicable: true, skipped: false, probed: false, count: 0, error: why };
+  }
   const want = name.toLowerCase();
   const count = String(r.stdout ?? "")
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.startsWith('"'))
     .filter((l) => l.slice(1, 1 + want.length).toLowerCase() === want).length;
-  return { applicable: true, count };
+  return { applicable: true, skipped: false, probed: true, count };
 }
 
 function sha256(buf) {
@@ -176,14 +191,19 @@ async function main() {
   node scripts/p6c-preflight.mjs [--json] [--root=<sessionsRoot>] [--backup-root=<dir>]
                                  [--port=${DEFAULT_PORT}|0] [--proc-name="${DEFAULT_PROC}"] [--min-free-mb=${DEFAULT_MIN_FREE_MB}]
 
-退出码：0 = 可以开窗；1 = 不可以（DSH 在跑 / 空间不足 / 会话根不存在）；2 = 参数错误。
+退出码：0 = 可以开窗；1 = 不可以（DSH 在跑 / 进程探测失败 fail-closed / 空间不足 / 会话根不存在）；2 = 参数错误。
 本脚本只读：不写 live、不建目录、不启停 DSH。`);
     return 0;
   }
 
   const portIsOpen = await portOpen(opts.port);
   const proc = processCount(opts.procName);
-  const running = portIsOpen || proc.count > 0;
+  // ★ C1（2026-11-01）：探测失败 ⇒ **按「可能在跑」处理**（fail-closed）。
+  //   旧写法只算 `proc.count > 0` ⇒ tasklist 跑不起来时 running=false、ready=true、exit 0。
+  //   「查不到」不等于「没在跑」：这里是全仓唯一破坏性写盘动作（P6-C / S1b / --apply）的开机许可。
+  const procSkipped = proc.skipped === true;
+  const procFailed = !procSkipped && proc.probed !== true;
+  const running = portIsOpen || proc.count > 0 || procFailed;
   const sessions = scanSessions(opts.root);
   const profileFile = nodePath.join(nodePath.dirname(nodePath.dirname(opts.root)), "profiles", "desktop", "cordis.patch.yml");
   const profile = checkProfile(profileFile);
@@ -195,17 +215,30 @@ async function main() {
     ok: ready,
     ready,
     checkedAt: new Date().toISOString(),
-    runtime: { port: opts.port, portOpen: portIsOpen, procName: opts.procName, procCount: proc.count, procApplicable: proc.applicable, running },
+    runtime: {
+      port: opts.port,
+      portOpen: portIsOpen,
+      procName: opts.procName,
+      procCount: proc.count,
+      procApplicable: proc.applicable,
+      /** 真的探测成功了才算 true；跳过与失败都是 false（失败另看 procError）。 */
+      procProbed: proc.probed === true,
+      procSkipped,
+      ...(proc.error === undefined ? {} : { procError: proc.error }),
+      running,
+    },
     sessions,
     profile,
     backup,
     verdict: ready
       ? "可以开窗：DSH 未运行、会话根可读、备份空间足够"
-      : running
+      : portIsOpen || proc.count > 0
         ? `拒绝 apply 预检：检测到 DSH 正在运行（${portIsOpen ? `端口 ${opts.port} 可连接` : "端口未开放"}${proc.count > 0 ? `；进程 ${proc.count} 个` : ""}）—— 先完全退出桌面实例（含托盘），再重跑本预检`
-        : !sessionsOk
-          ? `拒绝 apply 预检：会话根不存在或为空（${opts.root}）`
-          : `拒绝 apply 预检：备份空间不足（需要 ${fmtBytes(backup.requiredBytes)}，可用 ${fmtBytes(backup.freeBytes)}）`,
+        : procFailed
+          ? `拒绝 apply 预检：无法确认 DSH 是否已退出（进程探测失败：${proc.error ?? "原因未明"}）—— 「查不到」不等于「没在跑」，此处按可能在跑处理（fail-closed）；确认 tasklist 可用后重跑本预检`
+          : !sessionsOk
+            ? `拒绝 apply 预检：会话根不存在或为空（${opts.root}）`
+            : `拒绝 apply 预检：备份空间不足（需要 ${fmtBytes(backup.requiredBytes)}，可用 ${fmtBytes(backup.freeBytes)}）`,
   };
 
   if (opts.json) {
@@ -214,9 +247,14 @@ async function main() {
   }
 
   const mark = (okv) => (okv ? "✓" : "✗");
+  const procNote = procFailed
+    ? `（探测失败：${proc.error ?? "原因未明"}，按「可能在跑」处理）`
+    : procSkipped
+      ? "（已跳过探测）"
+      : "";
   console.log(`== P6-C 停窗预检 · ${result.checkedAt} ==`);
   console.log(`会话根 : ${sessions.root}`);
-  console.log(`${mark(!running)} DSH 运行态：端口 ${opts.port || "(跳过)"} ${portIsOpen ? "可连接" : "不可连接"}；进程 ${opts.procName || "(跳过)"} ${proc.count} 个`);
+  console.log(`${mark(!running)} DSH 运行态：端口 ${opts.port || "(跳过)"} ${portIsOpen ? "可连接" : "不可连接"}；进程 ${opts.procName || "(跳过)"} ${proc.count} 个${procNote}`);
   console.log(`${mark(sessionsOk)} 会话数：${sessions.count}（graph.json ${fmtBytes(sessions.graphBytes)}；delta 文件 ${sessions.deltaFiles} 个；合计 ${fmtBytes(sessions.totalBytes)}）`);
   console.log(`  graph.json-only sha256：${sessions.combined ?? "(无会话)"}`);
   console.log(`${mark(profile.exists)} profile：${profile.path}${profile.exists ? `（mtime ${profile.mtime}，sha256 ${profile.sha256.slice(0, 16)}…）` : "（不存在）"}`);
