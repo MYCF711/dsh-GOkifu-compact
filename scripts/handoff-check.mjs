@@ -14,7 +14,7 @@
  *   ② 约束：事实块有 CONSTRAINTS_VERBATIM ⇒ 热清单必须出现 CONSTRAINTS
  *   ③ 失败边：图有失败边 ⇒ 热清单必须出现 LEARNED
  *   ④ 未落地选项：事实块有 OPTIONS ⇒ 热清单必须出现 OPTIONS（L2+ 允许只剩计数行）
- *   ⑤ 未验证声明：事实块有 UNVERIFIED_CLAIMS ⇒ 热清单必须出现 UNVERIFIED（见下方 WARN 说明）
+ *   ⑤ 未验证声明：有**非残留**的未验证边 ⇒ 热清单必须出现 UNVERIFIED（L0/L1 列表，L2+ 计数行）
  *   ⑥ 当前位置：图有路径 ⇒ 热清单必须出现 CURRENT PATH / # path: / # WORKING:
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
  *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
@@ -41,7 +41,7 @@ const home = process.env.DSH_HOME && process.env.DSH_HOME.length > 0 ? process.e
 const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
 
 const { fromJSON } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "kifu-model.mjs")).href);
-const { renderLedger, renderFacts } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "ledger.mjs")).href);
+const { renderLedger, renderFacts, isDanglingResidue } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "ledger.mjs")).href);
 
 /** 一条检查结果。level: ok / warn / fail。 */
 function check(name, level, detail = "") {
@@ -79,11 +79,13 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   const factsHasOptions = facts.includes("OPTIONS (not yet landed):");
   out.push(check("④未落地选项", !factsHasOptions ? "ok" : text.includes("OPTIONS") ? "ok" : "fail", factsHasOptions ? "" : "本会话没有未落地尝试"));
 
-  // ⑤ 未验证声明 —— 注意：当前实现只在 L0/L1 渲染，L2+ 会整段消失（这是已知缺口，先报 warn）
-  const factsHasUnverified = facts.includes("UNVERIFIED_CLAIMS");
-  if (!factsHasUnverified) out.push(check("⑤未验证", "ok", "本会话没有未验证声明"));
-  else if (text.includes("UNVERIFIED")) out.push(check("⑤未验证", "ok", ""));
-  else out.push(check("⑤未验证", "warn", `事实块有未验证声明，但热清单在 L${ledger.level} 把它整段丢了（已知缺口：与 OPTIONS 同一类，见职责边界 §3 风险点）`));
+  // ⑤ 未验证声明：L0/L1 出完整列表；L2+ 出计数行（ed3e5b1 起）。**判据必须与 renderLedger 一致地排除 residue**
+  //   —— 事实块（renderFacts）会列 residue 未验证边，而热清单按 P6-A 排除它们，直接把「facts 有 → ledger 必须有」
+  //   当判据会误报（P2-3，独立验证 2026-11-01：2fcebdc7 唯一未验证边是 residue）。
+  const unverifiedEdges = edgeList.filter((e) => e?.result === "unverified" && !isDanglingResidue(e, { graph, now: Date.now() }));
+  if (unverifiedEdges.length === 0) out.push(check("⑤未验证", "ok", "本会话没有（非残留的）未验证声明"));
+  else if (text.includes("UNVERIFIED")) out.push(check("⑤未验证", "ok", `${unverifiedEdges.length} 条未验证声明仍在清单里`));
+  else out.push(check("⑤未验证", "fail", `${unverifiedEdges.length} 条未验证声明在 L${ledger.level} 被静默丢掉（契约 ⑤ 违反）`));
 
   // ⑥ 当前位置（只有当图里真的有路径时才要求 —— 没有 agent 节点的会话本来就没有路径可放）
   const factsHasPath = facts.includes("CURRENT_PATH:");

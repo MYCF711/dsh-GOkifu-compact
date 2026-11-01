@@ -47,11 +47,25 @@
 - 结果：`handoff-check` live 从 **FAIL 11 / WARN 8** → **FAIL 0 / WARN 4**（剩余 warn 是两张开局无 user 节点的
   孤儿图和一次 over-budget，均已说明原因）。
 
+### C5.1 · 独立验证后的 P2 收口（报告：`tmp/verify-round2/REPORT.md`）
+
+独立验证（以 commit 冻结的干净 worktree 复验，不采用实现者自测）结论：**C2/C3/C4/C5 全部 PASS，P0=0 / P1=0**。
+它指出的 3 个 P2 已在本提交收口：
+
+1. **P2-1 doctor「未采集」误报 ok** ⇒ 旧 `ledger-budget.json`（无 provenance 字段）现在给 **warn** 而不是 ok；
+   并防御 `provenanceMin<1` 但 `provenanceLow` 缺失/为 0 的跨版本混写（P3-1）。
+2. **P2-2 UNVERIFIED L2+ 计数行无回归测试**（删掉整行全量仍全绿）⇒ 新增 `test/unverified-tier.test.mjs`：
+   9 档预算逐一断言「有未验证边就不许沉默」「L0/L1 完整列表 + L2+ 计数行」「没有就别加假计数」「residue 不算」。
+3. **P2-3 handoff-check ⑤ 假 warn**（`2fcebdc7` 的未验证边是 residue：facts 会列、热清单按 P6-A 排除）
+   ⇒ 判据改为与 `renderLedger` 一致地排除 residue，并移除过时注释（P3-5）。修后 live = **FAIL 0 / WARN 3**。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**634 passed / 0 skipped / 0 failed**（1.16.0 时 615，本轮与并行会话共新增 19 条）。
-- 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
+- 全量 `node test/run.mjs`（串行）：**638 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
+- 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、
+  边界审计无新增行为指导、预算 C2/C3/C4 逐会话 0 token。
 
 ## 1.16.0 — 2026-11-01
 

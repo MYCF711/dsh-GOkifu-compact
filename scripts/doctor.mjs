@@ -383,15 +383,18 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     const total = none + over + impossible;
     // ★ 2026-11-01（调研候选 #2）：出处覆盖率下限。旧版 ledger-budget.json 没有该字段 ⇒ 写「未采集」，
     //   不许报 0（那会把「没采集」误报成「出处全丢了」）。
+    // ★ P2-1/P3-1（独立验证 2026-11-01）：「未采集」不能报 **ok**（那等于说"出处都齐"）；
+    //   有字段但 min<1（即便 provenanceLow 缺失/为 0，跨版本混写才会出现）也必须 warn。
     const provMin = stats.provenanceMin;
     const provLow = Number(stats.provenanceLow ?? 0);
-    const provText =
-      provMin === undefined || provMin === null
-        ? " · provenanceMin=未采集"
-        : ` · provenanceMin=${provMin}${provLow > 0 ? `（<1 共 ${provLow} 次）` : ""}`;
+    const provMissing = provMin === undefined || provMin === null;
+    const provDropped = !provMissing && Number(provMin) < 1;
+    const provText = provMissing
+      ? " · provenanceMin=未采集"
+      : ` · provenanceMin=${provMin}${provLow > 0 ? `（<1 共 ${provLow} 次）` : ""}`;
     add(
       "热清单预算（fallback）",
-      impossible > 0 ? "error" : over > 0 || provLow > 0 ? "warn" : "ok",
+      impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
       `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}` +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
     );
