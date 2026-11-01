@@ -59,6 +59,12 @@ export const ASAR_CANDIDATES = ["D:/DeepSeek Harness/Desktop/resources/app.asar"
 export const ENGINE_ROW = { id: "gokifu-compact", name: "dsh-gokifu-compact/engine" };
 /** preset 声明行的 name（新版 agent preset 的固定形态）。 */
 export const PRESET_ROW_NAME = "@deepseek-ai/dsh-agent-preset";
+/** 本包名（bundle patch 的 UI 行 name / registry 补丁的归属都以它为准）。 */
+export const PKG_NAME = "dsh-gokifu-compact";
+/** UI host 行的 id（与历史手工行、verify-install 的判据逐字一致）。 */
+export const UI_ROW_ID = "gokifu-ui";
+/** agent preset 注册表的行 id（宿主 dsh-web-app 层定义；我们只改它「新会话默认 preset」）。 */
+export const REGISTRY_ROW_ID = "agent-preset-registry";
 
 /** 参数/守卫错误 ⇒ CLI 退出码 2（与「读不到/改不动」的运行失败 1 分开）。 */
 export class UsageError extends Error {
@@ -435,6 +441,85 @@ export function buildPresetBundle(options = {}) {
   };
 }
 
+/**
+ * 组合 bundle patch 的自检（**一个包装上就接管**）。
+ *
+ * 为什么要有这个模式：1.14.0 以前的安装是「插件包 + 另装一个 preset bundle」两步，
+ * 还要用户自己跑生成器、自己挑 preset —— 跟装别的插件不一样。1.15.0 起把
+ * preset 声明与默认 preset 一起放进**本包自己的** `dsh.bundle.patch`：
+ *   `dsh plugin add dsh-gokifu-compact`（或插件市场点一下）→ 自动进 bundles → 重启即生效。
+ * 自检锁三件事：① UI 行在；② preset 行在且引擎是 `dsh-gokifu-compact/engine`；
+ * ③ 注册表默认 preset 指向本 preset；且**不许**残留 `- id: compaction-basic`。
+ *
+ * @param {string} patchYml 组合后的 patch 文本
+ * @param {string} presetPatchYml 纯 preset 部分（交给 validatePresetPatch 做「行集合不多不少」）
+ * @param {string} officialText 官方 preset 原文
+ * @returns {true}
+ */
+export function validateBundlePatch(patchYml, presetPatchYml, officialText) {
+  validatePresetPatch(presetPatchYml, officialText);
+  const problems = [];
+  const body = String(patchYml)
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  if (!body.includes(`- id: ${UI_ROW_ID}`)) problems.push(`缺少 UI 行 ${UI_ROW_ID}`);
+  if (!body.includes(`name: '${PKG_NAME}'`) && !body.includes(`name: ${PKG_NAME}`)) problems.push(`缺少 UI 行的 name: ${PKG_NAME}`);
+  if (!body.includes(PRESET_ROW_NAME)) problems.push(`缺少 ${PRESET_ROW_NAME} 声明`);
+  if (!body.includes(ENGINE_ROW.name)) problems.push(`缺少引擎行 ${ENGINE_ROW.name}`);
+  if (body.includes("- id: compaction-basic")) problems.push("仍残留 - id: compaction-basic");
+  if (!new RegExp(`^- id: ${REGISTRY_ROW_ID}$`, "m").test(body)) problems.push(`缺少注册表补丁 - id: ${REGISTRY_ROW_ID}`);
+  const registryBlock = body.slice(body.indexOf(`- id: ${REGISTRY_ROW_ID}`));
+  if (!/^\s*default:\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*$/m.test(registryBlock)) problems.push(`注册表补丁没有 default: 行`);
+  if ((body.match(/^- insert:\s*$/gm) ?? []).length !== 1) problems.push("顶层 `- insert:` 必须恰好一条");
+  if (problems.length > 0) throw new Error(`bundle patch 自检失败：${problems.join("；")}`);
+  return true;
+}
+
+/**
+ * 纯函数：官方 preset 文本 → **本包自己的** `dsh.bundle.patch`（UI 行 + preset 行 + 默认 preset）。
+ *
+ * 产物直接写进仓库根的 `cordis.patch.yml`（`package.json` 的 `dsh.bundle.patch` 指向它），
+ * 因此「装本包」= 「装 UI + 装 preset + 把新会话默认 preset 指到它」，不再需要第二个包。
+ *
+ * @param {{officialText:string, id?:string, name?:string, order?:number|null, hostVersion?:string|null}} options
+ * @returns {ReturnType<typeof buildPresetBundle> & {patchYml:string, presetPatchYml:string}}
+ */
+export function buildBundlePatch(options = {}) {
+  const preset = buildPresetBundle(options);
+  const id = preset.presetId;
+  const lines = preset.patchYml.split("\n");
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  const insertIdx = lines.findIndex((line) => line.trim() === "- insert:");
+  if (insertIdx < 0) throw new Error("preset patch 里没有顶层 `- insert:` 行（内部错误）");
+  const presetRows = lines.slice(insertIdx + 1);
+  const header = [
+    "# dsh-gokifu-compact 的 bundle patch（**生成物 · 不要手改**；改了下一次生成会被覆盖）",
+    `# 生成器：node scripts/make-preset.mjs --bundle --write —— 源：宿主 asar 内官方 preset（${INNER_OFFICIAL_PRESET}）`,
+    `# 宿主版本：${preset.hostVersion ?? "(未取到)"}；preset id=${id}；引擎行 ${ENGINE_ROW.name}`,
+    "#",
+    "# 一个包装上就完成接管（1.15.0 起），**不需要再单独装 preset bundle**：",
+    `#   ① 插入 UI host 行（${UI_ROW_ID}）：/gokifu/api + 设置页；`,
+    `#   ② 插入 agent preset 行（preset-${id}）：compaction group 的 compaction-basic → ${ENGINE_ROW.name}；`,
+    `#   ③ 把 ${REGISTRY_ROW_ID} 的新会话默认 preset 指向 ${id} —— 新会话自动用本引擎（用户仍可在设置里改回）。`,
+    "# preset 的其余插件行逐字保留（自检「不多不少」，避免把某版 DSH 的清单冻成快照后静默丢行）。",
+    "# 宿主升级后重跑生成器，提交新 patch，再发一个插件版本即可。",
+  ];
+  const out = [
+    ...header,
+    "- insert:",
+    `    - id: ${UI_ROW_ID}`,
+    `      name: '${PKG_NAME}'`,
+    ...presetRows,
+    `- id: ${REGISTRY_ROW_ID}`,
+    "  config:",
+    `    default: ${id}`,
+  ];
+  const patchYml = `${out.join("\n").replace(/\n+$/, "")}\n`;
+  validateBundlePatch(patchYml, preset.patchYml, options.officialText);
+  return { ...preset, patchYml, presetPatchYml: preset.patchYml };
+}
+
 /* ───────────────────────── 输出目录守卫 ───────────────────────── */
 
 function normalizedPath(p) {
@@ -488,6 +573,8 @@ export const USAGE = `dsh-gokifu-compact make-preset —— 从当前宿主读�
 选项：
   --dry-run            只打印将写什么（默认）
   --write, --apply     落盘（写 <out>/package.json 与 <out>/cordis.patch.yml）
+  --bundle             生成**本包自己的** bundle patch（<repo>/cordis.patch.yml：UI 行 + preset 行 + 默认 preset）
+                       —— 一个包装上就接管，不再需要单独的 preset bundle；配合 --write 落盘（旧文件备份 .bak-<ts>）
   --out <dir>          输出目录（默认 <repo>/tmp/preset-bundle；**不许落在 DSH home 里**）
   --id <presetId>      preset id（默认 gokifu；生成的 insert 行 id 是 preset-<id>）
   --name <displayName> preset 显示名（默认 = id）
@@ -509,6 +596,7 @@ export function parseArgs(argv = [], env = process.env) {
   const opts = {
     dryRun: true,
     write: false,
+    bundle: false,
     out: DEFAULT_OUT,
     id: "gokifu",
     name: "",
@@ -539,6 +627,9 @@ export function parseArgs(argv = [], env = process.env) {
       case "-h":
         opts.help = true;
         break;
+      case "--bundle":
+        opts.bundle = true;
+        break;
       case "--out":
         opts.out = valueOf("--out");
         break;
@@ -561,7 +652,7 @@ export function parseArgs(argv = [], env = process.env) {
         opts.version = valueOf("--version");
         break;
       default:
-        throw new UsageError(`未知参数：${arg}（可用：--dry-run / --write / --out / --id / --name / --order / --asar / --version / --help）`);
+        throw new UsageError(`未知参数：${arg}（可用：--dry-run / --write / --bundle / --out / --id / --name / --order / --asar / --version / --help）`);
     }
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.id)) throw new UsageError(`--id 不是合法的 preset id：${opts.id}`);
@@ -608,9 +699,11 @@ export function run(argv = process.argv.slice(2), options = {}) {
     return 0;
   }
 
+  /** --bundle 写仓库根的 cordis.patch.yml；否则写一个独立的 preset bundle 目录。 */
+  const bundleOutFile = nodePath.join(REPO_DIR, "cordis.patch.yml");
   let outDir;
   try {
-    outDir = assertOutDirAllowed(opts.out, runningHomes(env));
+    outDir = assertOutDirAllowed(opts.bundle ? REPO_DIR : opts.out, runningHomes(env));
   } catch (e) {
     if (e instanceof UsageError) {
       error(`make-preset: ${e.message}`);
@@ -623,10 +716,27 @@ export function run(argv = process.argv.slice(2), options = {}) {
     const asarPath = resolveAsarPath(opts.asar, env);
     const officialText = readAsarEntry(asarPath, INNER_OFFICIAL_PRESET);
     const hostVersion = opts.version ?? readHostVersion(asarPath);
-    const bundle = buildPresetBundle({ officialText, id: opts.id, name: opts.name, order: opts.order ?? undefined, hostVersion });
+    const makeOpts = { officialText, id: opts.id, name: opts.name, order: opts.order ?? undefined, hostVersion };
+    const bundle = opts.bundle ? buildBundlePatch(makeOpts) : buildPresetBundle(makeOpts);
 
     if (!opts.write) {
       log(`== dsh-gokifu-compact make-preset（dry-run，不写盘）==`);
+      if (opts.bundle) {
+        log(`模式        : --bundle（生成本包自己的 bundle patch）`);
+        log(`asar        : ${asarPath}`);
+        log(`官方 preset : ${INNER_OFFICIAL_PRESET}`);
+        log(`宿主版本    : ${bundle.hostVersion ?? "(未取到)"}`);
+        log(`preset      : id=${bundle.presetId}（显示名：${bundle.displayName}）/ order=${bundle.order}`);
+        log(`写入目标    : ${bundleOutFile}（${byteSize(bundle.patchYml)} B）`);
+        log(`引擎替换    : ${bundle.engineReplacement.fromId} → ${bundle.engineReplacement.toId}（${ENGINE_ROW.name}）`);
+        log(`保留插件行  : ${bundle.pluginCount} 条`);
+        log("");
+        log("--- cordis.patch.yml 预览（前 40 行）---");
+        log(preview(bundle.patchYml, 40));
+        log("");
+        log("（dry-run：没有写任何文件。真写加 --write）");
+        return 0;
+      }
       log(`asar        : ${asarPath}`);
       log(`官方 preset : ${INNER_OFFICIAL_PRESET}`);
       log(`宿主版本    : ${bundle.hostVersion ?? "(未取到)"}`);
@@ -646,6 +756,22 @@ export function run(argv = process.argv.slice(2), options = {}) {
       return 0;
     }
 
+    if (opts.bundle) {
+      nodeFs.mkdirSync(nodePath.dirname(bundleOutFile), { recursive: true });
+      let backup = null;
+      if (nodeFs.existsSync(bundleOutFile)) {
+        backup = `${bundleOutFile}.bak-${Date.now()}`;
+        nodeFs.copyFileSync(bundleOutFile, backup);
+      }
+      nodeFs.writeFileSync(bundleOutFile, bundle.patchYml, "utf8");
+      log(`✓ 已写入 ${bundleOutFile}（${byteSize(bundle.patchYml)} B）${backup === null ? "" : `；原文件备份到 ${backup}`}`);
+      log(`  宿主版本 ${bundle.hostVersion ?? "(未取到)"}；preset id=${bundle.presetId}；引擎行 ${ENGINE_ROW.name}`);
+      log("");
+      log("下一步：");
+      log("  ① 提交（git add cordis.patch.yml）→ 发版（npm publish / tag）—— 这个文件就是安装时生效的内容；");
+      log("  ② 已装环境：重启 DSH 即生效（bundle 层自动合并）；装了旧 preset bundle 的，先把那个包卸掉（同名 preset 会重复）。");
+      return 0;
+    }
     nodeFs.mkdirSync(outDir, { recursive: true });
     const patchFile = nodePath.join(outDir, "cordis.patch.yml");
     const packageFile = nodePath.join(outDir, "package.json");

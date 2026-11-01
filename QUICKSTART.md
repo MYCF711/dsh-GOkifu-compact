@@ -1,17 +1,22 @@
 # 快速开始 · dsh-GOkifu-compact
 
 > 给「已经装好，现在要用」的人。安装/回滚细节见 [README](README.md)。
+>
+> **1.15.0 起安装只有一步**：插件市场点「安装」，或 `dsh plugin --profile <p> add dsh-gokifu-compact`，
+> 然后重启 DSH —— 本包自带 bundle patch，会同时装 UI、把官方 standard preset 的压缩引擎换成 gokifu、
+> 并把新会话默认 preset 指向它。**不要再单独装 `dsh-gokifu-preset`**（旧版做法；两个都装会导致同名 preset 重复）。
 
 ## 一 · 重启后先做这三步（3 分钟）
 
 ### 1. 确认插件已加载
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context
+cd "D:/主工作区/repos/dsh-GOkifu-compact"
 node test/verify-install.mjs
 ```
 
-期望：**16 项全过**，最后一行 `== 全部通过 ==`。
+期望：**18 项里只有「运行期已产出棋谱」可能在首次启动后短暂为红**（还没有会话跑过 compression），
+其余全绿；跑过一个会话后应 18/18。
 （S10a 起「依赖声明的 link 目标」是真检查：解析后的目录必须存在、包名必须是本包、node_modules 实际指向要一致 —— 以前只查字符串前缀，目标不存在也报 ✓）
 其中「运行期已产出棋谱」那条的 mtime 应该是**刚刚**（说明 keeper 在工作）。
 
