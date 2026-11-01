@@ -177,10 +177,13 @@ export function backupFile(file, ts = Date.now()) {
 export function revertPreset(file, log = console.log) {
   const dir = nodePath.dirname(file);
   const base = nodePath.basename(file);
+  // ★ C88：按文件名**里的时间戳数字**排序，不是按字符串 ——
+  //   "…-999" 按字典序排在 "…-1000" 之后，直接 sort().reverse() 会挑到**旧的**那份备份。
+  const tsOf = (name) => Number((name.match(/(\d+)$/) ?? [])[1] ?? 0);
   const backups = nodeFs
     .readdirSync(dir)
     .filter((name) => name.startsWith(`${base}.bak-before-`))
-    .sort()
+    .sort((a, b) => tsOf(a) - tsOf(b) || a.localeCompare(b))
     .reverse();
   if (backups.length === 0) {
     log(`  ! ${file} 没有备份可恢复`);
