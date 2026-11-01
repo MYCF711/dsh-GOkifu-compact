@@ -9,6 +9,7 @@
 
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
+| `ledger-calibration.json` / `.md` | `node scripts/ledger-calibration.mjs --write`（默认只打印） | 2026-11-01T20:50Z | budget=500、24 会话：**p50 = 419** / p90 = 521 / min 32 / max 688；超预算 3/24；档位 L3=11 L0=5 L2=4 L5=2 L1=2 —— 与合成夹具 415 基本一致，证明 bench 不是虚高 |
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **415 tokens**（口径演进见 `scripts/bench-repro.mjs` 顶部注释；最近三刀：`↻k` +1 → 图例单行 −1 → 同类失败标记汇总 −16 → 清冗余指针 −15） |
 | `live-folds.json` / `.md` | `node scripts/live-folds.mjs --write`（**默认只打印**，显式 `--write` 才落盘） | 2026-11-01T20:44Z | **15 次 live fold / 6 个有 fold 的会话**（4 个 multiFold ≥3）：usage 15/15、trigger 11/15、quality 11/15、closure 11/15；质量 c=1 / f=1、压缩比 48.45–350.68、幻觉探针 0；成本 47–74%；`foldThrash` 0；含跨轮趋势与会话分布 |
 | `fold质量-多会话-2026-11-02.md` | 从 `live-folds.json` 的 `folds[]` 按会话摆开（逐会话 fold 次数 / quality / closure / boundary / openAtEnd / 召回最小值） | 2026-11-01T20:44Z | 6 个有 fold 的会话、15 次 fold：凡采集到 quality 的召回全 1；带 boundary 的 7 次 openAtEnd 全 0；`session-1286ce28` 的 1 次为升级前旧 fold（无新字段，非失败） |
