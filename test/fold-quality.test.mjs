@@ -8,7 +8,7 @@
  *   3. 空集返回 1（不是 0 —— 「没有可丢的」不等于「全丢了」）。
  */
 
-import { measureFoldQuality, mentionsEdge, failuresInFoldRange } from "../src/rooms/fold-quality.mjs";
+import { measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds } from "../src/rooms/fold-quality.mjs";
 
 export const tests = {};
 
@@ -131,4 +131,17 @@ tests["Q-6 模型输出 vs 最终产物：机械追加段让 constraintRecall �
   });
   t.eq(withMechanical.constraintRecall, 1, "机械追加后最终产物必须 1（这是设计保证）");
   t.eq(withMechanical.modelConstraintRecall, 0.5, "模型自身保真度仍然如实记录");
+};
+
+tests["幻觉探针：摘要里提到、图里没有的 eN/nN 必须被点名"] = (t) => {
+  // 为什么：摘要由模型生成，它可能写出不存在的边 id（"e99 说明……"），而后续模型会把编号当事实引用。
+  // 这类幻觉不需要模型判断就能抓 —— 图里有就是有，没有就是没有。
+  const g = { nodes: { n1: {}, n2: {} }, edges: { e1: {}, e12: {} } };
+  const r = findUnknownIds(g, "e1 试过失败；e12 也失败；e99 是编的；n1 是当前；n3 不存在；e1 重复一次");
+  t.eq(r.checked, 5, `提到的 id 去重后应为 5 个（e1/e12/e99/n1/n3），实际 ${r.checked}`);
+  t.eq(r.unknown, ["e99", "n3"], `只报图里没有的，且保序，实际 ${JSON.stringify(r.unknown)}`);
+  // 普通数字不该误报：中文序号、英文 step、版本号、纯数字
+  t.eq(findUnknownIds(g, "第 3 步 / step 3 / v2 版本 / 共 12 次").unknown, [], "无字母前缀的数字不许误报");
+  // e1 与 e12 必须分开（这是老坑：子串匹配会把 e1 算进 e12）
+  t.eq(findUnknownIds({ nodes: {}, edges: { e12: {} } }, "e1 ").unknown, ["e1"], "e1 不能被 e12 的存在骗过");
 };

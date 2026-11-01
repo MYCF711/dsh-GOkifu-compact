@@ -74,6 +74,30 @@ export function mentionsEdge(text, edgeId) {
  *   missingFailures:string[], summaryTokens:number, shadowedTokens:number|null,
  *   modelConstraintRecall:number|null}}
  */
+/**
+ * 幻觉探针（零模型调用）：摘要里出现的 `eN` / `nN` 必须能在图里找到。
+ *
+ * 为什么（2026-11-01，L1 分层评估里唯一还没做的零成本项）：
+ *   摘要由模型生成，它**可能写出不存在的边 id**（"e99 说明……"），而后续模型会把编号当事实引用。
+ *   这类幻觉不需要模型判断就能抓：图里有就是有，没有就是没有。
+ *
+ * 只认 `e12` / `n3` 这种**带字母前缀**的写法，所以 "第 3 步" / "step 3" 不会误报。
+ * 返回 `{checked, unknown}`：checked 是摘要里提到的 id 总数，unknown 是图里找不到的那些（去重、保序）。
+ */
+export function findUnknownIds(graph, summaryText) {
+  const text = String(summaryText ?? "");
+  const seen = new Set();
+  const unknown = [];
+  for (const match of text.matchAll(/\b([en])(\d{1,4})\b/g)) {
+    const id = `${match[1]}${match[2]}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const exists = match[1] === "e" ? Boolean(graph?.edges?.[id]) : Boolean(graph?.nodes?.[id]);
+    if (!exists) unknown.push(id);
+  }
+  return { checked: seen.size, unknown };
+}
+
 export function measureFoldQuality({
   graph,
   range = null,
@@ -116,6 +140,8 @@ export function measureFoldQuality({
     missingFailures: missingFailures.slice(0, 10),
     summaryTokens: tokens,
     shadowedTokens: shadowed,
+    // ★ 2026-11-01：幻觉探针 —— 摘要里提到的 eN/nN 必须都在图里（见 findUnknownIds）。
+    unknownIds: findUnknownIds(graph, summaryText || modelText).unknown,
     modelConstraintRecall,
   };
 }
