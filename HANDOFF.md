@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.16.0**（commit `b2e9b3a`）。npm 上仍是 **1.15.2** —— 1.16.0 未发布、未打 tag |
+| 版本 | **1.16.0** —— **已发布**（2026-11-01 22:07 UTC+8）：npm `latest` = 1.16.0、tag `v1.16.0`、GitHub Release（draft=false）；`verify-release --tag=v1.16.0` 校验「发布物 == tag 那棵树」通过 |
 | 单测 | **615 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；并发跑会共用 `test/.harness/graphs`，出现 T2-5 之类假红） |
 | 架构 | **bundle patch 按 id 整体覆盖四个官方 agent preset 的 `config`**：把 `@deepseek-ai/dsh-compaction-basic` 换成 `dsh-gokifu-compact/engine`。标准 / PTC / 极简 / 创造四个模式**全部**走棋谱压缩；**不新增 preset、不改 `agent-preset-registry` 默认 preset** |
 | 生成器 | `node scripts/make-presets-override.mjs [--write]` —— 读宿主 asar 里的官方 preset，**文本级**改写（官方文件里的 `!!js` 表达式绝不能被 YAML round-trip）。DSH 升级后重跑再发版 |
