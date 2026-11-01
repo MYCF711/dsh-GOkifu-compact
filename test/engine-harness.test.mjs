@@ -1381,8 +1381,31 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   const sessDir = nodePath.join(home, "chess-context", "sessions", "sess-p22-doc");
   nodeFs.mkdirSync(sessDir, { recursive: true });
   const marks = [
-    { at: 1_800_000_600_000, seqStart: 9, seqEnd: 20, shadowedTokens: 12000, foldCount: 6, route: { provider: "magpie", model: "m" }, fallback: null, ms: 42, usage: { inputTokens: 1200, outputTokens: 300 } },
-    // 5 条旧图（没有 route/fallback/ms/usage）
+    {
+      at: 1_800_000_600_000,
+      seqStart: 9,
+      seqEnd: 20,
+      shadowedTokens: 12000,
+      foldCount: 6,
+      route: { provider: "magpie", model: "m" },
+      fallback: null,
+      ms: 42,
+      usage: { inputTokens: 1200, outputTokens: 300 },
+      // ★ 保真度 L1（2026-11-01）：最近一次 fold 的机器判据
+      quality: {
+        constraintRecall: 1,
+        failureRecall: 1,
+        compressionRatio: 24,
+        expectedConstraints: 2,
+        expectedFailures: 0,
+        missingConstraints: [],
+        missingFailures: [],
+        summaryTokens: 500,
+        shadowedTokens: 12000,
+        modelConstraintRecall: 0.5,
+      },
+    },
+    // 5 条旧图（没有 route/fallback/ms/usage/quality）
     ...[5, 4, 3, 2, 1].map((k) => ({ at: 1_800_000_000_000 + k, seqStart: k, seqEnd: k + 1, shadowedTokens: 1000 * k })),
   ];
   const graph = {
@@ -1413,6 +1436,30 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
     if (!line.includes("— ms")) throw new Error(`旧图缺 ms 必须显示「—」：${line}`);
     if (!line.includes("· —")) throw new Error(`旧图缺 usage 必须显示「—」：${line}`);
   }
+  // ★ 保真度 L1（2026-11-01）：doctor 必须显示「约束/失败边有没有留住」，且召回 <1 时必须升级告警。
+  const runDoctor = () => {
+    try {
+      const out = execFileSync(process.execPath, [doctor, "--json"], { encoding: "utf8", env: { ...process.env, DSH_HOME: home }, timeout: 30000 });
+      return JSON.parse(out);
+    } catch (error) {
+      return JSON.parse(String(error.stdout ?? "{}"));
+    }
+  };
+  const fidelityOf = (p) => (p.checks ?? []).find((c) => c.name.includes("压缩保真度"));
+  const okFidelity = fidelityOf(parsed);
+  if (!okFidelity) throw new Error(`doctor 缺「压缩保真度」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
+  if (okFidelity.status !== "ok") throw new Error(`召回全 1 时保真度应为 ok，实际 ${okFidelity.status}：${okFidelity.detail}`);
+  if (!okFidelity.detail.includes("constraintRecall min=1")) throw new Error(`必须显示约束召回：${okFidelity.detail}`);
+  if (!okFidelity.detail.includes("compressionRatio 24")) throw new Error(`必须显示压缩比：${okFidelity.detail}`);
+  if (!okFidelity.detail.includes("模型自身约束召回 0.5")) throw new Error(`必须显示模型自身召回（和最终产物区分开）：${okFidelity.detail}`);
+  // 变异：约束丢一条 + 失败边丢一条 ⇒ 必须 error 并点名
+  marks[0].quality = { ...marks[0].quality, constraintRecall: 0.5, failureRecall: 0.5, missingConstraints: ["不要动 prod 配置"], missingFailures: ["e12"] };
+  nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(graph, null, 1), "utf8");
+  const degraded = fidelityOf(runDoctor());
+  if (!degraded || degraded.status !== "error") throw new Error(`约束召回 <1 必须 error，实际 ${JSON.stringify(degraded)}`);
+  const namedC = (parsed.checks ?? []).find((c) => c.name.includes("丢失的约束"));
+  const namedAfter = (degraded && (runDoctor().checks ?? []).find((c) => c.name.includes("丢失的约束"))) || namedC;
+  if (!namedAfter || !namedAfter.detail.includes("prod")) throw new Error(`必须点名丢失的约束，实际 ${JSON.stringify(namedAfter)}`);
 };
 
 /** doctor 夹具的上级目录（test/.harness/graphs）。 */

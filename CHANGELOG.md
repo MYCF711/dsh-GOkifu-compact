@@ -59,6 +59,18 @@
 3. **P2-3 handoff-check ⑤ 假 warn**（`2fcebdc7` 的未验证边是 residue：facts 会列、热清单按 P6-A 排除）
    ⇒ 判据改为与 `renderLedger` 一致地排除 residue，并移除过时注释（P3-5）。修后 live = **FAIL 0 / WARN 3**。
 
+### C6 · 保真度 L1 接进 fold 与 doctor（`fold-quality.mjs`）
+
+- `src/rooms/fold-quality.mjs`（纯函数、零模型调用）：`constraintRecall`（最终产物里逐字出现的约束 ÷ 图里的约束）、
+  `failureRecall`（本次 fold 区间内、最终产物里出现 edge id 的失败边占比）、`compressionRatio`（遮蔽 token ÷ 摘要 token）；
+  过滤口径与 `renderFacts`/热清单一致（排除 residue；按 seq 区间取交集）；空集返回 1（不是 0）；`e1` 不匹配 `e12`。
+- engine：每次 fold 把它写进 `foldMarks[i].quality`（含 expectedConstraints/expectedFailures/missing 列表）。
+- doctor：新增「压缩保真度（最近 fold）」——`constraintRecall < 1` 判 **error**（丢约束=任务变了），
+  `failureRecall < 1` 判 warn（丢失败边=必然重踩），并单独列出「丢失的约束 / 丢失的失败边」；
+  老 foldMark 没有 quality ⇒ 明确写「未采集」，不报 ok。
+- 测试：`test/fold-quality.test.mjs` 6 用例（逐字约束/边界匹配/区间过滤/residue/空集/模型 vs 最终产物）；
+  engine-harness 扩 P2-2-1（foldMark 必须带 quality 且 recall 口径正确）与 P2-2-4（doctor 显示保真度、召回<1 升级告警并点名）。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**638 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。

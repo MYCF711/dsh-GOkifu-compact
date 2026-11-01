@@ -350,6 +350,40 @@ add(
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+/* ★ 2026-11-01（保真度 L1，`src/rooms/fold-quality.mjs`）：最近 fold 的「约束/失败边有没有留住」。
+   判据（`docs/压缩的重注入契约.md` §6 第 6b 行）：
+     · constraintRecall **必须 = 1** —— 丢一条约束 = 任务变了 ⇒ error；
+     · failureRecall < 1 ⇒ warn（丢一条失败边 = 下一个模型必然重踩；也可能是模型没按模板写 edge id）；
+     · compressionRatio 只记趋势，不设阈值。
+   老 foldMark 没有 quality 字段 ⇒ 明确写「未采集」，不许报 ok。 */
+{
+  const withQuality = recentFoldMarks
+    .filter((m) => m?.quality && typeof m.quality === "object" && typeof m.at === "number")
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 10);
+  if (withQuality.length === 0) {
+    add("压缩保真度（最近 fold）", "warn", "未采集（foldMark 还没有 quality —— 旧版本或还没 fold 过）");
+  } else {
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 1);
+    const cMin = Math.min(...withQuality.map((m) => num(m.quality.constraintRecall)));
+    const fMin = Math.min(...withQuality.map((m) => num(m.quality.failureRecall)));
+    const ratios = withQuality.map((m) => m.quality.compressionRatio).filter((x) => Number.isFinite(x));
+    const ratioText = ratios.length > 0 ? ` · compressionRatio ${Math.min(...ratios)}–${Math.max(...ratios)}` : "";
+    const latest = withQuality[0].quality;
+    add(
+      "压缩保真度（最近 fold）",
+      cMin < 1 ? "error" : fMin < 1 ? "warn" : "ok",
+      `constraintRecall min=${cMin} · failureRecall min=${fMin}${ratioText}` +
+        `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
+        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）`,
+    );
+    // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了
+    const missingC = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingConstraints) ? m.quality.missingConstraints : [])))].slice(0, 5);
+    const missingF = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingFailures) ? m.quality.missingFailures : [])))].slice(0, 5);
+    if (missingC.length > 0) add("压缩保真度 · 丢失的约束", "error", missingC.join(" | "));
+    if (missingF.length > 0) add("压缩保真度 · 丢失的失败边", "warn", missingF.join(", "));
+  }
+}
   // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 与有没有 fold 记录无关，单独一行。
   add(
     "压缩无效（thrashing）",
