@@ -168,3 +168,25 @@ tests["C122 可引用数字表的 bench 行必须等于当前基线（它是「�
   const number = Number(hit.match(/\*\*(\d+) tokens\*\*/)[1]);
   t.eq(number, expected, `可引用数字表写的是 ${number}，当前基线是 ${expected}（这张表就是给人抄的，抄错代价最大）`);
 };
+
+tests["C123 可引用数字表的「算术自洽」：均值与比例必须能从行内样本算出来"] = (t) => {
+  const doc = read("docs/research/06-可引用数字表.md");
+  const lines = doc.split(String.fromCharCode(10));
+
+  // ① 失败边保留：`**6.67/8 vs 5.67/8**` 与同行的三次采样必须对得上（改了样本忘改均值会红）
+  const row = lines.find((line) => /\*\*[\d.]+\/8 vs [\d.]+\/8\*\*/.test(line) && line.includes("三次采样"));
+  t.eq(!!row, true, "06 表里必须有「本插件 vs 官方」的失败边保留行（含三次采样）");
+  const stated = Number(row.match(/\*\*([\d.]+)\/8 vs/)[1]);
+  // 只在「三次采样：…」那一段里解析，避免把 `6.67/8` 的 `67/8` 当成采样值
+  const listPart = (row.match(/三次采样：([^）]+)/) ?? [])[1] ?? "";
+  const samples = [...listPart.matchAll(/(\d+)\/8/g)].map((m) => Number(m[1])).slice(0, 3);
+  t.eq(samples.length, 3, `必须能解析出 3 个采样值：${samples.join(",")}`);
+  const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+  t.eq(Math.abs(avg - stated) < 0.005, true, `三个采样均值 ${avg.toFixed(3)} 与文中 ${stated} 不一致（改样本没改均值）`);
+
+  // ② 摘要字符比例：`804 字符` 与 `10,419 字符` 的比 ≈ 行里断言的 1/13
+  const ratioRow = lines.find((line) => line.includes("804 字符") && line.includes("1/13"));
+  t.eq(!!ratioRow, true, "06 表里必须有「804 字符 / 10,419 字符 = 1/13」这行");
+  const ratio = 804 / 10419;
+  t.eq(Math.abs(ratio - 1 / 13) < 0.005, true, `804/10419 = ${ratio.toFixed(4)}，与「1/13 = ${(1 / 13).toFixed(4)}」差距过大`);
+};
