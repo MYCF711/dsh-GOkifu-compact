@@ -75,6 +75,19 @@ export function safeMeasureFoldQuality(args) {
   }
 }
 
+/**
+ * ★ C90：注入路径**渲染失败**的可观测性。
+ *   `decideInjection` 的 catch 会返回 `{action:"skip", reason:"error:…"}` 并只写一行日志 ——
+ *   此后这次「本该注入却没注入」在统计里完全消失（用户只看到模型突然不知道约束了）。
+ *   这里把「是否算一次渲染失败」抽成纯函数，便于单测与复用。
+ * @returns {1|0}
+ */
+export function injectionErrorDelta(result) {
+  if (result === null || typeof result !== "object") return 0;
+  if (result.action !== "skip") return 0;
+  return typeof result.reason === "string" && result.reason.startsWith("error:") ? 1 : 0;
+}
+
 export function ledgerBudgetMetrics(ledger) {
   const fallback = ledger && typeof ledger.fallback === "string" ? ledger.fallback : "未采集";
   return {
@@ -455,6 +468,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           onBudget: (ledger, s) => this.consumeLedgerBudget(ledger, s),
           onLog: (level, line) => ctx.logger?.[level]?.(line),
         });
+        // ★ C90：渲染/注入抛错时 decideInjection 只写日志 —— 这里记进统计，doctor 才看得见
+        if (injectionErrorDelta(result) === 1) {
+          this.ledgerBudget.renderErrors = (Number.isFinite(this.ledgerBudget.renderErrors) ? this.ledgerBudget.renderErrors : 0) + 1;
+          this.#persistLedgerBudget();
+        }
         return result.decision;
       } catch (error) {
         // 双保险：R08 已全部吞错；这里再兜一层，注入失败绝不阻塞对话。

@@ -1026,6 +1026,11 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (mini.minimalRenders !== 1) throw new Error(`最小清单应计 1，实际 ${mini.minimalRenders}`);
   const notMini = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1 });
   if (notMini.minimalRenders !== undefined) throw new Error("非最小清单不许计数");
+  // ★ C90：注入渲染失败必须能被统计（否则「本该注入却没注入」在指标里完全消失）
+  if (mod.injectionErrorDelta({ action: "skip", reason: "error:boom" }) !== 1) throw new Error("error: 前缀的 skip 必须计 1");
+  if (mod.injectionErrorDelta({ action: "skip", reason: "no-ledger" }) !== 0) throw new Error("普通 skip 不许计错");
+  if (mod.injectionErrorDelta({ action: "append" }) !== 0) throw new Error("成功注入不许计错");
+  if (mod.injectionErrorDelta(null) !== 0) throw new Error("null 不许抛/计数");
   // ★ C49：已列全失败边仍超 ⇒ budgetIrreducible（设计内）；还有更省形式（shown < count）⇒ 不计
   const irre = mod.accumulateLedgerBudget({}, {
     fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 300,

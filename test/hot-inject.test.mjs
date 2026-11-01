@@ -378,3 +378,15 @@ Object.assign(tests, {
     t.includes(text, "NO_FAILED_ATTEMPTS_YET", "补回的仍是零失败清单");
   },
 });
+
+tests["C90 坏图时注入必须降级为 skip(error:)，绝不把异常抛给宿主"] = (t) => {
+  // 图里有失败边（能走到渲染），但节点的 text 被塞成对象 —— 这正是历史上真实发生过的
+  // worldHash 对象污染：renderLedger 对它调 .slice() 抛 TypeError。注入必须降级。
+  const broken = graphWithFailure();
+  // 结构漂移：renderLedger 依赖 rootUserNodeIds（缺失时对 undefined 调 .map 抛 TypeError）
+  delete broken.rootUserNodeIds;
+  const result = run(makeSession(), broken, makeState());
+  t.eq(result.action, "skip", "坏图必须降级为 skip");
+  t.eq(String(result.reason).startsWith("error:"), true, `reason 必须是 error: 前缀（供统计识别）：${result.reason}`);
+  t.eq(result.decision.kind, "enter", "原 decision 必须原样返回（对话不中断）");
+};

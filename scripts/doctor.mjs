@@ -648,6 +648,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
         (Number(stats.budgetFloorOver) > 0
           ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
           : "") +
+        (Number(stats.renderErrors) > 0 ? ` · **注入渲染失败 ${stats.renderErrors} 次**（本轮注入被跳过，查日志）` : "") +
         (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
         (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
         (Number(stats.budgetIrreducible) > 0

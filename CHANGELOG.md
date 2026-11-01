@@ -5,6 +5,29 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C90 · 注入渲染失败的可观测性（此前只在日志里，指标里完全消失）
+
+**问题**：`decideInjection` 的 catch 会返回 `{action:"skip", reason:"error:…"}` 并只写一行 warn 日志 ——
+此后这次「**本该注入却没注入**」在统计里**完全消失**。用户只能感到「模型突然不记得约束了」，
+doctor 里看不出任何异常。
+
+**做法**：
+
+- 新增纯函数 **`injectionErrorDelta(result)`**（skip + `error:` 前缀 ⇒ 1，其余 0）；
+- engine 在 `decideInjection` 之后计数到 `ledgerBudget.renderErrors` 并落盘；
+- doctor 预算行显示「**注入渲染失败 N 次**（本轮注入被跳过，查日志）」。
+
+**测试**：
+
+- engine-harness：`injectionErrorDelta` 四态（`error:` 计 1 / 普通 skip 不计 / 成功不计 / null 不抛）；
+- hot-inject：**真实降级路径** —— 图结构漂移（缺 `rootUserNodeIds`，`renderLedger` 会对 undefined 调 `.map`）
+  时注入必须 `skip(error:)` 且**原 decision 原样返回**（对话不中断）；
+- doctor-cli：`renderErrors: 3` 时预算行必须出现该文案。
+
+★ 写这个用例时试了两种「坏图」：`nodes: null`（走不到渲染，先被判 `no-ledger`）、
+节点 `text` 塞对象（渲染器居然容忍了）—— 只有**缺 `rootUserNodeIds`** 才会真的抛。
+这也说明：**「坏图」有很多种坏法，测试必须挑真的会抛的那一种**。
+
 ### C89 · 安装第①步（profile 挂 UI host 行）补测
 
 **问题**：`patchProfileForUi` 此前**零测试引用**。它决定「设置页 / `/gokifu/api` 到底有没有」：
