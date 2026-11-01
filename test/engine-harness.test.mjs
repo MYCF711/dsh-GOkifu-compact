@@ -1766,3 +1766,49 @@ tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与�
   if (!mark.dangling || typeof mark.dangling !== "object") throw new Error("缺 dangling 快照");
   if (!Number.isFinite(mark.summaryChars) || mark.summaryChars <= 0) throw new Error("缺 summaryChars");
 };
+
+tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次都有 quality，且不重扫已折区域"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c62-multifold");
+  const session = makeSession({ id: "sess-c62" });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const sid = "sess-c62";
+
+  const seedTurn = async (tag) => {
+    for (let i = 0; i < 6; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `pre-${tag}-${i}` }] });
+    await ctx.emitRaw("session/event", session, assistantEvent(`c-${tag}`, "bash", { command: `t-${tag}` }, session.nextSeq()));
+    await ctx.emitRaw("session/event", session, resultEvent(`c-${tag}`, `boom ${tag}
+[exit code: 1]`, session.nextSeq()));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: session.nextSeq(), data: { turn: 1, step: 1 } });
+    for (let i = 0; i < 6; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `post-${tag}-${i}` }] });
+  };
+
+  let lastEnd = -1;
+  let lastFailures = -1;
+  const marks = [];
+  for (let round = 0; round < 3; round += 1) {
+    await seedTurn(round);
+    await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+    const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (!result) throw new Error(`第 ${round + 1} 次应发生 fold`);
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    const g = readGraph(dir, sid);
+    const mark = (g.foldMarks ?? []).at(-1);
+    marks.push(mark);
+    if (!mark) throw new Error(`第 ${round + 1} 次没有 foldMark`);
+    // 区间单调：新一次的开始必须晚于上一次的结束（不许重扫已折区域）
+    if (round > 0 && mark.seqStart <= lastEnd) throw new Error(`第 ${round + 1} 次从 ${mark.seqStart} 开始，上一次结束于 ${lastEnd}（重叠重扫）`);
+    lastEnd = mark.seqEnd;
+    // 失败边只增不减
+    const failures = Object.values(g.edges).filter((e) => e.result === "failure").length;
+    if (lastFailures >= 0 && failures < lastFailures) throw new Error(`失败边从 ${lastFailures} 掉到 ${failures}`);
+    lastFailures = failures;
+    // 每次都要有 quality / closure / boundary
+    if (!mark.quality || mark.quality.expectedConstraints < 0) throw new Error(`第 ${round + 1} 次 quality 缺失`);
+    if (!mark.closure || typeof mark.closure.nodes !== "number") throw new Error(`第 ${round + 1} 次 closure 缺失`);
+    if (!mark.boundary || typeof mark.boundary.openAtEnd !== "number") throw new Error(`第 ${round + 1} 次 boundary 缺失`);
+  }
+  if (marks.length !== 3) throw new Error(`应留 3 条 foldMark，实际 ${marks.length}`);
+  if (lastFailures < 3) throw new Error(`三次折叠后失败边应 >=3，实际 ${lastFailures}`);
+};

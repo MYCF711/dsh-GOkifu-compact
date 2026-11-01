@@ -72,6 +72,7 @@
 | **C59 渲染不变量模糊测试（2026-11-02）** | `test/ledger-properties.test.mjs`：10 种子 × 5 预算 = 50 次渲染（31 次 over-budget、覆盖 L3/L5/省略），断言根与约束头段、失败边账目闭合、超限自报、出处覆盖率=1、无绝对路径/无指导、渲染幂等；首跑全绿 |
 | **C60 折叠纯函数不变量（2026-11-02）** | `test/fold-properties.test.mjs`：随机图+随机区间，闭包计数=暴力扫描、preGraph 语义、openAtEnd≤overlapping 且全盖为 0、unsettled、保真度召回/unknownIds/压缩比；首跑全绿 |
 | **C61 引擎级折叠不变量（2026-11-02）** | `engine-harness` C61：真实 `compactIfNeeded` 后断言失败边/约束一条不少、闭包与暴力重算一致、`openAtEnd=0`、foldMark 字段齐全；顺带记下两个测试坑（idle 才落盘、失败边要落在折叠头） |
+| **C62 连续折叠不变量（2026-11-02）** | `engine-harness` C62：三轮真实 fold，断言区间单调（不许重扫已折区域）、失败边只增不减、每次 foldMark 带 quality/closure/boundary；首跑全绿 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
