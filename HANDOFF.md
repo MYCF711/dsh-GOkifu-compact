@@ -1,6 +1,20 @@
 # dsh-GOkifu-compact · 交接文件
 
-## 🆕 2026-11-01 21:50 · 1.16.0（当前工作树）
+## 🆕 2026-11-01 22:55 · 1.17.0 候选（**未发布**，当前工作树）
+
+| 项 | 值 |
+|---|---|
+| 版本 | `package.json` 仍 **1.16.0**；本轮是「1.17.0 候选」——**未 npm publish、未打 tag**（发版需主人授权） |
+| 单测 | **634 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；含并行会话新增的 thrashing / 重注入契约 / touched-files 用例） |
+| 本轮提交 | `e7e72f9`（C2/C3/C4，本会话）；并行会话另有 `262c92d`(thrashing 进 doctor) / `c79c8ed`(fold 无效一等可见 + 重注入契约) / `671132a`(调研三份归档) / `a3fe4d4`(ROOMS 登记 touched-files) / `31188a5`(压缩质量观测盘点) |
+| **C2 出处覆盖率可观测** | `ledgerBudgetMetrics.provenanceCoverage` → `accumulateLedgerBudget()`（`provenanceMin`/`provenanceLow`；旧 `ledger-budget.json` 无字段时首累计按 **1** 起算，不许当 0）→ doctor「热清单预算（fallback）」显示 `provenanceMin`（旧文件显示「未采集」）；覆盖率 <1 时日志升 warn 并带数值 |
+| **C3 省略行可解析** | 热清单省略行 + `FAILED_ATTEMPTS_OMITTED` + `DANGLING_RESIDUE` 统一给「数量 + 区间 + 相对化路径」（`sessions/<sid>/graph.json`、`nodes/<id>.md`；无 treeDir 退化 `graph.json`），**绝不泄漏绝对路径**（P6a）；`renderFacts` 新增 `treeDir/traceRoot` 选项，`engine.summarize` 传入会话目录 |
+| **C4 折叠段最近访问文件** | 新房间 `src/rooms/touched-files.mjs`：从图边 `action` 机械解析 `read/edit/write/multi_edit/apply_patch` 的 `file_path`（不解析 bash），按 evidence 区间过滤/倒序/去重/上限 5；`engine.summarize` 在约束段之后**机械追加**（零模型调用），**只进折叠摘要、不进每步热清单** |
+| 验证（本轮） | 全量 634/0/0；`ledger-boundary` 8/8、`touched-files` 9/9、`engine-harness` 45/45；真实语料 `measure-ledger`：11 会话 / 3509 tokens，与 HEAD 分支**逐会话一致**（C3 对无省略场景零成本）；doctor live = 0 错误 / 1 警告（`over-budget=5` 是 21:51 重启后的**既有行为**，归因见 `docs/压缩质量-现有观测盘点与缺口.md` §3，不是本轮回归） |
+| ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
+| 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
+
+## 🆕 2026-11-01 21:50 · 1.16.0（已发布 → 历史）
 
 | 项 | 值 |
 |---|---|

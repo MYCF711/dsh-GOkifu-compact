@@ -1,5 +1,44 @@
 # 更新记录
 
+## 1.17.0 — 2026-11-01（**未发布**：仅工作树，未 npm publish / 未打 tag）
+
+> 本轮主题：**把「压缩产物能不能回查、记忆够不够」变成可观测 + 可解析 + 机械保真。**
+> 全部改动只落在压缩本职（产自本次会话历史、只在压缩生命周期出现），不改工具契约 / 系统提示词 / AGENTS / 跨会话记忆。
+> 边界成文法：`docs/压缩的职责边界.md`；调研蒸馏：`docs/research/00-蒸馏-对本插件的可执行结论.md`。
+
+### C2 · 出处覆盖率收口成可观测指标（来源监控可量化）
+
+- `engine.mjs`：`ledgerBudgetMetrics()` 增加 `provenanceCoverage`；新增纯函数 `accumulateLedgerBudget()`，
+  累计 `provenanceMin`（下限，初值 1）与 `provenanceLow`（<1 次数）。
+  **旧 `ledger-budget.json` 没有该字段时首累计按 1 起算** —— 不许把「没采集」误报成「出处全丢了」。
+- 日志：只有 `coverage < 1` 才升 warn 并带数值；正常路径日志文案与旧版**逐字一致**（不刷屏）。
+- `scripts/doctor.mjs`：热清单预算一节追加 `provenanceMin`；旧文件显示「未采集」。
+- 为什么：出处（seq）是刻意保留的能力，很容易在追 token 预算时被悄悄优化掉；有了这个数字，
+  任何「为省字符砍出处」的改动都会在测试与 doctor 里立刻显形。
+
+### C3 · 省略行必须「能查到」（数量 + 区间 + 可解析位置）
+
+- 热清单省略行、`renderFacts` 的 `FAILED_ATTEMPTS_OMITTED`、`DANGLING_RESIDUE` 三处统一：
+  给出**相对化**的 `sessions/<sid>/graph.json` + `nodes/<id>.md` + 节点区间；
+  没有 `treeDir` 时退化为 `graph.json`，**不许只剩泛称**。
+- `renderFacts` 新增 `treeDir / traceRoot` 选项（默认空 ⇒ 行为不变），`engine.summarize` 传入会话目录。
+- 相对化沿用 P6a 规则（`traceRelativeDir`）：**绝不把绝对路径写进热清单**（泄漏本机用户名/盘符且白烧 token）。
+- 真实语料实测：11 会话 / 3509 tokens，与改动前**逐会话一致**（没有省略场景时零成本）。
+
+### C4 · 折叠摘要机械追加「最近访问的文件」
+
+- 新房间 `src/rooms/touched-files.mjs`：从图**边**的 `action` 机械解析 `read/edit/write/multi_edit/apply_patch`
+  的 `file_path/path`（引号、空格、盘符、240 字符截断都覆盖）；只取 evidence 与本次 fold range 有交集的边，
+  按最近访问倒序、按路径去重、上限 5。**不解析 bash 里的路径**（启发式猜出来的会污染事实清单）。
+- `engine.summarize` 在「机械追加约束段」之后同样机械追加 `## 最近访问的文件（机械保留，不由模型改写）`。
+- **只进折叠摘要（一次性），不进每步热清单**；只陈述「哪个文件、seq 区间」，不写「下一步该读哪个」。
+
+### 验证
+
+- 全量 `node test/run.mjs`（串行）：**634 passed / 0 skipped / 0 failed**（1.16.0 时 615，本轮与并行会话共新增 19 条）。
+- 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
+- doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
+
 ## 1.16.0 — 2026-11-01
 
 > 本轮主题：**压缩方法就是替换官方压缩 —— 不再需要一个叫 gokifu 的模式。**
