@@ -91,3 +91,23 @@ tests["C101-2 文档里的 hotLedgerMaxTokens 默认值必须等于配置 schema
   }
   t.eq(seen > 0, true, "用户文档至少要提一次 hotLedgerMaxTokens 的数值");
 };
+
+tests["C117 现行文档里的「N passed」必须带时间戳或当次输出提示（否则必然过期）"] = (t) => {
+  // 纪律：测试数会变，写死就一定会过期。允许两种写法：
+  //   ① 「当次输出」+ 时间戳；② 明确标注「以当次输出为准」。
+  // 历史文档（方案-*.md / P0-*.md / 现状审计）不参与 —— 它们记录的是当时的事实。
+  let seen = 0;
+  for (const rel of CHECKED_DOCS) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    const lines = read(rel).split(String.fromCharCode(10));
+    for (const [i, line] of lines.entries()) {
+      if (!/[0-9]+ passed/.test(line)) continue;
+      seen += 1;
+      const context = [lines[i - 1] ?? "", line, lines[i + 1] ?? ""].join(" ");
+      const dated = /20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(context);
+      const live = context.includes("当次输出");
+      t.eq(dated && live, true, `${rel}:${i + 1} 的「N passed」必须同时带时间戳与「当次输出」提示（测试数会变，写死必过期）`);
+    }
+  }
+  t.eq(seen > 0, true, "至少要有一处现行文档记录测试数（否则判据形同虚设）");
+};
