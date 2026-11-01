@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C89 · 安装第①步（profile 挂 UI host 行）补测
+
+**问题**：`patchProfileForUi` 此前**零测试引用**。它决定「设置页 / `/gokifu/api` 到底有没有」：
+这一步坏了，压缩照跑，但**整个详情页消失** —— 用户会以为插件没装好。
+
+**做法**：`test/install-ui-step.test.mjs` 5 例（全部在 `os.tmpdir()` 临时目录，
+**绝不碰 live profile** —— AGENTS 铁律 3）：
+
+1. 没有 profile `cordis.patch.yml` ⇒ 不改、**不凭空创建**；
+2. dry-run ⇒ 只报告（`changed:true, dryRun:true`）、**不落盘、不留备份**；
+3. 真跑 ⇒ 写入 `- id: gokifu-ui` + `name: 'dsh-gokifu-compact'`、留备份（备份 == 改动前原文）、**再跑幂等**；
+4. `removeManualUiRow` ⇒ 删干净、留备份（备份 == 删除前原文）、没有手工行时返回 `false`；
+5. 结构不认识（有行但没有 `- insert:` 父块）⇒ `findManualUiRow` 标 `unsupported`，
+   `removeManualUiRow` **拒绝改文件**并说明理由。
+
+**结果**：5 例全绿 —— 这一条路径的实现是对的（不是每轮都能抓到 bug）。
+
 ### C88 · 回滚路径补测 + 修一个真 bug（备份按字典序挑错）
 
 **问题**：`install` 会改 preset 文件，`revert` 是唯一退路 —— 但 `grep -rn revert test/*.mjs` **为空**，

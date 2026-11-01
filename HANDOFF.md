@@ -99,6 +99,7 @@
 | **C86 用户文档命令校验（2026-11-02）** | `test/docs-commands.test.mjs`：README/QUICKSTART 里 `node scripts|test/X.mjs` 必须存在、`npx` 子命令必须被 cli 分派；体检结果 0 腐坏（历史计划文档有意排除，理由写进测试头） |
 | **C87 patch↔包名一致性（2026-11-02）** | `test/patch-manifest.test.mjs`：引擎行 = `<pkg>/engine` × 4、四个 preset 覆盖块齐全、insert 用同一包名、无 compaction-basic 配置行；踩坑：头部注释含该词，判据只查 YAML 行 |
 | **C88 回滚路径补测 + 字典序 bug（2026-11-02）** | revert 此前零测试；补 5 例并修真 bug：备份名 `…-999` 字典序排在 `…-1000` 后 ⇒ 回滚会挑旧备份；改为按尾部数字排序，「999 vs 1000 选 1000」用例在旧实现上必红 |
+| **C89 安装第①步补测（2026-11-02）** | `patchProfileForUi`/`removeManualUiRow` 此前零测试：5 例（无文件不乱建 / dry-run 不落盘 / 真跑留备份且幂等 / 删除留备份 / 结构不认识拒绝改）；全绿=实现正确 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
