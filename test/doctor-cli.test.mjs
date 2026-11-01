@@ -24,7 +24,7 @@ const REPO = nodePath.join(HERE, "..");
 export const tests = {};
 
 /** 造最小 home；`mutate(graph)` 可在落盘前改图。 */
-function makeHome({ mutate = null, ledgerBudget = null } = {}) {
+function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null } = {}) {
   const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-doctor-"));
   const dir = nodePath.join(root, "chess-context", "sessions", "session-doctor-1");
   nodeFs.mkdirSync(dir, { recursive: true });
@@ -37,6 +37,16 @@ function makeHome({ mutate = null, ledgerBudget = null } = {}) {
   nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(g), "utf8");
   if (ledgerBudget !== null) {
     nodeFs.writeFileSync(nodePath.join(root, "chess-context", "ledger-budget.json"), JSON.stringify(ledgerBudget, null, 2), "utf8");
+  }
+  if (foreignPatch !== null) {
+    const profDir = nodePath.join(root, "profiles", "desktop");
+    nodeFs.mkdirSync(nodePath.join(profDir, "node_modules", foreignPatch.bundle), { recursive: true });
+    nodeFs.writeFileSync(
+      nodePath.join(profDir, "package.json"),
+      JSON.stringify({ name: "fixture-profile", dsh: { profile: { bundles: [foreignPatch.bundle] } } }, null, 2),
+      "utf8",
+    );
+    nodeFs.writeFileSync(nodePath.join(profDir, "node_modules", foreignPatch.bundle, "cordis.patch.yml"), foreignPatch.text, "utf8");
   }
   return root;
 }
@@ -187,5 +197,42 @@ tests["C66-4 热清单预算：无 ledger-budget.json ⇒ warn 未采集；分�
     t.eq(String(sections.detail).includes("67%") || String(sections.detail).includes("66%"), true, `失败边占比应≈67%：${sections.detail}`);
   } finally {
     nodeFs.rmSync(withStats, { recursive: true, force: true });
+  }
+};
+
+tests["C94 第三方 preset 仍用 compaction-basic ⇒ warn 并点名（设计边界，不强行覆盖）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  const patchText = [
+    "- insert:",
+    "    - id: preset-design",
+    "      name: dsh-foreign/preset",
+    "      config:",
+    "        id: design",
+    "        plugins:",
+    "          - id: compaction",
+    "            group: true",
+    "            config:",
+    "              - id: compaction-basic",
+    "                name: '@deepseek-ai/dsh-compaction-basic'",
+  ].join(NL);
+  const home = makeHome({ foreignPatch: { bundle: "dsh-foreign", text: patchText } });
+  try {
+    const row = runDoctor(home).find("第三方 preset 的压缩后端");
+    t.eq(!!row, true, "必须有该检查项");
+    t.eq(row.status, "warn", `第三方 preset 用 compaction-basic 应 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "preset-design", "要点名是哪个 preset");
+    t.includes(row.detail, "不经过棋谱压缩", "要说明后果");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
+  // 没有第三方 bundle ⇒ 「未采集」ok（不是失败）
+  const clean = makeHome();
+  try {
+    const row = runDoctor(clean).find("第三方 preset 的压缩后端");
+    t.eq(row.status, "ok", "没有第三方 patch 应 ok");
+    t.includes(row.detail, "未采集", "要写未采集");
+  } finally {
+    nodeFs.rmSync(clean, { recursive: true, force: true });
   }
 };

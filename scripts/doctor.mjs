@@ -385,6 +385,51 @@ if (nodeFs.existsSync(chessRoot)) {
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
 
+/* ── 3.4 第三方 preset 的压缩后端（C94）──
+   我们的 patch 只覆盖**四个官方 preset**。第三方插件若自带 preset（例如 dsh-design-studio 的
+   `preset-design`「设计模式」），它可能在自己的 bundle patch 里重新声明 compaction-basic ⇒
+   那个模式下**不经过棋谱压缩**。这不是我们该强行覆盖的东西（越权 + 会被对方升级覆盖），
+   但用户看到「同一个插件，有的模式记忆行为不一样」时必须能查到原因。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const foreign = [];
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        if (name.includes("gokifu")) continue; // 自己的 patch 不参与
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        // 逐个 preset 块看：块内是否出现 `- id: compaction-basic`
+        // ★ preset 行可能缩进（第三方 patch 常放在 insert: 块里），所以允许前导空白
+        const ids = [...text.matchAll(/^\s*- id:\s*(preset-[a-z0-9-]+)\s*$/gm)].map((m) => ({ id: m[1], at: m.index }));
+        for (let i = 0; i < ids.length; i += 1) {
+          const end = i + 1 < ids.length ? ids[i + 1].at : text.length;
+          if (/- id:\s*compaction-basic/.test(text.slice(ids[i].at, end))) foreign.push(`${name}:${ids[i].id}`);
+        }
+      }
+    } catch {
+      /* 读不出 profile 清单不影响其它检查 */
+    }
+  }
+  if (scanned === 0) {
+    add("第三方 preset 的压缩后端（C94）", "ok", "未采集（profile 里没有其它带 bundle patch 的插件）");
+  } else if (foreign.length > 0) {
+    add(
+      "第三方 preset 的压缩后端（C94）",
+      "warn",
+      `${foreign.length} 个第三方 preset 仍用 compaction-basic：${foreign.join(" · ")} —— 那些模式下不经过棋谱压缩（不强行覆盖，属设计边界）`,
+    );
+  } else {
+    add("第三方 preset 的压缩后端（C94）", "ok", `扫了 ${scanned} 个第三方 bundle patch，没有 preset 自带压缩后端`);
+  }
+}
+
 /* ── 3.5 置换合并可追溯（C33）：被吞节点的身份必须留有记录 ── */
 add(
   "置换合并可追溯（superseded）",

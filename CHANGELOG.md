@@ -5,6 +5,31 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C94 · 发现并登记：第三方 preset 仍在用 compaction-basic（`dsh-design-studio:preset-design`）
+
+**怎么发现的**：核对「live 已装的 bundle patch 是否与仓库一致」时，扫描 profile 的 11 个第三方
+bundle patch，发现 `dsh-design-studio` 自带一个 **`preset-design`（设计模式）**，
+它在自己的 patch 里重新声明了 `- id: compaction-basic` ⇒ **设计模式下不经过棋谱压缩**。
+
+**判断（为什么不修它）**：
+
+- 我们的 patch 只覆盖**四个官方 preset**；强行覆盖第三方 preset 属于**越权**（职责边界），
+  而且对方升级时会把我们的覆盖冲掉；
+- 但用户看到「同一个插件，有的模式记忆行为不一样」时必须能查到原因 —— 所以把它变成**可见的边界**。
+
+**做法**：doctor 新增检查 **「第三方 preset 的压缩后端（C94）」**：
+
+- 读 `profiles/<profile>/package.json` 的 `dsh.profile.bundles`，逐个扫非本包的 `cordis.patch.yml`；
+- 按 `preset-*` 块判断块内是否有 `- id: compaction-basic`；
+- 有 ⇒ **warn** 并点名 `<bundle>:<preset>`；没有第三方 patch ⇒ ok「未采集」；扫过且都干净 ⇒ ok。
+
+**live 实测**：`! 第三方 preset 的压缩后端（C94） — 1 个第三方 preset 仍用 compaction-basic：
+dsh-design-studio:preset-design —— 那些模式下不经过棋谱压缩（不强行覆盖，属设计边界）`
+⇒ doctor 警告从 3 条变 **4 条**（新增的这条是**说明性**的，不是缺陷）。
+
+★ 实现坑：第一版正则用 `^- id: preset-` 匹配行首，而第三方 patch 的 preset 行是**缩进**的
+（放在 `insert:` 块里）⇒ 扫出 0 个、反而报了「干净」。改为 `^\s*- id:` 后立刻抓到。
+
 ### C93 · 结构索引缓存键的端点指纹（非 `n<数字>` 的 id 不再退化成 0）
 
 **问题**：`graphIndex` 的完整签名里，端点贡献是 `Number(String(id).slice(1))` —— 它**假定 id 一定是
