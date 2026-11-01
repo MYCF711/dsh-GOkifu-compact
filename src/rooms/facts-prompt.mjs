@@ -70,9 +70,12 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("## 未验证");
   lines.push("- <claim + why it is unproven>");
   lines.push("");
-  lines.push("## 当前节点与下一步");
+  lines.push("## 当前节点与最近用户消息");
   lines.push("- 当前节点：n<id>（状态 <world8>/<constraint8>）");
-  lines.push("- 下一步：<the single next action, directly in line with the most recent request>");
+  // ★ 边界（2026-11-01，见 docs/压缩的职责边界.md）：这里要**事实**，不要「下一步该做什么」。
+  //   旧模板写的是 `- 下一步：<the single next action, ...>` —— 那会让摘要产出行动建议，
+  //   而行动决策属于 AGENTS / persona / 模型自身；压缩产物只该回答「发生过什么、用户最后说了什么」。
+  lines.push("- 最近一条用户消息（逐字摘录首行）：<verbatim first line of the latest user message>");
   lines.push("");
   lines.push("## 原始坐标");
   lines.push(`- 本段遮蔽 seq ${shadowedStart}-${shadowedEnd}；逐字原文仍在 DSH 会话日志中，需要时按 seq 回读。`);
