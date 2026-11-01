@@ -89,6 +89,7 @@ export function createFsPort(fs = nodeFs) {
     existsSync: (p) => fs.existsSync(p),
     mkdirSync: (p, opts) => fs.mkdirSync(p, opts),
     rmSync: (p, opts) => fs.rmSync(p, opts),
+    readdirSync: (p) => fs.readdirSync(p),
   };
 }
 
@@ -212,6 +213,21 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
           port.writeFileSync(nodePath.join(p.nodesDir, `${nodeId}.md`), renderNodeMd(graph, nodeId), "utf8");
         }
         pending.clear();
+        // ★ C111：`tree` 落盘时顺手**自愈**陈旧文档 —— 节点被回滚/合并删除后，它的 md 会一直留在盘上
+        //   （live 实测 94 个：id 全部紧邻 maxNode，是「写了又回滚」的残骸）。
+        //   只删 `n<数字>.md` 且当前图里没有这个 id 的文件；其它文件一律不碰。
+        if (tree) {
+          try {
+            for (const name of port.readdirSync(p.nodesDir)) {
+              if (!/^n[0-9]+\.md$/.test(name)) continue;
+              const id = name.slice(0, -3);
+              if (graph.nodes[id]) continue;
+              port.rmSync(nodePath.join(p.nodesDir, name), { force: true });
+            }
+          } catch {
+            /* 清理失败不影响落盘（陈旧文档只是噪音，不是错误） */
+          }
+        }
         step("nodes");
       } else {
         for (const nodeId of dirty.nodes) pending.add(nodeId);

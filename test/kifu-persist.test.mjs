@@ -29,6 +29,7 @@ import {
   DELTA_COMPACT_RATIO,
 } from "../src/rooms/kifu-persist.mjs";
 import {
+  addAgentNode,
   addEdge,
   addUserNodeId,
   clearDirty,
@@ -38,6 +39,7 @@ import {
   peekDirty,
   renderIndexMd,
   renderNodeMd,
+  settleEdge,
   sha,
   toJSON,
 } from "./graph-fixtures.mjs";
@@ -71,6 +73,7 @@ function makePort(opts = {}) {
       existsSync: wrap("existsSync"),
       mkdirSync: wrap("mkdirSync"),
       rmSync: wrap("rmSync"),
+      readdirSync: wrap("readdirSync"),
     },
     /** 只看写类操作（读/探测过滤掉），用于写序断言。 */
     writes() {
@@ -336,4 +339,42 @@ export const tests = {
       t.eq(again.truncatedFrames, 0, "不该有坏帧");
     });
   },
+};
+
+tests["C111 tree 落盘自愈陈旧节点文档（回滚/合并留下的 md 必须清掉）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 自建最小图（不借 buildGraph：那条夹具的节点集合不适合断言「删一个留一个」）
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+    const eid = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: eid }).id;
+    settleEdge(g, eid, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g);
+    const paths = sessionPaths(root, "s1");
+    const md = (id) => nodePath.join(paths.nodesDir, id + ".md");
+    t.eq(nodeFs.existsSync(md(u)), true, "首次 flush 必须写出用户节点 md");
+    t.eq(nodeFs.existsSync(md(n)), true, "首次 flush 必须写出 agent 节点 md");
+
+    // 模拟「写了又回滚」：agent 节点从图里消失，再走一次 tree 落盘
+    delete g.nodes[n];
+    g.order = g.order.filter((id) => id !== n);
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "keep-me.txt"), "x", "utf8");
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    t.eq(r.ok, true, "tree 落盘应成功");
+    t.eq(nodeFs.existsSync(md(n)), false, `已不在图里的 ${n}.md 必须被清掉`);
+    t.eq(nodeFs.existsSync(md(u)), true, "仍在图里的节点文档不许删");
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "keep-me.txt")), true, "非节点文件一律不碰");
+  });
+};
+
+tests["C111-2 假 port 必须与 createFsPort 的接口一致（缺方法会被 try/catch 静默吞掉）"] = (t) => {
+  // 真实教训：C111 的清理逻辑用 `port.readdirSync`，而假 port 没有该方法
+  // ⇒ 清理抛错、被 catch 吞掉、测试看到「没清理」却以为是实现问题。
+  const real = createFsPort();
+  const fake = makePort().port;
+  for (const key of Object.keys(real)) {
+    t.eq(typeof fake[key], "function", `假 port 缺少 createFsPort 的方法 "${key}" —— 注入方与真实实现接口必须一致`);
+  }
 };
