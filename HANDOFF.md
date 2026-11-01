@@ -62,6 +62,7 @@
 | **C49 over-budget 归因细分（1.17.1）** | 新增 `budgetIrreducible`（已列全失败边仍超 ⇒ 再省必须丢失败记忆，设计内）；doctor 同时显示 floorOver / irreducible；测试覆盖两种形态；证据页追加第 6 节 |
 | **C50 live-folds 跨轮趋势（1.17.1）** | `trendOf`：新增 fold / 质量下限变化 / 边界回归 / 成本漂移；`main()` 读上次快照后一起落盘；证据页加「与上次对比」小节；测试 L-6 |
 | **C51 图例单行化（1.17.1）** | L2+ 标记图例压成一行（无换行/无 `#   ` 前缀），L0/L1 仍多行；bench **447→446**（基线已更新+注明理由）；「uniform 标记剔除」实验省到 413 但丢语义（全 blocked 会话失去「被什么挡住」）⇒ 否决入库 |
+| **C52 同类失败标记汇总（1.17.1）** | L2+ 且失败边 ≥3、完整标记串完全相同时 → 一行 `# all N failures: <key>`，逐行不再重复（图例仍解释键；retry-if 指针因完整串不同而保留）；bench **446→430**；c17 三个夹具预算重定（300→270、330→280，注释写明） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

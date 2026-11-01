@@ -225,15 +225,17 @@ tests['L4/L5 兜底档：markers 三态仍生效，且标记不改变兜底裁�
   const sem = renderLedger(g, { maxTokens: 1000, markers: "semantic" });
   const terse = renderLedger(g, { maxTokens: 1000, markers: "terse" });
   const off = renderLedger(g, { maxTokens: 1000, markers: "off" });
+  // C52：同类失败时标记可提到一行汇总（`# all 10 failures: blocked:permission`），语义等价
+  const markerEither = (text, key) => text.includes(`[${key}]`) || (text.includes("# all ") && text.includes(key));
   for (const [name, r] of [["semantic", sem], ["terse", terse], ["off", off]]) {
     if (r.level !== 5) throw new Error(`markers=${name} 应落到 L5（兜底择优；L4 的 20 条更费），实际 L${r.level}`);
     if (r.shownFailures !== 10 || r.omittedEdges !== 30) {
       throw new Error(`markers=${name} 不许改变兜底列多少条：shown=${r.shownFailures} omitted=${r.omittedEdges}`);
     }
   }
-  if (!sem.text.includes("[blocked:permission]")) throw new Error(`semantic 兜底档应带原因：\n${sem.text}`);
+  if (!markerEither(sem.text, "blocked:permission")) throw new Error(`semantic 兜底档应带原因：\n${sem.text}`);
   if (!sem.text.includes("blocked:permission =")) throw new Error(`semantic 兜底档缺图例：\n${sem.text}`);
-  if (!terse.text.includes("[blocked]") || terse.text.includes("[blocked:")) throw new Error(`terse 兜底档只该写三态：\n${terse.text}`);
+  if (!markerEither(terse.text, "blocked") || terse.text.includes("[blocked:")) throw new Error(`terse 兜底档只该写三态：\n${terse.text}`);
   if (!terse.text.includes("# markers:")) throw new Error(`terse 兜底档也要给图例：\n${terse.text}`);
   if (/\[(blocked|dead|redundant|longer|novel|failed|unverified)/.test(off.text)) throw new Error(`off 兜底档不许有任何标记：\n${off.text}`);
   if (off.text.includes("# markers:")) throw new Error("off 兜底档不许有图例");
@@ -291,4 +293,28 @@ tests["C51 L2+ 图例压成一行（无换行）；L0/L1 保持多行可读"] = 
   t.eq(tight.level >= 2, true, `紧预算应落到 L2+，实际 L${tight.level}`);
   t.eq(tight.text.includes("# markers: "), true, "L2+ 图例必须压成一行");
   t.eq(tight.text.split(NL).some((l) => l.startsWith("#   ")), false, "L2+ 不许再有多行图例");
+};
+
+tests["C52 同类失败：标记提到一行汇总（逐行不再重复）；混合类仍逐行标"] = (t) => {
+  const uniform = renderLedger(fallbackGraph(), { maxTokens: 1000 });
+  t.eq(uniform.text.includes("# all 10 failures: blocked:permission"), true, "同类失败应有汇总行：" + uniform.text.slice(0, 600));
+  t.eq(uniform.text.includes("[blocked:permission]"), false, "汇总之后逐行不许再重复同一标记");
+  t.eq(uniform.text.includes("blocked:permission = "), true, "图例仍要解释该标记（语义不丢）");
+
+  // 混合类：三类各一条（≥3 条、L2+），必须逐行标
+  const g = createGraph({ sessionId: "mixed-classes" });
+  const pad = "不要动 prod 配置，也不许绕过；".repeat(12);
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通", constraints: [pad, pad, pad, pad] });
+  const mk = (i, snippet) => {
+    const e = addEdge(g, { from: u, intent: `第 ${i} 次`, action: `bash(cmd-${i})`, evidence: { start: 10 + i, end: 11 + i } });
+    settleEdge(g, e, { to: u, result: "failure", verify: { kind: "exit", summary: `exit ${i}` }, errorSnippet: snippet });
+  };
+  mk(1, "Error: EACCES: permission denied, open 'prod.yml'");
+  mk(2, "npm ERR! network timeout ETIMEDOUT");
+  mk(3, "AssertionError: expected 1 got 2");
+  const led = renderLedger(g, { maxTokens: 300 });
+  // 约束很长 ⇒ 压到 L2+，才进入「汇总判定」的适用区间
+  t.eq(led.level >= 2, true, `预算 300 应落 L2+，实际 L${led.level}`);
+  t.eq(led.text.includes("# all "), false, "混合类不许用汇总行冒充");
+  t.eq(led.text.includes("[blocked:permission]"), true, "混合类必须逐行标 blocked:permission");
 };

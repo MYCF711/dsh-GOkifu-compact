@@ -2,7 +2,7 @@
  * bench-repro.mjs —— 一条命令复现 README 顶部的两个指标
  *
  *   node scripts/bench-repro.mjs
- *   # hot-list tokens: 446 (fixture=2000-edges, tier=L5)
+ *   # hot-list tokens: 430 (fixture=2000-edges, tier=L5)
  *   # failure-retention: 8 / 8
  *
  * 退出码：
@@ -24,9 +24,11 @@ const ROOT = nodePath.join(HERE, "..");
 // ★ 2026-11-01（C18）：446 → 447 —— 失败边新增 ↻k 重试计数（只在同 action 组里最近一条上标，+1 tok）。
 // ★ 2026-11-02（C51）：447 → 446 —— L2+ 标记图例压成一行（`a = x · b = y`），夹具只有 1 个标记键，省 1 tok；
 //   真实会话图例常有 2–4 个键，省得更多（无任何语义丢失）。
+// ★ 2026-11-02（C52）：446 → 430 —— 同类失败把标记提到一行汇总（`# all N failures: blocked:permission`），
+//   逐行不再重复 ⇒ 10 行省 16 tok；语义由汇总行 + 图例保住（唯一标记串不同时不会并，如 retry-if 指针）。
 // ★ 2026-11-01：351 → 446。原因：新增「出处全档保留」（失败边在 L2+ 也带 (sa-b)）与
 //   「OPTIONS 不许沉默」（L2+ 留一行计数）—— 信息多了，token 自然涨。仍在 hotLedgerMaxTokens=500 内。
-const EXPECTED_TOKENS = 446;
+const EXPECTED_TOKENS = 430;
 const EXPECTED_TIER = 5;
 const EXPECTED_RETENTION = 8;
 

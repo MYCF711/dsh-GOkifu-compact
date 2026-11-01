@@ -931,7 +931,18 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   无论总数多少，最近这批边都有标记。
       // ★ P1（2026-10-30）：直接复用本函数开头算好的 tewariMap（失败边尾部 30 条，覆盖所有档位），
       //   不再每个档位重算一遍 —— 旧写法 6 个档位 × 30 条 = 180 次重复手割，是渲染耗时的主因。
-      const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)), { compact: level >= 2 });
+      // ★ C52：同类失败的无损压缩 —— 若每条失败边的标记键集合完全相同（典型：全部 blocked:permission），
+      //   标记从每行移到一行汇总（`# all 9 failures: blocked:permission`），每行省 20+ 字符，
+      //   而「它们全属同一类」这个额外事实也保住了；图例照旧解释键含义 ⇒ 语义零丢失。
+      const tagLists = shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers));
+      // 只用「完整标记串」判同一类：`dead retry-if:e1` 与 `dead retry-if:e2` 不同（逐条指针不能并成一条）
+      const keySets = tagLists.map((list) => [...list].sort());
+      const uniform =
+        shown.length >= 3 &&
+        level >= 2 &&
+        keySets.every((ks) => ks.length > 0 && ks.length === keySets[0].length && ks.every((k, idx) => k === keySets[0][idx]));
+      if (uniform) tailLines.push(`# all ${shown.length} failures: ${keySets[0].join(", ")}`);
+      const markerLines = markerLegendLines(tagLists, { compact: level >= 2 });
       for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
         tailLines.push(
@@ -940,7 +951,15 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       }
       for (const e of shown) {
         tailLines.push(
-          renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges), retriedTimesOf(e)),
+          renderFailureLine(
+            e,
+            level,
+            tewariMap.get(e.id) ?? null,
+            // 同类失败：标记已在汇总行说明 ⇒ 行内不再重复（语义没丢，只换了位置）
+            uniform ? "off" : markers,
+            laterSuccessOf(e, successEdges),
+            retriedTimesOf(e),
+          ),
         );
       }
     }
