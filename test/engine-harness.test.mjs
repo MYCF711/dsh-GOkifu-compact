@@ -988,6 +988,23 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   // 旧文件（没有该字段）首累计必须从 1 起算 —— 不许把「没采集」当成 0
   const { mod } = await load();
   const old = mod.accumulateLedgerBudget({ none: 5 }, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1 }, 1);
+  // ★ C44：底线超预算的 over-budget 单独计数（设计内归因）
+  const floorStats = mod.accumulateLedgerBudget({}, {
+    fallback: "over-budget",
+    overBudgetBy: 40,
+    budgetMax: 500,
+    unyieldingTokens: 520,
+    provenanceCoverage: 1,
+  });
+  if (floorStats.budgetFloorOver !== 1) throw new Error(`底线超预算必须计 1，实际 ${floorStats.budgetFloorOver}`);
+  const notFloor = mod.accumulateLedgerBudget({}, {
+    fallback: "over-budget",
+    overBudgetBy: 40,
+    budgetMax: 500,
+    unyieldingTokens: 200,
+    provenanceCoverage: 1,
+  });
+  if (notFloor.budgetFloorOver !== undefined) throw new Error(`不是底线超预算时不许计数，实际 ${notFloor.budgetFloorOver}`);
   if (old.provenanceMin !== 1) throw new Error(`旧文件首累计 provenanceMin 必须是 1，实际 ${old.provenanceMin}`);
 };
 

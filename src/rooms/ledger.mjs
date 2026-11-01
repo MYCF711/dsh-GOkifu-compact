@@ -867,7 +867,14 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 5b38b355 HEAD=497/1490 字符）
     //   只要多一行 `# path: n185` 就 501，成为唯一一个「新增超预算」。路径信息优先于
     //   root 尾部 12 个字符（root 本来就已被 clip，且 L0–L2 逐字不变）。
-    if (root) lines.push(`ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`);
+    // C44：这两段（根目标 + 约束）**任何档位都只能 clip、不能删** —— 单独记下它们的 token 数，
+    // 用来区分「渲染超预算」与「不可裁下限本身就超预算」。
+    let unyieldingText = "";
+    if (root) {
+      const rootLine = `ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`;
+      unyieldingText += `${rootLine} `;
+      lines.push(rootLine);
+    }
     // 始终收集**所有** user 节点的约束：旧版只要 root 有约束就只看 root，
     // 后续用户消息里的约束（"不要动 prod 配置"）在热清单里消失（审查 P1-6）。
     const cons = collectConstraints(g);
@@ -876,7 +883,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // ★ 2026-11-01（边界复审发现的显示 bug）：约束原文常常自带 markdown 列表符号
       //   （用户写「- 不要动 prod 配置」），渲染时再补一个 `- ` 就变成 `- - 不要动…`。
       //   这里只剥掉**渲染用的前缀符号**，正文一个字不改（逐字保留的口径不受影响）。
-      for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c.replace(/^\s*[-*]\s+/, ""), level <= 1 ? 220 : 120)}`);
+      for (const c of cons.slice(0, 12)) {
+        const line = `- ${clip(c.replace(/^\s*[-*]\s+/, ""), level <= 1 ? 220 : 120)}`;
+        unyieldingText += `${line} `;
+        lines.push(line);
+      }
     }
     // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
     //   这样路径行的预算能扣掉它的**真实长度**。
@@ -1100,7 +1111,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         traceRecent = "dropped-for-budget";
       }
     }
-    attempts.push({ text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length, traceRecent });
+    attempts.push({
+      text,
+      tokens,
+      level,
+      omittedEdges: omitted,
+      failureCount: failures.length,
+      shownFailures: shown.length,
+      traceRecent,
+      // C44：不可裁下限（root+constraints）的 token 数 —— 超预算归因用
+      unyieldingTokens: estimateTokens(unyieldingText),
+    });
     // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
     //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
     //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。

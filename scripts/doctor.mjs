@@ -638,6 +638,9 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       "热清单预算（fallback）",
       impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
       `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}` +
+        (Number(stats.budgetFloorOver) > 0
+          ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
+          : "") +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
     );
     // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。

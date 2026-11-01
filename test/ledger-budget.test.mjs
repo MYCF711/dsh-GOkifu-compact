@@ -143,3 +143,27 @@ export const tests = {
     }
   },
 };
+
+tests["T-4 不可裁下限可量化：约束+根目标本身的 token 数 > 预算时如实标出（C44）"] = (t) => {
+  const g = heavyGraph({ constraints: 6, failures: 2, sessionId: "fx-floor" });
+  const led = renderLedger(g, { maxTokens: 200 });
+  t.eq(typeof led.unyieldingTokens, "number", "必须给出不可裁下限的 token 数");
+  t.ok(led.unyieldingTokens >= 200, `约束+根目标应超过 200 预算，实际 ${led.unyieldingTokens}`);
+  t.eq(led.fallback, "over-budget", "底线超预算时必然 over-budget");
+  const wide = renderLedger(g, { maxTokens: 5000 });
+  t.ok(wide.unyieldingTokens > 0, "宽松预算下也要给出这个数（用于趋势）");
+  t.ok(wide.unyieldingTokens < wide.tokens, "底线必须小于整段清单（否则说明统计把失败边也算进去了）");
+};
+
+/** C44 夹具：约束不小 + 少量失败边（约束+根目标本身就吃掉预算）。 */
+function heavyGraph({ constraints = 6, failures = 2, sessionId = "fx-floor" } = {}) {
+  const g = createGraph({ sessionId });
+  const pad = (n, tag) => `${tag} `.repeat(Math.ceil(n / (tag.length + 1))).slice(0, n);
+  const cons = Array.from({ length: constraints }, (_, i) => `约束 ${i}：${pad(110, "不要动 prod 配置")}`);
+  const u = addUserNodeId(g, { seq: 1, text: "把设置改回侧边栏", constraints: cons });
+  for (let i = 0; i < failures; i += 1) {
+    const e = addEdge(g, { from: u, intent: `尝试 ${i}`, action: `bash(x${i})`, evidence: { start: 2 + i, end: 3 + i } });
+    settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: boom" });
+  }
+  return g;
+}

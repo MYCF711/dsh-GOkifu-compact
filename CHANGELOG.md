@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C44 · over-budget 归因指标：区分「渲染超预算」与「不可裁下限超预算」
+
+**背景**（接 C41/C43 同一类问题）：C41 已确认超预算是「宁可超也不丢约束/失败边」的设计内结果，
+但 `ledger-budget.json` 只记 `over-budget` 计数，**看不出这 118 次里有多少是「约束+根目标本身就超预算」**
+（不可裁 ⇒ 谁改渲染都没用）与「渲染还能再降」的混合。
+
+**做法**：
+
+- `renderLedger` 每次返回 `unyieldingTokens`（根目标行 + 约束块的 token 数 —— 这两段任何档位都只能 clip、不能删）；
+- `ledgerBudgetMetrics` 透传该字段；`accumulateLedgerBudget` 新增 **`budgetFloorOver`** 计数：
+  `fallback=over-budget && unyieldingTokens >= budgetMax` ⇒ 说明**底线即超预算**（设计内）；
+- `doctor` 预算检查在命中时追加「其中 N 次是『约束+根目标下限』即超预算（不可裁，设计内 —— 见 C41）」。
+
+**live 现状**：`over-budget 118/658（17.9%）`、maxOver 147 —— 但因运行实例是 C44 之前的代码，
+`budgetFloorOver` 要等下次重启后由新进程写出；届时这条告警能直接给出「设计内 / 可改进」的比例。
+
+测试：`ledger-budget` 新增 T-4（约束+根目标 > 预算时如实给出 unyieldingTokens，且必须小于整段清单）；
+`engine-harness` 断言累计规则（底线超预算计 1，非底线不计）。
+
 ### C43 · 成本口径修正：`input/shadowed` 含 host 固定开销，改用「遮蔽占读入」
 
 **问题**：`doctor` 的 fold 成本检查用 `input/shadowed ≥ 2` 判「读两倍才压一倍」。live 里出现 2.11 就直接告警 ——

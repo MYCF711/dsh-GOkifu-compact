@@ -54,6 +54,7 @@
 | **C41 over-budget 归因（1.17.1）** | live 19/263（7.2%）超预算、最大 117 tokens；离线 1/19（574/500）。成因=根目标+约束+最少失败边的下限 > 500。L6（3 条失败+关标记）能把 574 压到 472，但破坏 M2/L5/「诚实超限」三条不变量（bench 447→238）⇒ **否决并入库**；证据页含重新评估阈值 |
 | **C42 live 验证 C30/C31（1.17.1）** | 新增 3 次 fold：2 次 preGraph=false（n=156/n=57）、**1 次 preGraph=true**（seq 1022-1487，区间 0 节点）；3 次 boundary.openAtEnd 全 **0** ⇒ doctor「fold 边界完整性」转 ✓；`unsettled` 口径澄清为「未拿到强验证（含 unverified）」并写入合同 §6 |
 | **C43 成本口径修正（1.17.1）** | `input/shadowed` 含 host 固定开销（工具/system/保留尾部/旧 checkpoint），单看会误判；新增 `foldCostMetrics`（share 判据 <30%、ratio 仅对照、roi 收益）；doctor 改「fold 成本口径（遮蔽占读入）」；live **47%–74%**、ROI 0.45–0.74 ⇒ 健康 |
+| **C44 over-budget 归因指标（1.17.1）** | `renderLedger` 返回 `unyieldingTokens`（根目标+约束，不可裁）；`ledger-budget.json` 新增 `budgetFloorOver`（底线即超预算的次数）；doctor 预算告警追加设计内归因。live 待下次重启后生效；测试 T-4 + 累计规则断言 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

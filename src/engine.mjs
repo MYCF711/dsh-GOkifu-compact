@@ -75,6 +75,8 @@ export function ledgerBudgetMetrics(ledger) {
     // ★ 2026-11-01：分项占用（七段字符数 + total）。让 doctor / ledger-budget.json 能回答
     //   「这几次渲染的钱花在哪一段」——否则 sections 又是个只算不消费的指标（第 2 轮的教训）。
     sections: ledger?.sections && typeof ledger.sections === "object" ? { ...ledger.sections } : null,
+    // ★ C44：不可裁下限（root + constraints）的 token 数 —— 用来区分「渲染超预算」与「底线即超预算」。
+    unyieldingTokens: Number.isFinite(ledger?.unyieldingTokens) ? ledger.unyieldingTokens : null,
   };
 }
 
@@ -113,6 +115,15 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now()) {
   target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
   target.samples = (target.samples ?? 0) + 1;
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
+  // ★ C44：over-budget 里有多少次是「约束+根目标下限」本身就超预算（不可裁 ⇒ 设计内，不是渲染 bug）。
+  if (
+    metrics.fallback === "over-budget" &&
+    Number.isFinite(metrics.unyieldingTokens) &&
+    Number.isFinite(metrics.budgetMax) &&
+    metrics.unyieldingTokens >= metrics.budgetMax
+  ) {
+    target.budgetFloorOver = (Number.isFinite(target.budgetFloorOver) ? target.budgetFloorOver : 0) + 1;
+  }
   if (Number.isFinite(metrics.provenanceCoverage)) {
     const prev = Number.isFinite(target.provenanceMin) ? target.provenanceMin : 1;
     target.provenanceMin = Math.min(prev, metrics.provenanceCoverage);
