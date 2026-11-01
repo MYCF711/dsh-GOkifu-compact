@@ -67,7 +67,9 @@ export function scanOverBudget(home, { budget = 500 } = {}) {
       result.unreadable += 1;
       continue;
     }
-    const verdict = classifyBudget(renderLedger(graph, { maxTokens: budget }), budget);
+    // ★ C64（专员审计 P2）：按**生产形状**渲染 —— 生产与 handoff-check 都带 treeDir（TRACE 行），
+    //   不带会让贴边界的会话少算约 4%（实测 641 vs 666），可能误判 floor/irreducible。
+    const verdict = classifyBudget(renderLedger(graph, { maxTokens: budget, treeDir: `sessions/${entry.name}`, traceRoot: "sessions" }), budget);
     if (verdict === null) continue;
     result.counts[verdict.reason] = (result.counts[verdict.reason] ?? 0) + 1;
     if (verdict.reason !== "within") result.over.push({ session: entry.name, ...verdict });

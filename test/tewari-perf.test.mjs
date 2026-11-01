@@ -134,4 +134,7 @@ tests["置换：索引化后提示仍按 path 上的换位边计数"] = (t) => {
   g.edges[e1].transposition = true;
   const r = renderLedger(g, { maxTokens: 500, markers: "semantic", treeDir: "x" });
   t.includes(r.text, "置换：当前路径有 1 处回到已走过的状态", "置换提示保留");
+  // ★ C64（专员审计 P1）：这一行曾被写成「…，别重复。」——祈使短句属行动指导。
+  //   断言整行为纯计数事实：不许出现祈使式收尾。
+  t.eq(/别重复|别再试|勿重复/.test(r.text), false, "置换提示不许带祈使短句（别重复）");
 };

@@ -18,6 +18,7 @@
 
 import { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } from "./graph-fixtures.mjs";
 import { renderLedger } from "../src/rooms/ledger.mjs";
+import { RULES } from "../scripts/boundary-audit.mjs";
 
 export const tests = {};
 
@@ -64,6 +65,13 @@ function randomGraph(seed) {
       } else {
         settleEdge(g, e, { to: node, result: "unverified", verify: { kind: "none", summary: "" } });
       }
+      // 制造一条「回到已访问位置」的边（transposition=true）—— 让置换告警行可达
+      if (i > 1 && r() < 0.5) {
+        const back = addEdge(g, { from: node, intent: `回到 previous`, action: `bash(back-${i})`, evidence: { start: seq, end: seq + 1 } });
+        seq += 2;
+        g.edges[back].transposition = true;
+        settleEdge(g, back, { to: node, result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: loop" });
+      }
       cursor = node;
     }
   }
@@ -103,7 +111,9 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
         t.eq(led.overBudgetBy, 0, `${where}：没超预算却报 overBudgetBy`);
       }
       // ③b C63：超预算时，所选必须就是**最省的尝试**（兜底裁决不许挑贵的）
-      if (led.fallback === "over-budget" && Array.isArray(led.attemptTokens) && led.attemptTokens.length > 0) {
+      if (led.fallback === "over-budget") {
+        // ★ C64：字段缺失不许静默通过 —— attemptTokens 是「所选是否最省」的唯一凭据
+        t.eq(Array.isArray(led.attemptTokens) && led.attemptTokens.length > 0, true, `${where}：over-budget 必须带 attemptTokens`);
         const cheapest = Math.min(...led.attemptTokens.map((a) => a.tokens));
         t.eq(led.tokens, cheapest, `${where}：兜底没选最省尝试（选了 ${led.tokens}，最省 ${cheapest}）`);
       }
@@ -111,7 +121,9 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
       if (failureIds.length > 0) t.eq(led.provenanceCoverage, 1, `${where}：出处覆盖率应恒为 1`);
       // ⑤ 模型可见文本的硬约束
       t.eq(/[A-Za-z]:[\\/]/.test(led.text), false, `${where}：出现绝对路径`);
-      t.eq(/(retry when|retry only|take it\b|or create it|treat as|you can |you may |下一步|不要重试|建议你)/i.test(led.text), false, `${where}：出现行动/认知指导`);
+      for (const rule of RULES) {
+        t.eq(rule.re.test(led.text), false, `${where}：命中审计规则 ${rule.id}（${rule.why}）`);
+      }
       // ⑥ 幂等
       t.eq(renderLedger(g, { maxTokens: budget }).text === led.text, true, `${where}：同一图两次渲染不一致`);
     }

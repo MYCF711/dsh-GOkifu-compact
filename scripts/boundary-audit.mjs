@@ -52,6 +52,20 @@ export const RULES = [
     re: /(treat as|you can |you may |make sure to|be sure to|feel free)/i,
   },
   {
+    // ★ C64（专员审计 P1）：祈使式短句（"别重复"）与「需要时……回读」这类**恢复记忆**提示，
+    //   此前的规则按构造漏掉了 —— 前者只认「不要重试」，后者只认中文禁用词表。
+    id: "directive-short",
+    level: "error",
+    why: "压缩产物不得用祈使短句指挥模型（属于 AGENTS / persona）",
+    re: /(别重复|别再试|别重来|勿重复|不要再试)/,
+  },
+  {
+    id: "memory-restore-advice",
+    level: "error",
+    why: "压缩产物不得教模型「何时回读原文」（恢复时机属于模型/AGENTS 的判断）",
+    re: /(需要时[^。。]{0,12}回读|when needed[^.。]{0,20}read back|feel free to (?:restore|recall))/i,
+  },
+  {
     id: "tool-governance",
     level: "error",
     why: "工具契约 / 权限治理属于宿主与工具层，压缩不得自建",

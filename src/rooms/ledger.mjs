@@ -326,7 +326,8 @@ function seqSpan(edge) {
 //   「该不该再试 / 该不该走这条路」的指导，属于 AGENTS/persona，不属于压缩（见 docs/压缩的职责边界.md）。
 //   标记本身已经说了「为什么这条路不通」；要不要再试是模型自己的判断。
 const MARKER_LEGEND = {
-  dead: "a working path avoids it (retry-if edge exists)",
+  // C64：只陈述事实 —— 标签里的 retry-if:eN 指「那条绕开它的工作边」，不写「何时可再试」
+  dead: "a working path avoids it; the tag names that edge",
   "blocked:permission": "the environment lacks a required permission",
   "blocked:missing-resource": "the required resource is absent",
   "blocked:timeout": "no answer within the time limit",
@@ -1010,7 +1011,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
           if (transpositionKeys.has(`${fromId}>${toId}`)) transposed += 1;
         }
         if (transposed === 0) return null;
-        return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里，别重复。`;
+        return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里。`;
       })();
       const fixedLines = [
         ...(goalLine ? [goalLine] : []),

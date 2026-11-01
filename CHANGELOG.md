@@ -5,6 +5,44 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C64 · 专员审计（12 条）落地：P0 恢复指令 + 两处潜伏指导 + 诊断不许拖垮压缩 + 数字口径
+
+**来源**：外部「严格专员」只读审计（2026-11-02，HEAD `e8ea1d5`，12 条 finding，其中 1 条 P0、5 条 P1）。
+
+**P0（已修）**：摘要**输出模板**（`facts-prompt.mjs`）与规则摘要（`engine.mjs`）里那行
+`逐字原文仍在 DSH 会话日志中，**需要时**按 seq 回读` —— 「什么时候该回读」是**恢复记忆的时机决策**，
+职责边界明列禁止；而它会随每一次摘要**永久留在上下文里**（live 已抓到实文 11 处）。
+改为 `逐字原文在 DSH 会话日志中（seq 可定位）`：只陈述坐标事实。
+
+**P1（已修 4 条）**：
+
+- 热清单置换告警末尾 `…，别重复。` → 删末句（祈使短句属行动指导；`boundary-audit` 的旧规则按构造漏掉）；
+- 标记图例 `dead = a working path avoids it (retry-if edge exists)` → `…; the tag names that edge`
+  （旧文案在 live 渲染出现 20 次，且被 `markers` 测试钉死 —— 测试一并改）；
+- `measureFoldQuality` 是**纯诊断**，却在 fold 主链路上无保护（同函数里 logger/hook/persist 全都 try/catch）：
+  图缺 `order` 时直接抛 `g.order is not iterable`，会把「已成功的 fold」变成失败。新增
+  **`safeMeasureFoldQuality`**，失败降级 `quality=null`（doctor 已有「未采集」分支）；
+- 契约漂移：`docs/压缩的职责边界.md` 的「当前代码没有已确认的越权项 / 热清单全是会话事实」与实测冲突 →
+  改为**已修清单表**（C15/C45/C46/C47/C64 六条）+ 明确「审计规则是渐进补齐的」。
+
+**P1/P2 数值与口径（已修）**：
+
+- `handoff-check` 读不存在的 `ledger.maxTokens` ⇒ 预算分母恒为 500；改读 `budgetMax`，并加 H-11 用例；
+- `overbudget-report` 未按生产形状渲染（缺 `treeDir`）⇒ 贴边界会话少算约 4%（实测 641 vs 666）；
+  现按生产选项渲染，live 复算：d70b7c2f **666/500**、floor/irreducible 3 例、**bug=0**；
+- `doctor`「fold 悬空」把「未采集」报 `ok` → 改 `warn`（与同文件纪律一致）；
+- `boundary-audit` 补两条规则：**`directive-short`**（别重复/别再试…）与 **`memory-restore-advice`**
+  （需要时…回读 / when needed read back），B-8 用例含「纯事实不假红」反向断言；
+- 文档数字统一到 **bench 415**（此前 447/446/430 三套并存），测试数改为「当次输出 + 最近实测」；
+- 属性测试收紧：直接复用 `boundary-audit` 的 `RULES`（单一来源）、`over-budget` 时 `attemptTokens` 缺失即失败、
+  生成器补置换边；`tewari-perf` 补「置换提示不许带祈使短句」。
+
+**未修（记为已知项，下一轮）**：`traceRecent`/`minimal` 两个无 live 消费者的字段；
+doctor 四项检查（悬空/边界/分项占用/置换合并）仍缺专门测试。
+
+**审计员的误操作已如实披露**：它把 `scripts/live-folds.mjs` 当只读跑（会覆盖 `evidence/live-folds.*`），
+已 `git checkout --` 还原、`git status` 干净 —— 这件事本身也提示：**诊断脚本的默认写盘行为值得加 `--dry-run` 默认**。
+
 ### C63 · 修正 C57 的假阳性：`reducible?` 改为「所选不是最省尝试」的**裁决 bug** 判据
 
 **问题（上线一小时内就被 live 抓到）**：C57 用 `shownFailures < failureCount` 猜「还有更省形态」，

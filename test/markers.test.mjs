@@ -120,7 +120,7 @@ tests["dead 带重开锚点：retry-if 指向那条成功边（不是永久墓�
   const tags = failureTags(failureEdges(g).find((e) => e.id !== e0), t);
   if (!tags.some((x) => x === `dead retry-if:${e0}`)) throw new Error(`dead 没带重开锚点：${JSON.stringify(tags)}`);
   const r = renderLedger(g, { maxTokens: 500 });
-  if (!r.text.includes("retry-if edge exists")) throw new Error(`图例没解释 retry-if：\n${r.text}`);
+  if (!r.text.includes("the tag names that edge")) throw new Error(`图例没解释 retry-if 指针（事实口径）：\n${r.text}`);
 };
 
 tests["TRACE：热清单指向真的三层树（不再是 v1.2.2 起就不再写的 graph.md）"] = () => {

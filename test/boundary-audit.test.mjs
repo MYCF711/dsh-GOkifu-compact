@@ -73,3 +73,18 @@ tests["B-5 真实仓库审计必须 0 条 —— 这是每次发版前要跑的�
   const ledger = scanSource('const a = `STALE_UNSETTLED: 3 edges (continue or abandon), NOT residue`;', { file: "src/rooms/ledger.mjs" });
   t.eq(ledger.length, 1, "`continue or abandon` 这类行动许可必须能被抓回来");
 };
+
+tests["B-8 祈使短句与「需要时回读」必须抓（C64：专员审计发现的两类漏网句式）"] = (t) => {
+  for (const [bad, rule] of [
+    ['"那些做法都记在死路清单里，别重复。"', "directive-short"],
+    ['"逐字原文仍在日志中，需要时按 seq 回读。"', "memory-restore-advice"],
+    ['"call it when needed and read back the transcript"', "memory-restore-advice"],
+  ]) {
+    const findings = scanSource(`const x = ${bad};`, { file: "src/rooms/ledger.mjs" });
+    t.eq(findings.length >= 1, true, `必须抓到：${bad}`);
+    t.eq(findings.some((f) => f.rule === rule), true, `归类应为 ${rule}：${JSON.stringify(findings)}`);
+  }
+  // 纯事实写法不许误报
+  const ok = scanSource('const x = "本段遮蔽 seq 1-9；逐字原文在会话日志中（seq 可定位）。";', { file: "src/rooms/ledger.mjs" });
+  t.eq(ok.length, 0, `事实陈述不许假红：${JSON.stringify(ok)}`);
+};

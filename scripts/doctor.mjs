@@ -565,7 +565,8 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
 {
   const marks = recentFoldMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
   if (marks.length === 0) {
-    add("fold 悬空（dangling）", "ok", "未采集（foldMark 还没有 dangling —— 旧版本）");
+    // ★ C64（专员审计 P2）：与本文件自己的纪律保持一致 ——「未采集」不能报 ok。
+    add("fold 悬空（dangling）", "warn", "未采集（foldMark 还没有 dangling —— 旧版本）");
   } else {
     const sum = (key) => marks.reduce((acc, m) => acc + (m.dangling[key] ?? 0), 0);
     const live = sum("liveUnsettled");

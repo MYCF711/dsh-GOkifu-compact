@@ -89,7 +89,9 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("- 最近一条用户消息（逐字摘录首行）：<verbatim first line of the latest user message>");
   lines.push("");
   lines.push("## 原始坐标");
-  lines.push(`- 本段遮蔽 seq ${shadowedStart}-${shadowedEnd}；逐字原文仍在 DSH 会话日志中，需要时按 seq 回读。`);
+  // ★ C64（专员审计 P0）：「需要时按 seq 回读」是**教模型何时恢复记忆**（职责边界 §2 明列禁止）。
+  //   这里只陈述坐标事实（原文在哪、按什么可定位），何时回读由模型/AGENTS 决定。
+  lines.push(`- 本段遮蔽 seq ${shadowedStart}-${shadowedEnd}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
   lines.push("");
   lines.push("Hard limits (a record over these limits counts as a failed fold):");
   // P1-9：旧文案「<1200 字符」与「每条失败边都必须出现」矛盾 —— 超过约 15 条死路就不可满足。

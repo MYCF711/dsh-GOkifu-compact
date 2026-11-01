@@ -74,6 +74,7 @@
 | **C61 引擎级折叠不变量（2026-11-02）** | `engine-harness` C61：真实 `compactIfNeeded` 后断言失败边/约束一条不少、闭包与暴力重算一致、`openAtEnd=0`、foldMark 字段齐全；顺带记下两个测试坑（idle 才落盘、失败边要落在折叠头） |
 | **C62 连续折叠不变量（2026-11-02）** | `engine-harness` C62：三轮真实 fold，断言区间单调（不许重扫已折区域）、失败边只增不减、每次 foldMark 带 quality/closure/boundary；首跑全绿 |
 | **C63 修正超预算归因假阳性（1.17.1）** | `renderLedger` 新增 `attemptTokens`；`classifyBudget` 把 `reducible?` 换成 `bug`（所选 > 最省尝试才报）；C59 追加「over-budget ⇒ 所选 = 最省尝试」不变量；live 复核 bug=0（此前 8fe881d1 被误报） |
+| **C64 专员审计落地（1.17.1）** | P0：摘要模板「需要时按 seq 回读」→「（seq 可定位）」；P1：删置换告警「别重复」、图例去 retry-if 建议、`safeMeasureFoldQuality` 兜住诊断异常、职责边界改「已修清单」；P2：handoff-check 用 `budgetMax`、overbudget-report 按生产形状渲染（666 而非 641）、doctor 悬空未采集→warn、审计补 `directive-short`/`memory-restore-advice`、文档数字统一 415 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

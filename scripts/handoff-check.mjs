@@ -149,7 +149,7 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
     check(
       "⑨预算",
       ledger.fallback === "impossible" ? "fail" : ledger.fallback === "over-budget" ? "warn" : "ok",
-      `${ledger.fallback} tokens=${ledger.tokens}/${ledger.maxTokens ?? maxTokens} level=L${ledger.level}`,
+      `${ledger.fallback} tokens=${ledger.tokens}/${ledger.budgetMax ?? maxTokens} level=L${ledger.level}`,
     ),
   );
 

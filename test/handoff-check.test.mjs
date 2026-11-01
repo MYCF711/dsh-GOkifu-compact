@@ -225,3 +225,13 @@ tests["H-7 有 fold 但缺 quality ⇒ ⑩ warn『未采集』（旧版本折叠
   t.eq(fidelity.level, "warn", "旧版本折叠缺 quality 要 warn");
   t.includes(fidelity.detail, "都没有 quality", "必须说明是旧版本折叠");
 };
+
+tests["H-11 预算检查必须用 ledger.budgetMax 做分母（不是 CLI 默认 500）"] = (t) => {
+  const g = mkGraph();
+  g.rootUserNodeIds = ["n1"];
+  const result = checkGraph(g, { maxTokens: 800 });
+  const row = result.checks.find((c) => c.name.includes("⑨"));
+  t.eq(!!row, true, "必须有 ⑨ 预算检查项");
+  t.eq(String(row.detail).includes("/800"), true, `分母应为 800：${row.detail}`);
+  t.eq(String(row.detail).includes("/500"), false, `不许出现默认 500 分母：${row.detail}`);
+};

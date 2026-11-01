@@ -61,6 +61,20 @@ const THRASH_SEQ = 30;
  * `fallback` 三态（ledger.mjs 的 `fallbackStatusOf`）：
  *   none / over-budget（兜底超限，已是最省）/ impossible（连文本都构造不出 ⇒ 必须 error）。
  */
+/**
+ * ★ C64（专员审计 P1）：`measureFoldQuality` 是**纯诊断**，但此前在 fold 主链路上没有任何保护 ——
+ * 图结构一旦漂移（例如缺 `order`），它抛异常就会把「已经成功提交的 fold」变成一次失败，
+ * 与同函数里 logger/hook/persistBudget 的纪律（全部 try/catch、「不许影响压缩」）不一致。
+ * 这里统一降级：诊断失败 ⇒ quality = null（doctor 已有「未采集」分支），压缩照常完成。
+ */
+export function safeMeasureFoldQuality(args) {
+  try {
+    return measureFoldQuality(args);
+  } catch {
+    return null;
+  }
+}
+
 export function ledgerBudgetMetrics(ledger) {
   const fallback = ledger && typeof ledger.fallback === "string" ? ledger.fallback : "未采集";
   return {
@@ -699,7 +713,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     this._lastSummaryChars = undefined;
     this._lastSummaryText = undefined;
     this._lastSummaryModelText = undefined;
-    const quality = summaryText === "" ? null : measureFoldQuality({ graph: g, range, summaryText, modelText });
+    const quality = summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range, summaryText, modelText });
     const mark = {
       at: Date.now(),
       seqStart: range?.start ?? null,
@@ -852,7 +866,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     this._lastSummaryModelText = undefined;
     // ★ 2026-11-01：保真度 L1（零模型调用）—— 前两项必须 = 1。
     //   接在这里是为了让它有**真实语料消费者**：只算不接的指标会一直算着假数（第 2 轮的教训）。
-    const foldQuality = measureFoldQuality({
+    const foldQuality = safeMeasureFoldQuality({
       graph: g,
       range,
       summaryText,
@@ -994,7 +1008,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
       const quality =
-        summaryText === "" ? null : measureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
+        summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
       g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), boundary: foldBoundaryOf(g, { start, end }), summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
@@ -1203,6 +1217,7 @@ function ruleSummary(g, range) {
   );
   lines.push("");
   lines.push("## 原始坐标");
-  lines.push(`- 本段遮蔽 seq ${range?.start ?? "?"}-${range?.end ?? "?"}；逐字原文在 DSH 会话日志中，按 seq 回读。`);
+  // ★ C64：同上 —— 只陈述坐标，不写「按 seq 回读」这种动作指令。
+  lines.push(`- 本段遮蔽 seq ${range?.start ?? "?"}-${range?.end ?? "?"}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
   return lines.join("\n");
 }
