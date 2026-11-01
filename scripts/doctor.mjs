@@ -295,6 +295,10 @@ let graphEdges = 0;
 let graphNodes = 0;
 let selfLoops = 0;
 let collapsedGraphs = 0;
+// ★ C33：置换合并的可审计性（有 superseded 记录的节点 / 记录总数 / 自相矛盾数）
+let mergeNodes = 0;
+let mergeOps = 0;
+let mergeBad = 0;
 const todayStart = new Date();
 todayStart.setHours(0, 0, 0, 0);
 const today0 = todayStart.getTime();
@@ -322,6 +326,15 @@ if (nodeFs.existsSync(chessRoot)) {
         if (node?.kind !== "agent") continue;
         agents += 1;
         if (node.worldHash && typeof node.worldHash === "object") objectHash += 1;
+        if (Array.isArray(node.superseded) && node.superseded.length > 0) {
+          mergeNodes += 1;
+          mergeOps += Number(node.supersededCount ?? node.superseded.length);
+          for (const rec of node.superseded) {
+            // 记录必须指向「已被吞掉」的节点（仍在 nodes 里 = 自相矛盾），且带 seq
+            if (!rec || typeof rec.id !== "string" || g.nodes[rec.id] !== undefined) mergeBad += 1;
+            else if (rec.seq !== null && typeof rec.seq !== "number") mergeBad += 1;
+          }
+        }
       }
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
@@ -348,6 +361,17 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+
+/* ── 3.5 置换合并可追溯（C33）：被吞节点的身份必须留有记录 ── */
+add(
+  "置换合并可追溯（superseded）",
+  mergeBad > 0 ? "error" : "ok",
+  mergeBad > 0
+    ? `${mergeBad} 条记录自相矛盾（指向仍在图里的节点 / 缺 seq）—— 合并审计不可信`
+    : mergeNodes > 0
+      ? `${mergeNodes} 个节点记录过合计 ${mergeOps} 次合并（被吞节点 id/seq/goal 有界保留）`
+      : "没有发生置换合并（无需审计）",
+);
 {
   const rate = graphEdges > 0 ? (selfLoops / graphEdges) * 100 : 0;
   const ratio = graphNodes > 0 ? graphEdges / graphNodes : 0;

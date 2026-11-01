@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C33 · 非破坏合并的数据层（superseded / retargetedFrom）+ doctor 审计
+
+**问题**：`mergeNodeInto` 做置换合并时把 from 节点整个删掉 —— 图结构收拢了，但**被吞节点的身份**
+（id/seq/目标）和「这条出边原本属于谁」永久消失，只能靠 `transpositions` 数字倒推。
+
+**做法**（只加事实、不改结构、不动渲染）：
+
+- `into.superseded[]`：有界保留最近 **8** 条被吞记录 `{id, seq, goal, ts, at}`；
+  `into.supersededCount`：累计次数（可以大于保留条数）；
+- 出边 `from` 被改指向时记 `retargetedFrom`（第一次来源，`??=` 不覆盖），边仍指 `into`；
+- `transpositions` 与热清单的 `×N` 渲染**完全不变**（不引入新的模型可见文本 ⇒ bench 不动）。
+
+**消费者**：`doctor` 新增「置换合并可追溯（superseded）」—— 每条记录必须指向**已不在图里**的节点且带 seq
+（自相矛盾 ⇒ error）；无合并时显示「没有发生置换合并（无需审计）」。
+
+测试：新增 `merge-provenance.test.mjs` 4 用例（身份保留 / 出边来源 + validate / 有界 8 条 + 计数 9 /
+JSON 往返）；`core` 既有合并测试照旧通过（结构语义没动）。
+
 ### C32 · 研究收口（G-2 负结论）+ 真实链路字段 gate
 
 **① G-2 `derivable` 负结论（不适用）**：离线渲染 live 图（`session-d70b7c2f`，210 节点/228 边）并逐段核对

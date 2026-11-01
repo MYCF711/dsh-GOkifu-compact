@@ -144,6 +144,9 @@ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintH
  * 语义：fromId 的入边改指向 intoId 并标 transposition；fromId 从图中移除。
  * @returns 被重定向的边 id 列表
  */
+/** 合并时保留多少条被吞节点的身份记录（C33）。太多会把 graph.json 撑大；8 条足够审计。 */
+const SUPERSEDED_KEEP = 8;
+
 export function mergeNodeInto(g, fromId, intoId) {
   if (fromId === intoId || !g.nodes[fromId] || !g.nodes[intoId]) return [];
   const node = g.nodes[fromId];
@@ -157,7 +160,11 @@ export function mergeNodeInto(g, fromId, intoId) {
   for (const edge of Object.values(g.edges)) {
     // 出边也要改：旧版只改 edge.to，合并非叶子节点后它的所有出边 from 会指向已删除节点。
     // 实测（真实会话 graph.json）155 条边里 115 条 from 悬空 —— 图结构被悄悄破坏。
-    if (edge.from === fromId) edge.from = intoId;
+    if (edge.from === fromId) {
+      edge.from = intoId;
+      // C33：出边是从被吞节点转过来的 —— 记下来源，避免「这条边本来属于谁」永久丢失
+      if (edge.retargetedFrom === undefined) edge.retargetedFrom = fromId;
+    }
     if (edge.to === fromId) {
       edge.to = intoId;
       edge.transposition = true;
@@ -165,7 +172,15 @@ export function mergeNodeInto(g, fromId, intoId) {
     }
   }
   // 目标节点被别的边指回来 → 记录一次置换事实（人读视图用）
-  g.nodes[intoId].transpositions = (g.nodes[intoId].transpositions ?? 0) + 1;
+  const target = g.nodes[intoId];
+  target.transpositions = (target.transpositions ?? 0) + 1;
+  // ★ C33（2026-11-02）：非破坏合并 —— 被吞节点的身份（id/seq/目标/时间）保留在 into 上，
+  //   只把图结构（节点与边）按原语义收拢。这样「谁被合并了、合并了几次」可审计，
+  //   而不是只能从 transpositions 数字倒推。有界保留（SUPERSEDED_KEEP）避免 graph.json 膨胀。
+  const history = Array.isArray(target.superseded) ? target.superseded : [];
+  history.push({ id: fromId, seq: node.seq ?? null, goal: String(node.goal ?? "").slice(0, 200), ts: node.ts ?? null, at: Date.now() });
+  target.superseded = history.slice(-SUPERSEDED_KEEP);
+  target.supersededCount = (target.supersededCount ?? 0) + 1;
   delete g.nodes[fromId];
   g.order = g.order.filter((id) => id !== fromId);
   for (const [key, value] of Object.entries(g.stateIndex)) if (value === fromId) delete g.stateIndex[key];
