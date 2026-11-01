@@ -70,6 +70,9 @@ export function ledgerBudgetMetrics(ledger) {
     // ★ 2026-11-01（调研候选 #2 / 建议 I）：出处覆盖率（边行带 (seq …) 的比例，应恒为 1）。
     //   只是**观测**：任何 <1 都说明某条降级路径在砍出处，必须能被告警发现，而不是等到模型胡猜。
     provenanceCoverage: Number.isFinite(ledger?.provenanceCoverage) ? ledger.provenanceCoverage : null,
+    // ★ 2026-11-01：分项占用（七段字符数 + total）。让 doctor / ledger-budget.json 能回答
+    //   「这几次渲染的钱花在哪一段」——否则 sections 又是个只算不消费的指标（第 2 轮的教训）。
+    sections: ledger?.sections && typeof ledger.sections === "object" ? { ...ledger.sections } : null,
   };
 }
 
@@ -112,6 +115,16 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now()) {
     const prev = Number.isFinite(target.provenanceMin) ? target.provenanceMin : 1;
     target.provenanceMin = Math.min(prev, metrics.provenanceCoverage);
     if (metrics.provenanceCoverage < 1) target.provenanceLow = (Number.isFinite(target.provenanceLow) ? target.provenanceLow : 0) + 1;
+  }
+  // ★ 2026-11-01：分项占用按**样本累加**（平均 It 才代表"钱通常花在哪"）。
+  //   只留最后一次会让"某次恰好被根目标占满"被误当成常态。
+  if (metrics.sections && typeof metrics.sections === "object") {
+    const acc = target.sectionsAvg && typeof target.sectionsAvg === "object" ? target.sectionsAvg : {};
+    const next = { ...acc };
+    for (const [key, value] of Object.entries(metrics.sections)) {
+      if (Number.isFinite(value)) next[key] = (Number.isFinite(next[key]) ? next[key] : 0) + value;
+    }
+    target.sectionsAvg = next;
   }
   target.updatedAt = now;
   return target;

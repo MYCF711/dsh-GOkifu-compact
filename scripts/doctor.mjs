@@ -395,6 +395,23 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}` +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
     );
+    // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。
+    //   没有这个消费者，sections 就是个只算不用的指标（第 2 轮的教训）。
+    {
+      const avg = stats.sectionsAvg;
+      const samples = Number(stats.samples ?? 0);
+      const totalChars = avg && typeof avg === "object" ? Number(avg.total ?? 0) : 0;
+      if (totalChars > 0 && samples > 0) {
+        const pct = (key) => Math.round((100 * Number(avg[key] ?? 0)) / totalChars);
+        add(
+          "热清单分项占用（平均）",
+          "ok",
+          `根目标 ${pct("root")}% · 约束 ${pct("constraints")}% · 失败边 ${pct("failures")}% · ` +
+            `未验证 ${pct("unverified")}% · OPTIONS ${pct("options")}% · 路径 ${pct("path")}% · 其它 ${pct("other")}%` +
+            `（共 ${samples} 次渲染，合计 ${Math.round(totalChars)} 字符）`,
+        );
+      }
+    }
   }
 }
 
