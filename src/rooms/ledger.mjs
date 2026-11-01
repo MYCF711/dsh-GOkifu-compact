@@ -568,6 +568,25 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
  * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
+/**
+ * 出处覆盖率：**边行**里带 `(seq …)` 的比例。
+ *
+ * 为什么要有（2026-11-01，`docs/research/03-human-memory.md` 建议 I）：
+ *   「来源监控」是我们刻意保留的能力，但它很容易在追 token 预算时被悄悄优化掉
+ *   （`seq && level <= 1` 就是一次真实的回退）。有了这个数字，任何"为省 10 字符砍掉出处"
+ *   的改动都会在测试里立刻显形；它也是 bench 的对照指标。
+ *
+ * 只统计以 `- e<id>` 开头的边行（汇总行、注释行不算），没有边行时返回 1。
+ */
+export function provenanceCoverageOf(text) {
+  const edgeLines = String(text ?? "")
+    .split("\n")
+    .filter((line) => /^- [a-z]\d+ /.test(line));
+  if (edgeLines.length === 0) return 1;
+  const withSeq = edgeLines.filter((line) => line.includes("(seq ")).length;
+  return withSeq / edgeLines.length;
+}
+
 export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
   // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
   //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
@@ -934,7 +953,16 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
     //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
     //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。
-    if (level < 4 && tokens <= maxTokens) return { ...attempts.at(-1), fallback: "none", budgetMax: maxTokens, overBudgetBy: 0 };
+    if (level < 4 && tokens <= maxTokens) {
+      const chosen = attempts.at(-1);
+      return {
+        ...chosen,
+        fallback: "none",
+        budgetMax: maxTokens,
+        overBudgetBy: 0,
+        provenanceCoverage: provenanceCoverageOf(chosen.text),
+      };
+    }
   }
   const best = pickFallback(attempts, maxTokens, failures.length);
   if (best) {
@@ -942,7 +970,14 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     //   `fallback` 三态：none（预算内）/ over-budget（兜底超限，但已是最省的那份）/ impossible（连兜底都构造不出）。
     //   `overBudgetBy` 给指标系统单独统计，调用方（engine/doctor/审计）不需要自己再算一遍。
     const over = Math.max(0, best.tokens - maxTokens);
-    return { ...best, fallback: fallbackStatusOf(best, maxTokens), budgetMax: maxTokens, overBudgetBy: over };
+    return {
+      ...best,
+      fallback: fallbackStatusOf(best, maxTokens),
+      budgetMax: maxTokens,
+      overBudgetBy: over,
+      // ★ 出处覆盖率（0–1）：边行里带 (seq …) 的比例。应恒为 1；掉下来说明有路径在砍出处。
+      provenanceCoverage: provenanceCoverageOf(best.text),
+    };
   }
   /* istanbul ignore next -- 循环必然返回 */
   return {
@@ -955,6 +990,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     fallback: "impossible",
     budgetMax: maxTokens,
     overBudgetBy: 0,
+    provenanceCoverage: 1,
   };
 }
 

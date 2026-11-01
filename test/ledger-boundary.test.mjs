@@ -88,3 +88,19 @@ tests["D OPTIONS 在预算紧张时也保留一行计数（不许沉默）"] = (
   const tight = renderLedger(g, { now, maxTokens: 120 });
   t.includes(tight.text, "OPTIONS", "预算被压到紧张时也必须留 OPTIONS 行 —— 沉默等于断言「没有别的路」");
 };
+
+tests["I 出处覆盖率指标：边行必须 100% 带 (seq …)"] = (t) => {
+  const now = Date.now();
+  const g = mkGraph([
+    mkEdge({ id: "e1", evidence: { start: 10, end: 12 } }),
+    mkEdge({ id: "e2", evidence: { start: 20, end: 21 }, intent: "bash(npm test)" }),
+  ]);
+  for (const maxTokens of [500, 120]) {
+    const r = renderLedger(g, { now, maxTokens });
+    t.eq(
+      r.provenanceCoverage,
+      1,
+      `maxTokens=${maxTokens} 时出处覆盖率必须是 1（掉下来说明有路径在砍 seq）；实际 ${r.provenanceCoverage}`,
+    );
+  }
+};
