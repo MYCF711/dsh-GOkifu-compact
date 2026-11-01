@@ -33,6 +33,20 @@
 - `engine.summarize` 在「机械追加约束段」之后同样机械追加 `## 最近访问的文件（机械保留，不由模型改写）`。
 - **只进折叠摘要（一次性），不进每步热清单**；只陈述「哪个文件、seq 区间」，不写「下一步该读哪个」。
 
+### C5 · 「压缩产物交接测试」可执行化 + 它抓到的三个 live 缺口
+
+- 新增 `scripts/handoff-check.mjs`：只读地把 `docs/压缩的重注入契约.md` 的七项契约 + 省略行可解析 + 预算，
+  对 **live 每个会话的图**逐张判定（`--json` 机读；退出码：有 FAIL ⇒ 1）。
+- 第一次跑 live（11 个会话）就抓到三个真缺口，同时修掉：
+  1. **UNVERIFIED 在 L2+ 静默消失**（契约 ⑤ 违反）⇒ L2+ 保留一行计数 `UNVERIFIED: N unproven (latest eN)`；
+     代价：有未验证声明的紧档会话可能 over-budget（实测 500→513，**有意权衡**，doctor 可见）。
+  2. **失败边不是物理上一行**（多行 errorSnippet 把 `(seq …)` 挤到第二行）⇒ intent/reason 单行化；
+     这是有意的字节变更，`hot-inject` 的 golden sha 已更新并写明理由（字符数不变 186）。
+  3. **出处覆盖率口径错误**（把 OPTIONS/UNVERIFIED 算进分母 ⇒ live 恒 <1）⇒ 只统计失败边行，
+     并区分「渲染器砍 seq」（fail）与「源边本来没有 evidence」（`evidenceMissing`，warn）。
+- 结果：`handoff-check` live 从 **FAIL 11 / WARN 8** → **FAIL 0 / WARN 4**（剩余 warn 是两张开局无 user 节点的
+  孤儿图和一次 over-budget，均已说明原因）。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**634 passed / 0 skipped / 0 failed**（1.16.0 时 615，本轮与并行会话共新增 19 条）。

@@ -353,7 +353,12 @@ Object.assign(tests, {
     const g = graphWithFailure();
     const out = renderLedger(g, { maxTokens: 500 });
     t.eq(out.text.includes("NO_FAILED_ATTEMPTS_YET"), false, "有失败边时不许出现零失败行");
-    t.eq(sha(out.text), "c234c80ae19e5070caf2faedc2af4bd73240bfe3f26b60e9ae90ae22fac0bc72", "有失败边的清单必须逐字节不变（OPT-EMPTY 前的基线 sha）");
+    // ★ 2026-11-01 基线更新（handoff-check 在 live 语料上抓到）：失败边行必须**物理上一行**。
+    //   旧输出把多行 errorSnippet（`boom\n[exit code: 1]`）原样保留，一条边被拆成两行，
+    //   `(seq …)` 落到第二行 ⇒ 模型看到的是「一条边两行」，出处覆盖率指标也会误判成「渲染在砍 seq」。
+    //   现在 intent/reason 统一压成单行（换行→空格，字符数不变 186，sha 变）——这是**有意的字节变更**，
+    //   基线从 c234c80… 换成 a80735d…，理由记录在此，下一次改动请照此写清原因。
+    t.eq(sha(out.text), "a80735db778562028ef0fe1aa4a470ea0bd821dad222388d504bdbf7c0802ece", "有失败边的清单必须逐字节不变（单行失败边基线 sha，2026-11-01）");
     t.eq(out.text.length, 186, "字符数也必须不变");
   },
 

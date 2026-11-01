@@ -377,17 +377,26 @@ export function failureTags(edge, tewari = null, mode = "semantic") {
   return tags;
 }
 
+/** 单行化：把换行/连续空白压成单个空格（失败边必须是物理上一行，见 renderFailureLine 注释）。 */
+function oneLine(text) {
+  return norm(text).replace(/\s+/g, " ").trim();
+}
+
 /** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
 export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic") {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
   //   旧版 level ≥3 直接把 `→ 原因` 整段砍掉 ⇒ 全库实测 133 条可见失败边里只有 25 条带原因，
-  //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」。而原因正是它避免重犯的判据。
+  //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」，而原因正是它避免重犯的判据。
   //   现在最省的一档也留 25 字（"Error: EACCES: permissio…" 足够认出是什么错）。
   const reasonLen = [90, 60, 36, 25][Math.min(level, 3)];
   // ★ 2026-11-01：intent / reason 都改用「中段省略」——命令与路径常在尾部，纯首部截断会丢掉它们。
-  const intent = clipMiddle(edge.intent || edge.action || "(未记录意图)", intentLen);
-  const reason = clipMiddle(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
+  // ★ 2026-11-01（handoff-check 在 live 语料上抓到）：**失败边必须是物理上一行**。
+  //   多行 errorSnippet（如 `----\n0\n[exit code: 1]`）会把 `(seq …)` 挤到后续几行，
+  //   模型读到的是「一条边拆成四行」，出处覆盖率指标也会误判成「渲染器在砍 seq」。
+  //   这里把换行/连续空白一律压成单个空格 —— 只影响排版，不丢任何字符内容。
+  const intent = clipMiddle(oneLine(edge.intent || edge.action || "(未记录意图)"), intentLen);
+  const reason = clipMiddle(oneLine(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)"), reasonLen);
   const seq = seqSpan(edge);
   const tags = failureTags(edge, tewari, mode);
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
@@ -569,22 +578,46 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
 /**
- * 出处覆盖率：**边行**里带 `(seq …)` 的比例。
+ * 出处覆盖率：**失败边行**里带 `(seq …)` 的比例。
  *
  * 为什么要有（2026-11-01，`docs/research/03-human-memory.md` 建议 I）：
  *   「来源监控」是我们刻意保留的能力，但它很容易在追 token 预算时被悄悄优化掉
  *   （`seq && level <= 1` 就是一次真实的回退）。有了这个数字，任何"为省 10 字符砍掉出处"
  *   的改动都会在测试里立刻显形；它也是 bench 的对照指标。
  *
- * 只统计以 `- e<id>` 开头的边行（汇总行、注释行不算），没有边行时返回 1。
+ * ★ 2026-11-01 口径修正（`scripts/handoff-check.mjs` 在 live 语料上抓到两次）：
+ *   ① 旧定义把**所有** `- e<id>` 行算进分母，OPTIONS / UNVERIFIED（本来就不带 seq）被当成
+ *      「缺出处的失败边」⇒ 真实会话覆盖率恒 <1（0.22 / 0.43 / 0.80）。现在只统计**失败边行**
+ *      （特征：带 `→`）。
+ *   ② 真实语料里还有一类**数据缺口**：老图的失败边没有 `evidence`，渲染器再正确也印不出 seq
+ *      （实测某会话 7 条失败边里 4 条无 evidence）。这不该算「渲染回退」，否则指标永远红。
+ *      ⇒ 传入 `edgesById` 时按**结构化口径**算：只对「本来就有 evidence」的边要求 seq；
+ *      没有 evidence 的边单独计数到 `evidenceMissing`（数据缺口，另一件事）。
+ *
+ * 只统计失败边行（汇总行、注释行、OPTIONS/UNVERIFIED 行不算），没有失败边行时返回 1。
+ *
+ * @param {string} text 渲染后的热清单
+ * @param {Map<string, object>|Record<string, object>|null} [edgesById] 不传则退回纯文本口径（要求每行都有 seq）
  */
-export function provenanceCoverageOf(text) {
+export function provenanceCoverageOf(text, edgesById = null) {
   const edgeLines = String(text ?? "")
     .split("\n")
-    .filter((line) => /^- [a-z]\d+ /.test(line));
+    .filter((line) => /^- [a-z]\d+ /.test(line) && line.includes(" → "));
   if (edgeLines.length === 0) return 1;
-  const withSeq = edgeLines.filter((line) => line.includes("(seq ")).length;
-  return withSeq / edgeLines.length;
+  if (edgesById === null || edgesById === undefined) {
+    const withSeq = edgeLines.filter((line) => line.includes("(seq ")).length;
+    return withSeq / edgeLines.length;
+  }
+  const lookup = (id) => (typeof edgesById.get === "function" ? edgesById.get(id) : edgesById[id]);
+  let ok = 0;
+  for (const line of edgeLines) {
+    const id = /^- ([a-z]\d+) /.exec(line)?.[1] ?? "";
+    const edge = lookup(id);
+    // 图里找不到这条边 / 它本来就没有 evidence ⇒ 不要求 seq（不是渲染的锅）
+    const mustHaveSeq = edge !== undefined && edge !== null && seqSpan(edge) !== "";
+    if (!mustHaveSeq || line.includes("(seq ")) ok += 1;
+  }
+  return ok / edgeLines.length;
 }
 
 export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
@@ -595,6 +628,10 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const allFailures = failureEdges(g);
   const failures = allFailures.filter((e) => !isDanglingResidue(e, { graph: g, now }));
   const omittedResidue = allFailures.length - failures.length;
+  // ★ 2026-11-01（出处覆盖率口径修正）：按 id 查边，区分「渲染器砍了 seq」与「源数据本来就没有 evidence」。
+  const failuresById = new Map(failures.map((e) => [e.id, e]));
+  /** 数据缺口：这些失败边连 evidence 都没有 ⇒ 模型无法回查（不是渲染的锅，指标里单独计）。 */
+  const evidenceMissing = failures.filter((e) => seqSpan(e) === "").length;
   const dangling = danglingStats(g, { now });
   // ★ P6-A：UNVERIFIED_CLAIMS 里的 rewash 残留（to=null 的 unverified）同样是噪声 ——
   //   它们既没有终点、也不可能再被结算（result 已写死 unverified），展示出来只会占行数。
@@ -811,6 +848,12 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     if (open.length && level <= 1) {
       tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
       for (const e of open.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"`);
+    } else if (open.length) {
+      // ★ 2026-11-01（handoff-check 在 live 语料上抓到：契约 ⑤ 在 L2+ 静默消失）：
+      //   「跑了但没验证」的声明在紧档位整段消失 = 断言「没有未验证的东西」，与 OPTIONS 同一类错误
+      //   （提取诱发遗忘）。L2+ 至少留一行计数 + 最近一条 id —— 只陈述事实，不给行动建议。
+      const latestOpen = open[open.length - 1];
+      tailLines.push(`UNVERIFIED: ${open.length} unproven (latest ${latestOpen.id}) — detail in graph.json`);
     }
     if (path.length > 1) {
       const shape = PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)];
@@ -970,7 +1013,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         fallback: "none",
         budgetMax: maxTokens,
         overBudgetBy: 0,
-        provenanceCoverage: provenanceCoverageOf(chosen.text),
+        provenanceCoverage: provenanceCoverageOf(chosen.text, failuresById),
+        evidenceMissing,
       };
     }
   }
@@ -986,7 +1030,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       budgetMax: maxTokens,
       overBudgetBy: over,
       // ★ 出处覆盖率（0–1）：边行里带 (seq …) 的比例。应恒为 1；掉下来说明有路径在砍出处。
-      provenanceCoverage: provenanceCoverageOf(best.text),
+      provenanceCoverage: provenanceCoverageOf(best.text, failuresById),
+      evidenceMissing,
     };
   }
   /* istanbul ignore next -- 循环必然返回 */
@@ -1001,6 +1046,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     budgetMax: maxTokens,
     overBudgetBy: 0,
     provenanceCoverage: 1,
+    evidenceMissing,
   };
 }
 

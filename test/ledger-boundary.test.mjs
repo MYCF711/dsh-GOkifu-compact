@@ -12,7 +12,7 @@
  * 这三条都只改**压缩产物怎么呈现**，不碰历史、不碰工具、不碰系统提示词。
  */
 
-import { renderFailureLine, renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
+import { provenanceCoverageOf, renderFailureLine, renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
@@ -90,20 +90,38 @@ tests["D OPTIONS 在预算紧张时也保留一行计数（不许沉默）"] = (
   t.includes(tight.text, "OPTIONS", "预算被压到紧张时也必须留 OPTIONS 行 —— 沉默等于断言「没有别的路」");
 };
 
-tests["I 出处覆盖率指标：边行必须 100% 带 (seq …)"] = (t) => {
+tests["I 出处覆盖率：失败边行必须带 (seq …)；OPTIONS/UNVERIFIED 与「源数据无 evidence」都不拉低它"] = (t) => {
   const now = Date.now();
   const g = mkGraph([
     mkEdge({ id: "e1", evidence: { start: 10, end: 12 } }),
     mkEdge({ id: "e2", evidence: { start: 20, end: 21 }, intent: "bash(npm test)" }),
   ]);
+  // OPTIONS / UNVERIFIED 的 `- eN "…"` 行本来就不带 seq（不含 `→`）——不能算进失败边的分母。
+  g.edges.e7 = { id: "e7", from: "n2", to: null, intent: "试试另一条路", action: "grep(pattern=foo)", result: "untested", ts: now - 1000 };
+  g.edges.e8 = { id: "e8", from: "n2", to: "n2", intent: "跑了但没外部信号", action: "bash(true)", result: "unverified", verify: { kind: "none", summary: "无" }, evidence: { start: 30, end: 31 }, ts: now - 1000 };
   for (const maxTokens of [500, 120]) {
     const r = renderLedger(g, { now, maxTokens });
     t.eq(
       r.provenanceCoverage,
       1,
-      `maxTokens=${maxTokens} 时出处覆盖率必须是 1（掉下来说明有路径在砍 seq）；实际 ${r.provenanceCoverage}`,
+      `maxTokens=${maxTokens} 时出处覆盖率必须是 1（掉下来说明渲染器在砍 seq）；实际 ${r.provenanceCoverage}`,
     );
   }
+  // 数据缺口（老图没有 evidence）不是渲染器的锅：覆盖率仍算 1，但必须单独计数出来。
+  const legacy = renderLedger(mkGraph([mkEdge({ id: "e1", evidence: null })]), { now, maxTokens: 2000 });
+  t.eq(legacy.provenanceCoverage, 1, "源边没有 evidence 时不该算成「渲染砍出处」");
+  t.eq(legacy.evidenceMissing, 1, "没有 evidence 的失败边必须被单独计数（数据缺口要可见）");
+  // 真正的渲染回退：结构化口径下，本来有 evidence 的边却没印 seq ⇒ 覆盖率必须 <1
+  t.eq(
+    provenanceCoverageOf('- e1 "x" → boom\n', { e1: { id: "e1", evidence: { start: 1, end: 2 } } }),
+    0,
+    "有 evidence 的边没印 seq 时覆盖率必须掉到 0（指标真的能抓到渲染回退）",
+  );
+  t.eq(
+    provenanceCoverageOf('- e1 "x" → boom (seq 1-2)\n', { e1: { id: "e1", evidence: { start: 1, end: 2 } } }),
+    1,
+    "正常行必须是 1",
+  );
 };
 
 tests["#1 压缩无效（thrashing）状态要显示出来，但只在真的连续发生时"] = (t) => {
