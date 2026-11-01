@@ -38,6 +38,38 @@
 3. **不把"产品做了什么"当"产品做对了"**：多处给出的是**它们的路线变化**（mem0 从 UPDATE/DELETE 改成 ADD-only），变化本身才是证据。
 4. 本仓现状只引用我本轮**读过码**的部分（`src/rooms/ledger.mjs`、`src/engine.mjs`、`src/rooms/kifu-model.mjs`），不转述旧文档。
 
+### 0.1 独立复核（第二遍：把每个数字变成别人能复算的断言）
+
+> 复核对象与第一遍**相同**（本机服务 / 同一批源文件），未引入新来源。
+
+| 断言 | 复核方式 | 结果 |
+|---|---|---|
+| Hindsight 版本 0.10.2 | `GET /openapi.json` → `info.version` | ✅ `0.10.2`，`title = "Hindsight HTTP API"` |
+| openapi 343 KB / 77 端点 | `len(json['paths'])` | ✅ 342,843 B / **77** 个 path |
+| bank 模板 51 个字段 | `GET /v1/bank-template-schema` → `$defs.BankTemplateConfig.properties` | ✅ **51** 个；含 `max_observations_per_scope`、`store_document_text`、`recall_include_chunks`、`enable_observations`、`consolidation_strategies` |
+| 无 TTL / 衰减 | 全文搜 `\bttl\b\|decay\|half_life\|expires_at` | ✅ **0 命中**（仅 `little`/`settles` 子串误配，逐条核过） |
+| 失效=状态不是删除 | 搜 `invalidated` | ✅ 三字段成组：`state: 'valid'\|'invalidated'`、`invalidation_reason`、`invalidated_at` |
+| 三级可寻址 | 枚举 paths | ✅ `/memories/{memory_id}/history`、`/v1/default/chunks/{chunk_id}`、`/documents/{document_id}/chunks` |
+| observation 作用域按 tag glob | 搜 `fnmatch` | ✅ 原文："Each scope is a list of **fnmatch tag-globs**; a consolidation scope matches under **exact cover**" |
+| README「refined rather than overwritten」 | GitHub raw `README.md` L350 | ✅ 逐字 |
+| OpenViking 不递归导航目录 | `docs/en/concepts/07-retrieval.md` L82 | ✅ 逐字："`HierarchicalRetriever` runs **one global vector search per query** … retrieval **does not navigate directories recursively**" |
+| OpenViking L0=256 / L1=4000、整句优先 | `docs/en/concepts/03-context-layers.md` L9–19 | ✅ 逐字；"Truncation prefers complete sentences … can retain the first complete sentence even when that sentence is longer" |
+| OpenViking 许可证 | `README.md` L339 | ✅ **AGPLv3** |
+| 三篇 arXiv 编号与标题 | `export.arxiv.org/api/query?id_list=…` | ✅ 2601.02553=SimpleMem v3；2507.03724=MemOS v4；2506.06326=Memory OS of AI Agent v1 |
+| 本机有无 Hindsight 插件源码 | 扫 `$DSH_HOME`=`D:\DeepSeek Harness\home`、`Desktop\resources\app.asar\dsh\` | ❌ **未找到**任何 `dsh.js` / `*hindsight*.mjs`；客户端实现细节**未核实**（配置语义只能从 `coding-agent.json` 的键与注释读） |
+
+**一处被复核推翻的说法**：任务书里「OpenViking = 目录递归检索」**不成立**。它是**全局向量检索 + 目录/类型/权限作约束**，文档逐字写了不递归。这对我们是正面的：**它也没把"顺目录一层层读"当检索手段**，与我们"不建检索层"不冲突——借的是分层披露的**形状**，不是它的检索实现。
+
+**§7 里点名的本仓符号，逐个核过（引用即存在，不是模型记忆里的函数名）**：
+
+| 符号 | 复核方式 | 结果 |
+|---|---|---|
+| `FOLD_MARKS_KEEP = 20` / `foldMarks` 截断 | `grep src/engine.mjs` | ✅ `:42` 定义、`:750` `slice(-FOLD_MARKS_KEEP)` |
+| `_tier2InFlight` | 同上 | ✅ `src/engine.mjs:176` |
+| `mergeNodeInto()` | `grep src/rooms/kifu-model.mjs` | ✅ `:147` |
+| `clipMiddle()` / `renderFailureLine()` / `intentLen`+`reasonLen` 分档数组 | `grep src/rooms/ledger.mjs` | ✅ `:219` / `:386` / `:387,:392`（分档数组确实是 `[70,50,34,22]` / `[90,60,36,25]` 的硬编码，D3 说"散在数组里"属实） |
+| 「27.8% 悬空残留（268/964）」 | `grep -rn "27\.8" docs/ src/` | ✅ 唯一数值来源 `src/rooms/ledger.mjs:631`，与 00/01/03 三处引用一致 |
+
 ---
 
 ## 1 · 判据复述：记忆系统与压缩的交界在哪
@@ -309,7 +341,7 @@
 | **D3** | **分层预算 + 边界截断 + 上层从下层派生**（OpenViking L0 256 / L1 4000、整句优先；Hindsight 按 token 上限裁剪） | ✅ 采纳（形状） | §2「压缩产物的可见性」+ 03 §7-E 省略行去哪查 | `ledger.mjs`：新增 `ledgerBudgetTiers()` 显式列出 L0–L5 每档字符预算（现在散在 `intentLen/reasonLen` 数组里）；`clipMiddle()` 加"句/行边界优先"分支；L4 汇总行的计数**从边集算**（已是），并把 `provenanceCoverageOf()` 的断言按档位记录 |
 | **D4** | **版本戳防旧产物覆盖新产物**（OpenViking `coalesce_version`；Letta git commit） | ✅ 采纳 | §2「执行压缩」（保真校验的机器判据） | `engine.mjs`：checkpoint/flush 前写 `g.lastFoldVersion = {foldCount, atSeq, route}`；tier-2 与常规 fold 的写回在 `#flush()` 前比对版本，旧版本丢弃（现有 `_tier2InFlight` 只防重入，不防旧写回） |
 | **D5** | **用配额触发整合，用计数而非时间做权重**（Hindsight `max_observations_per_scope` + `proof_count`；反例 MemoryOS heat） | ✅ 采纳（配额）+ 采纳（计数） | §2「决定压什么」（配额=触发策略）+ 03 §6-1（禁时间衰减） | `fold-planner.mjs`：把"checkpoint 满 N 条"写成显式配额常量并进 doctor 观测（现为 `tier2After`）；`renderFailureLine()` 可加 `×k` 表示该失败被重复观测的次数（**仅当 k 可机械统计**，不得由模型打分） |
-| **D6** | 时间衰减 / heat 公式（MemoryOS，全组唯一） | ❌ 不采纳 | 03 §6-1；`职责边界` §2「不写行动许可/策略建议」的同源理由：压缩给事实，不给"该不该留"的评分 | — |
+| **D6** | 时间衰减 / heat 公式（MemoryOS，全组唯一） | ❌ 不采纳 | 03 §6-1（禁时间衰减）+ 判据 ②（TTL 是跨时间的存续策略，不在压缩生命周期内）；一句话：压缩给事实，不给"该不该留"的评分 | — |
 | **D7** | LLM 判定冲突 / 四操作（mem0 旧版、A-MEM、SimpleMem 裁判） | ❌ 不采纳 | 判据 ② 相邻风险：不可复现 + 把"用模型替代确定性策略"引入压缩路径 | — |
 | **D8** | 写时合成 / 记忆演化（SimpleMem、A-MEM） | ❌ 不采纳 | 01 递归摘要（ρ^k）；03 §6-4「摘要可覆盖原文」 | — |
 | **D9** | 模型自编辑 + 分页换入（MemGPT 主机制；Letta dreaming） | ❌ 不采纳 | §2「教模型何时 restore」越界 + §2「tools 定义与治理」 | — |
