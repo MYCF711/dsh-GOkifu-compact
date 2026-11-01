@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C81 · 终验收尾：一次完整串行核对 + 证据归档
+
+**做法**：把 7 道门禁 + `verify-install` + `post-restart-check` + 即期归因**一次串行跑完**，
+结果归档到 `evidence/终验-2026-11-02.md`（并登记索引）：
+
+| 门禁 | 结果 |
+|---|---|
+| 全量测试 | **758 passed / 0 skipped / 0 failed** |
+| bench | **415 tokens** · 保留 8/8 · **无 DRIFT** |
+| handoff-check | **FAIL 0 / WARN 5**（预算样本 + 升级前旧 fold） |
+| doctor | **0 错误 / 3 警告**（buildId 待重启、home 漂移自愈、预算设计内） |
+| boundary-audit | **0 条**（5 条规则） |
+| docs-index | **0 个未索引** |
+| verify-install | **19 / 19** |
+| post-restart-check | **fail 1 / warn 1** —— buildId 缺失 + 归因字段未出现 = **旧进程仍在跑**（预期） |
+| 即期超预算归因 | within 21 / floor 1 / irreducible 2 / **bug 0** |
+
+文档同时写清「这份终验**能**证明什么（磁盘代码全绿）/**不能**证明什么（运行进程是否新代码，需重启）」。
+
 ### C80 · 合同 §6c：哪些字段**有意**只做全局口径（把「为什么不加门禁」写死）
 
 **问题**：C78/C79 补了 ⑭⑮⑯ 之后，`foldMark` 里仍有一批字段没有单会话门禁。不加不是漏，

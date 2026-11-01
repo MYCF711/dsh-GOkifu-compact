@@ -91,6 +91,7 @@
 | **C78 交接门禁补 ⑭fold成本（2026-11-02）** | handoff-check 新增 ⑭（遮蔽占读入 <30% ⇒ warn，按最差一次判；无 usage=未采集 ok）；live 本会话「3 次 fold 最低 64% 健康」；测试 H-12/H-13 |
 | **C79 交接门禁 ⑮⑯（2026-11-02）** | handoff-check 新增 ⑮fold悬空（fromBroken⇒fail / liveUnsettled⇒warn / residue 不判错）与 ⑯闭包自洽（区间反向或 nodes>graphNodes⇒fail，preGraph 标注）；live 本会话两项皆 ok；测试 H-14/H-15 |
 | **C80 合同 §6c：有意不加门禁的字段（2026-11-02）** | route/ms/summaryChars/totalAfter/foldCount 属纯诊断；fallback 属全局趋势；区间由 ⑯ 间接校验；判据「只有存在可判错边界才加门禁」写进合同 |
+| **C81 终验收尾（2026-11-02T21:13Z）** | 7 门禁 + verify-install + post-restart + 即期归因一次串行跑完并归档 `evidence/终验-2026-11-02.md`：758 passed / bench 415 无 DRIFT / handoff FAIL 0 WARN 5 / doctor 0 错 3 警 / boundary 0 / verify-install 19-19 / post-restart **fail 1**（旧进程，等重启）/ 即期 bug 0 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
