@@ -102,6 +102,7 @@
 | **C89 安装第①步补测（2026-11-02）** | `patchProfileForUi`/`removeManualUiRow` 此前零测试：5 例（无文件不乱建 / dry-run 不落盘 / 真跑留备份且幂等 / 删除留备份 / 结构不认识拒绝改）；全绿=实现正确 |
 | **C90 注入渲染失败可观测（2026-11-02）** | `injectionErrorDelta` + engine 计数 `ledgerBudget.renderErrors` + doctor「注入渲染失败 N 次」；hot-inject 真实降级用例（缺 rootUserNodeIds 才真抛）；测试四态 + doctor 显示 |
 | **C91 注入跳过原因分布（2026-11-02）** | `skipReasonKey` + `bumpSkipReason`（有界 8 键，超出归 other）+ `ledgerBudget.skipReasons`（每 20 次落盘）+ doctor「跳过分布」前 3 名；测试 6 条 + doctor 显示 |
+| **C92 最近访问文件解析器健壮性（2026-11-02）** | 正则元字符/引号/空格/截断/空值 14 种形状：永不抛、返回值必是输入子串（禁止猜）、元字符路径精确；3 组全绿（无 bug） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
