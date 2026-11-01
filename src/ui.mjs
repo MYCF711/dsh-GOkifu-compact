@@ -73,7 +73,10 @@ import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 export const name = "dsh-gokifu-compact/ui";
-export const inject = ["webServer"];
+// ★ U1（2026-11-01）：加 `llm`。主人拍板的架构是「插件不自己存凭据、不自己接外部 API」——
+//   用户要在 DSH 里加供应商，页面的摘要模型下拉就从**宿主已注册的模型目录**里自动长出来。
+//   实测宿主服务名就是 `"llm"`（`dsh-llm/lib/index.js` 的 `LlmRuntime extends Service` 里 `super(ctx, "llm")`）。
+export const inject = ["webServer", "llm"];
 
 /** 与 engine.mjs 的 Config 保持一致的默认值（页面用来显示「默认」）。 */
 /** 与 R15（config-schema）保持一致的默认值（页面用来显示「默认」）。 */
@@ -350,6 +353,128 @@ function health(home = resolveHome(), presets = findPresetFiles(home), profile =
     notInBundles: !inBundles,
     presets: presets.map((p) => ({ name: p.name, file: p.file })),
   };
+}
+
+/* ───────────────────── 模型目录（U1）：只读宿主，不存凭据 ───────────────────── */
+
+/**
+ * 单次宿主调用的时间上限（毫秒）。
+ *
+ * 为什么要它：不是所有适配器都本地查表 —— `dsh-llm-deepseek` 的 `listModels()` 是
+ * `discoverModels?.(provider) ?? []`（发现钩子可能走网络），`resolveModel()` 还要先 `connection()`。
+ * 这台机器的组合树里 `llm-deepseek-api-key` / `llm-deepseek-account` 都在（见组合树实测），
+ * 所以「首屏等一个网络发现」是真会发生的。**页面宁可少一个下拉项，也不许卡住首屏。**
+ */
+const CATALOG_CALL_TIMEOUT_MS = 4000;
+
+/** 给一个 promise 套时间上限；超时按「拿不到」处理（调用方的 catch 会接住）。 */
+async function withinBudget(promise, ms = CATALOG_CALL_TIMEOUT_MS) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_resolve, reject) => {
+        // ⚠ 不许 unref：这个 timer 就是「保证一定会 settle」的那一半。
+        //   unref 掉之后，如果宿主调用恰好不产生任何句柄（真实卡死就是这种），
+        //   事件循环会先空转退出 ⇒ await 永远不返回（实测：test 里报 unsettled top-level await）。
+        timer = setTimeout(() => reject(new Error("catalog call timed out")), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * 单个模型的**真实**上下文窗口。
+ *
+ * 为什么不能从 `listModels()` 直接读：宿主 `LlmRuntime.listModels(provider)` 的返回项实测只有
+ * `{ provider, id, name, description?, inputModalities? }` —— **没有窗口字段**。
+ * 窗口只出现在 `resolveModelInfo(provider, model)` 的 `context.contextWindow` 里
+ * （宿主对它做 `Number.isInteger(w) && w > 0` 校验，非法直接抛 `INVALID_MODEL_CONTEXT`）。
+ * 所以这里逐模型再问一次。
+ *
+ * 拿不到（没这方法 / 抛错 / 超时 / 字段缺失 / 非法）一律返回 `null` —— **绝不伪造数字**：
+ * 页面拿 null 就显示 `—`，写死一个 1000000 会把进度条画成假的。
+ */
+async function contextWindowOf(llm, provider, modelId, timeBudgetMs) {
+  try {
+    if (typeof llm?.resolveModelInfo !== "function") return null;
+    const info = await withinBudget(llm.resolveModelInfo(provider, modelId), timeBudgetMs);
+    const window = info?.context?.contextWindow;
+    return Number.isInteger(window) && window > 0 ? window : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读宿主已注册的模型目录，聚合成页面下拉要用的稳定形状。
+ *
+ * 契约（U2 的 `lib/client.js` 靠它衔接，改动要同步）：
+ * ```js
+ * { providers: [ { provider, name, models: [ { id, name, contextWindow: number|null } ] } ] }
+ * ```
+ * 不稳定/失败的形态**一律降级**，本函数永不抛：
+ *   · 没有 llm 服务 / `listProviders()` 抛错 ⇒ `{ providers: [] }`
+ *   · 某个 provider 的 `listModels()` 抛错 ⇒ 只跳过它，其它照常
+ *   · 模型项缺 `id` 或 `name` ⇒ 丢弃（不产出半截项）
+ * 排序：provider 按 id、模型按 name（同名再按 id），保证同一目录每次输出一致（页面快照可测）。
+ *
+ * 时间预算：每次宿主调用（listProviders / listModels / resolveModelInfo）都有上限（默认 4 s），
+ * 超时按「拿不到」处理 —— 适配器的模型发现可能走网络，首屏不许被它拖住。
+ *
+ * @param {any} llm 宿主 llm 服务（`LlmRuntime`）；测试可注入假对象
+ * @param {{timeBudgetMs?:number}} [options] 单次宿主调用的时间上限（毫秒；测试可调小）
+ * @returns {Promise<{providers:{provider:string,name:string,models:{id:string,name:string,contextWindow:number|null}[]}[]}>}
+ */
+export async function modelCatalog(llm, options = {}) {
+  const empty = { providers: [] };
+  // 单次宿主调用的时间预算（见 withinBudget 的注释）；测试可传更小的值
+  const budget = Number.isFinite(options.timeBudgetMs) && options.timeBudgetMs > 0 ? options.timeBudgetMs : CATALOG_CALL_TIMEOUT_MS;
+  // 测试与降级路径都会走到这里（fake ctx 可能根本没有 llm）
+  if (llm === null || typeof llm !== "object") return empty;
+  let routes;
+  try {
+    if (typeof llm.listProviders !== "function") return empty;
+    routes = await withinBudget(llm.listProviders(), budget);
+  } catch {
+    return empty; // ③ 连 provider 都列不出来 ⇒ 空目录，绝不抛
+  }
+  if (!Array.isArray(routes)) return empty;
+
+  const providers = [];
+  for (const route of routes) {
+    // 实测返回形状是 `[{ id, name }]`（宿主 registration 里的 provider 就是 {id,name}）。
+    // 顺手容忍纯字符串（将来若改成 id 列表，也不至于整页空白）——但对象缺 id 就跳过。
+    const providerId = typeof route === "string" ? route : typeof route?.id === "string" ? route.id : null;
+    if (providerId === null || providerId.length === 0) continue;
+    const displayName = typeof route?.name === "string" && route.name.length > 0 ? route.name : providerId;
+    let listed;
+    try {
+      if (typeof llm.listModels !== "function") continue;
+      listed = await withinBudget(llm.listModels(providerId), budget);
+    } catch {
+      continue; // ② 单个 provider 失败 ⇒ 只跳过它
+    }
+    if (!Array.isArray(listed)) continue;
+    // ④ 缺 id / name 的畸形项直接过滤掉（半截项比没有更糟：页面会渲染出一个选不了的 option）
+    const usable = listed.filter(
+      (model) => typeof model?.id === "string" && model.id.length > 0 && typeof model?.name === "string" && model.name.length > 0,
+    );
+    // 逐模型取窗口：并发问，单个失败只让那一项变 null（⑤）
+    const models = await Promise.all(
+      usable.map(async (model) => ({
+        id: model.id,
+        name: model.name,
+        contextWindow: await contextWindowOf(llm, providerId, model.id, budget),
+      })),
+    );
+    models.sort((a, b) => a.name.localeCompare(b.name, "en") || a.id.localeCompare(b.id, "en"));
+    providers.push({ provider: providerId, name: displayName, models });
+  }
+  providers.sort((a, b) => a.provider.localeCompare(b.provider, "en"));
+  return { providers };
 }
 
 function readBody(req) {
@@ -730,6 +855,17 @@ export function apply(ctx) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  // ★ U1：`inject: ["webServer","llm"]` ⇒ 真实宿主里 ctx.llm 一定在；
+  //   但 test/ui*.test.mjs 的假 ctx 只有 webServer，所以这里必须容忍 undefined。
+  //   catalog() 再包一层：modelCatalog 本身已设计成不抛，这里是最后一道「页面不能崩」的保险。
+  const llm = ctx?.llm;
+  const catalog = async () => {
+    try {
+      return await modelCatalog(llm);
+    } catch {
+      return { providers: [] };
+    }
+  };
   const route = {
     kind: "prefix",
     path: "/gokifu/api",
@@ -774,7 +910,14 @@ export function apply(ctx) {
             latest: latestGraphFrom(scan),
             today: todayAggregateFrom(scan),
             health: health(home, allPresets, profileName),
+            // ★ U1：首屏一次拿全 —— 摘要模型下拉直接用 state.models，少一个请求。
+            //   只**新增**字段：上面所有既有字段语义未动。拿不到就是 { providers: [] }。
+            models: await catalog(),
           });
+        }
+        if (action === "models") {
+          // ★ U1：单独的 models 动作（页面切换/刷新下拉时用）。永不失败：失败路径都是空目录。
+          return sendJson(res, 200, { ok: true, models: await catalog(), at: new Date().toISOString() });
         }
         if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS, fieldLabels: FIELD_LABELS });
         if (action === "save") {

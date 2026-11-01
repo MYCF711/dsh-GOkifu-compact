@@ -2,24 +2,26 @@
 
 > 2026-11-01 · 给下一个会话
 > **先读这一页，再读 `docs/最终报告.md`。不要重新推导。**
-> 当前版本 **1.13.0**（**未发布**：无 tag、npm `latest` 仍是 1.11.17）；单测 **597 / 0 skipped / 0 failed**（**52 个测试文件**）。
+> 当前版本 **1.14.0**（**未发布**：无 tag、无 npm 发布 —— 本轮主人只授权推 GitHub）；单测 **613 / 0 skipped / 0 failed**（**54 个测试文件**）。
 > **⚠ 桌面 live 里本插件一个版本都没装**（11-01 14:15 重建的新 home）—— 不是「停在旧版本」，是「0 个版本」。
 > 装回去：清单已过闸（1.12.0）→ `dsh plugin add`（官方通道，成功后会**自动**把包追加进 bundles）→
 > `make-preset` 生成 preset bundle 并同样 `dsh plugin add` → **在会话里选中该 preset** → 重启验证。详见「新版 DSH 适配」。
 
-## ⚠ 最新状态（2026-11-01 · 1.13.0 · 未发布）
+## ⚠ 最新状态（2026-11-01 · 1.14.0 · 未发布）
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.13.0**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.13.0`） |
-| tag / npm | **都没有** —— 本版只存在于工作树；`npm latest` 仍是 **1.11.17**。发版命令：`node scripts/release.mjs --yes`（annotated tag + npm publish + GitHub Release） |
-| 单测 | **597 passed / 0 skipped / 0 failed**（**52 个测试文件**；1.12.0 是 577/0/0、49 文件）· `engine-harness` 43/0 · `ledger` 20/0 · `c17` 15/0 · `ledger-pricing` 9/0 · `make-preset` 6/0 · `ui-health` 5/0 |
-| 本轮（1.13.0）改了什么 | ① **热清单定价接真**（CJK 1 token/字 + 其余 1/4；锚点实测 905 vs 新口径 933）② 新增 `scripts/make-preset.mjs`（C 段 preset 引擎行的**正式解法**）③ UI `health()` 不再写死 `profile=desktop` |
-| `check-maintenance` | **8 通过 / 0 警告 / 1 失败** —— 唯一失败是「当前版本 1.13.0 有 tag」，属**发版步骤未执行** |
-| **桌面 live** | **0 个版本**：`profiles/desktop/package.json` 无本包依赖、`dsh.profile.bundles` 无本包、`<home>/chess-context` 不存在。1.9–1.13 的收益**一条都没生效** |
+| 版本 | **1.14.0**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.14.0`） |
+| tag / npm | **都没有** —— 本版只存在于工作树；`npm latest` 仍是 **1.11.17**。**本轮主人只授权 push 到 GitHub（main + tag），不 npm publish** |
+| 单测 | **613 passed / 0 skipped / 0 failed**（**54 个测试文件**；1.13.0 是 597/0/0、52 文件）· `ui` **75/0** · `ui-models` 7/0 · `ui-layout` 9/0 · `engine-harness` 43/0 · `ledger` 20/0 · `c17` 15/0 |
+| 本轮（1.14.0）改了什么 | ① **模型目录**：`inject` 加 `llm`、新增 `models` 动作（只读宿主目录、不存凭据）② **页面改版**：宽屏双栏 + 滚动容器 P0 修复 + 焦点环 + 两级模型下拉 ③ 两件欠账收口：`thresholdRatio` **事实更正（不改数值）**、**手动压缩按钮「不做」** |
+| `check-maintenance` | **8 通过 / 0 警告 / 1 失败** —— 唯一失败是「当前版本 1.14.0 有 tag」，属**发版步骤未执行** |
+| **桌面 live** | **0 个版本**：`profiles/desktop/package.json` 无本包依赖、`dsh.profile.bundles` 无本包、`<home>/chess-context` 不存在。1.9–1.14 的收益**一条都没生效** |
 | 下一步（唯一档停的事） | **装到 live** —— 需**停机窗口 + 主人授权 + 主人重启**；四步见下方「新版 DSH 适配」。**不要手改 `package.json` 加 `link:`**（那正是历史上丢插件的机制） |
 
-> 其余仍未做：**M2/M3**（UI 暂停中）· **`README:3` / 本文件版本号都没有门禁**（`check-maintenance` 不读它们）。
+> 其余仍未做：**`README:3` / 本文件版本号都没有门禁**（`check-maintenance` 不读它们）。
+> ~~**M2/M3**（UI 暂停中）~~ ⇒ **UI 已于 1.14.0 解冻并改版**（见下方「UI」节）；其中 **外部 API 通道按主人裁定不做**
+> （插件不存凭据、不接外部 API，用户去 DSH 加供应商 ⇒ 下拉自动出现）。
 > ~~**tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）~~
 > ⇒ **1.13.0 已做，但结论要改口径**：热清单定价改成 **CJK 感知 + ASCII 侧对齐宿主 `CHARS_PER_TOKEN=4`**
 > （**没有**改成接 `ctx.tokenMeter`）—— 因为 `ctx.tokenMeter.measure(session)` 早就接好了
@@ -134,6 +136,59 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 **还差什么（诚实写）**：「**会话选中 preset → 引擎实例化 → 真压一轮**」**没验** —— 测试 home 没配模型路由，
 也没有擅自把生产 magpie 接过去。所以准确说法是：**「引擎行被加载、实例化、注册服务」已实测；
 「引擎接管压缩并产出棋谱」未实测。**
+
+## UI（1.14.0 解冻后改版）
+
+> 背景：主人 2026-10-30 说「UI 先放下」（*没人用的插件不需要 UI*），本版**解冻**。立场仍然是「只读宿主」——
+> 见下面的架构定调。
+
+**架构定调（主人拍板，以后别再自己发挥）**
+
+1. **插件不自己存凭据、不自己接外部 API**。用户要用外部 API，**去 DSH 里加供应商**；
+   插件页面的摘要模型下拉从**宿主已注册的模型目录**里自动长出来。
+   ⇒ M3（插件私有 secrets / `external-summary` 模块 / 外部 API 面板）**不做**。
+2. **插件页不是会话级的** ⇒ 拿不到 agent / 会话状态 ⇒ 任何「当前能否压缩」的实时判断都做不出可信结论（见「不做」节）。
+
+**改了什么**
+
+| 面 | 改动 |
+|---|---|
+| 模型目录（U1） | `inject` → `["webServer","llm"]`；新增纯函数 `modelCatalog(llm)`；新增 `{"action":"models"}`，且 `state` 响应同时带 `models`。**只读** `listProviders()` / `listModels()` / `resolveModelInfo()`；任何失败降级不抛（单 provider 挂只跳过） |
+| 页面（U2） | 宽屏双栏（≥1280px，`maxWidth 1600px` 居中，窄屏回单栏）；**滚动容器 P0 修复**（`height:100%` / `minHeight:0` / `boxSizing` / `overflowY:auto`）；**焦点环**（全部交互元素经 `focusable()` + onFocus/onBlur）；**摘要模型两级下拉**（provider → model，`<optgroup>`，目录为空降级自由文本） |
+| 页面（U4 收尾） | 窄屏断点 600（600−56 padding=544，扣 220 控件 + 120 默认值列只剩 ~200 给中文 label 会折行）；长模型名/长 id 加 `title`；标题行显示当前 profile；`SPACING={section:16,card:8,inline:12,micro:4}` 把 18/20/26/10/2 收敛成 **4px 网格** |
+| 窗口 | **去掉硬编码的 1000000**：按选中模型的 `contextWindow`；拿不到显示 `—` 并隐藏进度条 |
+
+**三个宿主 API 事实（省一次考古）**：服务名就是 **`"llm"`**；`listProviders()` 返回 **`[{ id, name }]`**；
+**`listModels()` 里没有窗口字段** —— 窗口只能逐模型问 `resolveModelInfo(provider, model).context.contextWindow`。
+⇒ 首屏要为每个模型问一次，所以每次宿主调用有 **4 秒时间预算**（`CATALOG_CALL_TIMEOUT_MS = 4000`），
+超时按「拿不到」降级 —— `dsh-llm-deepseek` 的 `listModels()` 背后是 `discoverModels?.()`，**可能走网络**，
+**页面宁可少一个下拉项，也不许卡住首屏**。
+
+**`thresholdRatio` 的事实更正（本版不改数值）**：主人被问「0.6 要不要降到 0.5」答「降到 0.5」，但
+**插件的默认值本来就是 0.45**（`config-schema.mjs` 与 `install.mjs` 的 `engineBlock()` 模板都是 0.45）；
+仓库里唯一的 `0.6` 是**升级前的 profile 级 override**（`cordis.patch.yml:489`），已随旧 home 消失。
+⇒ **0.45 已经比 0.5 更早触发**，符合主人「更早压」的意图 ⇒ **不改**。事实已追加进
+`docs/P0-worldhash-死循环-根因与修复方案.md` 的 P1 节（**原文一字未删**）。
+
+**测试**：`ui-models` **7/0**、`ui-layout` **9/0**、`ui` 切片 **75/0/0**（基线 59）。
+**未验证**：真实浏览器里的目视效果（1280 / 599 视口）没看过；4 秒预算只在夹具里模拟过卡住；
+窗口查询**无缓存**（模型多的 provider 会慢，延迟未测）。
+
+## 不做（有理由，别再问「为什么没做」）
+
+1. **手动压缩按钮 / 禁用态** —— **历史欠账第 8 条已解释关闭**（考古报告 `考古-2026-11-01/04-GOkifu/10-未完成事项.md` §8）。
+   实测宿主 `dsh-command-compact/lib/index.js`：**不排队** —— `executeCompact` 直接调 `ctx.compaction.compactNow(...)`；
+   busy 时抛 `ManualCompactionError("busy")`，渲染成英文
+   "Compaction is unavailable because this process has an active compaction, or the agent is not idle."
+   ⇒ **DSH 原生是报错的**，只是英文且不说人话。插件 **1.11.13** 起已把该 message 改成人话
+   （`compactNow` override + `annotateManualCompactError`，保留 `code`/`name`/`cause`/`stack`，宿主分类不受影响）。
+   而且**页面里根本没有压缩按钮** —— 手动压缩就是原生 `/compact` 斜杠命令。
+   **三条不做理由**：① 页面不是会话级的，拿不到 agent/会话状态，做不出可信的「当前能否压缩」；
+   ② 加按钮等于重复原生 `/compact` 的能力面，还会把用户重新引回 busy 报错那条路；
+   ③ 报错可读性已经解决 —— **这才是当初欠账的真实痛点**。
+2. **插件私有凭据 / 外部 OpenAI 兼容 API 通道（M3-1 / M3-2 / M3-AUTH-1）** —— 主人裁定：外部 API 去 DSH 里加供应商，
+   插件**只读**模型目录 ⇒ 不存 key、不接外网、不做面板；`M3-AUTH-1` 的凭据调查随之**不再需要**。
+3. **把 `thresholdRatio` 改成 0.5** —— 见上：插件默认已是 0.45，比 0.5 **更早**触发；改成 0.5 反而**更晚**。
 
 ## 历史状态（2026-10-31 · 1.11.14）—— **已被上方取代，留作时间线**（本节「P6-C 仍未执行 / live=1.11.2」两处与事实不符，见上方「已了结的旧账」与「最新状态」）
 
@@ -328,13 +383,17 @@ sessions/<sessionId>/
 
 ## 未完成（按优先级）
 
-> **2026-11-01（1.13.0）复核：这一节是 2026-10-29 的旧清单，只有历史价值。**
+> **2026-11-01（1.14.0）复核：这一节是 2026-10-29 的旧清单，只有历史价值。**
 > 当前真正的「未完成」只有三件：
 > **① 把插件装到 live**（见顶部「最新状态」与「新版 DSH 适配」四步；需停机窗口 + 授权 + 重启）；
 > **② preset 生成并装进 live 后，还要在会话里选中它**（preset 插件惰性激活 —— 不选就等于没装）；
 > **③ 真实压缩一轮的验收**（在测试实例上补模型路由，或在 live 装完重启后看 `compaction/summary` 与棋谱落盘）。
 > 下表第 1 项早已完成，第 4–6 项是旧 home 的数据问题，**新 home 上没有那些数据**（`<home>/chess-context` 不存在）。
 > ~~tokenMeter~~ 已在 **1.13.0** 解决（热清单定价 CJK 感知；见顶部「最新状态」的划线说明）。
+> ~~UI 相关（M1-1 / M2-1 / M2-2 / M3-1 / M3-2 / M2-3）~~ 已在 **1.14.0** 解冻并收口（改版见「UI」节；
+> 其中外部 API / 私有凭据通道按主人裁定**不做**；`M2-3` 的「真机 fold 走所选模型」验收仍未做）。
+> ~~手动压缩按钮~~（历史欠账第 8 条）已在 **1.14.0** 判定**不做并关闭**，理由见「不做」节。
+> **1.14.0 的 UI 视觉验收仍未做**：真实浏览器 1280/599 视口没看过（只有源码级 + 纯函数级断言）。
 
 > 2026-10-29：goal 当前阶段的 ①–⑤ 全部完成（各有可复跑脚本 + 证据文件，见下方表格）。
 > 下面只剩「需要主人动一下」和「后续可选」两类。

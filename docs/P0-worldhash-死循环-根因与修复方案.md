@@ -205,6 +205,18 @@ renderFacts() 在 summarize() 前调用 → 抛 TypeError → compactRegion 事�
 
 > 注意：改这里必须整份重写 `preset-standard` 的 `config.plugins`（profile 里已有注释说明为什么按 id 打不中）。属于 profile 级改动，需先备份 `cordis.patch.yml`。
 
+> **2026-11-01 追加（1.14.0 / U3）：主人已拍板「更早压」，但结论是「本版不改数值」—— 因为前提需要先纠正。**
+>
+> - 主人本轮被问「`thresholdRatio` 0.6 要不要降到 0.5」，答：**降到 0.5**（意图是**更早触发压缩**）。
+> - **但插件侧从来没有 0.6**：`src/rooms/config-schema.mjs` 的默认值**本来就是 `0.45`**；
+>   `scripts/install.mjs` 的 `engineBlock()` 模板也是 **`0.45`**。
+> - 本文上面记的那个 **`0.6` 是升级前的 profile 级 override**（`profiles/desktop/cordis.patch.yml:489`，
+>   写死 `preset-standard`），**已随旧 home 一起消失**；仓库里现在唯一的 `0.6` 就是这段历史文字本身。
+> - ⇒ **`0.45` 已经比主人要的 `0.5` 更早触发**，符合他「更早压」的意图 ⇒ **不改任何数值**。
+>   若将来觉得还不够早，改的应该是 `config-schema.mjs` 的默认值（一处），**不要再写 profile 级 override** ——
+>   那正是丢配置、丢插件的来源之一。
+> - 本节原文（含 `0.6` 那两处引用）**一字未删**，保留作时间线。
+
 ### P2：验收清单
 
 - [x] `node test/run.mjs` 94 passed / 0 failed

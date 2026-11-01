@@ -1,5 +1,120 @@
 # 更新记录
 
+## 1.14.0 — 2026-11-01
+
+> 本轮主题：**UI 解冻后的一次改版** —— 摘要模型下拉改成「只读宿主模型目录」，页面做宽屏双栏 / 滚动容器 P0 修复 /
+> 焦点环 / 两级下拉；另收掉两件欠账：`thresholdRatio` 的事实更正、**手动压缩按钮「不做」的定论**。
+> **本版只推 GitHub（main + tag），不 npm publish**（主人本轮明确选择）；**仍未装 live**。
+
+### U1 · 模型目录：只读宿主 `llm`，插件不存任何凭据
+
+**架构定调（主人拍板）**：插件**不自己存凭据、不自己接外部 API** —— 用户要在 DSH 里加供应商，
+页面的摘要模型下拉就自动长出来。⇒ 插件**只读宿主已注册的模型目录**。
+
+**改法**（`src/ui.mjs`，+144/−1）：`inject` → `["webServer", "llm"]`；新增纯函数 `modelCatalog(llm)`；
+新增动作 `{"action":"models"}`，`state` 响应同时携带 `models`。目录形状：
+
+```
+{ providers: [ { provider, name, models: [ { id, name, contextWindow: number|null } ] } ] }
+```
+
+**任何失败都降级不抛**：单个 provider 挂掉只跳过它；`listProviders()` 抛错 ⇒ 空目录；畸形项（缺 id / 空串 /
+非字符串）过滤掉，不产出半截项。
+
+**三个实测 API 事实（记下来省一次考古）**
+
+| 事实 | 出处 |
+|---|---|
+| 宿主服务名就是 **`"llm"`** | `dsh-llm/lib/index.js` 的 `LlmRuntime extends Service` → `super(ctx, "llm")` |
+| `listProviders()` 返回 **`[{ id, name }]`**（**没有窗口字段**） | 实测 |
+| **`listModels()` 里也没有窗口** —— 窗口只能逐模型问 `resolveModelInfo(provider, model).context.contextWindow` | 宿主对窗口做 `Number.isInteger(w) && w > 0` 校验，非法直接抛 `INVALID_MODEL_CONTEXT` |
+
+**防住的一个真实风险**：`dsh-llm-deepseek` 的 `listModels()` 背后是 `discoverModels?.()` —— **可能走网络**，
+而这台机器的组合树里 `llm-deepseek-api-key` / `llm-deepseek-account` 都在 ⇒「首屏等一次网络发现」是真会发生的。
+⇒ 每次宿主调用加 **4 秒时间预算**（`CATALOG_CALL_TIMEOUT_MS = 4000` + `Promise.race`），超时按「拿不到」降级：
+**页面宁可少一个下拉项，也不许卡住首屏。**
+（踩坑：那个 timer **不能 `unref`** —— 宿主调用真实卡死时不产生任何句柄，unref 后事件循环先退出 ⇒ `await` 永不返回。）
+
+**窗口绝不伪造**：拿不到就 `null`，页面显示 `—` 并隐藏进度条 —— 旧版写死的 `1000000` 已删掉。
+
+**测试**：`test/ui-models.test.mjs` **7/0**（形状与排序 · 单 provider 抛错只跳过 · `listProviders` 抛错 ⇒ 空目录 ·
+畸形项过滤 · 窗口缺失/非法/查询抛错 ⇒ `null` · `models` 与 `state.models` 同一份目录 · **宿主卡住 ⇒ 降级不挂死**）。
+
+### U2 + U4 · 页面：宽屏双栏 + 滚动容器 P0 修复 + 焦点环 + 两级下拉
+
+（`lib/client.js`，+603/−68）
+
+| 改动 | 说明 |
+|---|---|
+| **宽屏双栏** | ≥1280px：左配置 / 右指标与状态，根容器 `maxWidth 1600px` 居中；<1280px 回单栏并保持原纵向顺序 |
+| **滚动容器 P0 修复** | `styles.page` 补 `height:100%` / `minHeight:0` / `boxSizing:border-box` / `overflowY:auto` —— 修掉「内容超高但滚不动」；双栏时也是**整页**滚动（两栏各自不滚） |
+| **焦点环** | 所有可交互元素统一经 `focusable()` 渲染，`onFocus`/`onBlur` 切 outline（修掉 pointer 模态下看不见焦点） |
+| **摘要模型两级下拉** | provider → model（`<optgroup>` 分组）；**目录为空时降级回自由文本**；当前值不在目录里时单独留一项（否则受控 select 会显示空白） |
+| **窗口** | 按选中模型的 `contextWindow`；拿不到显示 `—` 并隐藏进度条 |
+| **U4 ① 窄屏断点 600** | 理由：600 − 56 padding = 544，扣掉 220 控件 + 120 默认值列只剩 ~200 给中文 label，会折行 ⇒ <600 改两行堆叠 |
+| **U4 ② 长名兜底** | provider / model 下拉与文本输入都加 `title`（长 id 如 `ima/deepseek-v4.1-flash` 悬停可见全名） |
+| **U4 ③ 标题行显示 profile** | 只读宿主已有字段（`health.profile` 优先，其次 `state.profile`） |
+| **U4 ④ 间距收敛** | `SPACING = {section:16, card:8, inline:12, micro:4}`，把原来的 18/20/26/10/2 收敛成 **4px 网格** |
+
+**两个真 bug（各自自测时抓到的，值得记）**
+
+1. **`focusable` 漏透传 `children`** ⇒ `select` 的 `<option>` 与按钮文案被吞 ⇒ 页面显示成**空下拉** / 空白按钮。
+2. **`describeModelSelection` 里 `find` 未命中返回 `undefined` 而不是 `null`** ⇒ `=== null` 兜不住 ⇒
+   preset 里存着**已下架模型**时 title 计算直接抛错、**整页白屏**。
+
+**测试**：`test/ui-layout.test.mjs` **9/0**（双栏 1279/1280 **逐像素**边界 · 滚动容器四属性防回退 ·
+焦点环静态覆盖 · 两级下拉与空目录降级 · 窗口来源不再写死 1000000 · 599/600 断点 · 长名 `title` ·
+标题行 profile · **gap 只有 4/8/12/16 四档**，以后新加值会被抓）。
+`ui` 切片 **75/0/0**（基线 59 → 71 → 75）。
+
+### thresholdRatio：一个事实更正（**本版不改数值**）
+
+主人被问「`thresholdRatio` 0.6 要不要降」，拍板「降到 0.5」。**但前提是错的**：
+
+- 插件 `src/rooms/config-schema.mjs` 的默认值**本来就是 0.45**；`scripts/install.mjs` 的 `engineBlock()`
+  模板也是 **0.45**；
+- 仓库里唯一的 `0.6` 出现在**历史文档** `docs/P0-worldhash-死循环-根因与修复方案.md`，
+  它记的是升级前那个 **profile 级 override**（`cordis.patch.yml:489`）—— 那个 profile 已随旧 home 一起消失。
+
+⇒ **0.45 已经比主人要的 0.5 更早触发**，符合他「更早压」的意图 ⇒ **不改数值**。
+已在该历史文档的 P1 节**追加**记录（原文一字未删）。
+
+### 手动压缩按钮：**不做**（有理由，不是漏做）
+
+实测宿主 `dsh-command-compact/lib/index.js`：**不排队** —— `executeCompact` 直接调
+`ctx.compaction.compactNow(...)`；busy 时抛 `ManualCompactionError("busy")`，渲染成英文
+"Compaction is unavailable because this process has an active compaction, or the agent is not idle."
+⇒ **DSH 原生是报错的**（只是英文、不说人话）；插件 **1.11.13** 起已把该 message 改成人话
+（`compactNow` override + `annotateManualCompactError`，保留 `code`/`name`/`cause`/`stack`，宿主分类不受影响）。
+而且**插件页面里根本没有压缩按钮** —— 手动压缩就是原生 `/compact` 斜杠命令。
+
+**结论：不做按钮、不做禁用态。** 三条理由：
+① 页面不是会话级的，拿不到 agent/会话状态，做不出可信的「当前能否压缩」；
+② 加按钮等于重复原生 `/compact` 的能力面，还会把用户重新引回 busy 报错那条路；
+③ 报错可读性已经解决 —— **这才是当初欠账的真实痛点**。
+
+### 验证
+
+- 全量：**613 passed / 0 skipped / 0 failed**（**54 个测试文件**；1.13.0 基线 597/0/0、52 文件）
+- 新增测试文件 **2 个**：`ui-models`(7) · `ui-layout`(9)
+- 分文件：`ui` **75/0** · `ui-models` 7/0 · `ui-layout` 9/0 · `preset-wiring` 4/0 · `install-link` 29/0 ·
+  `ws-install` 19/0 · `bundle` 6/0 · `version` 4/0 · `rooms` 15/0
+
+### 未验证 / 已知问题
+
+- **没有在真实浏览器里做视觉验收**：双栏 / 滚动 / 焦点环 / 下拉的断言全部是**源码级 + 纯函数级**
+  （`ui-layout` 的 9 条静态覆盖）；**真实 1280 / 599 视口下的目视效果没看过**，也没有在真机上滚一次长页面。
+- **没有装到 live**：桌面 home 里本插件仍是 0 个版本。
+- 模型目录的 **4 秒预算**只在夹具里模拟过「卡住」，**没有对真实慢网络实测**。
+- 窗口只取 `resolveModelInfo(...).context.contextWindow` 且**没有缓存**：`models` 动作每次逐模型问一遍，
+  模型多的 provider 会慢（有 4s 总预算兜着，但**延迟未测**）。
+
+### 未修项
+
+- **`README:3` 与 `HANDOFF` 的版本号仍没有门禁**（`check-maintenance` 不读它们）。
+- 热清单定价的两套口径（session 压力走 `ctx.tokenMeter` / 热清单走本地加权）**未统一**。
+- `lib/client.js` 仍不带 profile（生产恒为 desktop ⇒ 现在不发作，换 profile 会）。
+
 ## 1.13.0 — 2026-11-01
 
 > 本轮主题：**让「热清单到底占多少 token」第一次有真数**，并把「装回新版」最容易卡住的 C 段
