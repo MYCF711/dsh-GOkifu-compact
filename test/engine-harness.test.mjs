@@ -15,6 +15,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const tests = {};
 
+import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
+import { collectConstraints } from "../src/rooms/ledger.mjs";
+
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SRC = nodePath.join(HERE, "..", "src", "engine.mjs");
 // ★ engine.mjs 里有 ./graph.mjs 这类相对 import，所以副本必须放在 src/ 旁边，
@@ -1693,4 +1696,73 @@ tests["C7：规则摘要路径也必须记 quality（降级时不能成为指标
       throw new Error(`rules 路径的 quality.${key} 必须是数字，得到 ${JSON.stringify(mark.quality[key])}`);
     }
   }
+};
+
+tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与区间一致、foldMark 字段齐全"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-foldprops" });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const sessionId = "sess-foldprops";
+  // 结构：10 个 prompt → 失败边 → 再 10 个 prompt。
+  // 这样失败边落在「可折叠的头部」而不是「保留的尾部」，fold 区间才会覆盖到它们（与真实会话一致）。
+  for (let i = 0; i < 10; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  await ctx.emitRaw("session/event", session, userEvent("把构建跑通。不要动 prod 配置。", session.nextSeq()));
+  for (let i = 0; i < 10; i += 1) {
+    await ctx.emitRaw("session/event", session, assistantEvent(`c${i}`, "bash", { command: `t${i}` }, session.nextSeq()));
+    await ctx.emitRaw("session/event", session, resultEvent(`c${i}`, `boom ${i}
+[exit code: 1]`, session.nextSeq()));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: session.nextSeq(), data: { turn: 1, step: i + 1 } });
+  }
+  for (let i = 0; i < 10; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "tail" }] });
+
+  // 真实流程里 fold 的 compactRegion 会调 summarize；stub 不会 ⇒ 先手动调一次，让 _lastSummary* 有值
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 回合边界 flush（graph.json 只在 idle 落盘）
+  const before = readGraph(graphDir, sessionId);
+  const failuresBefore = Object.values(before.edges).filter((e) => e.result === "failure").length;
+  const constraintsBefore = collectConstraints({
+    nodes: before.nodes,
+    order: before.order ?? Object.keys(before.nodes),
+    rootUserNodeIds: before.rootUserNodeIds ?? [],
+  }).length;
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("应当发生 fold");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // foldMarks 靠 idle 全量 flush 提交
+  const after = readGraph(graphDir, sessionId);
+  const mark = after.foldMarks.at(-1);
+  if (!mark) throw new Error("fold 后必须留下 foldMark");
+
+  // ① 失败边一条不少（折叠只换摘要，不许删记忆）
+  const failuresAfter = Object.values(after.edges).filter((e) => e.result === "failure").length;
+  if (failuresAfter !== failuresBefore) throw new Error(`失败边从 ${failuresBefore} 变成 ${failuresAfter}`);
+  // ② 约束一条不少
+  const constraintsAfter = collectConstraints({
+    nodes: after.nodes,
+    order: after.order ?? Object.keys(after.nodes),
+    rootUserNodeIds: after.rootUserNodeIds ?? [],
+  }).length;
+  if (constraintsAfter !== constraintsBefore) throw new Error(`约束从 ${constraintsBefore} 变成 ${constraintsAfter}`);
+  if (constraintsAfter < 1) throw new Error("夹具应有至少一条约束");
+  // ③ 闭包与区间一致（暴力重算，用 fold 后的图 —— 册折叠范围内的实体在折叠后仍可枚举）
+  const closure = foldClosureOf({ nodes: after.nodes, order: after.order ?? Object.keys(after.nodes), edges: after.edges }, { start: mark.seqStart, end: mark.seqEnd });
+  if (mark.closure.nodes !== closure.nodes || mark.closure.edges !== closure.edges) {
+    throw new Error(`闭包计数不一致：记录 ${JSON.stringify(mark.closure)} vs 重算 ${JSON.stringify(closure)}`);
+  }
+  if (mark.closure.preGraph !== closure.preGraph) throw new Error("preGraph 标记不一致");
+  // ④ 边界完整性：切点在 step 边界 ⇒ openAtEnd 必须为 0
+  const boundary = foldBoundaryOf({ edges: after.edges }, { start: mark.seqStart, end: mark.seqEnd });
+  if (mark.boundary.openAtEnd !== boundary.openAtEnd) throw new Error(`边界记录不一致：${mark.boundary.openAtEnd} vs ${boundary.openAtEnd}`);
+  if (mark.boundary.openAtEnd !== 0) throw new Error(`切在 tool 调用中间（openAtEnd=${mark.boundary.openAtEnd}）`);
+  // ⑤ foldMark 字段齐全
+  if (mark.trigger !== "pressure") throw new Error(`trigger 应为 pressure，实际 ${mark.trigger}`);
+  if (!mark.quality || typeof mark.quality !== "object") throw new Error("缺 quality");
+  if (!(mark.quality.constraintRecall >= 0 && mark.quality.constraintRecall <= 1)) throw new Error("constraintRecall 非法");
+  if (mark.quality.expectedConstraints < 1) throw new Error(`expectedConstraints=${mark.quality.expectedConstraints}`);
+  if (mark.quality.expectedFailures < 1) {
+    throw new Error(`fold 区间应覆盖失败边：range=${mark.seqStart}-${mark.seqEnd} 失败边=${failuresBefore}`);
+  }
+  if (!Array.isArray(mark.quality.unknownIds)) throw new Error("缺 unknownIds");
+  if (!mark.dangling || typeof mark.dangling !== "object") throw new Error("缺 dangling 快照");
+  if (!Number.isFinite(mark.summaryChars) || mark.summaryChars <= 0) throw new Error("缺 summaryChars");
 };

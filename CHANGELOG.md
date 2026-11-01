@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C61 · 引擎级折叠不变量：真实 compactIfNeeded 之后，记忆与指标都不许退化
+
+**问题**：C59/C60 覆盖了渲染与折叠**纯函数**，但真实路径是「事件 → keeper 落账 → `compactIfNeeded`
+→ 摘要 → foldMark 落盘」。手写用例各自断言一两个字段，没有一条用例把「折叠之后账还对不对」串起来。
+
+**做法**：`engine-harness` 新增 C61，用 harness 真实驱动一次 fold（10 条失败边落在**可折叠头部**，
+尾部保留 10 个 prompt），折叠后从 `graph.json` 读回并断言：
+
+1. **失败边一条不少**（折叠只换摘要，不许删记忆）；
+2. **约束一条不少**；
+3. foldMark 的 `closure` 与**用区间暴力重算**的结果一致（nodes/edges/preGraph）；
+4. `boundary.openAtEnd === 0`（切点在 step 边界）；
+5. foldMark 字段齐全：`trigger=pressure`、`quality`（召回 ∈ [0,1]、`expectedConstraints/expectedFailures ≥ 1`、
+   `unknownIds` 是数组）、`dangling` 快照、`summaryChars > 0`。
+
+**过程中修掉的两个测试写法坑**（值得记）：① `graph.json` 只在 `agent/status=idle` 时落盘 —— 读图前必须 flush；
+② 失败边的证据 seq 必须与 surface 节点在同一段序号里、且落在**保留尾部之前**，否则 fold 区间不覆盖它们
+（第一次写成了「全在尾部」，`expectedFailures=0`）。
+
 ### C60 · 折叠纯函数层的不变量测试（闭包 / 边界 / 保真度）
 
 **问题**：`foldClosureOf`（可寻址闭包）、`foldBoundaryOf`（切点完整性）、`measureFoldQuality`（保真度）
