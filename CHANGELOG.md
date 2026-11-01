@@ -1,5 +1,34 @@
 # 更新记录
 
+## 1.17.1 — 2026-11-02（**未发布**）
+
+> 主题：**装完重启就生效，用户永远不需要跑命令。**
+> 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
+
+### C27 · 「机器级层自动登记」：插件退出时自愈，下次启动接管
+
+**问题**：profile 用户层 `cordis.patch.yml` 最后应用。GUI 的 preset 快照写着 `compaction-basic`，
+把 bundle 层的引擎覆盖盖回去 —— 用户装完重启，插件 UI/工具都正常，但压缩其实还是官方的。
+
+**为什么不能直接改用户层**：运行中写 patch 会整树热重载（本机两次事故）；而且改用户层等于改用户的定制。
+
+**做法**：宿主还有一层**机器级 patch** `$DSH_HOME/cordis.patch.yml`，比 profile 层**更晚**应用
+（`composeEntries([bundle 层, profile 层, home 层])`，已用宿主源码 + 离线组装验证）。
+宿主 patch 语义只能「按 id 整值替换顶层/组内条目」，不能改嵌套 id、不能重命名 —— 所以：
+
+- 插件在启动时算出「用户层里哪些 `preset-*` 行被写回了 compaction-basic」；
+- 在 **进程退出时**（`process.on('exit')`，同步、原子、带备份）把这些 preset 行**原样复制**到 home 层，
+  **只把 compaction 成员换成 `dsh-gokifu-compact/engine`** —— persona、工具开关、其它成员一个不动；
+- 下次启动 home 层最后应用 ⇒ 引擎接管；**不需要任何命令**。
+- 幂等：托管段每次重算，内容不变就不写；`DSH_GOKIFU_NO_HEAL=1` 可关闭。
+- doctor / verify-install 改为三态：遮蔽 + 已登记 ⇒ ✓；遮蔽 + 未登记 ⇒ 提示「退出时自动登记，下次启动生效」。
+
+离线验证（真实 profile，未重启）：把 plan 结果作为 home 层组装，`preset-standard` 的 compaction 变成
+`dsh-gokifu-compact/engine`，persona 1192 字符与 22 个插件成员逐字保留。
+
+测试：`test/user-patch-heal.test.mjs` 9 用例（只换成员 / persona 逐字保留 / 空 home 生成合法 entry list /
+已有 home 内容保留并备份 / 幂等 / 已是引擎不复制 / 真写盘 / 无用户层不凭空造 / 与检测器口径一致）。
+
 ## 1.17.0 — 2026-11-01（**未发布**：仅工作树，未 npm publish / 未打 tag）
 
 > 本轮主题：**把「压缩产物能不能回查、记忆够不够」变成可观测 + 可解析 + 机械保真。**

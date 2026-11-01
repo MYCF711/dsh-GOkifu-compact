@@ -391,25 +391,33 @@ export function verifyInstall(options = {}) {
     }
   }
 
-  /* ⑦ 用户层 patch 不能遮蔽压缩引擎（2026-11-02 实机事故）
-     用户层 `cordis.patch.yml` 最后应用：里面的 preset 快照一旦写着 compaction-basic，
-     就会把 bundle 层的「换成 engine」覆盖盖回去 —— 插件 UI 正常、工具齐全，但会话跑的是官方压缩。 */
+  /* ⑦ 用户层 patch 是否遮蔽引擎 / 机器级层是否已登记（2026-11-02 实机事故；1.17.1 自动登记）
+     遮蔽 + home 层已有 engine ⇒ 视为通过（等下次启动）；遮蔽 + 没有 ⇒ 记 warn（非失败），
+     因为插件会在退出时自动写 home 层，用户不需要命令。 */
   {
     const userPatch = nodePath.join(PROFILE_DIR, "cordis.patch.yml");
     let shadowed = [];
+    let homeHasEngine = false;
     try {
-      if (nodeFs.existsSync(userPatch)) shadowed = findShadowedUserPresets(nodeFs.readFileSync(userPatch, "utf8"));
+      const text = nodeFs.existsSync(userPatch) ? nodeFs.readFileSync(userPatch, "utf8") : "";
+      shadowed = findShadowedUserPresets(text);
+      const homePatch = nodePath.join(DSH_HOME, "cordis.patch.yml");
+      homeHasEngine = nodeFs.existsSync(homePatch) && nodeFs.readFileSync(homePatch, "utf8").includes("dsh-gokifu-compact/engine");
     } catch {
-      /* 读不出按未采集处理（detail 会说清） */
+      /* 读不出按未采集处理 */
     }
     add(
       "用户层 patch 不遮蔽压缩引擎",
-      shadowed.length === 0,
-      shadowed.length > 0
-        ? `${shadowed.join(", ")} 又写回了 @deepseek-ai/dsh-compaction-basic（用户层最后应用 ⇒ 引擎被盖回）—— DSH 完全退出后跑 home/.gokifu-fix-2026-11-02/apply-fix.cmd`
-        : "用户层没有把 preset 写回 compaction-basic",
+      shadowed.length === 0 || homeHasEngine,
+      shadowed.length === 0
+        ? "用户层没有把 preset 写回 compaction-basic"
+        : homeHasEngine
+          ? `${shadowed.join(", ")} 已被机器级层接管（重启后生效）`
+          : `${shadowed.join(", ")} 写回了 compaction-basic；插件退出时会自动登记到 home/cordis.patch.yml，下次启动生效`,
+      shadowed.length > 0 && !homeHasEngine ? "warn" : undefined,
     );
   }
+
 
   /* ⑥ 运行期证据 */
   const graphRoot = nodePath.join(DSH_HOME, "chess-context", "sessions");

@@ -103,24 +103,30 @@ add(
       ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）"
       : `preset（${preset.file}）里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
 );
-/* ── 1.5 用户层 patch 不能遮蔽压缩引擎（2026-11-02 实机事故） ──
-   用户层 `profiles/<p>/cordis.patch.yml` 是**最后**应用的一层：GUI 的预设快照会把它整份复制出来，
-   里面一旦写着 `@deepseek-ai/dsh-compaction-basic`，插件 bundle 层「换成 engine」的覆盖就被盖回去。
-   现象：插件 UI 正常、工具齐全，但会话里跑的是官方压缩，keeper 不落盘（chess-context 不再写入）。
-   这是静默失效，上面的「压缩后端已接管」只看包内 patch，发现不了它。 */
+/* ── 1.5 用户层 patch 是否遮蔽引擎 / 机器级层是否已登记（2026-11-02 实机事故）
+   用户层 `profiles/<p>/cordis.patch.yml` 是**最后应用**的一层：GUI 的 preset 快照会把
+   `@deepseek-ai/dsh-compaction-basic` 写回去。插件 1.17.1 起会在**进程退出时**自动把该行
+   复制到机器级 `$DSH_HOME/cordis.patch.yml`（宿主最后应用），下次启动接管 —— 用户不需要命令。
+   判定：遮蔽 + 机器级层已有引擎 ⇒ ok（等下次启动）；遮蔽 + 没有 ⇒ warn（自动登记待生效）。 */
 {
   let shadowed = [];
+  let homeHasEngine = false;
   try {
-    if (nodeFs.existsSync(profilePatch)) shadowed = findShadowedUserPresets(nodeFs.readFileSync(profilePatch, "utf8"));
+    const profileText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    shadowed = findShadowedUserPresets(profileText);
+    const homePatch = nodePath.join(home, "cordis.patch.yml");
+    homeHasEngine = nodeFs.existsSync(homePatch) && nodeFs.readFileSync(homePatch, "utf8").includes("dsh-gokifu-compact/engine");
   } catch {
-    /* 读不出就按未采集处理（下面 detail 会说清） */
+    /* 读不出按未采集处理 */
   }
   add(
     "用户层 patch 不遮蔽压缩引擎",
-    shadowed.length > 0 ? "error" : "ok",
-    shadowed.length > 0
-      ? `${shadowed.join(", ")} 在 ${profilePatch} 里又写回了 @deepseek-ai/dsh-compaction-basic —— 用户层最后应用，会把 bundle 的引擎覆盖盖回去（会话里跑官方压缩、keeper 不落盘）。修：DSH 完全退出后运行 home/.gokifu-fix-2026-11-02/apply-fix.cmd，或改用设置 UI 的模式编辑`
-      : "用户层 patch 没有把 preset 写回 compaction-basic",
+    shadowed.length === 0 || homeHasEngine ? "ok" : "warn",
+    shadowed.length === 0
+      ? "用户层 patch 没有把 preset 写回 compaction-basic"
+      : homeHasEngine
+        ? `${shadowed.join(", ")} 已被机器级层接管（home/cordis.patch.yml 有 engine 覆盖）—— 重启后生效`
+        : `${shadowed.join(", ")} 在用户层写回了 @deepseek-ai/dsh-compaction-basic；插件会在退出时自动登记到机器级层，**下次启动生效**（无需命令）。急用可跑 home/.gokifu-fix-2026-11-02/apply-fix.cmd`,
   );
 }
 

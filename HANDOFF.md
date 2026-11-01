@@ -35,6 +35,7 @@
 | **收口确认（第 24 轮，2026-11-02 01:10）** | 六道门禁复跑全绿：676 测试 / bench 447·8-8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 4 警（均为跨日或旧 foldMark 未采集）；版本 1.17.0 未发布，tag/publish 待授权；**本轮无代码改动**（避免收尾引入未验证风险）。剩余：live 真值样本（等真实 fold）、#9/#11/#17 候选、发版授权 |
 | **⚠ 用户层 patch 遮蔽（2026-11-02 实机事故）** | 重启后 `chess-context/` 不落盘：`profiles/desktop/cordis.patch.yml`（用户层，最后应用）里的 `preset-standard` 快照写回了 `@deepseek-ai/dsh-compaction-basic`，盖掉了 bundle 层的 engine 覆盖。**已加检测**（`findShadowedUserPresets` + doctor/verify-install 各一项，live 现在准确报 error）；**修复包**在 `home/.gokifu-fix-2026-11-02/`（DSH 完全退出后运行 `apply-fix.cmd`，带备份/原子替换/回滚；幂等）。教训：**verify 只看包内 patch 不够，必须看最后生效的用户层** |
 | **⏳ 当前待办（2026-11-02 01:4x）** | 等主人：DSH 设置改完后**完全退出** → 跑 `home/.gokifu-fix-2026-11-02/apply-fix.cmd` → 启动；随后跑 `doctor`（期望 0 错）与 `verify-install`（期望 19/19）。修好后新 fold 才会产出 `trigger/quality/closure` |
+| **C27 机器级层自愈（1.17.1，本轮）** | 插件在**进程退出时**把用户层里被写回 compaction-basic 的 `preset-*` 行原样复制到 `$DSH_HOME/cordis.patch.yml`（宿主最后应用），只换 compaction 成员 → 下次启动接管，**用户零命令**。doctor/verify 三态化（已登记 ✓ / 未登记提示）。测试 `user-patch-heal` 9 用例；离线组装验证 persona 与 22 个成员逐字保留 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

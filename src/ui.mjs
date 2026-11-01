@@ -78,6 +78,9 @@ export const name = "dsh-gokifu-compact/ui";
 //   实测宿主服务名就是 `"llm"`（`dsh-llm/lib/index.js` 的 `LlmRuntime extends Service` 里 `super(ctx, "llm")`）。
 export const inject = ["webServer", "llm"];
 
+import nodeOs from "node:os";
+import { healHomePatch, planHomePatch, isTestRuntime } from "./rooms/user-patch.mjs";
+
 /** 与 engine.mjs 的 Config 保持一致的默认值（页面用来显示「默认」）。 */
 /** 与 R15（config-schema）保持一致的默认值（页面用来显示「默认」）。 */
 export const DEFAULTS = Object.freeze(configDefaults());
@@ -858,7 +861,51 @@ export function saveConfig(patch, options = {}) {
   };
 }
 
+/**
+ * 1.17.1：用户层 patch 遮蔽引擎时，自动在**进程退出时**把 preset 行登记到机器级
+ * `$DSH_HOME/cordis.patch.yml`（宿主最后应用的一层，profile 层盖不掉它）。
+ *
+ * 为什么放在退出时：home 层是**启动装配时**读取的，运行中写只会触发热重载（本机事故）；
+ * 退出时同步写一个小文件，不改运行中的树。下次启动即接管 —— 用户不需要跑任何命令。
+ */
+let homePatchHealScheduled = false;
+function scheduleHomePatchHeal(ctx) {
+  if (homePatchHealScheduled) return;
+  homePatchHealScheduled = true;
+  if (String(process.env.DSH_GOKIFU_NO_HEAL ?? "") === "1") return;
+  if (isTestRuntime()) return;
+  const home = String(process.env.DSH_HOME ?? "").trim() !== "" ? process.env.DSH_HOME : nodePath.join(nodeOs.homedir(), ".dsh");
+  const profile = String(process.env.DSH_PROFILE ?? "desktop");
+  // 启动时先算一次：需要的话在日志里说清「下次启动生效」，其余情况完全安静。
+  let pending = false;
+  try {
+    const profilePatch = nodePath.join(home, "profiles", profile, "cordis.patch.yml");
+    const homePatch = nodePath.join(home, "cordis.patch.yml");
+    const profileText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    const homeText = nodeFs.existsSync(homePatch) ? nodeFs.readFileSync(homePatch, "utf8") : "";
+    const plan = planHomePatch(profileText, homeText);
+    pending = plan.needed;
+    if (pending) {
+      ctx?.logger?.info?.(`[gokifu-compact] 用户层 patch 遮蔽了引擎（${plan.ids.join(", ")}）；已登记，退出后写入机器级 patch，下次启动生效`);
+    }
+  } catch {
+    pending = false;
+  }
+  process.once("exit", () => {
+    const result = healHomePatch({ home, profile });
+    if (result.wrote) {
+      try {
+        process.stderr.write(`[gokifu-compact] 已登记 ${result.ids.join(", ")} 到 ${result.path}（下次启动接管压缩引擎）
+`);
+      } catch {
+        /* 退出钩子里绝不再抛 */
+      }
+    }
+  });
+}
+
 export function apply(ctx) {
+  scheduleHomePatchHeal(ctx);
   // 绑定 0.0.0.0 = 本机之外也能访问。**这不构成放行理由**（task-34）：
   // 非回环 Host 仍然必须出现在 DSH_GOKIFU_ALLOWED_HOSTS 里，否则一律按不可信拒绝（fail closed）。
   // 这里的 boundAllInterfaces 只用于把 403 的文案写得更可操作。
