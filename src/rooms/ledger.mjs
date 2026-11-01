@@ -626,6 +626,34 @@ export function provenanceCoverageOf(text, edgesById = null) {
   return ok / edgeLines.length;
 }
 
+/**
+ * 分项占用：热清单的 token 花在哪一段上。
+ *
+ * 为什么需要（2026-11-01，做完 A/D 两项后 bench 从 351 涨到 446 才意识到）：
+ *   只知道「总量超没超预算」不够 —— 要谈「分项预算（让约束/根目标永远逐字）」，
+ *   必须先知道**现在各段各占多少**，否则抬某段下限就是在拍脑袋挪别人的钱。
+ *   它让「给约束保底」变成一道算术题：从失败边条数挪，还是从根目标尾部挪。
+ *
+ * 纯函数、零副作用；按行首归类，同段累加，未识别归 other。
+ */
+export function measureLedgerSections(text) {
+  const sizes = { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 };
+  let mode = "other";
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.startsWith("ROOT USER")) mode = "root";
+    else if (line.startsWith("CONSTRAINTS")) mode = "constraints";
+    else if (line.startsWith("LEARNED") || line.startsWith("FAILED_ATTEMPTS")) mode = "failures";
+    else if (line.startsWith("OPTIONS")) mode = "options";
+    else if (line.startsWith("UNVERIFIED")) mode = "unverified";
+    else if (line.startsWith("# path") || line.startsWith("# WORKING") || line.startsWith("CURRENT PATH")) mode = "path";
+    sizes[mode] += line.length + 1;
+  }
+  // 单位提醒：这里全是**字符数**，不是 token。要算占比请用 total 做分母，
+  // 别拿 renderLedger().tokens 去除 —— 两者单位不同（2026-11-01 实测踩过：算出 238% 的失败边占比）。
+  sizes.total = Object.values(sizes).reduce((a, b) => a + b, 0);
+  return sizes;
+}
+
 export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
   // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
   //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
@@ -1022,6 +1050,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         overBudgetBy: 0,
         provenanceCoverage: provenanceCoverageOf(chosen.text, failuresById),
         evidenceMissing,
+        sections: measureLedgerSections(chosen.text),
       };
     }
   }
@@ -1039,6 +1068,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // ★ 出处覆盖率（0–1）：边行里带 (seq …) 的比例。应恒为 1；掉下来说明有路径在砍出处。
       provenanceCoverage: provenanceCoverageOf(best.text, failuresById),
       evidenceMissing,
+      sections: measureLedgerSections(best.text),
     };
   }
   /* istanbul ignore next -- 循环必然返回 */
@@ -1054,6 +1084,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     overBudgetBy: 0,
     provenanceCoverage: 1,
     evidenceMissing,
+    sections: { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 },
   };
 }
 

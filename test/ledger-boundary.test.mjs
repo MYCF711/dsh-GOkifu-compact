@@ -218,3 +218,24 @@ tests["K 摘要事实块省略行：同样带可解析位置（相对路径 + �
   t.includes(bare, "graph.json", "无 treeDir 时退化为 graph.json，但仍有指向");
   t.includes(bare, "do not invent", "原有的「不许编造/合并」保真语义不能丢");
 };
+
+tests["L 分项占用：sections 覆盖七段 + total，单位是字符不是 token"] = (t) => {
+  // 为什么要有（2026-11-01）：做「分项预算」之前必须先知道钱花在哪一段。
+  // 这条测试同时钉死一个踩过的坑：sections 是**字符数**，不能拿 renderLedger().tokens 当分母
+  //（单位不同，实测会算出 238% 的失败边占比）。
+  const now = Date.now();
+  const g = mkGraph([
+    mkEdge({ id: "e1", evidence: { start: 10, end: 12 } }),
+    mkEdge({ id: "e2", evidence: { start: 20, end: 21 } }),
+  ]);
+  g.nodes.n1.constraints = ["不要动 prod 配置"];
+  const r = renderLedger(g, { now, maxTokens: 2000 });
+  const s = r.sections;
+  for (const key of ["root", "constraints", "failures", "options", "unverified", "path", "other"]) {
+    t.eq(typeof s[key], "number", `sections.${key} 必须是数字`);
+  }
+  t.eq(typeof s.total, "number", "sections.total 必须是数字（算占比的分母）");
+  t.ok(s.total >= s.failures, "total 必须 >= 任一分段（它是各段之和）");
+  t.ok(s.failures > 0, "有失败边的图里 failures 段必须 > 0");
+  t.ok(s.constraints > 0, "有约束的图里 constraints 段必须 > 0");
+};
