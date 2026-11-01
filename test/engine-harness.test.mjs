@@ -581,6 +581,17 @@ tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮�
   if (chars !== null && typeof chars !== "number") {
     throw new Error(`foldMarks[0].summaryChars 必须是数字或 null，得到 ${JSON.stringify(chars)}`);
   }
+  // ★ 2026-11-01：保真度 L1 必须写进 foldMark（否则模块只会被单测调用，永远拿不到真实语料）。
+  const quality = g.foldMarks[0].quality;
+  if (quality === null || typeof quality !== "object") {
+    throw new Error(`foldMarks[0].quality 必须是对象，得到 ${JSON.stringify(quality)}`);
+  }
+  for (const key of ["constraintRecall", "failureRecall", "compressionRatio"]) {
+    const value = quality[key];
+    if (value !== null && typeof value !== "number") {
+      throw new Error(`foldMarks[0].quality.${key} 必须是数字或 null，得到 ${JSON.stringify(value)}`);
+    }
+  }
   const dangling = g.foldMarks[0].dangling;
   if (dangling === null || typeof dangling !== "object") throw new Error("foldMarks[0].dangling 必须是对象");
   for (const key of ["residue", "candidates", "liveUnsettled", "fromBroken"]) {
@@ -1305,6 +1316,20 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
   if (mark.usage === null || typeof mark.usage !== "object") throw new Error(`usage 应记录本次摘要 usage，实际 ${JSON.stringify(mark.usage)}`);
   if (typeof mark.usage.inputTokens !== "number" && typeof mark.usage.outputTokens !== "number") {
     throw new Error(`usage 必须带 inputTokens/outputTokens：${JSON.stringify(mark.usage)}`);
+  }
+  // ★ 2026-11-01（保真度 L1）：每次 fold 必须留下「约束/失败边有没有留住」的机器判据。
+  if (!mark.quality || typeof mark.quality !== "object") throw new Error(`foldMark 必须带 quality（保真度 L1）：${JSON.stringify(mark)}`);
+  if (mark.quality.constraintRecall !== 1) throw new Error(`constraintRecall 应恒为 1，实际 ${mark.quality.constraintRecall}（缺：${JSON.stringify(mark.quality.missingConstraints)}）`);
+  if (!(mark.quality.failureRecall >= 0 && mark.quality.failureRecall <= 1)) {
+    throw new Error(`failureRecall 必须是 0–1，实际 ${mark.quality.failureRecall}`);
+  }
+  if (typeof mark.quality.expectedFailures !== "number" || typeof mark.quality.expectedConstraints !== "number") {
+    throw new Error(`quality 必须带期望条数：${JSON.stringify(mark.quality)}`);
+  }
+  if (!(mark.quality.summaryTokens > 0)) throw new Error(`quality.summaryTokens 必须 > 0，实际 ${mark.quality.summaryTokens}`);
+  if (mark.quality.shadowedTokens === null || mark.quality.shadowedTokens <= 0) throw new Error(`quality.shadowedTokens 必须来自本次 fold 区间，实际 ${mark.quality.shadowedTokens}`);
+  if (mark.quality.compressionRatio === null || !(mark.quality.compressionRatio > 0)) {
+    throw new Error(`有 shadowedTokens + summaryTokens 时必须能算 compressionRatio，实际 ${mark.quality.compressionRatio}`);
   }
 };
 

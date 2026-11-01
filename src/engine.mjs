@@ -27,6 +27,7 @@ import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
 import { renderFacts, danglingStats } from "./rooms/ledger.mjs";
+import { measureFoldQuality } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
@@ -561,6 +562,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   如果模型不遵守长度预算写出一万多字，上下文成本会翻几倍。记进 foldMarks 供 doctor 追踪，
     //   但**不阻断**（拒绝会丢信息，比长度超标更糟；05 §7.1 的"整条拒绝"在这里不适用）。
     this._lastSummaryChars = summary.reduce((n, b) => n + String(b.text ?? "").length, 0);
+    this._lastSummaryText = summary.map((b) => String(b.text ?? "")).join("\n");
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
@@ -734,7 +736,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   **快照必须在下面清空 _lastSummary* 之前取**（否则 route 永远是 null —— 踩过）。
     const summaryMode = this._lastSummaryMode ?? null;
     const summaryChars = this._lastSummaryChars ?? null;
+    const summaryText = this._lastSummaryText ?? "";
     this._lastSummaryChars = undefined;
+    this._lastSummaryText = undefined;
+    // ★ 2026-11-01：保真度 L1（零模型调用）—— 前两项必须 = 1。
+    //   接在这里是为了让它有**真实语料消费者**：只算不接的指标会一直算着假数（第 2 轮的教训）。
+    const foldQuality = measureFoldQuality({
+      graph: g,
+      range,
+      summaryText,
+      summaryTokens: summaryChars === null ? null : Math.ceil(summaryChars / 2),
+      shadowedTokens: range?.shadowedTokens ?? null,
+    });
     const summaryUsage = this._lastSummaryUsage ?? null;
     const summaryRoute = { provider: this._lastSummaryProvider ?? null, model: this._lastSummaryModel ?? null };
     this._lastSummaryMode = undefined;
@@ -762,6 +775,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       usage: summaryUsage === null ? null : { ...summaryUsage },
       // 摘要总字符数（含机械追加的约束段与最近访问文件）。老 foldMark 没有该字段 ⇒ null。
       summaryChars,
+      // 保真度：constraintRecall / failureRecall（应恒 1）/ compressionRatio（记趋势）。
+      // 老 foldMark 没有该字段 ⇒ null，doctor 显示「—」。
+      quality: foldQuality,
       // ★ 2026-11-01（调研建议 G-5，来自 docs/research/05-agi-memory-architectures.md §4.4）：
       //   把「边界切得好不好」从直觉变成数字 —— 记下**这次 fold 发生时**的悬空边分类快照。
       //   纯观测：不改任何行为，只是让 doctor 能回答"跨 fold 边界还挂着多少未结算的边"。
