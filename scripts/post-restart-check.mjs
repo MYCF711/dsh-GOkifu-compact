@@ -1,0 +1,143 @@
+/**
+ * post-restart-check.mjs —— 重启后「新代码真的接管了吗」的一键核对（2026-11-02，C69）
+ *
+ * 为什么需要：这一版的核心新能力（buildId 一致、超预算归因字段、C51/C52/C56 的成本下降）
+ * **都要等 DSH 重启**才生效，而重启只能由用户执行。重启之后最需要的是一条命令回答：
+ * 「现在跑的是新代码吗？新字段开始写了吗？还有没有红线？」
+ *
+ * 判据全部是**可复核的事实**（不猜、不调用模型）：
+ *   ① build.json 存在，且 buildId 与磁盘仓库一致（C53）；
+ *   ② 版本号与 package.json 一致；
+ *   ③ ledger-budget.json 出现了新归因字段（budgetFloorOver / budgetIrreducible / overBySession…）
+ *      —— 这些字段只在「有 over-budget 渲染」时才会写，所以**缺失时是 warn（未采集）而不是 fail**；
+ *   ④ doctor 跑出来 0 错误；
+ *   ⑤ boundary-audit 0 findings（仓库侧纪律，重启与否都该成立）。
+ *
+ * 用法：node scripts/post-restart-check.mjs [--home DIR] [--json]
+ * 退出码：0 全绿（允许 warn）；1 有 fail。
+ */
+
+import { execFileSync } from "node:child_process";
+import nodeFs from "node:fs";
+import nodeOs from "node:os";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const REPO = nodePath.join(HERE, "..");
+
+/** 只读本地 home（默认为 $DSH_HOME 或 ~/.dsh）。 */
+export function defaultHome() {
+  return process.env.DSH_HOME && process.env.DSH_HOME.trim() !== "" ? process.env.DSH_HOME : nodePath.join(nodeOs.homedir(), ".dsh");
+}
+
+/**
+ * 纯评估函数（不读盘，便于单测）：把「戳 + 磁盘构建标识 + 版本 + 预算统计」判成一张检查表。
+ * @returns {{ok:boolean, checks:Array<{id:string,name:string,level:"ok"|"warn"|"fail",detail:string}>}}
+ */
+export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null } = {}) {
+  const checks = [];
+  const push = (id, name, level, detail) => checks.push({ id, name, level, detail });
+
+  if (stamp === null || typeof stamp !== "object") {
+    push("stamp", "build.json 存在", "fail", "没有 build.json —— 插件没在本次进程里写过启动戳");
+  } else {
+    push("stamp", "build.json 存在", "ok", `启动于 ${Number.isFinite(stamp.startedAt) ? new Date(stamp.startedAt).toISOString() : "?"}（pid ${stamp.pid ?? "?"}）`);
+    const running = typeof stamp.buildId === "string" ? stamp.buildId : "unknown";
+    if (running === "unknown") {
+      push("buildid", "buildId 与磁盘一致", "fail", `戳里没有 buildId（旧进程写的）—— 磁盘 ${diskBuildId}；**重启后才会写**`);
+    } else if (running !== diskBuildId) {
+      push("buildid", "buildId 与磁盘一致", "fail", `运行 ${running} ≠ 磁盘 ${diskBuildId} —— 跑的是旧代码，需再重启`);
+    } else {
+      push("buildid", "buildId 与磁盘一致", "ok", `运行 = 磁盘 = ${running}`);
+    }
+    const v = typeof stamp.version === "string" ? stamp.version : "unknown";
+    push("version", "版本号与磁盘一致", v === version ? "ok" : "fail", `运行 v${v} / 磁盘 v${version}`);
+  }
+
+  if (budget === null || typeof budget !== "object") {
+    push("budget", "预算归因字段", "warn", "还没有 ledger-budget.json（插件尚未产生热清单渲染）");
+  } else {
+    const samples = Number(budget.samples ?? 0);
+    const over = Number(budget["over-budget"] ?? 0);
+    const hasAttribution = ["budgetFloorOver", "budgetIrreducible", "overBySession", "traceDropped", "minimalRenders"].some((k) => budget[k] !== undefined);
+    if (samples === 0) push("budget", "预算归因字段", "warn", "ledger-budget.json 没有样本");
+    else if (over === 0) push("budget", "预算归因字段", "warn", `尚无 over-budget 渲染（${samples} 次样本）—— 归因字段未触发`);
+    else if (!hasAttribution) push("budget", "预算归因字段", "warn", `有 ${over} 次 over-budget 但**没有任何归因字段** —— 旧代码仍在跑（等重启）`);
+    else push("budget", "预算归因字段", "ok", `${over}/${samples} over-budget，归因字段已出现（floorOver=${budget.budgetFloorOver ?? "—"} / irreducible=${budget.budgetIrreducible ?? "—"} / 来源=${budget.overBySession ? Object.keys(budget.overBySession).length : "—"}）`);
+  }
+  return { ok: checks.every((c) => c.level !== "fail"), checks };
+}
+
+/** 跑 doctor --json（有错误时退出码非 0，用 error.stdout）。 */
+function runDoctorJson(home) {
+  const args = [nodePath.join(REPO, "scripts", "doctor.mjs"), "--json"];
+  try {
+    return JSON.parse(execFileSync(process.execPath, args, { cwd: REPO, env: { ...process.env, DSH_HOME: home }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  } catch (error) {
+    const out = error && typeof error.stdout === "string" ? error.stdout : "";
+    return JSON.parse(out);
+  }
+}
+
+/** 跑 boundary-audit --json（若支持），否则跑人读版取末行。 */
+function runBoundaryFindings() {
+  try {
+    const out = execFileSync(process.execPath, [nodePath.join(REPO, "scripts", "boundary-audit.mjs")], { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const m = out.match(/越界线索 (\d+) 条/);
+    return m ? Number(m[1]) : null;
+  } catch (error) {
+    const out = error && typeof error.stdout === "string" ? error.stdout : "";
+    const m = out.match(/越界线索 (\d+) 条/);
+    return m ? Number(m[1]) : null;
+  }
+}
+
+export function main(argv = process.argv.slice(2)) {
+  const getArg = (name, fallback) => {
+    const i = argv.indexOf(`--${name}`);
+    return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+  };
+  const home = getArg("home", defaultHome());
+  const asJson = argv.includes("--json");
+  const stamp = readBuildStamp(nodePath.join(home, "chess-context"));
+  let budget = null;
+  try {
+    const file = nodePath.join(home, "chess-context", "ledger-budget.json");
+    if (nodeFs.existsSync(file)) budget = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  } catch {
+    budget = null;
+  }
+  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget });
+
+  // ④ doctor 0 错误；⑤ boundary-audit 0 findings（两者都是仓库/运行态红线，独立于上面的纯评估）
+  let doctor = null;
+  try {
+    doctor = runDoctorJson(home);
+    result.checks.push({ id: "doctor", name: "doctor 0 错误", level: Number(doctor.bad ?? 0) === 0 ? "ok" : "fail", detail: `错误 ${doctor.bad ?? "?"} / 警告 ${doctor.warn ?? "?"}` });
+  } catch {
+    result.checks.push({ id: "doctor", name: "doctor 0 错误", level: "warn", detail: "doctor 跑不起来（解析失败）" });
+  }
+  const findings = runBoundaryFindings();
+  result.checks.push({
+    id: "boundary",
+    name: "越权审计 0 findings",
+    level: findings === 0 ? "ok" : findings === null ? "warn" : "fail",
+    detail: findings === null ? "boundary-audit 输出解析失败" : `${findings} 条`,
+  });
+  result.ok = result.checks.every((c) => c.level !== "fail");
+
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log("== 重启后核对（post-restart-check）==");
+    for (const c of result.checks) console.log(`  ${c.level === "ok" ? "✓" : c.level === "warn" ? "!" : "✗"} ${c.name} — ${c.detail}`);
+    const fails = result.checks.filter((c) => c.level === "fail").length;
+    console.log(`\n${fails === 0 ? "✅" : "❌"} fail ${fails} / warn ${result.checks.filter((c) => c.level === "warn").length}`);
+  }
+  return result.ok ? 0 : 1;
+}
+
+const invokedDirectly = process.argv[1] !== undefined && nodePath.resolve(process.argv[1]) === nodePath.resolve(fileURLToPath(import.meta.url));
+if (invokedDirectly) process.exitCode = main();

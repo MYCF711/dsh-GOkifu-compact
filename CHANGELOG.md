@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C69 · `post-restart-check.mjs`：重启后「新代码接管了吗」一条命令
+
+**问题**：这一版的新能力（buildId 一致、超预算归因字段、C51/C52/C56 的成本下降）**全部要等重启**才生效，
+而重启只能由用户执行。重启后此前需要人肉跑三条命令 + 逐项比对。
+
+**做法**：新增 `scripts/post-restart-check.mjs`（纯判定 + 两个子命令）：
+
+- **纯函数** `evaluatePostRestart({stamp, diskBuildId, version, budget})` → 判定表：
+  `stamp` 缺失 ⇒ fail；`buildId` 缺失（旧进程）或与磁盘不同 ⇒ **fail 并点名磁盘值**；
+  `version` 不一致 ⇒ fail；**有 over-budget 但没有任何归因字段 ⇒ warn「旧代码仍在跑」**；
+  归因字段出现 ⇒ ok；无样本/无统计文件 ⇒ warn（允许）；
+- CLI 额外跑 `doctor --json`（0 错误）与 `boundary-audit`（0 findings）；退出码 1 仅当有 fail。
+
+**对当前 live 的实测**（正是预期）：`buildId` ✗（旧进程没写）、预算归因 `!`（578 次 over 但无字段）、
+`doctor` ✓ 0 错误、`boundary-audit` ✓ 0 条 ⇒ **fail 1 / warn 1**，清楚指向「等重启」。
+
+测试：新增 `test/post-restart-check.test.mjs` 3 例（缺戳/缺 buildId/不一致、版本、归因三态）；
+`docs/发布就绪-2026-11-02.md` §7 的「重启后三条命令」换成这一条。
+
 ### C68 · 发布就绪评估文档（AGENTS 铁律 6 的三条，逐条给证据）
 
 **做法**：新增 `docs/发布就绪-2026-11-02.md`，把「这版是否已经做完」写成可核对的文件：
