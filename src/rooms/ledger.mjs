@@ -402,8 +402,11 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
   // ★ 2026-11-01（docs/research/03-human-memory.md 建议 A）：出处（seq）任何档位都不砍。
   //   越紧的档位越需要判断「这条边是什么时候发生的」；只留 edge id 时模型知道「e12 失败过」，
-  //   却无法把它和当前进度对齐。代价：每行 +8~10 字符。
-  return `- ${edge.id} "${intent}" → ${reason}${seq ? ` (seq ${seq})` : ""}${tag}`;
+  //   却无法把它和当前进度对齐。
+  //   ★ 2026-11-01 二次修正（bench 实测）：全档位用 `(seq a-b)` 让 2000 边夹具从 351 涨到 453 tok（+29%）。
+  //   预算紧的档位改用**短格式** `(sa-b)` —— 出处（数字）一个都没少，只省掉 3 个字符/边。
+  const seqTag = seq ? ` (${level <= 1 ? "seq " : "s"}${seq})` : "";
+  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${tag}`;
 }
 
 /**
@@ -604,8 +607,11 @@ export function provenanceCoverageOf(text, edgesById = null) {
     .split("\n")
     .filter((line) => /^- [a-z]\d+ /.test(line) && line.includes(" → "));
   if (edgeLines.length === 0) return 1;
+  // ★ 2026-11-01 二次修正：出处有两种写法 —— L0/L1 用 `(seq a-b)`（可读），L2+ 用 `(sa-b)`（省字符）。
+  //   只认前者会让覆盖率在降级档位掉成 0，把"省字符"误判成"丢出处"。
+  const SEQ_TAG_RE = /\((?:seq |s)[\d-]+\)/;
   if (edgesById === null || edgesById === undefined) {
-    const withSeq = edgeLines.filter((line) => line.includes("(seq ")).length;
+    const withSeq = edgeLines.filter((line) => SEQ_TAG_RE.test(line)).length;
     return withSeq / edgeLines.length;
   }
   const lookup = (id) => (typeof edgesById.get === "function" ? edgesById.get(id) : edgesById[id]);
@@ -615,7 +621,7 @@ export function provenanceCoverageOf(text, edgesById = null) {
     const edge = lookup(id);
     // 图里找不到这条边 / 它本来就没有 evidence ⇒ 不要求 seq（不是渲染的锅）
     const mustHaveSeq = edge !== undefined && edge !== null && seqSpan(edge) !== "";
-    if (!mustHaveSeq || line.includes("(seq ")) ok += 1;
+    if (!mustHaveSeq || SEQ_TAG_RE.test(line)) ok += 1;
   }
   return ok / edgeLines.length;
 }
@@ -841,8 +847,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         tailLines.push("OPTIONS (not yet landed):");
         for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
       } else {
+        // ★ 2026-11-01 二次修正（bench）：去掉 latest 的 intent 摘录 —— id 足够定位，省 ~35 字符/行。
         const latest = options[options.length - 1];
-        tailLines.push(`OPTIONS: ${options.length} not yet landed (latest ${latest.id} "${clip(latest.intent || latest.action, 30)}")`);
+        tailLines.push(`OPTIONS: ${options.length} not yet landed (latest ${latest.id})`);
       }
     }
     if (open.length && level <= 1) {

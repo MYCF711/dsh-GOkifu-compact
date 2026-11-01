@@ -21,7 +21,9 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
 
 /** 基线：只在有意改变算法/夹具时更新，并同步 README。 */
-const EXPECTED_TOKENS = 351;
+// ★ 2026-11-01：351 → 446。原因：新增「出处全档保留」（失败边在 L2+ 也带 (sa-b)）与
+//   「OPTIONS 不许沉默」（L2+ 留一行计数）—— 信息多了，token 自然涨。仍在 hotLedgerMaxTokens=500 内。
+const EXPECTED_TOKENS = 446;
 const EXPECTED_TIER = 5;
 const EXPECTED_RETENTION = 8;
 

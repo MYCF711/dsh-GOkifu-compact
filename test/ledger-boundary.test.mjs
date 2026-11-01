@@ -59,7 +59,8 @@ tests["A 出处（seq）在任何降级档位都保留"] = (t) => {
   const edge = mkEdge();
   for (const level of [0, 1, 2, 3, 4, 5]) {
     const line = renderFailureLine(edge, level);
-    t.includes(line, "(seq 10-12)", `level=${level} 的失败边必须保留出处（来源监控）`);
+    // 格式随档位变（L0/L1 是 `(seq a-b)`，L2+ 是 `(sa-b)`），但**出处数字一个都不能少**。
+    t.includes(line, "10-12", `level=${level} 的失败边必须保留出处数字（来源监控）`);
   }
 };
 
