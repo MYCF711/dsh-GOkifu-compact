@@ -185,9 +185,26 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 至此 **5 类压缩路径全部有保真度样本**：自动 fold / 规则降级 / tier-2 / 溢出 / 手动。
 - 测试：engine-harness 增 C14（手动记录 must be 有内容：期望约束 ≥ 1、recall = 1、pending 被消费、落盘可查）。
 
+### C15 · 「压缩不得越权」变成机器审计（首跑抓出 2 条真实残留）
+
+`docs/压缩的职责边界.md` 是成文法，但此前只有**人工**审计 —— 连续多轮快速改动后一定会漏。
+
+- 新增 `scripts/boundary-audit.mjs`：只扫**字符串字面量**（先剥注释，避免「注释里引述旧版越权文案」假红），
+  两条规则：①行为指导（`下一步：`/`不要重试`/`you should`/`continue or abandon`…）②工具治理
+  （`permission: allow|ask|deny`/`approval:`/`sandbox_permissions`）。唯一豁免是 `facts-prompt.mjs` 的
+  摘要模型指令（写在脚本 `ALLOW` 里并注明理由）。
+- **首跑抓到 2 条**：
+  1. `ledger.mjs` 的 `STALE_UNSETTLED … listed as OPTIONS (continue or abandon)` —— 上一轮清理 OPTIONS 时
+     漏在**事实块**里的真实越权（行动许可），已改 `(not yet landed)`；
+  2. `engine.mjs` 规则摘要小标题 `## 当前节点与下一步` —— 内容早已改成「最近一条用户消息」事实，
+     标题是旧版残留（会误导读者以为压缩还在给行动建议），已改 `## 当前节点与最近用户消息`，
+     同步 `real-e2e` / `real-model-scenarios` 两处引用。
+- 测试：`test/boundary-audit.test.mjs` 5 用例（中英文指导都抓、注释不抓、工具治理、豁免粒度、真实仓库 0 条）。
+- 接入发版验收：四步 → 五步（加 `boundary-audit`）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**658 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**663 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

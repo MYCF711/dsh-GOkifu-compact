@@ -1121,7 +1121,9 @@ function ruleSummary(g, range) {
   if (open.length === 0) lines.push("- (none)");
   for (const e of open) lines.push(`- ${e.id} "${e.intent || e.action}"（无外部信号）`);
   lines.push("");
-  lines.push("## 当前节点与下一步");
+  // ★ 2026-11-01（C15 边界审计发现）：标题是旧版残留（内容早已改成「最近一条用户消息」事实），
+  //   与 facts-prompt 的模板对齐，避免读者以为这里还会给行动建议。
+  lines.push("## 当前节点与最近用户消息");
   const last = agents[agents.length - 1];
   lines.push(`- 当前节点：${last ? `${last.id}（状态 ${String(last.worldHash).slice(0, 8)}/${String(last.constraintHash).slice(0, 8)}）` : "(none)"}`);
   // ★ 边界（2026-11-01，见 docs/压缩的职责边界.md）：这里**只陈述事实**，不写「下一步该做什么」。

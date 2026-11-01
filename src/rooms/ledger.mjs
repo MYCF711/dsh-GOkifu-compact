@@ -1274,7 +1274,7 @@ export function renderFacts(
       lines.push(`LIVE_UNSETTLED: ${stats.liveUnsettled} edges are newly unsettled (untested, <=10min) — kept visible on purpose.`);
     }
     if (stats.candidates > 0) {
-      lines.push(`STALE_UNSETTLED: ${stats.candidates} edges are untested and older than 10min — listed as OPTIONS (continue or abandon), NOT residue.`);
+      lines.push(`STALE_UNSETTLED: ${stats.candidates} edges are untested and older than 10min — listed as OPTIONS (not yet landed), NOT residue.`);
     }
   }
   // ★ P6C-1：未落地的尝试（untested + to=null）单独成段，不再混进 UNVERIFIED_CLAIMS。
