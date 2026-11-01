@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C60 · 折叠纯函数层的不变量测试（闭包 / 边界 / 保真度）
+
+**问题**：`foldClosureOf`（可寻址闭包）、`foldBoundaryOf`（切点完整性）、`measureFoldQuality`（保真度）
+是「这次折叠可不可信」的三条机器判据，但此前只有少量手写夹具 —— 区间形状一变就可能漏。
+
+**做法**：新增 `test/fold-properties.test.mjs`（固定种子随机图 + 随机区间 + seq 空洞）：
+
+- **闭包**：节点/边计数必须等于**暴力扫描**结果；`firstNode`/`lastNode`/`firstEdge`/`lastEdge`
+  是匹配集合里最小/最大的 id；`graphNodes` = order∩nodes；`preGraph` **当且仅当**
+  「区间内无节点且区间终点早于图内最小 seq」为真；
+- **边界**：`overlapping` 等于区间相交的边数；`openAtEnd` 等于**恰好跨过终点**的边数且 `≤ overlapping`；
+  区间盖住全部证据时 `openAtEnd` 必须为 0；`unsettled` 等于未结算边数；
+- **保真度**：摘要含全部约束与全部失败 id ⇒ `constraintRecall = failureRecall = 1`、`unknownIds = []`、
+  `compressionRatio = shadowed / summaryTokens`；删一条约束 ⇒ 掉召回且该条进 `missingConstraints`；
+  把某失败 id 换成 `e9999` ⇒ 掉召回且 `e9999` 进 `unknownIds`。
+
+**结果**：首次运行即全绿 —— 三个判据在随机长尾区间下与暴力扫描一致。
+
 ### C59 · 热清单渲染的**不变量（模糊）测试**
 
 **问题**：`ledger-boundary` / `c17-*` / `markers` 都是手写夹具，只覆盖作者想到的形状；
