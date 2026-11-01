@@ -2,23 +2,29 @@
 
 > 2026-11-01 · 给下一个会话
 > **先读这一页，再读 `docs/最终报告.md`。不要重新推导。**
-> 当前版本 **1.12.0**（**未发布**：无 tag、npm `latest` 仍是 1.11.17）；单测 **577 / 0 skipped / 0 failed**（**49 个测试文件**）。
+> 当前版本 **1.13.0**（**未发布**：无 tag、npm `latest` 仍是 1.11.17）；单测 **597 / 0 skipped / 0 failed**（**52 个测试文件**）。
 > **⚠ 桌面 live 里本插件一个版本都没装**（11-01 14:15 重建的新 home）—— 不是「停在旧版本」，是「0 个版本」。
-> 装回去要先改清单过版本闸、再走官方插件通道、再重建 preset 的引擎行 ⇒ 见下方「新版 DSH 适配」。
+> 装回去：清单已过闸（1.12.0）→ `dsh plugin add`（官方通道，成功后会**自动**把包追加进 bundles）→
+> `make-preset` 生成 preset bundle 并同样 `dsh plugin add` → **在会话里选中该 preset** → 重启验证。详见「新版 DSH 适配」。
 
-## ⚠ 最新状态（2026-11-01 · 1.12.0 · 未发布）
+## ⚠ 最新状态（2026-11-01 · 1.13.0 · 未发布）
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.12.0**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.12.0`） |
-| tag / npm | **都没有** —— 本版只存在于工作树；`npm latest` 仍是 **1.11.17**。发版命令是 `node scripts/release.mjs --yes`（annotated tag + npm publish + GitHub Release，见 `AGENTS.md:127` 与 `check-maintenance` 的 tag 断言） |
-| 单测 | **577 passed / 0 skipped / 0 failed**（**49 个测试文件**）· `install-link` 29/0 · `ws-install` 19/0 · `ui` 54/0 · `engine-harness` 43/0 · `rooms` 15/0 · `p6c-preflight` 6/0 · `preset-discovery` 7/0 · `preset-wiring` 4/0 · `bundle` 6/0 |
-| 安装校验（**真实新 home**） | `node test/verify-install.mjs` **18 项 = 13 ✗ / 5 !**；`node scripts/doctor.mjs` **错误 1 / 警告 11** —— 都是「插件还没装」的必然结果，**不是本版缺陷**（没为凑绿去动 live） |
-| `check-maintenance` | **8 通过 / 0 警告 / 1 失败** —— 唯一失败是「当前版本 1.12.0 有 tag」，属**发版步骤未执行** |
-| **桌面 live** | **0 个版本**：`profiles/desktop/package.json` 无本包依赖、`dsh.profile.bundles` 无本包、`<home>/chess-context` 不存在。上一版收益**一条都没生效** |
-| 下一步（唯一档停的事） | **重装到新 home** —— 需**停机窗口 + 主人授权 + 主人重启**；三段顺序见下方「新版 DSH 适配」。**不要只手改 `package.json` 加 `link:`**（会被插件管理器抹掉） |
+| 版本 | **1.13.0**（`package.json` = `README:3` = `CHANGELOG 有 ## 1.13.0`） |
+| tag / npm | **都没有** —— 本版只存在于工作树；`npm latest` 仍是 **1.11.17**。发版命令：`node scripts/release.mjs --yes`（annotated tag + npm publish + GitHub Release） |
+| 单测 | **597 passed / 0 skipped / 0 failed**（**52 个测试文件**；1.12.0 是 577/0/0、49 文件）· `engine-harness` 43/0 · `ledger` 20/0 · `c17` 15/0 · `ledger-pricing` 9/0 · `make-preset` 6/0 · `ui-health` 5/0 |
+| 本轮（1.13.0）改了什么 | ① **热清单定价接真**（CJK 1 token/字 + 其余 1/4；锚点实测 905 vs 新口径 933）② 新增 `scripts/make-preset.mjs`（C 段 preset 引擎行的**正式解法**）③ UI `health()` 不再写死 `profile=desktop` |
+| `check-maintenance` | **8 通过 / 0 警告 / 1 失败** —— 唯一失败是「当前版本 1.13.0 有 tag」，属**发版步骤未执行** |
+| **桌面 live** | **0 个版本**：`profiles/desktop/package.json` 无本包依赖、`dsh.profile.bundles` 无本包、`<home>/chess-context` 不存在。1.9–1.13 的收益**一条都没生效** |
+| 下一步（唯一档停的事） | **装到 live** —— 需**停机窗口 + 主人授权 + 主人重启**；四步见下方「新版 DSH 适配」。**不要手改 `package.json` 加 `link:`**（那正是历史上丢插件的机制） |
 
-> 其余仍未做：**M2/M3**（UI 暂停中）· **tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）· **`README:3` / 本文件版本号都没有门禁**（`check-maintenance` 不读它们）。
+> 其余仍未做：**M2/M3**（UI 暂停中）· **`README:3` / 本文件版本号都没有门禁**（`check-maintenance` 不读它们）。
+> ~~**tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）~~
+> ⇒ **1.13.0 已做，但结论要改口径**：热清单定价改成 **CJK 感知 + ASCII 侧对齐宿主 `CHARS_PER_TOKEN=4`**
+> （**没有**改成接 `ctx.tokenMeter`）—— 因为 `ctx.tokenMeter.measure(session)` 早就接好了
+> （`engine.mjs` 的会话压力 / fold 阈值），它吃的是 **session surface**；而热清单是一段**自造文本**，套不上 measure。
+> 详见 `CHANGELOG` 的 `## 1.13.0` / W-A 与 `src/rooms/ledger.mjs` 的定价注释。
 
 ### 已了结的旧账（2026-11-01 复核，别再当待办）
 
@@ -50,17 +56,35 @@
 peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 range 能过闸**依赖宿主继续传
 `{ includePrerelease: true }`**（实测见 CHANGELOG 1.12.0 的 F1 节）。
 
-**三段重装（停机窗口里按序做，任一步失败就停在原状）**
+**四步装回（停机窗口里按序做，任一步失败就停在原状）**
 
-1. **过闸** —— 本版已改好清单，正常情况无需豁免；若要用旧包，走官方
-   `dsh plugin --profile desktop allow-version <pkg@ver> --dsh-version <exact> --accept-risk`。
-2. **装 bundle** —— 走**官方插件通道**（Web 侧栏 Plugins 页 / `plugin_manager` 的 `install_bundle` / `dsh plugin add`）。
-   **不要**用插件自带的 `node scripts/cli.mjs install`：它会去读已不存在的 `preset-bundles/`、往 profile patch 手写 UI 行
-   （与 bundle 通道只能二选一，双挂载 = `duplicate prefix route` 启动失败）、且完全不知道版本闸。
-3. **重建 preset 的引擎行** —— 引擎**不能**放在 profile/bundle 级 patch，必须替换 **preset 的 compaction group**
-   里的 `- id: compaction-basic`。做法：新建自己的 preset bundle（**别整份覆盖官方 `standard`**，那等于冻结快照会丢新版新增行），
-   在它的 `plugins[compaction].config` 里写 `- id: gokifu-compact` / `name: 'dsh-gokifu-compact/engine'`，
-   **保留** `command-compact` 与 `tool-result-pruner` 两行。
+1. **过闸** —— 1.12.0 已把清单改好（4 个 dsh peer 改范围 + 补 `engines.dsh`），正常情况无需豁免；
+   若要用旧包，走官方 `dsh plugin --profile desktop allow-version <pkg@ver> --dsh-version <exact> --accept-risk`。
+2. **装 bundle —— `dsh plugin add` 就是官方 install 通道**
+   ```bash
+   dsh plugin --profile desktop add "D:\主工作区\repos\dsh-GOkifu-compact"
+   ```
+   **机制更正（1.13.0 实测，别再按旧笔记走 Web 页面）**：`dsh plugin add` **不只是转发 pnpm** ——
+   成功后它会调 `reconcile()`（`dsh-plugin-manager/lib/types/operations.js:96-124`），把「本次新增的依赖
+   且其 `package.json` 声明了 `dsh.bundle`」**自动追加进 `dsh.profile.bundles`**。
+   ⇒ **CLI 通道 = 官方 install_bundle 的等价物**，不需要 Web 页面，**更不能手改 profile 加 `link:`**
+   （手改正是历史上丢插件的机制）。
+   **不要**用插件自带的 `node scripts/cli.mjs install`（读已不存在的 `preset-bundles/`、手写 UI 行会与 bundle 通道双挂载）。
+3. **生成并装 preset 的引擎行（C 段 · 1.13.0 的正式解法）**
+   ```bash
+   # 默认就是 dry-run；生成时别把 DSH_HOME 指向目标 home（否则「不许写进运行中 home」的守卫会拒，退出码 2）
+   env -u DSH_HOME node scripts/make-preset.mjs
+   env -u DSH_HOME node scripts/make-preset.mjs --write --out "<repo>/tmp/preset-bundle"
+   dsh plugin --profile desktop add "<repo>/tmp/preset-bundle"     # 同样会被 reconcile 选进 bundles
+   ```
+   - 它从**当前宿主 asar** 读官方 `dsh-web-app/presets/standard.patch.yml`，**只**把 compaction group 里的
+     `- id: compaction-basic` 换成 `- id: gokifu-compact / name: 'dsh-gokifu-compact/engine'`，
+     **其余 32 条插件行逐字保留** ⇒ DSH 升级后**重跑一次**即可，不会像手抄那样把插件清单冻成快照、静默丢新版新增行。
+   - 引擎**不能**放在 profile/bundle 级 patch，必须在 preset 的 compaction group 里；`command-compact` 与
+     `tool-result-pruner` 两行**保留**。
+4. **在会话里选中该 preset** —— **机制（1.13.0 实测）：preset 插件是惰性激活的**：不选该 preset 的会话
+   **不会 mount `config.plugins`**。⇒「装完没反应」最常见的原因是**没选 preset**，不是装坏了。
+   选完 → 重启 → 跑 `node test/verify-install.mjs`（preset 那 5 项应从 `!` 转绿）+ `node scripts/doctor.mjs` 验。
 
 **两条硬教训（都有磁盘证据，别再踩）**
 
@@ -74,6 +98,42 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 
 > 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1306 B / 39 CRLF / 无 BOM）；
 > UTF-8 编辑器保存会让它静默失效。`live` 若用 `link:` 指向工作树，则**工作树里任何未提交改动重启后都会被直接加载**。
+>
+> **⚠ 启动器（1.13.0 发现并已修）**：`D:\DeepSeek Harness\启动 DSH.cmd` **原本是坏的** —— 两处路径写
+> `%~dp0DeepSeek Harness Desktop\`，而实际目录名是 `Desktop\`（连它的 `.bak-20261101` 备份也是同一处错
+> ⇒ **升级后就一直断**）。已改成 `%~dp0Desktop\`、重写为 CRLF/无 BOM，并逐条验证引用的 3 个路径都存在。
+> **为什么这条重要**：「重启 DSH」正是装回插件的第 2 步 —— 启动器坏了会被误判成**「插件把宿主搞崩」**。
+
+## 测试用 DSH 实例（W-C · 1.13.0 建成，这是本轮最重要的能力）
+
+> 目的：以后**任何**「装回去到底行不行」的验证，都在这个**独立实例**上做，不再拿生产 home 冒险。
+> 细节与逐条证据：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\test-instance.md`。
+
+| 项 | 值 |
+|---|---|
+| 测试 home | **`E:\Documents\deepseek-harness\dsh-test-home`**（独立 `DSH_HOME`，与生产 `D:\DeepSeek Harness\home` 完全隔离） |
+| 端口 | **62619**（生产是 62618）⇒ 两个实例可同时跑 |
+| profile | `web`（自动创建），已装 `dsh-gokifu-compact` + 自建 preset bundle，二者都在 `dsh.profile.bundles` 里 |
+| 起停 | 起：`dsh --profile web --host 127.0.0.1 --port 62619 --no-open`；停：`netstat -ano \| grep LISTENING \| grep :62619` 拿 PID 后 `taskkill //PID <PID> //T //F` |
+| 复现命令序 | `test-instance.md` §7（一条条可照抄） |
+| 副产物 | `E:\.pnpm-store`（官方 `dsh plugin add` **自己选的** pnpm store，74 MB，不要时 `rm -rf /e/.pnpm-store`） |
+
+**已验证到哪一段（A→B→C→引擎加载）**
+
+- **A 过闸 PASS**；
+- **B 官方通道** `dsh plugin add` 装 bundle：软链 + **自动选进 `dsh.profile.bundles`** + `--dump-config` 里出现
+  本包 patch 插的 `- id: gokifu-ui` ⇒ bundle 层**没有被版本闸静默跳过**；
+- **C preset**：`make-preset.mjs` dry-run 看到「32 条插件行逐字保留 / 仅 compaction 组 2 行不同」→ `--write` →
+  同一个 `dsh plugin add` 装进 profile（两个 bundle 都在 bundles 里）；
+- **引擎真的加载**（三层证据）：① 组合树里引擎行与探针行都在、无 `disabled`；② `--dump-config-schema` 里该行
+  `status:"schema"` 且 `$defs` 是本插件 `config-schema.mjs` 生成的**带中文 description 的 Config**（说明模块真被 import）；
+  ③ 同 realm `inject:["compaction"]` 探针被激活，写出
+  `{"hasService":true,"constructorName":"ChessCompactionEngine","hooks":{summarize/compactIfNeeded/compactNow/compactRegion 全 function}}`。
+  旁证：`POST http://127.0.0.1:62619/gokifu/api {"action":"health"}` → **HTTP 200** + 插件自己的 JSON。
+
+**还差什么（诚实写）**：「**会话选中 preset → 引擎实例化 → 真压一轮**」**没验** —— 测试 home 没配模型路由，
+也没有擅自把生产 magpie 接过去。所以准确说法是：**「引擎行被加载、实例化、注册服务」已实测；
+「引擎接管压缩并产出棋谱」未实测。**
 
 ## 历史状态（2026-10-31 · 1.11.14）—— **已被上方取代，留作时间线**（本节「P6-C 仍未执行 / live=1.11.2」两处与事实不符，见上方「已了结的旧账」与「最新状态」）
 
@@ -88,7 +148,8 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 | 工作树 | HEAD `4804173` 已含**未发布**的 P2-2（`engine: fold 可观测字段`）⇒ 当前树全量 **546/0/0**，**下次发版要 bump 1.11.15** |
 | 下一步（唯一档停的事） | **P6-C 真实 apply 仍未执行** —— 需主人授权 + 停插件窗口；预检 `scripts/p6c-preflight.mjs` · 手册 `docs/P6C-停窗执行手册.md`；**真跑不带 `--force`**；`--verify` 已在 **6,219 条真实规模 PASS** |
 
-> 其余仍未做：**M2/M3**（UI 暂停中）· **tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）。
+> 其余仍未做：**M2/M3**（UI 暂停中）· ~~**tokenMeter**（`len/3` 保留，正解是 `ctx.tokenMeter` 端口 + R06 预算改 token 单位，未立项）~~
+> ⇒ **本条已于 1.13.0 解决，口径不同**：热清单定价改成 **CJK 感知 + ASCII 侧对齐宿主 `CHARS_PER_TOKEN=4`**，**没有**改成接 `ctx.tokenMeter`（它吃 session surface，已用于会话压力/fold 阈值；热清单是自造文本、套不上 measure）。见 `CHANGELOG` 的 `## 1.13.0` / W-A。
 
 ## 历史状态（2026-10-29 · 1.9.1）—— **已被上方取代，留作时间线**
 
@@ -267,10 +328,13 @@ sessions/<sessionId>/
 
 ## 未完成（按优先级）
 
-> **2026-11-01 复核：这一节是 2026-10-29 的旧清单，只有历史价值。**
-> 当前真正的「未完成」只有两件：**① 重装到新 home**（见顶部「最新状态」与「新版 DSH 适配」）；
-> **② 重建 preset 的 compaction group 行**（引擎名 `dsh-gokifu-compact/engine`）。
+> **2026-11-01（1.13.0）复核：这一节是 2026-10-29 的旧清单，只有历史价值。**
+> 当前真正的「未完成」只有三件：
+> **① 把插件装到 live**（见顶部「最新状态」与「新版 DSH 适配」四步；需停机窗口 + 授权 + 重启）；
+> **② preset 生成并装进 live 后，还要在会话里选中它**（preset 插件惰性激活 —— 不选就等于没装）；
+> **③ 真实压缩一轮的验收**（在测试实例上补模型路由，或在 live 装完重启后看 `compaction/summary` 与棋谱落盘）。
 > 下表第 1 项早已完成，第 4–6 项是旧 home 的数据问题，**新 home 上没有那些数据**（`<home>/chess-context` 不存在）。
+> ~~tokenMeter~~ 已在 **1.13.0** 解决（热清单定价 CJK 感知；见顶部「最新状态」的划线说明）。
 
 > 2026-10-29：goal 当前阶段的 ①–⑤ 全部完成（各有可复跑脚本 + 证据文件，见下方表格）。
 > 下面只剩「需要主人动一下」和「后续可选」两类。

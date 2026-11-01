@@ -406,7 +406,8 @@ export function verifyInstall(options = {}) {
   // 但不再算进 failed —— 这就是「没有 preset」与「有 preset 但没挂」两种语义的分界。
   const failed = checks.filter((c) => !c.ok && c.severity !== "warn").length;
   const warnings = checks.filter((c) => c.severity === "warn").length;
-  return { checks, failed, warnings, install, profileDir: PROFILE_DIR, presetFile: preset?.file ?? LEGACY_PRESET_FILE };
+  // presetName 给 CLI 头部展示用（两代发现到的真实名字；没有就是 null）——**仅展示，不参与判据/退出码**。
+  return { checks, failed, warnings, install, profileDir: PROFILE_DIR, presetFile: preset?.file ?? LEGACY_PRESET_FILE, presetName: preset?.name ?? null };
 }
 
 /** 命令行入口：打印 + 退出码。 */
@@ -418,7 +419,9 @@ export function main(argv = process.argv.slice(2)) {
   const profile = getArg("profile", "desktop");
   const preset = getArg("preset", "personal-assistant");
   const result = verifyInstall({ profile, preset });
-  console.log(`== verify-install（profile=${profile}, preset=${preset}）==`);
+  // W-B：头部不再印死 --preset 的旧默认名（personal-assistant 在新版 home 已不存在）；
+  // 印两代发现到的真实 preset 名，没有就 (none)。**纯展示**，18 条判据/severity/退出码都没动。
+  console.log(`== verify-install（profile=${profile}, preset=${result.presetName ?? "(none)"}）==`);
   // 三态：✓ 绿 / ✗ 真失败 / ! 合法中间态（例如新版 home 还没自建 preset —— 不算失败）
   for (const c of result.checks) {
     const mark = c.ok ? "✓" : c.severity === "warn" ? "!" : "✗";

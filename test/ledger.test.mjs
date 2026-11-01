@@ -80,9 +80,25 @@ tests["extractConstraintsBlock 没有约束时返回空串"] = async () => {
   if (extractConstraintsBlock("") !== "") throw new Error("空输入应为空");
 };
 
-tests["estimateTokens 是保守估计"] = () => {
-  if (estimateTokens("中文十个字应该超过十") < 3) throw new Error("估算过低");
-  if (estimateTokens("") !== 0) throw new Error("空串应为 0");
+tests["estimateTokens：CJK 1 token/字 + 其余 1/4 token/字（钉死数值，不再只断言「大于几」）"] = () => {
+  // ★ W-A（2026-11-01）：旧版这条叫「estimateTokens 是保守估计」，断言却是
+  //   `estimateTokens("中文十个字应该超过十") < 3` —— 任何非空中文串都满足（旧式给 4），
+  //   **等于恒真**；而实测旧口径对纯中文低估 38%、对真实热清单低估 8.8%。
+  //   「名字说保守、断言什么都钉不住」正是本仓 S10d 在打的假绿。现在改成钉死具体数值。
+  if (estimateTokens("") !== 0) throw new Error("空串必须 0（不因向上取整变成 1）");
+  const tenChinese = "中文十个字应该超过十";
+  if (tenChinese.length !== 10) throw new Error(`夹具字面量变了（应 10 字，实际 ${tenChinese.length}）`);
+  if (estimateTokens(tenChinese) !== 10) {
+    throw new Error(`10 个汉字必须 = 10 token（CJK 1 token/字），实际 ${estimateTokens(tenChinese)}`);
+  }
+  const ascii400 = "a".repeat(400);
+  if (estimateTokens(ascii400) !== 100) {
+    throw new Error(`400 ASCII 必须 = 100 token（宿主 CHARS_PER_TOKEN=4），实际 ${estimateTokens(ascii400)}`);
+  }
+  if (estimateTokens("abc中") !== 2) {
+    throw new Error(`3 ASCII + 1 汉字 = ceil((3+4)/4) = 2，实际 ${estimateTokens("abc中")}`);
+  }
+  // 回归护栏：旧口径 `len/3` 会把 10 个汉字算成 4、把 400 ASCII 算成 134 —— 只要那个口径回来，上面三条立刻红。
 };
 
 tests["renderFailureLine 含 id / 意图 / 原因"] = () => {
@@ -371,7 +387,11 @@ tests["S3-2 降级提示行在各档位都在，且预算口径成立（500 预�
   g.lastFoldMode = "rules";
   const seen = new Set();
   // 预算从宽到窄扫：命中 L0/L1/L2/L3/L5（L4 只在「20~60 条失败边且预算特定」时出现，见别的用例）
-  for (const maxTokens of [4000, 2000, 1500, 1200, 900, 700, 500, 300]) {
+  // ★ W-A（2026-11-01）：定价从「字符/3」改成「CJK 4 单位/字 + 其余 1/4 token」后，40 条失败边的
+  //   L0 从「约 60 token」涨到 **1132 token**，档位阈值整体上移（L0 撑到 1200，L2≈1100、L3≈1000）。
+  //   原来的扫描点 [4000,2000,1500,1200,900,…] 只剩 L0 与 L5 ⇒ 覆盖不足变红。
+  //   **改用按新阈值取的扫描点**（不是放宽断言）：断言本身一字未动，仍是覆盖 ≥3 档 + 提示行不丢 + 不静默超预算。
+  for (const maxTokens of [4000, 2000, 1500, 1200, 1150, 1100, 1050, 1000, 950, 900, 700, 500, 300]) {
     const r = renderLedger(g, { maxTokens });
     if (!r.text.includes("⚠ 上次摘要是规则生成")) throw new Error(`maxTokens=${maxTokens} 时提示行丢了（L${r.level}）`);
     seen.add(r.level);

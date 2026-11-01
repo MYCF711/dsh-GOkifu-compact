@@ -122,10 +122,64 @@ function staleTagOf(edge, now) {
   return ` [stale ${Math.floor(age / 60000)}m]`;
 }
 
-/** 保守 token 估算（CJK 1 字≈1 token，英文 ~4 字/token；取 3 折中偏保守）。 */
-export function estimateTokens(text) {
-  return Math.ceil(String(text ?? "").length / 3);
+/* ═════════════════════ 热清单的 token 定价（W-A，2026-11-01） ═════════════════════
+ *
+ * 旧口径 `ceil(len / 3)` 是**一律按 3 字符/token** 估的 —— 对 CJK 系统性低估：
+ * 实测（`计划表.md` 的 OPT-TOKENS，走网关 `usage.prompt_tokens`）纯中文 **−38%**、
+ * 真实热清单 **−8.8%**。低估发生在「以为没超预算、其实超了」这一侧，对一个**硬预算**是危险方向。
+ *
+ * 新口径：**按字符类别加权**，再把加权字符数折成 token。
+ *
+ *   · CJK 字符（汉字/假名/谚文/CJK 标点与全角形）—— **4 单位 = 1 token = 1 token/字**（保守上界）；
+ *   · 其余字符 —— **1 单位 = 1/4 token**，与宿主 `dsh-token-meter` 的 `CHARS_PER_TOKEN = 4` 对齐
+ *     （出处：宿主 asar `@deepseek-ai/dsh-token-meter/lib/types/estimate.js` 实测，
+ *      text 块 = `ceil(len / 4) + 4`；本函数**不含**该 +4 块开销，只用字符定价）。
+ *
+ * 为什么 CJK 取 1 token/字（而不是实测中位 0.54 token/字）：这是**故意取上界**。
+ * 热清单的实际成分是「大量 ASCII（节点 id / 路径 / 标记）+ 少量中文（目标 / 失败原因）」——
+ * 真实语料 176 会话合计 **217,567 字符，其中 CJK 只占 13.7%**。在这份混合比例上，
+ * `CJK×1 + 其余×1/4` 恰好落在实测值附近：唯一有真实 usage 的样本（2478 字符 / 418 汉字，
+ * 网关实测 **905 tokens**）旧口径给 **826（−8.8%）**、新口径给 **933（+3.1%）**。
+ * 换句话说：CJK 侧取上界、ASCII 侧与宿主同系数，两者叠加后**在真实混合文本上对得上**；
+ * 若把 CJK 侧按纯中文样本压到 0.54，真实热清单会重新掉回低估（745，−17.7%）。
+ *
+ * 全角标点（`，。！？：；（）「」` 等，U+3000–303F / U+FF00–FFEF）**算 CJK**，理由：
+ * 它们在 BPE 词表里与汉字同一批 CJK 区间，实测与汉字同价（1 token 级），不是 1/4；
+ * 且本仓热清单的标点几乎全是全角（`（逐条保留，一条不许少）` 这类），按 ASCII 计会稳定偏乐观。
+ */
+const UNITS_PER_TOKEN = 4;
+const CJK_UNITS_PER_CHAR = 4;
+/**
+ * CJK 判定（逐码点）。含：谚文字母/音节、CJK 部首、CJK 标点（U+3000–303F，含 `、。「」`）、
+ * 平假名/片假名、注音、CJK 扩展 A 与 URO、兼容汉字、CJK 兼容形、半角/全角形（U+FF00–FFEF，
+ * 含全角标点与全角 ASCII）、以及**星形平面的扩展 B 及以后汉字**（U+20000–U+2FA1F）。
+ * **不含**箭头 `→`、省略号 `…`、`⚠`、emoji —— 它们按「其余字符」1/4 token 计。
+ * 这一条**不是**「BPE 里它们更便宜」的断言，而是**按真实语料锚点校准**出来的：
+ * 418 汉字 + 2060 ASCII 的混合（含大量箭头/占位符）计 933，网关实测 905 —— 落在 3% 内。
+ */
+const CJK_RE = /[\u1100-\u11FF\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u312F\u3190-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF\u{20000}-\u{2FA1F}]/u;
+
+/** 加权字符数（单位）：CJK 4 单位、其余 1 单位；4 单位 = 1 token。（内部：预算数学统一用「单位」，不对外。） */
+function unitsOf(text) {
+  const s = String(text ?? "");
+  if (s.length === 0) return 0;
+  let units = 0;
+  for (const ch of s) units += CJK_RE.test(ch) ? CJK_UNITS_PER_CHAR : 1;
+  return units;
 }
+
+/**
+ * token 估算（热清单预算的唯一口径）。签名与名字保持不变 —— 引擎、测量器、C-17 测试都依赖它。
+ * 空串 ⇒ 0（不因取整变成 1）。
+ */
+export function estimateTokens(text) {
+  const s = String(text ?? "");
+  if (s.length === 0) return 0;
+  return Math.ceil(unitsOf(s) / UNITS_PER_TOKEN);
+}
+
+/** 预算数学的专用别名：`token 预算 × 它 = 单位预算`（与 `UNITS_PER_TOKEN` 同值，写出来只为了说明「这是预算域」）。 */
+const BUDGET_UNITS_PER_TOKEN = UNITS_PER_TOKEN;
 
 /**
  * ★ P5（2026-10-30）：渲染结果的预算状态三态。**必须显式**，不许把超预算内容静默返回。
@@ -583,12 +637,33 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const traceRecentSeg = traceBaseLine === null ? "" : traceRecentSegment(path);
   const traceRecentLine = traceRecentSeg === "" ? null : `${traceBaseLine} · ${traceRecentSeg}`;
 
-  /** 某一档「注定装不下」的下界（只会跳过铁定超预算的档，不误伤）。 */
+  /**
+   * 某一档「注定装不下」的下界（只会跳过铁定超预算的档，不误伤）。
+   *
+   * ★ W-A（2026-11-01）：改按**单位**算（4 单位 = 1 token），而且用**这一档真的会渲染的那批边**
+   *   逐条累加 —— 不再用 `LEVEL_LEN` 的**上限**去猜每行长度。
+   *   为什么必须换：旧式 `ceil((shownCount*(25+intentLen+reasonLen)+300)/3)` 里的
+   *   `intentLen/reasonLen` 是**截断上限**（70/90 字），旧口径下它已经偏保守；换成 CJK 4 单位/字后，
+   *   这个「按上限」的下界直接涨到 ~2.6 倍，会把**本来装得下的档**判成注定装不下 ⇒ L0–L3 被整段跳过、
+   *   失败边从 30 条掉成 20 条（实测 `ledger-scale` 与 `ledger：S3-2` 两条用例当场变红）。
+   *   逐条按真实 intent/reason 长度算，既保住「下界」语义，也不会误伤。
+   */
+  const failureLineUnits = (edge, lv) => {
+    const intentLen = [70, 50, 34, 22][Math.min(lv, 3)];
+    const reasonLen = [90, 60, 36, 25][Math.min(lv, 3)];
+    const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
+    const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
+    // +25：id / 引号 / 箭头 / tag 的 ASCII 余量（与旧口径的 25 一致；tag 在 doomed 阶段不展开 ⇒ 只会更小）
+    return unitsOf(intent) + unitsOf(reason) + 25;
+  };
   const doomed = (lv) => {
     if (failures.length === 0) return false;
     const shownCount = lv === 4 ? Math.min(failures.length, tailFailures) : lv === 5 ? Math.min(failures.length, 10) : failures.length;
-    const [intentLen, reasonLen] = LEVEL_LEN[Math.min(lv, 3)];
-    return Math.ceil((shownCount * (25 + intentLen + reasonLen) + 300) / 3) > maxTokens;
+    const slice = lv >= 4 ? failures.slice(-shownCount) : failures;
+    // 固定开销 300 **按 ASCII 保守处理**（宁可少跳过一档）。
+    let units = 300;
+    for (const edge of slice) units += failureLineUnits(edge, lv);
+    return units > maxTokens * BUDGET_UNITS_PER_TOKEN;
   };
 
   for (let level = 0; level <= 5; level += 1) {
@@ -681,7 +756,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   第一版只扣了 header 那几行 ⇒ pathBudget 恒 ≈ maxTokens×3 ⇒「整条路径放得下就原样」，
       //   于是 L3 把 n1→…→n177 共 1064 字符原样塞进去：实测 500 预算下超预算会话 7 → 25
       //   （verifier 复验抓到；e3820651 331→742、6f90bd1d 453→810 …）。
-      //   现在 prePathChars 是**精确字符数**，`available` 才是路径行真正能用的额度。
+      //   现在 `prePathUnits` 是**精确的加权单位数**（W-A：4 单位 = 1 token，CJK 4 单位/字），
+      //   `available` 才是路径行真正能用的额度。
       const goal = latest?.goal;
       const goalLine = goal ? `CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}` : null;
       const transpositionNote = (() => {
@@ -694,7 +770,6 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         if (transposed === 0) return null;
         return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里，别重复。`;
       })();
-      const sizeOf = (arr) => arr.reduce((n, l) => n + l.length + 1, 0);
       const fixedLines = [
         ...(goalLine ? [goalLine] : []),
         ...(workingWeak > 0 ? [WEAK_LEGEND] : []),
@@ -709,20 +784,29 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       const workSummary = workingIds !== null && !tailWeak && workingTail?.verify?.summary ? ` (${clip(workingTail.verify.summary, 40)})` : "";
       const weakTag = workingIds !== null && workingWeak > 0 ? ` [weak ${workingWeak}/${workingIds.length - 1}]` : "";
       const suffixChars = workSummary.length + weakTag.length;
-      // 精确口径：正文由各 line 用换行拼成 ⇒ 总字符 = Σ(len+1) − 1；结尾行 `</chess-ledger>` 也要算。
-      const prePathChars = sizeOf(lines) + sizeOf(tailLines) + sizeOf(fixedLines) + "</chess-ledger>".length; // sizeOf 已含各行 +1，join 少 1 由这里抵掉
-      /** 两条路径行真正能用的字符额度（已扣掉后缀）。 */
-      // 再减 2：`actual = prePathChars + pathChars − suffixChars − 1`，而 fitPaths 只看行长度、
+      const suffixUnits = unitsOf(workSummary) + unitsOf(weakTag);
+      // ★ W-A（2026-11-01）：预算数学从「字符 / 3」统一到**单位域**（4 单位 = 1 token；CJK 4 单位/字）。
+      //   为什么必须动这里：`estimateTokens` 已经改成按字符类别加权，若这里的换算还用 `×3`，
+      //   「路径块吃多少预算」就会按旧的一律口径算 —— 正文 CJK 占比 13.7% 但 token 占大头时比例会算错。
+      const sizeOfUnits = (arr) => arr.reduce((n, l) => n + unitsOf(l) + 1, 0);
+      // 精确口径：正文由各 line 用换行拼成 ⇒ 总单位 = Σ(units+1)；结尾行 `</chess-ledger>` 也要算。
+      const prePathUnits = sizeOfUnits(lines) + sizeOfUnits(tailLines) + sizeOfUnits(fixedLines) + unitsOf("</chess-ledger>");
+      const budgetUnits = maxTokens * BUDGET_UNITS_PER_TOKEN;
+      /** 两条路径行真正能用的字符额度（已扣掉后缀）。fitPaths 按**字符**折行，而路径行是节点 id/ASCII
+       *  （1 字符 = 1 单位）⇒ 单位额度可直接当字符额度用。 */
+      // 再减 2：`actual = prePath + path − suffix − 1`，而 fitPaths 只看行长度、
       // 不含每行换行（最多 2 行）—— 不扣这 2 个字符就会稳定超 1~2 字符（实测 501 tokens 就是这么来的）。
       // ★ rev6：额度 = min(固定 150 字符, 真实剩余)，并且**这 150 字符要含 weak 图例与行尾后缀** ——
       //   它们都由路径块引起，不能只算路径行本身。实测漏算时单会话净增 90 token（04538c62 346→436：
       //   路径行 159 字符 + 图例 109 字符），直接突破「≤50 token/会话」的硬额度。
       const legendChars = workingWeak > 0 ? WEAK_LEGEND.length + 1 : 0;
       const quota = Math.max(0, PATH_QUOTA_CHARS - suffixChars - legendChars - 2);
-      const available = Math.max(0, Math.min(quota, maxTokens * 3 - prePathChars - suffixChars - 2));
-      /** 两条路径行占用的字符数（含各自的行尾换行 + 后缀）。 */
-      const pathChars = (f) =>
-        (f.currentLine ? f.currentLine.length + 1 : 0) + (f.workingLine ? f.workingLine.length + 1 : 0) + (f.currentLine || f.workingLine ? suffixChars : 0);
+      const available = Math.max(0, Math.min(quota, budgetUnits - prePathUnits - suffixUnits - 2));
+      /** 两条路径行占用的**单位**数（含各自的行尾换行 + 后缀）。 */
+      const pathUnits = (f) =>
+        (f.currentLine ? unitsOf(f.currentLine) + 1 : 0) + (f.workingLine ? unitsOf(f.workingLine) + 1 : 0) + (f.currentLine || f.workingLine ? suffixUnits : 0);
+      /** 路径块是否会把这档顶出预算（单位域直接比，不再经过 `/3` 的字符折算）。 */
+      const overBudgetWith = (f) => prePathUnits + pathUnits(f) > budgetUnits;
       let folded;
       /** 极端兜底：路径降到「一行最小形态」时为 true（此时不挂 weak 标记，见下）。 */
       let minimalPath = false;
@@ -732,17 +816,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         // ① 先按**分开写**折（显式 `WORKING:` 行）：模型不该靠 `(working edge e74)` 猜工作位置。
         folded = fitPaths(currentLine, workingLine, available, shape, workingTailId, { allowMerge: false });
         // ② 分开写装不下 ⇒ 允许把同尾的 WORKING 并进 CURRENT PATH（省一整行）
-        if (Math.ceil((prePathChars + pathChars(folded)) / 3) > maxTokens) {
+        if (overBudgetWith(folded)) {
           const mergedTry = fitPaths(currentLine, workingLine, available, shape, workingTailId, { allowMerge: true });
-          if (pathChars(mergedTry) < pathChars(folded)) folded = mergedTry;
+          if (pathUnits(mergedTry) < pathUnits(folded)) folded = mergedTry;
         }
         // ③ 折完**实测**一次：`estimateTokens` 数的是整条文本，`(user)` 后缀等会让「路径字符串长度」
         //    与真实占用对不上。装不下就按真实剩余重折，仍装不下再退到摘要形态；折不动了就停（不空转）。
         for (let pass = 0; pass < 3; pass += 1) {
-          if (Math.ceil((prePathChars + pathChars(folded)) / 3) <= maxTokens) break;
-          const remaining = Math.max(0, Math.min(quota, maxTokens * 3 - prePathChars - suffixChars - 2));
+          if (!overBudgetWith(folded)) break;
+          const remaining = Math.max(0, Math.min(quota, budgetUnits - prePathUnits - suffixUnits - 2));
           const next = fitPaths(currentLine, workingLine, remaining, pass >= 1 ? "n1" : shape, workingTailId, { allowMerge: true });
-          if (pathChars(next) >= pathChars(folded)) break;
+          if (pathUnits(next) >= pathUnits(folded)) break;
           folded = next;
         }
         // ★ 最后兜底（C-17 第四轮修）：正文（root/约束/失败边）本身已经把预算吃满时，任何带路径的形态
@@ -751,7 +835,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         //   阶梯：`# path: current <cur> working <work>` → `# path: current <cur>` → `# path: <cur>`。
         //   ★ 这一档不挂 `[weak k/n]`：标记必须与图例同行，图例（~108 字符）在这个预算下放不下；
         //     要么「标记 + 图例」一起有，要么都没有 —— 不许让标记裸奔。
-        if (Math.ceil((prePathChars + pathChars(folded)) / 3) > maxTokens) {
+        if (overBudgetWith(folded)) {
           const curTail = currentIds.at(-1) ?? "?";
           const workTail = workingIds !== null ? workingIds.at(-1) : null;
           const ladder = [
@@ -759,7 +843,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
             `# path: current ${curTail}`,
             `# path: ${curTail}`,
           ];
-          const pick = ladder.find((line) => Math.ceil((prePathChars + line.length + 1) / 3) <= maxTokens);
+          const pick = ladder.find((line) => prePathUnits + unitsOf(line) + 1 <= budgetUnits);
           // ★ 连最短一行都装不下也**照样输出最短那行**：宁可这一档超预算（会落到 L4/L5 由 pickFallback 择优），
           //   也不允许「路径整块消失」——静默省略比超预算更危险（模型会以为没有路径）。
           folded = { currentLine: pick ?? ladder[ladder.length - 1], workingLine: null };

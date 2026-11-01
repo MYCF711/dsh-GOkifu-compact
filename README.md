@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.12.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.13.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 351 tokens 的热清单」。**
 
@@ -17,7 +17,14 @@ GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不�
 
 > **† 历史口径（未复现）**：`失败保留 8/8`、`真实包 8/8`、`真实进程 fold 3~6/6` 都是**早期真机测量**，**本轮没有复跑命令、没有复现**，不要当现行指标引用。
 >
-> **351 tokens 的口径**：这是 **2000 边合成夹具**在 **L5 降级档**下的结果，**不是真实会话均值**。真实会话里预算按 `字符数/3` 估算，实测**系统性低估 5.2%~22.1%（中位 9.7%）**（见 `计划表.md` 的 OPT-TOKENS 节）；**真实会话口径尚未校准** —— 正解是引入宿主 tokenizer（`ctx.tokenMeter`）后重测，**未做**。
+> **351 tokens 的口径**：这是 **2000 边合成夹具**在 **L5 降级档**下的结果，**不是真实会话均值**。
+> ~~真实会话里预算按 `字符数/3` 估算，实测系统性低估 5.2%~22.1%（中位 9.7%）（见 `计划表.md` 的 OPT-TOKENS 节）；真实会话口径尚未校准 —— 正解是引入宿主 tokenizer（`ctx.tokenMeter`）后重测，未做。~~
+> ⇒ **1.13.0 已校准**：热清单预算改成**按字符类别加权** —— **CJK 1 token/字 + 其余 1/4 token/字**
+> （ASCII 侧对齐宿主 `dsh-token-meter` 的 `CHARS_PER_TOKEN = 4`；全角标点算 CJK）。
+> 锚点：2478 字符的真实热清单，旧口径 **826（−8.8%）** → 新口径 **933**，网关实测 **905（+3.1%）**。
+> 归档 176 会话复算：avg **412.40 → 417.88**、max **826 → 933**、over-500 **25 → 25**
+> （张数没变是渲染器自适应降档换来的；**只换公式不重渲染会是 over 56** ⇒ 旧口径那 25 张里有 31 张靠低估撑出来）。
+> 注意两套口径并存：**会话压力 / fold 触发**由宿主 `ctx.tokenMeter.measure(session)` 定价，**热清单**是本文这套加权估算。
 
 ---
 
