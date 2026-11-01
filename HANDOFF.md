@@ -96,6 +96,7 @@
 | **C83 CLI 路由测试（2026-11-02）** | `test/cli-routing.test.mjs`：转发目标必须存在、每个 command 必须写进用法、bin 存在且分派 doctor、files 白名单含 bin 目录；子进程验证未知命令非 0 + `--help` 为 0；4 例全绿 |
 | **C84 安装产物生成器补测（2026-11-02）** | `make-presets-override` 此前零测试：新增 3 例（dry-run 不改文件/不留备份且自检通过、两次输出逐字相同、仓库 patch 覆盖四 preset 且无 compaction-basic） |
 | **C85 bench 默认不写盘（2026-11-02）** | `test/bench.mjs` 写证据改为显式 `--write`；档位打进 stdout 摘要行，`bench-repro` 改为解析 stdout（旧写法依赖证据文件会过期）；门禁跑完工作树不再变脏；测试 3 例 |
+| **C86 用户文档命令校验（2026-11-02）** | `test/docs-commands.test.mjs`：README/QUICKSTART 里 `node scripts|test/X.mjs` 必须存在、`npx` 子命令必须被 cli 分派；体检结果 0 腐坏（历史计划文档有意排除，理由写进测试头） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

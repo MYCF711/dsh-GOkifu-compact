@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C86 · 用户文档里的命令必须是真的（防文档腐坏）
+
+**问题**：`README.md` / `QUICKSTART.md` 是用户唯一会照抄的东西 —— 里面写一个已不存在的脚本，
+用户就卡在第一步。这类腐坏**没有任何门禁会红**（boundary-audit 只看措辞，docs-index 只看索引）。
+
+**做法**：新增 `test/docs-commands.test.mjs`：
+
+1. 扫 `README.md` / `QUICKSTART.md` 里所有 `node (scripts|test)/X.mjs`，**必须真实存在**；
+2. 扫 `npx dsh-gokifu-compact <子命令>`，**必须在 `scripts/cli.mjs` 有分派**。
+
+**扫查结果（顺带做了一次体检）**：两份用户文档 **0 处腐坏**（引用全部有效）。
+另外发现 `docs/方案-持续优化.md` 里有 `test/doctor.mjs` / `test/realm.mjs` 等**历史引用** ——
+那是当时的事实记录（doctor 后来才迁到 `scripts/`），因此该文档**有意不纳入**本检查，
+理由写进测试头部注释。
+
 ### C85 · `bench` 默认不再写仓库（每跑一次门禁就脏一次工作树）
 
 **问题**：`test/bench.mjs` 每次运行都写 `evidence/bench-N.json` —— 于是**每跑一轮门禁，工作树就脏一次**

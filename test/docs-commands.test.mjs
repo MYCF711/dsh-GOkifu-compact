@@ -1,0 +1,51 @@
+/**
+ * docs-commands.test.mjs —— 用户文档里的命令必须是真的（2026-11-02，C86）
+ *
+ * 为什么需要：README / QUICKSTART 是用户唯一会照抄的东西 —— 里面写一个已经不存在的脚本，
+ * 用户就卡在第一步。这类腐坏没有任何门禁会红（boundary-audit 只看措辞，docs-index 只看索引）。
+ *
+ * 判据（只扫**面向用户**的两份文档，历史计划文档 `docs/方案-*.md` 不参与 —— 它记录的是当时的事实）：
+ *   ① `node (scripts|test)/X.mjs` 引用的文件必须存在；
+ *   ② `npx dsh-gokifu-compact <子命令>` 引用的子命令必须在 `scripts/cli.mjs` 里有分派。
+ */
+
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const REPO = nodePath.join(HERE, "..");
+
+export const tests = {};
+
+const USER_DOCS = ["README.md", "QUICKSTART.md"];
+
+function scan() {
+  const paths = new Set();
+  const subs = new Set();
+  for (const doc of USER_DOCS) {
+    const file = nodePath.join(REPO, doc);
+    if (!nodeFs.existsSync(file)) continue;
+    const text = nodeFs.readFileSync(file, "utf8");
+    for (const m of text.matchAll(/node ((?:scripts|test)\/[A-Za-z0-9_.-]+\.mjs)/g)) paths.add(m[1]);
+    for (const m of text.matchAll(/npx dsh-gokifu-compact ([a-z][a-z-]*)/g)) subs.add(m[1]);
+  }
+  return { paths: [...paths].sort(), subs: [...subs].sort() };
+}
+
+tests["C86-1 用户文档里 `node scripts|test/X.mjs` 必须都真实存在"] = (t) => {
+  const { paths } = scan();
+  t.eq(paths.length >= 3, true, `至少要扫出 3 条命令，实际 ${paths.length}：${paths.join(", ")}`);
+  for (const rel of paths) {
+    t.eq(nodeFs.existsSync(nodePath.join(REPO, rel)), true, `文档引用了不存在的文件：${rel}（用户照抄会失败）`);
+  }
+};
+
+tests["C86-2 用户文档里的 npx 子命令必须在 cli.mjs 里有分派"] = (t) => {
+  const { subs } = scan();
+  t.eq(subs.length >= 1, true, "至少要扫出一个 npx 子命令");
+  const cli = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "cli.mjs"), "utf8");
+  for (const sub of subs) {
+    t.eq(cli.includes(`command === "${sub}"`), true, `cli.mjs 没有分派子命令 "${sub}"（文档会误导用户）`);
+  }
+};
