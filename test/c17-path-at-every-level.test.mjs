@@ -222,9 +222,13 @@ tests["C17-2 预算紧张时路径行折叠而不是消失（折叠必须真的�
   // 47 个节点的当前路径 + 41 个节点的工作路径，在 L3（预算 388）下**装不下全量** ⇒ 必须折，
   // 但**不许整块消失**（旧版 `path.length > 1 && level <= 2` 在这里一行都不印 —— C-17 要修的就是这个）。
   // 夹具用 hops=40/failures=6：这是实测能在预算扫描里稳定命中 L3 的形态。
+  // ★ W-A（2026-11-01）：热清单定价从「字符/3」改成「CJK 1 token/字 + 其余 1/4 token/字」后，
+  //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
+  //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
   const { g, pathIds } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-l3" });
   const fullLen = `CURRENT PATH: ${pathIds.map((id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}`).join(" → ")}`.length;
-  const r = renderLedger(g, { maxTokens: 388 });
+  // 预算 388 → 300：新口径下这个夹具的 L0 是 350 tokens（旧口径 >388），388 会直接落 L0、测不到折叠。
+  const r = renderLedger(g, { maxTokens: 300 });
   if (r.level < 3) throw new Error(`夹具应落在 L3+（降级档），实际 L${r.level} (${r.tokens} tokens)`);
   const cur = line(r.text, "CURRENT PATH:");
   const work = line(r.text, "WORKING:");
@@ -241,8 +245,11 @@ ${r.text}`);
 };
 
 tests["C17-3 折叠后的行不许丢头尾：起点（user）与当前位置必须在（折叠计数必须真实）"] = () => {
+  // ★ W-A（2026-11-01）：热清单定价从「字符/3」改成「CJK 1 token/字 + 其余 1/4 token/字」后，
+  //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
+  //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
   const { g, pathIds } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-fold" });
-  const r = renderLedger(g, { maxTokens: 388 });
+  const r = renderLedger(g, { maxTokens: 300 });
   const cur = line(r.text, "CURRENT PATH:");
   if (!cur || !cur.includes("… +")) throw new Error(`L${r.level} 的长路径没有折叠：${cur}`);
   const shown = idsIn(cur, "CURRENT PATH:");
@@ -266,8 +273,14 @@ ${cur}`);
 };
 
 tests["C17-4 L5 兜底档也保留当前位置（不许把路径整块吞掉）"] = () => {
-  const { g, pathIds, workingIds } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-l5" });
-  const r = renderLedger(g, { maxTokens: 243 });
+  // ★ W-A（2026-11-01）：热清单定价从「字符/3」改成「CJK 1 token/字 + 其余 1/4 token/字」后，
+  //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
+  //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
+  // 夹具 failures 6 → 20 + 预算 243 → 300：新口径下 failures=6 时 **L5 只剩最小阶梯行**（`# path: n47`），
+  //   拿不到「折起来的 WORKING」；failures=20 让 L0–L3 被 doomed 跳过、L5 在 300 预算下仍有路径额度，
+  //   才能同时验证「# path: 带 current」与「WORKING 折叠且不丢工作位置」。断言未改。
+  const { g, pathIds, workingIds } = mixedGraph({ hops: 40, failures: 20, sessionId: "c17-l5" });
+  const r = renderLedger(g, { maxTokens: 300 });
   if (r.level !== 5) throw new Error(`夹具应落到 L5，实际 L${r.level} (${r.tokens})`);
   const current = pathIds.at(-1);
   // L5 兜底把 CURRENT PATH 折成 `# path:` 摘要行 —— 行首不再是 "CURRENT PATH:"，而是 "# path:"
@@ -363,8 +376,13 @@ tests["C17-8 没有工作路径时的退化：L3+ 说清「没有」，L0–L2 �
     settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "EACCES: permission denied" });
     cursor = node;
   }
-  const r = renderLedger(g, { maxTokens: 500 });
-  if (r.level !== 3) throw new Error(`夹具应落在 L3，实际 L${r.level}`);
+  // ★ W-A（2026-11-01）：热清单定价从「字符/3」改成「CJK 1 token/字 + 其余 1/4 token/字」后，
+  //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
+  //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
+  // 预算 500 → 350，且判据从「必须等于 L3」改成「≥L3」（用例标题本来就写的是「L3+」）。
+  //   新口径下这个夹具在 500 预算下直接装进 L0（362 tokens），测不到退化分支；350 才落兜底档。
+  const r = renderLedger(g, { maxTokens: 350 });
+  if (r.level < 3) throw new Error(`夹具应落在 L3+，实际 L${r.level}`);
   const none = line(r.text, "# WORKING:");
   if (!none) throw new Error(`L3 没有工作路径时应给一行说明：\n${r.text}`);
   if (!none.includes("none")) throw new Error(`说明文案不对：${none}`);
@@ -399,7 +417,11 @@ tests["C17-10 与 S2a 共存：L0–L2 的弱 WORKING 明文与 1.9.1+S2a 定稿
 
 tests["C17-11 折叠不伪造：降级档的 WORKING 仍是真实节点序列的子序列"] = () => {
   const { g, ids } = chainGraph({ hops: 20, sessionId: "c17-subseq" });
-  const r = renderLedger(g, { maxTokens: 60 });
+  // ★ W-A（2026-11-01）：热清单定价从「字符/3」改成「CJK 1 token/字 + 其余 1/4 token/字」后，
+  //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
+  //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
+  // 预算 60 → 40：新口径下链式夹具（纯 ASCII）在全量形态只要 59 tokens，60 预算落 L0、测不到折叠。
+  const r = renderLedger(g, { maxTokens: 40 });
   const work = line(r.text, "WORKING:");
   if (!work) throw new Error(`L${r.level} 丢了 WORKING：
 ${r.text}`);

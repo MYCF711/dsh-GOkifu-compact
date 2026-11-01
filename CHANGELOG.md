@@ -1,5 +1,115 @@
 # 更新记录
 
+## 1.13.0 — 2026-11-01
+
+> 本轮主题：**让「热清单到底占多少 token」第一次有真数**，并把「装回新版」最容易卡住的 C 段
+> （preset 的引擎行）做成**可重跑的生成器**；同时第一次在**独立 DSH 实例**上跑通「装 → 组合树 → 引擎实例化」。
+> **本版未发布**（无 tag、无 npm 发布）、**未装 live**。
+
+### W-A · 热清单定价接真：CJK 1 token/字 + ASCII 侧对齐宿主 `CHARS_PER_TOKEN=4`
+
+**问题**：热清单的预算判定用 `ceil(len / 3)`（一律 3 字符/token）。实测（`计划表.md` 的 OPT-TOKENS，走网关
+`usage.prompt_tokens`）它对**纯中文低估 38%**、对**真实热清单低估 8.8%**。低估意味着「以为没超预算、其实超了」——
+而热清单预算是个**硬预算**，这是危险方向。
+
+**改法**：`单位 = Σ每码点(CJK ? 4 : 1)`，`4 单位 = 1 token`
+⇒ **CJK 1 token/字、其余 1/4 token/字**（ASCII 侧与宿主 `dsh-token-meter/lib/types/estimate.js` 的
+`CHARS_PER_TOKEN = 4` 同一套常数）。
+
+- **全角标点算 CJK**（U+3000–303F / U+FF00–FFEF）：与汉字在 BPE 同区间，且本仓热清单标点几乎全是全角；
+- 含**星形平面扩展汉字** U+20000–2FA1F（旧 BMP 正则会漏）；emoji / 箭头 `→` / 省略号 `…` 按非 CJK
+  （不是「BPE 更便宜」的断言，而是按下面这个锚点校准出来的）；
+- 预算数学（`renderLedger` 里原 **7 处** `maxTokens * 3` / `/ 3` 的字符↔token 换算）一并搬到**单位域**；
+  **`hotLedgerMaxTokens = 500` 与 `PATH_QUOTA_CHARS = 150` 一个都没改** —— 只改估算口径，不改预算。
+
+**校准锚点**（本仓唯一一条有真实网关 usage 的热清单）：418 汉字 + 2060 ASCII（2478 字符，含大量箭头与占位符）
+
+| 口径 | 值 | 对实测 905 的偏差 |
+|---|---|---|
+| 旧 `len / 3` | 826 | **−8.8%** |
+| 新（CJK×1 + 其余×1/4） | **933** | **+3.1%** |
+
+**归档 176 会话只读复算**（`test/measure-ledger.mjs`，改前/改后各一次）：
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| tokens 合计 | 72,582 | **73,547** |
+| avg | 412.40 | **417.88（+1.3%）** |
+| max | 826 | **933（+13%）** |
+| over-500 张数 | 25 | **25** |
+| 平均档位 | L1.89 | L2.00 |
+
+**这层意思必须说清**：over-500 **张数没变**，是因为渲染器**自适应降档**（L0 63→48、L1 12→23、L2 36→42）
+把预算从 ASCII 侧挪给了 CJK 侧。但**若只换公式不重渲染，同一批文本会是 avg 436.03 / over 56 张**
+⇒ **旧口径那 25 张「合规」里，有 31 张其实是靠低估撑出来的**。
+所以这不是「性能优化」，是**把预算判定从自指指标变成真指标**：同一份 500 预算，以前装的是「估计 500、实际 550–900」。
+
+**踩到的坑（值得记进「坑」）**：`doomed()`（跳过「铁定装不下」的档）若照字面把
+「按 `LEVEL_LEN` 上限猜行长、再 `/3`」直接换成「×4 单位」，下界会涨 **~2.6×**，把**本来装得下的档**误判成
+「注定装不下」—— 实测当场让失败边从 30 条掉到 20 条、两条既有用例变红。已改成**逐条按真实 intent/reason 长度累加**。
+
+**测试**：新增 `test/ledger-pricing.test.mjs` **9/0**，全部**钉死数值**（400 ASCII = 100、10 汉字 = 10、
+锚点 933、8 个全角标点 = 8、8 个扩展 B 汉字 = 8……），不写「大于几」这种恒真断言；
+旧的假绿 `estimateTokens 是保守估计`（断言 `>= 3`，对任何非空中文串恒真）已就地重写为钉值；
+5 处既有 c17 用例因**夹具预算随定价漂移**而调整（`C17-2/3/4/8/11`），**断言语义未放松**
+（唯一一处 `=== 3` → `>= 3`，而用例标题本就写「L3+」），每处留 `★ W-A（2026-11-01）` 注释。
+
+### W-B · `scripts/make-preset.mjs`：C 段（preset 引擎行）的正式解法
+
+**问题**：「装回新版」的 C 段是把 preset 的 compaction group 里 `- id: compaction-basic` 换成
+`- id: gokifu-compact / name: 'dsh-gokifu-compact/engine'`。以前只能**手抄一份官方 preset** ——
+那会把「当时那版 DSH 的插件清单」**冻成快照**，DSH 升级新增的行（如 `time-context`）会静默丢失。
+
+**改法**：生成器从**当前宿主 asar** 读官方
+`dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml` → 找 compaction group →
+**只替换那 2 行** → 其余**逐字保留** → 输出可直接 `dsh plugin add` 的 preset bundle 包。
+
+- **默认 dry-run**，`--write` 才落盘；`--out/--id/--name/--order/--asar/--version` 可覆盖；
+- 退出码 **0/1/2**，其中 `2` = 参数错误或**输出目录守卫**（落在运行中的 DSH home 里直接拒，
+  且**在任何写盘之前**拦）；
+- 生成物自检：正文不许残留 `compaction-basic`、必须有 `dsh-gokifu-compact/engine`（**拒绝包根** ——
+  包根 `exports["."]` 是 UI host，DSH 会把 UI host 当压缩引擎）、必须有 agent-preset 声明。
+
+**验证**：真机 dry-run（宿主 **0.2.1-rc.5**）**32 条插件行逐字保留**，唯一差异就是 compaction 组那 2 行；
+`make-preset` **6/0**。
+
+### W-D · UI health 自检不再写死 `profile=desktop`
+
+`POST /gokifu/api {"action":"health"}` 以前写死 `profiles/desktop`。W-C 在独立测试实例上实测到**假红**：
+profile 叫 `web`，插件明明装好、也进了 `dsh.profile.bundles`，health 却返回
+`installed:false / notInBundles:true`。现在 `health()` 接受 `profile` 参数并在返回体带出实际用的 profile。
+
+**验证**：`test/ui-health.test.mjs` **5/0**，其中「**非默认 profile 名装好了也必须报 `installed:true`**」
+在旧实现上必红（这就是回归的核心）。
+**已知边界**：`lib/client.js` 目前不带 profile —— 生产恒为 desktop ⇒ 现在不发作，但换 profile 就会。
+
+### 验证
+
+- 全量：**597 passed / 0 skipped / 0 failed**（**52 个测试文件**；1.12.0 基线 577/0/0/49 文件）
+- 新增测试文件 **3 个**：`ledger-pricing`(9) · `make-preset`(6) · `ui-health`(5)
+- 分文件：`ledger` 20/0 · `c17-path-at-every-level` 15/0 · `engine-harness` 43/0 · `ledger-budget` 7/0 · `ledger-scale` 4/0
+
+### 未验证 / 已知问题
+
+- **真实压缩一轮没跑通**。W-C 在独立实例上把「引擎行被加载 → `Config` schema 真求值 → `ctx.compaction`
+  服务注册 → 构造出 `ChessCompactionEngine`」全部验到了（同 realm 的 `inject:["compaction"]` 探针被激活），
+  但「**会话选中 preset → 引擎实例化 → 真压一轮**」**没验证**：测试 home 没配模型路由，
+  也没有擅自接生产 magpie 网关。
+- **preset 插件是惰性激活的**：不选该 preset 的会话不会 mount `config.plugins`
+  ⇒「装完没反应」最常见的原因是**没选 preset**，不是装坏了。
+- **没有装到 live**：桌面 home 里本插件仍是 **0 个版本**，装回去需要**停机窗口 + 主人授权 + 主人重启**。
+- 新定价只在**归档语料**上复算过；**现网 usage 对账**还欠一次：下次真实 fold 时记 `usage.prompt_tokens`
+  与 `estimateTokens(注入文本)` 比一下即可。
+- `doomed()` 现在按真实行遍历失败边（原先是 O(1) 的估算）⇒ 超大失败集下的渲染耗时**未单独压测**。
+
+### 未修项
+
+- **`README:3` 与 `HANDOFF` 的版本号仍然没有门禁**（`check-maintenance` 不读它们，只能人肉同步）。
+- 热清单定价的「CJK 1 token/字」在**纯中文**文本上是**上界**（实测纯中文约 0.54 token/字）——
+  这是刻意的保守选择（见 `src/rooms/ledger.mjs` 定价注释），但**纯 CJK 会话会偏保守**，未按场景细分。
+- 会话压力 / fold 触发已由宿主 `ctx.tokenMeter.measure(session)` 定价，与本版的热清单定价**是两套口径**
+  （前者吃 session surface，后者吃一段自造文本）—— 两套口径**未做统一**。
+
 ## 1.12.0 — 2026-11-01
 
 > 本轮主题：**让插件在 0.2.1-rc.5 的宿主上重新装得回去**，外加修掉两个已实测缺陷。

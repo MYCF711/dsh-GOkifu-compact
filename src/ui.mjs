@@ -303,23 +303,47 @@ function todayAggregate(home = resolveHome()) {
   return todayAggregateFrom(scanGraphs(home));
 }
 
-/** 安装/单实例/摘要模型 三项体检（比 test/doctor.mjs 轻，够页面用）。 */
-function health(home = resolveHome(), presets = findPresetFiles(home)) {
+/**
+ * 从请求体里取 profile 名（W-D）。只允许安全字符（挡住 `../` 之类的路径穿越）；
+ * 缺省 / 非法一律回落 `desktop` —— **保持向后兼容**（老的调用方根本不带这个字段）。
+ */
+function profileFromRequest(body) {
+  const raw = typeof body?.profile === "string" ? body.profile.trim() : "";
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(raw) ? raw : "desktop";
+}
+
+/**
+ * 安装/单实例/摘要模型 三项体检（比 test/doctor.mjs 轻，够页面用）。
+ *
+ * ★ W-D（2026-11-01）：profile 名以前在这里写死成 `desktop` —— 非默认 profile 的实例
+ *   （真实测试实例的 profile 叫 `web`）明明装好并进了 `dsh.profile.bundles`，自检却报
+ *   `installed:false, notInBundles:true`。而「装了没反应」排障第一眼看的就是这个接口，
+ *   它说假话的代价很高。现在与 {@link findPresetFiles} 同一个口径：查 `profiles/<profile>/`。
+ *   返回体带 `profile`，一眼能看出读的是哪个 profile。
+ *
+ * @param {string} home DSH_HOME
+ * @param {{name:string,file:string,text:string}[]} presets 已发现的 preset（调用方必须用**同一个** profile 发现）
+ * @param {string} [profile] profile 名（默认 desktop；空/非法回落 desktop）
+ */
+function health(home = resolveHome(), presets = findPresetFiles(home), profile = "desktop") {
+  const profileName = profile || "desktop";
+  const profileDir = nodePath.join(home, "profiles", profileName);
   const withOurs = presets.filter((p) => p.text.includes(ENTRY_ID));
   const withNative = presets.filter((p) => /^\s*- id: compaction-basic\s*$/m.test(p.text));
-  const profilePkgFile = nodePath.join(home, "profiles", "desktop", "package.json");
+  const profilePkgFile = nodePath.join(profileDir, "package.json");
   let profileOk = false;
   let inBundles = false;
   if (nodeFs.existsSync(profilePkgFile)) {
     try {
       const pkg = JSON.parse(nodeFs.readFileSync(profilePkgFile, "utf8"));
-      profileOk = Boolean(pkg.dependencies?.[PKG_NAME]) || nodeFs.existsSync(nodePath.join(home, "profiles", "desktop", "node_modules", PKG_NAME));
+      profileOk = Boolean(pkg.dependencies?.[PKG_NAME]) || nodeFs.existsSync(nodePath.join(profileDir, "node_modules", PKG_NAME));
       inBundles = (pkg.dsh?.profile?.bundles ?? []).includes(PKG_NAME);
     } catch {
-      /* ignore */
+      /* profile/package.json 读不出/坏 JSON ⇒ 保持 false（health 是自检，不许抛） */
     }
   }
   return {
+    profile: profileName,
     installed: profileOk,
     mounted: withOurs.length > 0,
     singleInstance: withNative.length === 0,
@@ -720,9 +744,12 @@ export function apply(ctx) {
         }
         const body = await readBody(req);
         const action = String(body.action ?? "state");
+        // ★ W-D：profile 由请求体可选传入（缺省 desktop，向后兼容）。preset 发现与 health 自检
+        //   必须用**同一个** profile，否则非默认 profile 的实例会报「装好了却未装」。
+        const profileName = profileFromRequest(body);
         if (action === "state") {
           const home = resolveHome();
-          const allPresets = findPresetFiles(home);
+          const allPresets = findPresetFiles(home, profileName);
           const presets = allPresets.filter((p) => p.text.includes(ENTRY_ID));
           const parsed = presets.length > 0 ? parseEngineBlock(presets[0].text) : null;
           const presetConfig = parsed?.config ?? {};
@@ -731,6 +758,8 @@ export function apply(ctx) {
           const scan = scanGraphs(home);
           return sendJson(res, 200, {
             ok: true,
+            // ★ W-D：带出实际用的 profile，排障时一眼看出读的是哪个（不传 = desktop，旧行为不变）。
+            profile: profileName,
             version: readVersion(),
             // ★ B4：`config` 给的是**引擎生效值**（缺失键补默认、非法值按引擎规则净化）。
             //   页面直接渲染它就不会再把 true/semantic 显示成「未配置/空」。
@@ -744,7 +773,7 @@ export function apply(ctx) {
             configFile: presets[0]?.file ?? null,
             latest: latestGraphFrom(scan),
             today: todayAggregateFrom(scan),
-            health: health(home, allPresets),
+            health: health(home, allPresets, profileName),
           });
         }
         if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS, fieldLabels: FIELD_LABELS });
@@ -754,8 +783,17 @@ export function apply(ctx) {
         }
         if (action === "health") {
           const home = resolveHome();
+          // ★ W-D：health 自检按请求里的 profile 走（缺省 desktop）；preset 发现用同一个 profile，
+          //   否则非默认 profile 的实例会「装好了却报未装」。返回体带出 profile 方便排障。
+          const allPresets = findPresetFiles(home, profileName);
           const scan = scanGraphs(home);
-          return sendJson(res, 200, { ok: true, health: health(home), latest: latestGraphFrom(scan), today: todayAggregateFrom(scan) });
+          return sendJson(res, 200, {
+            ok: true,
+            profile: profileName,
+            health: health(home, allPresets, profileName),
+            latest: latestGraphFrom(scan),
+            today: todayAggregateFrom(scan),
+          });
         }
         return sendJson(res, 400, { error: `未知 action: ${action}` });
       } catch (error) {

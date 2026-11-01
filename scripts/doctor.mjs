@@ -20,8 +20,8 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
-// ★ W5（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
-//   不再写死 `<home>/preset-bundles/personal-assistant/cordis.patch.yml` —— 新版 DSH 没有那个目录。
+// ★ W5/W-B（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
+//   不再写死「旧 home 的某个固定 preset 目录/名字」—— 新版 DSH 没有 preset-bundles，旧 home 才走它。
 //   选 `./install.mjs` 而不是 `../src/ui.mjs`：doctor 是 CLI 侧脚本，install.mjs 就在同目录、
 //   模块级零副作用；ui.mjs 是**宿主半**（webServer 路由 + DEFAULTS），CLI 不该为一段发现逻辑拉它进来。
 import { presetsWithCompaction } from "./install.mjs";
@@ -58,7 +58,7 @@ add(
   "preset 引用了 dsh-gokifu-compact",
   preset === null ? "warn" : hasOurName ? "ok" : "error",
   preset === null
-    ? "未发现含 compaction 的 preset（新版 home 需自建 preset bundle；合法中间态，不是错误）"
+    ? "未发现含 compaction 的 preset（两代都查过：新版看 profile 的 dsh.profile.bundles、旧版看 preset-bundles；新版 home 需自建 preset bundle，这是合法中间态，不是错误）"
     : hasOurName
       ? preset.file
       : `${preset.file} 里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
@@ -97,7 +97,7 @@ add(
   "压缩后端已接管（preset 里是 gokifu-compact）",
   preset === null ? "warn" : hasOurEngine ? "ok" : "error",
   preset === null
-    ? "未发现 preset —— 新版 home 需先自建 preset bundle，再跑一次 install（合法中间态，不是错误）"
+    ? "未发现 preset（新版看 profile 的 dsh.profile.bundles、旧版看 preset-bundles，两代都没有）—— 新版 home 需先自建 preset bundle，再跑一次 install（合法中间态，不是错误）"
     : hasOurEngine
       ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）"
       : `preset（${preset.file}）里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
@@ -110,7 +110,7 @@ add(
 
 const sum = readPresetSummarizer();
 if (sum === null) {
-  add("摘要模型配置", "warn", preset === null ? "未发现 preset（跳过 —— 新版 home 需先自建 preset bundle）" : "preset 里没有 gokifu 引擎行（跳过 —— 先跑 install）");
+  add("摘要模型配置", "warn", preset === null ? "未发现 preset（跳过 —— 两代都查过：profile 的 dsh.profile.bundles / preset-bundles）" : "preset 里没有 gokifu 引擎行（跳过 —— 先跑 install）");
 } else if (sum.provider === "" && sum.model === "") {
   add("摘要模型配置", "ok", "留空 = 跟随当前路由（最稳）");
 } else {
