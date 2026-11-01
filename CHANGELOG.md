@@ -5,6 +5,20 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C87 · patch ↔ package.json 身份一致性（装完不生效级别的事故，仓库侧先拦）
+
+**问题**：安装能不能接管，最终只取决于 patch 里那一行 `name: '<包名>/engine'`。
+包名改了而 patch 没重生成、或某个 preset 的引擎行漏了，都是**装完不生效**级别的事故 ——
+而 `verify-install` 只能在机器上发现问题，仓库侧此前没有判据（C84-3 只检查了 id 有无）。
+
+**做法**：新增 `test/patch-manifest.test.mjs`：
+
+1. 引擎行**必须正好是 `<package.json name>/engine`**，且**数量 = 4**（四个官方 preset 各一行）；
+2. 四个覆盖块 `preset-standard / -ptc / -minimal / -cordis` 齐全；
+3. `insert` 里的 UI host 行也用同一个包名；
+4. **不再有 `compaction-basic` 的配置行 / `- id: compaction-basic` 行**
+   （★ 只查 YAML 行、不查注释 —— 头部注释会解释「把 compaction-basic 换成 …」，第一次实现把注释也算上，误报了一次）。
+
 ### C86 · 用户文档里的命令必须是真的（防文档腐坏）
 
 **问题**：`README.md` / `QUICKSTART.md` 是用户唯一会照抄的东西 —— 里面写一个已不存在的脚本，
