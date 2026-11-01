@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.14.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.15.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 351 tokens 的热清单」。**
 
@@ -120,46 +120,40 @@ TRACE: <sessions>/<sid>/index.md  (per-node detail: nodes/<id>.md)
 
 ## 安装
 
-**两步，不用手改任何 YAML。**
+**一条命令，和装别的 DSH 插件一样。** 本包自带 `dsh.bundle.patch`：装进 profile 后会自动进
+`dsh.profile.bundles`，并由这一个包同时完成三件事 ——
+
+1. 插入 UI 页（`/gokifu/api` + 设置页）；
+2. 把官方 `standard` preset 的压缩引擎 `compaction-basic` 换成 `dsh-gokifu-compact/engine`
+   （其余 32 条官方插件行逐字保留）；
+3. 把「新会话默认 preset」指向 gokifu 版 preset ⇒ **装上即接管**，不需要再单独装 preset bundle，
+   也不需要每次手选 preset。
+
+桌面版最省事的是 **插件市场 → 安装**（点一下）。命令行等价于：
 
 ```bash
-# 1) 装包（DSH 会把它作为普通依赖装进 profile；不会把它塞进 bundles，避免双挂载）
 dsh plugin --profile <profile> add dsh-gokifu-compact
-
-# 2) 一条命令接管压缩后端（自动改 preset 的 compaction group，带备份、可回滚、幂等）
-npx dsh-gokifu-compact install --profile <profile>
-
-# 3) 重启 DSH（插件在启动时加载），然后自检
-npx dsh-gokifu-compact doctor
 ```
 
-> 第 1 步会打印一条 `declares no dsh.bundle — installed as a plain dependency` —— **这是预期的**：
-> 本插件挂在 agent preset 里，不做 profile 级 bundle（做了会在顶层再挂一份，与 preset 内那份双实例冲突）。
+然后**重启 DSH**（bundle 层在启动时合并）。重启后新会话默认走棋谱压缩；
+想换回别的模式，在 **设置 → Agent presets** 里把新任务默认 preset 改回去即可（会覆盖本包的默认值）。
 
-第 2 步做的是**唯一一件必须改文件的事**：把 agent preset 的 compaction group 里
-`@deepseek-ai/dsh-compaction-basic` 那一行换成 `dsh-gokifu-compact`。为什么脚本必须改文件而不是
-自动在启动时生效——因为那一行在 preset 的 `config.plugins` 数组内部，profile 级 / bundle 级的
-patch 打不到它（`applyEntryPatches` 只递归 `group: true` 且 `config` 为数组的条目）。
-脚本替你改、替你备份、也能替你还原：
+> 1.15.0 之前是「插件包 + 另装一个 preset bundle」两步，还要手跑生成器、手选 preset；现在一个包就够。
+> 代价要说明白：preset 声明是**按宿主版本生成的快照**（生成时读取宿主 asar 里的官方 preset），
+> DSH 升级后需要维护者重跑 `node scripts/make-preset.mjs --bundle --write` 并发一版新插件。
+> 生成器有「插件行集合不多不少」自检：漏一行 / 多一行都会拒绝产出。
+
+**从源码（开发用）**
 
 ```bash
-npx dsh-gokifu-compact install --dry-run     # 先看会改什么（不写盘）
-npx dsh-gokifu-compact revert                # 还原（恢复 .bak-before-gokifu-* 备份）
+node scripts/make-preset.mjs --bundle          # dry-run：看将从当前宿主 asar 生成什么
+node scripts/make-preset.mjs --bundle --write  # 重写仓库根的 cordis.patch.yml
+dsh plugin --profile <profile> add <本仓库路径>  # 或按下面的说明用市场/registry 安装
 ```
 
-**从源码（开发用，一条命令含链接 + 改 preset + 校验）**
-
-```bash
-git clone https://github.com/MYCF711/dsh-GOkifu-compact.git
-cd dsh-GOkifu-compact
-node test/install.mjs --dry-run   # 预演
-node test/install.mjs             # 真装
-node test/rollback.mjs            # 回滚
-```
-
-> ⚠ **压缩后端只能有一个**：`ctx.compaction` 在同一 isolate realm 里只能注册一次，同时挂
-> `dsh-compaction-basic` 会在构造期抛 `service "compaction" has been registered`，并连累整个
-> preset generation。安装器做的就是「换掉那一行」；不要手工再复制一份。
+> ⚠ **压缩后端只能有一个**：preset 的 compaction group 里不许再出现 `compaction-basic`
+> （生成器与 `verify-install` 都有机器判据）。若之前装过旧的 `dsh-gokifu-preset` 包，
+> 必须先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
 ## 配置
 

@@ -29,12 +29,14 @@ import {
   ENGINE_ROW,
   UsageError,
   assertOutDirAllowed,
+  buildBundlePatch,
   buildPresetBundle,
   findCompactionGroup,
   parseArgs,
   rewriteCompactionEngine,
   run,
   runningHomes,
+  validateBundlePatch,
 } from "../scripts/make-preset.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -360,4 +362,44 @@ export const tests = {
       cleanup(root);
     }
   },
+
+/* ─────────────── B · 1.15.0：一个包装上就接管（bundle patch 组合模式） ─────────────── */
+
+"B-1 buildBundlePatch：UI 行 + preset 行 + 默认 preset，官方插件行逐字保留": (t) => {
+  const bundle = buildBundlePatch({ officialText: OFFICIAL_FIXTURE, hostVersion: "0.2.1-rc.5" });
+  const body = bodyOf(bundle.patchYml);
+  t.eq(bundle.presetId, "gokifu", "preset id");
+  t.includes(body, "- id: gokifu-ui", "必须插 UI host 行");
+  t.includes(body, "name: 'dsh-gokifu-compact'", "UI 行必须用裸包名");
+  t.includes(body, "- id: preset-gokifu", "必须插 preset 声明行");
+  t.includes(body, "name: 'dsh-gokifu-compact/engine'", "引擎行必须是 /engine 子路径");
+  t.eq(body.includes("- id: compaction-basic"), false, "不许残留 compaction-basic");
+  t.includes(body, "- id: agent-preset-registry", "必须把注册表默认 preset 指向 gokifu");
+  t.includes(body, "default: gokifu", "注册表补丁的默认值");
+  t.eq(body.split(String.fromCharCode(10)).filter((l) => l.trim() === "- insert:").length, 1, "顶层 - insert: 恰好一条");
+  for (const id of ["persona", "agent-instructions", "time-context", "tool-schedule", "plan-mode", "command-compact", "tool-result-pruner", "workflow-ptc", "tool-ask-user"]) {
+    t.includes(body, `- id: ${id}`, `官方插件行 ${id} 必须逐字保留`);
+  }
+  const NL = String.fromCharCode(10);
+  const presetLines = bundle.presetPatchYml.split(NL).filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+  const combinedLines = new Set(bundle.patchYml.split(NL));
+  t.eq(presetLines.filter((l) => !combinedLines.has(l)), [], "组合 patch 必须逐行包含纯 preset 产物");
+},
+
+"B-2 validateBundlePatch：缺注册表 / 残留 compaction-basic / 缺 UI 行都必须拒绝（不许半成品）": (t) => {
+  const good = buildBundlePatch({ officialText: OFFICIAL_FIXTURE, hostVersion: "0.2.1-rc.5" });
+  t.eq(validateBundlePatch(good.patchYml, good.presetPatchYml, OFFICIAL_FIXTURE), true, "健康产物必须过检");
+  t.throws(
+    () => validateBundlePatch(good.patchYml.replace("- id: agent-preset-registry", "- id: not-the-registry"), good.presetPatchYml, OFFICIAL_FIXTURE),
+    "缺注册表补丁必须拒绝",
+  );
+  t.throws(
+    () => validateBundlePatch(good.patchYml.replace("name: 'dsh-gokifu-compact/engine'", "name: '@deepseek-ai/dsh-compaction-basic'"), good.presetPatchYml, OFFICIAL_FIXTURE),
+    "引擎换回 compaction-basic 必须拒绝",
+  );
+  t.throws(
+    () => validateBundlePatch(good.patchYml.replace("- id: gokifu-ui", "- id: uh-oh"), good.presetPatchYml, OFFICIAL_FIXTURE),
+    "缺 UI 行必须拒绝",
+  );
+},
 };

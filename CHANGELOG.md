@@ -1,5 +1,73 @@
 # 更新记录
 
+## 1.15.0 — 2026-11-01
+
+> 本轮主题：**把安装做成「跟别的插件一样」** —— 一个包、一次安装、装上即接管。
+> 触发：主人在插件市场里点安装，被宿主版本闸拒（npm 上只有 1.11.17 的精确 `0.2.0-rc.2` 钉死），
+> 且发现本插件的安装要「插件包 + 另装 preset bundle + 手跑生成器 + 手选 preset」四步，跟别的插件不一样。
+> 对照参考：`ranxianglei/billion-context`（单包 + `dsh.bundle.patch`，装完即生效）。
+> **本版 npm publish 1.15.0**（主人本轮明确授权）；1.14.0 也已补发到 npm。
+
+### V1 · bundle patch 升级成「三合一生成物」（本版核心）
+
+`cordis.patch.yml` 以前只插 UI 一行（引擎必须在 preset 里，而 preset 是另一个包）。现在它是
+**生成物**，一个 patch 里同时做三件事：
+
+```yaml
+- insert:
+    - id: gokifu-ui            # ① UI host：/gokifu/api + 设置页
+    - id: preset-gokifu        # ② agent preset：compaction group 的 compaction-basic → dsh-gokifu-compact/engine
+      name: '@deepseek-ai/dsh-agent-preset'
+      config: { id: gokifu, ... plugins: [ ...官方 standard 的 32 条行逐字保留... ] }
+- id: agent-preset-registry     # ③ 新会话默认 preset 指向 gokifu —— 装上即接管
+  config:
+    default: gokifu
+```
+
+⇒ 安装从「两步 + 手跑生成器 + 手选 preset」变成 **一条命令 / 市场点一下**；
+`dsh plugin add` 成功后 `reconcile()` 自动把本包写进 `dsh.profile.bundles`，重启即生效。
+用户仍可在 **设置 → Agent presets** 把新任务默认 preset 改回别的（`selectedDefault` 存 settings，
+优先级高于本 patch 的 `default`）。
+
+### V2 · 生成器：`--bundle` 模式（读宿主当前 asar，不冻结）
+
+- 新增 `buildBundlePatch()` / `validateBundlePatch()`；`node scripts/make-preset.mjs --bundle --write`
+  重写仓库根 `cordis.patch.yml`（旧文件备份 `.bak-<ts>`）。
+- 自检：UI 行在 / preset 声明在 / 引擎行是 `dsh-gokifu-compact/engine` / **不许残留 `- id: compaction-basic`** /
+  注册表补丁有 `default:` / 顶层 `- insert:` 恰好一条 / **插件行集合与官方 preset 不多不少**。
+- preset 快照随宿主版本（本版按 0.2.1-rc.5 生成）：**DSH 升级后维护者重跑一次并联同插件发版**；
+  这是「一个包装上」的代价，写进 README 安装节，不藏着。
+
+### V3 · preset 发现与「接管」判定修正（真 bug）
+
+1. **本包 patch 现在同时是 preset 来源**：`findPresetFiles` / `presetsWithCompaction` 以前无条件
+   `bundle === PKG_NAME → continue`（那时它只有 UI 行）。现在改成「**只有真的声明了 preset 才当 preset**」，
+   旧包（UI-only）行为不变。
+2. **不许自我遮蔽**：只有本包命中时不再提前 `return` —— 旧 home 的 preset 在 `preset-bundles/` 里，
+   提前返回会让安装器/doctor 找不到真正要改的 preset（新加的 C5 幂等回归就是踩这个）。
+3. **`health.singleInstance` 作用域修正**：以前是「所有被发现的 preset 里都不许有 compaction-basic」，
+   于是只要装了别的 preset（例如 `dsh-design-studio`）页面就永远显示**未接管**——单实例规则的作用域
+   本来是「**本 preset 内部**」。现在只在本引擎所在声明里判，页面终于能如实显示「已接管」。
+
+### 验证
+
+- 全量单测 **615 passed / 0 skipped / 0 failed**（**54** 个测试文件；1.14.0 基线 613）。
+- 新增 `bundle.test.mjs` B-2 重写为三合一形状断言；`make-preset.test.mjs` 增 `buildBundlePatch` /
+  `validateBundlePatch` 正负例（缺注册表 / 残留 compaction-basic / 缺 UI 行都必须拒绝）。
+- 隔离实例端到端（`dsh-test-home/profiles/web115`，62620，只用**这一个包**）：
+  `--dump-config` 里三条都在（`agent-preset-registry default: gokifu` / `gokifu-ui` /
+  `preset-gokifu` 且引擎行在 `isolate:{compaction:true}` 组内）；实例起得来，
+  `POST /gokifu/api {"action":"health"}` = **200**。
+- live 桌面（0.2.1-rc.5）实测：1.14.0 发布后市场入口可装；`verify-install` 17/18（最后一项要运行期棋谱）。
+
+### 迁移注意（旧安装 → 1.15.0）
+
+- 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`（旧的独立 preset bundle），**再重启**；
+  否则两个包都声明 `id: gokifu` ⇒ 同名 preset 重复注册。
+- 本版不改变引擎行为/配置项；`thresholdRatio` 默认仍是 0.45。
+
+---
+
 ## 1.14.0 — 2026-11-01
 
 > 本轮主题：**UI 解冻后的一次改版** —— 摘要模型下拉改成「只读宿主模型目录」，页面做宽屏双栏 / 滚动容器 P0 修复 /

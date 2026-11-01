@@ -125,8 +125,9 @@ function readTextOrNull(file) {
  *   ③ 都没有 ⇒ `[]`（home 不存在 / package.json 坏 / 读文件失败一律当「没有」）。
  *
  * 返回形状固定 `{ name, file, text }`：`name` 新一代是 bundle 包名，旧一代是目录名。
- * 本包自己的 bundle patch（`name === PKG_NAME`）**排除**：它只插 UI 行，永远不是 preset，
- * 不排除的话安装器重新装时会把自己当成要改的 preset（自指噪音）。
+ * 本包自己的 bundle patch（`name === PKG_NAME`）**只有当它真的声明了 preset 时**才算 preset：
+ *   1.15.0 起本包的 `cordis.patch.yml` 同时带 UI 行与 preset 行（一个包装上就接管）；
+ *   ≤1.14.0 的旧包只有 UI 行 —— 继续排除，否则安装器/doctor 会把自己当成要改的 preset（自指噪音）。
  *
  * ⚠ 同一逻辑在 `scripts/install.mjs` 的 `presetsWithCompaction()` 里**复制了一份**，不是偷懒：
  *   `install.mjs` 会被单独复制进夹具/已装包运行（test/install-link.test.mjs F1 只复制
@@ -146,15 +147,23 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
   /* ── ① 新一代：profile 的 dsh.profile.bundles → 包的 cordis.patch.yml ── */
   const profileDir = nodePath.join(dshHome, "profiles", profileName);
   const out = [];
+  /** 本包自己的 preset 声明（1.15.0+ 才有；单独存着 —— 不许用它遮住旧一代 preset 的发现）。 */
+  let ownPreset = null;
   for (const bundle of readProfileBundles(profileDir)) {
-    if (bundle === PKG_NAME) continue; // 本包自己的 bundle patch 不是 preset
     const file = nodePath.join(profileDir, "node_modules", bundle, "cordis.patch.yml");
     const text = readTextOrNull(file);
     if (text === null) continue;
-    if (!text.includes("@deepseek-ai/dsh-agent-preset") && !text.includes("- id: compaction-basic") && !text.includes(PKG_NAME)) continue;
+    const declaresPreset = text.includes("@deepseek-ai/dsh-agent-preset");
+    if (bundle === PKG_NAME) {
+      // 1.15.0+：本包 patch = UI 行 + preset 行（一个包装上就接管）；UI-only 的旧包继续排除（见上方注释）。
+      if (declaresPreset && text.includes(ENTRY_ID)) ownPreset = { name: bundle, file, text };
+      continue;
+    } else if (!declaresPreset && !text.includes("- id: compaction-basic") && !text.includes(PKG_NAME)) continue;
     out.push({ name: bundle, file, text });
   }
-  if (out.length > 0) return out;
+  // 关键：只有本包自己命中时**不许提前返回** —— 旧 home 的 preset 在 preset-bundles/ 里，
+  // 提前返回会让安装器/doctor 找不到真正要改的 preset（C5 幂等用例就是踩这个）。
+  if (out.length > 0) return ownPreset === null ? out : [...out, ownPreset];
 
   /* ── ② 旧一代：<home>/preset-bundles/<dir>/cordis.patch.yml（原行为） ── */
   const root = nodePath.join(dshHome, "preset-bundles");
@@ -168,9 +177,9 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
       if (text.includes(PKG_NAME) || text.includes("- id: compaction-basic")) out.push({ name: entry.name, file, text });
     }
   } catch {
-    return [];
+    return ownPreset === null ? [] : [ownPreset];
   }
-  return out;
+  return ownPreset === null ? out : [...out, ownPreset];
 }
 
 /* ─────────────────── 棋谱扫描/解析缓存（P4：首屏 state 性能） ───────────────────
@@ -331,8 +340,11 @@ function profileFromRequest(body) {
 function health(home = resolveHome(), presets = findPresetFiles(home), profile = "desktop") {
   const profileName = profile || "desktop";
   const profileDir = nodePath.join(home, "profiles", profileName);
+  // mounted：发现了挂了本引擎的 preset 声明；
+  // singleInstance：**在这个声明里**没有 compaction-basic（单实例规则的作用域是 preset 内部，
+  // 不是「别的 preset 里也不许有」—— 1.15.0 起 preset 进了本包 bundle，作用域判错会永远显示未接管）。
   const withOurs = presets.filter((p) => p.text.includes(ENTRY_ID));
-  const withNative = presets.filter((p) => /^\s*- id: compaction-basic\s*$/m.test(p.text));
+  const withNative = withOurs.filter((p) => /^\s*- id: compaction-basic\s*$/m.test(p.text));
   const profilePkgFile = nodePath.join(profileDir, "package.json");
   let profileOk = false;
   let inBundles = false;

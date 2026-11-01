@@ -12,7 +12,8 @@
  *
  * 本文件锁四件事：
  *   ① package.json 的 bundle 声明齐全（patch 路径 / manifestVersion / files / exports）；
- *   ② `cordis.patch.yml` **只插 UI 一行**（不许把引擎或 config 塞进来 —— 引擎必须在 preset 里）；
+ *   ② `cordis.patch.yml` 是**生成物**：UI 行 + preset 行（引擎在 compaction group 里）+ 把新会话默认 preset 指向 gokifu
+ *      —— 一个包装上就接管，不需要再单独装 preset bundle；
  *   ③ 安装器的 bundle 优先与手工行删除（含备份、幂等、dry-run 零写、别的行不动）；
  *   ④ 已存在的 registry/git 规格**不被改写**成 link（用户装的是哪个版本要可追溯）。
  */
@@ -89,22 +90,38 @@ export const tests = {
     t.eq(pkg.main, "src/ui.mjs", "main 仍是 host 半入口（bundle 不改变它）");
   },
 
-  "B-2 cordis.patch.yml：只插 UI 一行（引擎/配置不许进 patch）"(t) {
+  "B-2 cordis.patch.yml：一个包装上就接管（UI 行 + preset 行 + 默认 preset）"(t) {
     const text = nodeFs.readFileSync(nodePath.join(REPO, "cordis.patch.yml"), "utf8");
-    const lines = text.split("\n");
-    const inserts = lines.filter((l) => /^- insert:\s*$/.test(l));
-    t.eq(inserts.length, 1, "顶级 - insert: 必须恰好 1 个");
-    const ids = lines.filter((l) => /^\s*- id:/.test(l)).map((l) => l.trim());
-    t.eq(ids, ["- id: gokifu-ui"], "插入行必须只有 id: gokifu-ui");
-    t.includes(text, `name: '${PKG}'`, "插入行必须用裸包名（client-modules 只对包根说明符发现客户端）");
-    // 引擎必须在 preset 的 compaction group 里；patch 里出现这些 = 挂错层
-    for (const banned of ["compaction", "engine", "config:", "disabled:"]) {
-      t.eq(new RegExp(`^\\s*${banned}`, "m").test(text.replace(/^#.*$/gm, "")), false, `patch 里不许出现 ${banned}（引擎归 preset，配置归宿主）`);
-    }
-    // 缩进：子行必须比 - insert: 深
-    const insertIdx = lines.findIndex((l) => /^- insert:\s*$/.test(l));
-    const childIdx = lines.findIndex((l) => /^\s*- id: gokifu-ui/.test(l));
-    t.eq(lines[childIdx].match(/^\s*/)[0].length > lines[insertIdx].match(/^\s*/)[0].length, true, "子行缩进必须比 - insert: 深");
+    const NL = String.fromCharCode(10);
+    const lines = text.split(NL);
+    const body = lines.filter((line) => !line.trim().startsWith("#")).join(NL);
+    t.includes(text, "生成物", "必须是生成器产物（头部声明「生成物 · 不要手改」）");
+    t.eq(lines.filter((l) => l.trim() === "- insert:").length, 1, "顶层 - insert: 必须恰好 1 个");
+
+    // ① UI host 行 —— 裸包名（client-modules 只对包根说明符发现客户端）
+    const childIds = lines.filter((l) => l.indexOf("- id:") === 4).map((l) => l.trim());
+    t.eq(childIds, ["- id: gokifu-ui", "- id: preset-gokifu"], "insert 里恰好两行：UI host + preset 声明");
+    t.includes(body, `name: '${PKG}'`, "UI 行必须用裸包名");
+
+    // ② preset 声明：引擎必须在 compaction group 内（包根是 UI host，必须写 /engine 子路径）
+    t.includes(body, "name: '@deepseek-ai/dsh-agent-preset'", "必须有 agent preset 声明");
+    t.includes(body, `name: '${PKG}/engine'`, "引擎必须是 /engine 子路径");
+    t.eq(body.includes("- id: compaction-basic"), false, "preset 里不许再挂 compaction-basic（单实例）");
+    t.includes(body, "dsh-command-compact", "command-compact 必须保留");
+    t.includes(body, "dsh-compaction-tool-result-pruner", "tool-result-pruner 必须保留");
+    const groupAt = body.indexOf("- id: compaction");
+    const iso = groupAt < 0 ? "" : body.slice(groupAt, groupAt + 320);
+    t.eq(iso.includes("isolate:") && iso.includes("compaction: true"), true, "引擎所在 group 必须 isolate:{compaction:true}");
+
+    // ③ 新会话默认 preset 指向 gokifu（装上即接管，不需要用户再挑 preset）
+    const registryAt = body.indexOf("- id: agent-preset-registry");
+    t.eq(registryAt > 0, true, "必须有 agent-preset-registry 补丁");
+    const registryLines = registryAt < 0 ? [] : body.slice(registryAt).split(NL).map((l) => l.trim());
+    t.eq(registryLines.includes("default: gokifu"), true, "必须把 agent-preset-registry 的默认 preset 指向 gokifu");
+
+    // ④ 顶层条目只许两类：insert + 注册表补丁（多出来的 = 悄悄挂别的层）
+    const top = lines.filter((l) => l.startsWith("- ")).map((l) => l.trim());
+    t.eq(top, ["- insert:", "- id: agent-preset-registry"], "顶层条目只许这两条");
   },
 
   "B-3 findManualUiRow：整块识别 / 多子行时只删本行 / 结构不认识时拒绝"(t) {
