@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C49 · over-budget 归因再细分：`budgetIrreducible`（已列全失败边仍超）
+
+**问题**：C44 只分出「约束+根目标下限即超预算」一种设计内形态。但 C48 的离线归因显示，
+live 最常见的是另一种：**失败边已经全部列出**（7 条长原因，`shownFailures === failureCount`），
+此时再省就只能删失败边 —— 同样属于设计内（合同红线：每条失败边都要出现），却仍被算成「over-budget」，
+看起来像渲染问题。
+
+**做法**：
+
+- `ledgerBudgetMetrics` 透传 `shownFailures` / `failureCount`；
+- `accumulateLedgerBudget` 新增 **`budgetIrreducible`**：`over-budget && shownFailures >= failureCount && failureCount > 0`；
+- `doctor` 文案区分：`budgetFloorOver`（约束+根目标不可裁）与 `budgetIrreducible`（再省必须丢失败记忆）。
+
+判读口径：两者之和若远小于 over-budget 总数，才说明存在「还有更省形式却没选」的真问题。
+
+测试：`engine-harness` 断言两种形态（列全 ⇒ 计 1；`shown < count` ⇒ 不计）。
+
 ### C48 · over-budget 按会话归因（聚合比例 ≠ 系统性问题）
 
 **现象**：live 聚合 `over-budget 178 / 911（19.5%）`、maxOver 191 —— 已到 C41 写下的重评阈值附近。

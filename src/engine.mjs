@@ -77,6 +77,9 @@ export function ledgerBudgetMetrics(ledger) {
     sections: ledger?.sections && typeof ledger.sections === "object" ? { ...ledger.sections } : null,
     // ★ C44：不可裁下限（root + constraints）的 token 数 —— 用来区分「渲染超预算」与「底线即超预算」。
     unyieldingTokens: Number.isFinite(ledger?.unyieldingTokens) ? ledger.unyieldingTokens : null,
+    // ★ C49：本次列了几条失败边 / 一共几条 —— 用来判断超预算时「还有没有更省的形式」。
+    shownFailures: Number.isFinite(ledger?.shownFailures) ? ledger.shownFailures : null,
+    failureCount: Number.isFinite(ledger?.failureCount) ? ledger.failureCount : null,
   };
 }
 
@@ -123,6 +126,18 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
     metrics.unyieldingTokens >= metrics.budgetMax
   ) {
     target.budgetFloorOver = (Number.isFinite(target.budgetFloorOver) ? target.budgetFloorOver : 0) + 1;
+  }
+  // ★ C49：超预算但**已经把失败边全列出来**（shownFailures === failureCount）⇒ 再省就只能删失败边，
+  //   而「每条失败边都要出现」是合同红线（L4/L5 已经只在 >20/>10 条时才截）。这类超预算是设计内，
+  //   与「明明有更省形式却仍超」区分开（后者才可能是渲染 bug）。
+  if (
+    metrics.fallback === "over-budget" &&
+    Number.isFinite(metrics.shownFailures) &&
+    Number.isFinite(metrics.failureCount) &&
+    metrics.failureCount > 0 &&
+    metrics.shownFailures >= metrics.failureCount
+  ) {
+    target.budgetIrreducible = (Number.isFinite(target.budgetIrreducible) ? target.budgetIrreducible : 0) + 1;
   }
   // ★ C48：超预算按会话归因 —— 只有一个会话反复超时，聚合数字会误导（"系统性问题" vs "这一个会话"）。
   //   有界保留前 8 个来源，避免 ledger-budget.json 无限增长。

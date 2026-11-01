@@ -1013,6 +1013,17 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (bySession.overBySession["session-b"] !== 1) throw new Error(`session-b 应计 1，实际 ${JSON.stringify(bySession.overBySession)}`);
   const noneCase = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, budgetMax: 500, provenanceCoverage: 1 }, 1, "session-c");
   if (noneCase.overBySession !== undefined) throw new Error("非超预算不许记会话归因");
+  // ★ C49：已列全失败边仍超 ⇒ budgetIrreducible（设计内）；还有更省形式（shown < count）⇒ 不计
+  const irre = mod.accumulateLedgerBudget({}, {
+    fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 300,
+    shownFailures: 7, failureCount: 7, provenanceCoverage: 1,
+  }, 1, "session-d");
+  if (irre.budgetIrreducible !== 1) throw new Error(`列全失败边仍超必须计 1，实际 ${irre.budgetIrreducible}`);
+  const reducible = mod.accumulateLedgerBudget({}, {
+    fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 100,
+    shownFailures: 10, failureCount: 25, provenanceCoverage: 1,
+  }, 1, "session-e");
+  if (reducible.budgetIrreducible !== undefined) throw new Error("shown < count 时不许计不可约（还有更省形式）");
   if (old.provenanceMin !== 1) throw new Error(`旧文件首累计 provenanceMin 必须是 1，实际 ${old.provenanceMin}`);
 };
 
