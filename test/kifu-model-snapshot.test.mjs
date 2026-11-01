@@ -26,6 +26,10 @@ import {
   settleEdge,
   toJSON,
 } from "./graph-fixtures.mjs";
+import { createPersistStore, createFsPort } from "../src/rooms/kifu-persist.mjs";
+import nodeFs from "node:fs";
+import nodeOs from "node:os";
+import nodePath from "node:path";
 
 export const tests = {};
 
@@ -61,4 +65,32 @@ tests["C113-2 restoreFromSnapshot：图恢复 + dirty 清空 ⇒ delta 不含任
   const delta = deltaFromDirty(g, peekDirty(g));
   t.eq(delta.delNodes.length, 0, "delta 不许再带删除记录");
   t.eq(delta.orderDrop.length, 0, "orderDrop 也不许带");
+};
+
+tests["C114 端到端：回滚后落盘再 load，节点不许丢（C113 的真实验收）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  void NL;
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-c114-"));
+  try {
+    const store = createPersistStore({ port: createFsPort(), root });
+    const { g, n } = build();
+    const snap = toJSON(g);
+    // ① 基线落盘（干净状态）
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+
+    // ② fold 期间合并 → ③ 回滚（模拟 engine 的 restore）
+    mergeNodeInto(g, n, g.order[0]);
+    restoreFromSnapshot(g, snap);
+    // ④ 回滚后落盘（真实 engine 现在走的是非 full 分支 —— delta）
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    t.eq(r.ok, true, "回滚后的落盘必须成功");
+
+    // ⑤ 重新 load（等价于「下次重启」）
+    const loaded = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+    const ids = Object.keys(loaded.graph.nodes);
+    t.eq(ids.includes(n), true, `load 后节点 ${n} 必须还在（C113 之前的 bug 会把它删掉）：${ids.join(",")}`);
+    t.eq(ids.length, 2, `节点数必须仍为 2，实际 ${ids.length}`);
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
 };
