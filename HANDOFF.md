@@ -112,6 +112,7 @@
 | **C99 QUICKSTART 项数过期（2026-11-02）** | 「18 项/18-18」实际已 19 项：改为不写死项数 + 保留「哪一项可能短红」；C99-1 禁止 QUICKSTART 出现写死项数 |
 | **C100 文档数字锚判据（2026-11-02）** | `docs-numbers`：文档「boundary-audit N 条规则」= `RULES.length`、bench「N tokens」= `EXPECTED_TOKENS`；立刻抓到文档写 5 条、实际 **6** 条（已改正）；两条判据都要求至少命中一次 |
 | **C101 数字锚再补两根（2026-11-02）** | 文档「fold 间隔 < N 事件」= `THRASH_SEQ`(30)、`hotLedgerMaxTokens` 数值 = schema 默认(500)；两处都正确 => 由「碰巧对」变「有人看守」；记下「别在正则里塞换行，用 split(fromCharCode(10))」 |
+| **C102 live 证据补采（2026-11-02）** | 新增 2 次 fold（8cc34e32 seq 2171–3166；本会话 seq 7930–9799 = 当前摘要来源）：总数 18 / 7 会话、quality 14 次召回全 1、boundary 11 次全 0、thrash 0；四处口径同步 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
