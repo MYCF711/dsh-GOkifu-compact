@@ -80,8 +80,11 @@ function randomGraph(seed) {
 
 const BUDGETS = [150, 250, 400, 600, 1_000_000];
 
-tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目闭合、超限自报、无绝对路径、无指导、幂等）"] = (t) => {
-  const seeds = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
+tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目闭合、超限自报、无绝对路径、无指导、幂等；覆盖 200 次渲染）"] = (t) => {
+  let sawOverBudget = 0;
+  let sawOmitted = 0;
+  // 40 个固定种子（斐波那契序列，天然互不相同且可复现）：50 次渲染 → 200 次渲染
+  const seeds = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946, 17711, 28657, 46368, 75025, 121393, 196418, 317811, 514229, 832040, 1346269, 2178309, 3524578, 5702887, 9227465, 14930352, 24157817, 39088169, 63245986, 102334155, 165580141];
   for (const seed of seeds) {
     const g = randomGraph(seed);
     const root = g.nodes[g.rootUserNodeIds[0]];
@@ -102,6 +105,7 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
       // ② 失败边账目闭合
       if (failureIds.length > 0) {
         t.eq(led.shownFailures + led.omittedEdges, failureIds.length, `${where}：shown+omitted 不等于失败边总数`);
+        if (led.omittedEdges > 0) sawOmitted += 1;
       }
       // ③ 超限必须自报，且 overBudgetBy 对得上
       if (led.tokens > budget) {
@@ -112,6 +116,7 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
       }
       // ③b C63：超预算时，所选必须就是**最省的尝试**（兜底裁决不许挑贵的）
       if (led.fallback === "over-budget") {
+        sawOverBudget += 1;
         // ★ C64：字段缺失不许静默通过 —— attemptTokens 是「所选是否最省」的唯一凭据
         t.eq(Array.isArray(led.attemptTokens) && led.attemptTokens.length > 0, true, `${where}：over-budget 必须带 attemptTokens`);
         const cheapest = Math.min(...led.attemptTokens.map((a) => a.tokens));
@@ -128,4 +133,7 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
       t.eq(renderLedger(g, { maxTokens: budget }).text === led.text, true, `${where}：同一图两次渲染不一致`);
     }
   }
+  // 覆盖性断言：生成器必须真的把「超预算」与「省略分支」跑到，否则属性测试会退化成恒真
+  t.eq(sawOverBudget > 0, true, "本轮必须至少渲染出一次 over-budget");
+  t.eq(sawOmitted > 0, true, "本轮必须至少命中一次失败边省略");
 };

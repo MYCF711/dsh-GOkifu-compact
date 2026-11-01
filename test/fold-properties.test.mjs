@@ -54,13 +54,17 @@ function randomGraph(seed) {
   return { g, maxSeq: seq };
 }
 
+let sawClosureWithNodes = false;
+
 tests["C60 闭包不变量：计数=暴力扫描、首尾=min/max id、preGraph 只在区间早于本图时为真"] = (t) => {
-  for (const seed of [1, 2, 3, 5, 8, 13, 21]) {
+  // 20 个固定种子（斐波那契序列）—— 覆盖更多区间/空洞形状
+  for (const seed of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946]) {
     const { g, maxSeq } = randomGraph(seed);
     const nodeSeqs = (g.order ?? []).map((id) => Number(g.nodes[id]?.seq));
     const minNodeSeq = Math.min(...nodeSeqs);
     for (const range of [{ start: 0, end: maxSeq }, { start: 5, end: 20 }, { start: 2, end: minNodeSeq - 1 }, { start: 1, end: 3 }]) {
       const closure = foldClosureOf(g, range);
+      if (closure.nodes > 0) sawClosureWithNodes = true;
       const where = `seed=${seed} range=${range.start}-${range.end}`;
       const wantNodes = (g.order ?? []).filter((id) => {
         const s = Number(g.nodes[id]?.seq);
@@ -85,6 +89,7 @@ tests["C60 闭包不变量：计数=暴力扫描、首尾=min/max id、preGraph 
     }
     t.eq(foldClosureOf(g, null), null, "null 区间 ⇒ null");
   }
+  t.eq(sawClosureWithNodes, true, "必须至少有一次闭包覆盖到节点（否则区间形状退化）");
 };
 
 tests["C60 边界不变量：openAtEnd = 恰跨终点的边数且 ≤ overlapping；unsettled = 未结算边数"] = (t) => {
