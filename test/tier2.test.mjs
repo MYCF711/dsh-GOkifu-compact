@@ -103,6 +103,10 @@ tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 8 });
   const cps = pushCheckpoints(session, 8);
   pushPlain(session, 3);
+  // 真实流程里 compactRegion 会调 summarize；本文件的 compactRegion 是桩 ⇒ 先手动调一次，
+  // 让 summarize 留下的 pending 摘要文本有值 —— 否则 C11 的「tier-2 记 quality」在这条路径上没东西可算
+  // （与 P2-2-1 处理同一限制的方式一致）。
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   const before = [...session.surface.nodes];
   const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!result) throw new Error("tier-2 应当触发并返回合并结果");
@@ -130,6 +134,14 @@ tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最
   // tier-2 走的是自己的记账路径 ⇒ 不走常规 fold 的 foldCount/普通 foldMark
   if (g.foldCount !== 0) throw new Error(`tier-2 不该增加 foldCount，实际 ${g.foldCount}`);
   if ((g.foldMarks ?? []).length !== 1) throw new Error(`foldMarks 应只有那条 tier2，实际 ${(g.foldMarks ?? []).length}`);
+  // ★ 2026-11-01（C11）：tier-2 也是压缩生命周期的一部分 ⇒ 必须记保真度（此前只有常规 fold 有）。
+  if (!marks[0].quality || typeof marks[0].quality !== "object") {
+    throw new Error(`tier-2 foldMark 必须带 quality（压缩生命周期全覆盖），实际 ${JSON.stringify(marks[0])}`);
+  }
+  if (!(typeof marks[0].quality.constraintRecall === "number")) {
+    throw new Error(`tier-2 quality 必须带 constraintRecall，实际 ${JSON.stringify(marks[0].quality)}`);
+  }
+  if (!(marks[0].summaryChars > 0)) throw new Error(`tier-2 也要记摘要字符数，实际 ${marks[0].summaryChars}`);
 };
 
 tests["T2-2 不足阈值不触发：7 个 checkpoint（tier2After=8）一次都不合并"] = async () => {

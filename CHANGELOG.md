@@ -139,6 +139,18 @@ live 复跑：FAIL 0 / WARN 6（2 张无 user 节点孤儿图 + 3 个旧折叠�
 测试：engine-harness P2-2-1 增「hybrid fold 必须有 0–1 的 modelConstraintRecall」；
 P2-2-2 增「规则摘要的 modelConstraintRecall 必须 null（不许串味）」。
 
+### C11 · tier-2 合并也记保真度（压缩生命周期全覆盖）
+
+tier-2（合并最老两个 checkpoint）走的是自己的记账路径，`foldMarks.push({tier2:true})` **没有 quality** ——
+于是「保真度」只覆盖常规 fold，医生对 tier-2 合并只能「未采集」。它同样是压缩生命周期的一部分，同样产出摘要。
+
+- `#tier2IfNeededUnsafe`：合并成功后读 `_lastSummaryText/_lastSummaryModelText` → `measureFoldQuality({ graph, range:{start,end}, summaryText, modelText })`，
+  写入 `foldMarks[i].quality` 与 `summaryChars`；
+- 同时把 summarize 留下的 pending 摘要字段**消费掉**（谁生产谁消费；此前 tier-2 会让这些字段一直挂到下一次常规 fold，
+  虽然会被覆盖，但两处生命周期共用一组字段本身就是隐患）。
+- 测试：`tier2.test.mjs` T2-1 增「tier2 foldMark 必须带 quality / constraintRecall 是数字 / summaryChars > 0」
+  （并沿用 P2-2-1 的办法先手动调一次 summarize，让 pending 文本有值）。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**654 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。

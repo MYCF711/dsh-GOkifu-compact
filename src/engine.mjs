@@ -878,7 +878,19 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
     if (result !== null && result !== undefined) {
       const g = this.#graph(session);
-      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true });
+      // 2026-11-01（C11）：tier-2 合并**也是压缩生命周期的一部分** —— 它同样会产出摘要，
+      // 所以同样要记保真度（此前 tier2 foldMark 没有 quality，医生只能对它「未采集」）。
+      // 同时把 summarize 留下的 pending 摘要文本**消费掉**：谁生产谁消费，避免这些字段一直挂到
+      // 下一次常规 fold（虽然那里会被覆盖，但两处生命周期共用一组字段本身就是隐患）。
+      const summaryText = this._lastSummaryText ?? "";
+      const summaryChars = this._lastSummaryChars ?? null;
+      const modelText = this._lastSummaryModelText ?? "";
+      this._lastSummaryChars = undefined;
+      this._lastSummaryText = undefined;
+      this._lastSummaryModelText = undefined;
+      const quality =
+        summaryText === "" ? null : measureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
+      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);

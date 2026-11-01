@@ -17,6 +17,7 @@
 | **C8 保真度真值链路（本轮）** | `real-fold-trigger.mjs` 改造成可验证保真度：桩把事件派发给 `ctx.emit("session/event")`（keeper 真跑）+ 补失败调用与 `step/end`（边有终点，不被判残留）+ 校验看所有 foldMark。实测真实模型 3 次 fold：`fold#1 c=2/1 f=1/0`，**不再真空通过**。边界：桩 LLM 自拼 prompt ⇒ constraintRecall 有效、failureRecall 不代表生产；证明的是 engine→keeper→fold-quality→foldMarks 链路。证据 `evidence/fold触发验证.{json,md}` |
 | **C9 交接门禁升级（本轮）** | `handoff-check` 增 ⑩保真度（constraintRecall<1=fail / failureRecall<1=warn / 真空样本=warn，并点名丢失项）与 ⑪幻觉探针（unknownIds 非空=warn）；无 fold 的会话不告警、旧折叠缺 quality 标「未采集」。`test/handoff-check.test.mjs` 7 用例。live：FAIL 0 / WARN 6（2 孤儿图 + 3 旧折叠 + 1 over-budget） |
 | **C10 模型自身保真（本轮）** | engine 在机械追加段之前留一份纯模型输出 `modelText` → `foldMarks[i].quality.modelConstraintRecall` 变成真实数字（此前生产路径恒 null）；规则路径显式清空防串味；doctor 已会显示「模型自身约束召回」。测试：P2-2-1/P2-2-2 各加断言 |
+| **C11 tier-2 保真度（本轮）** | 合并最老两个 checkpoint 的 tier-2 路径也记 `quality` + `summaryChars`，并消费 summarize 留下的 pending 字段（谁生产谁消费）；T2-1 增三条断言。至此**常规 fold / 规则降级 / tier-2 合并**三条压缩路径都有保真度样本 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
