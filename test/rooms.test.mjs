@@ -59,6 +59,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "node-docs": {
+    file: "node-docs.mjs",
+    // 纯函数：只比对「图里的节点 id」与「nodes/ 目录里的文件名」，不碰 fs
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "fold-planner": {
     file: "fold-planner.mjs",
     allowed: [],
@@ -464,7 +470,7 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "touched-files", "user-patch", "verify", "world"],
+      ["build-stamp", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "touched-files", "user-patch", "verify", "world"],
       "房间集合必须与契约 17 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp）",
     );
     // 判据自检

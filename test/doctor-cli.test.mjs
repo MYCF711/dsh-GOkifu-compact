@@ -314,3 +314,37 @@ tests["C96 insert id 唯一性：撞到本插件 gokifu-ui ⇒ error；撞别的
     nodeFs.rmSync(single, { recursive: true, force: true });
   }
 };
+
+tests["C110 会话图有节点但缺 nodes/<id>.md ⇒ warn（热清单省略行会指向它）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  const home = makeHome();
+  const sid = "session-c110";
+  const dir = nodePath.join(home, "chess-context", "sessions", sid);
+  nodeFs.mkdirSync(nodePath.join(dir, "nodes"), { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(dir, "graph.json"),
+    JSON.stringify({ nodes: { n1: { id: "n1", seq: 1 } }, edges: {}, order: ["n1"], foldMarks: [] }),
+    "utf8",
+  );
+  try {
+    const row = runDoctor(home).find("节点文档与棋谱一致");
+    t.eq(!!row, true, "必须有该检查项");
+    t.eq(row.status, "warn", `缺节点文档必须 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "空指针", "要说明后果");
+    // 补上**所有**会话的文档后应恢复 ok（makeHome 的默认会话也有两个节点）
+    const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+    for (const name of nodeFs.readdirSync(sessionsRoot)) {
+      const sessionDir = nodePath.join(sessionsRoot, name);
+      const graphFile = nodePath.join(sessionDir, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      const graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+      nodeFs.mkdirSync(nodePath.join(sessionDir, "nodes"), { recursive: true });
+      for (const id of Object.keys(graph.nodes ?? {})) {
+        nodeFs.writeFileSync(nodePath.join(sessionDir, "nodes", id + ".md"), "node " + id + NL, "utf8");
+      }
+    }
+    t.eq(runDoctor(home).find("节点文档与棋谱一致").status, "ok", "补齐后应 ok");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

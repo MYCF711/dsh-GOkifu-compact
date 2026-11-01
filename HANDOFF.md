@@ -120,6 +120,7 @@
 | **C107 否决 #17 derivable（2026-11-02）** | 理由：认知指令（epistemic-advice 已禁）/ 需先判定「可推导」/ 收益微小；research §11.3 新增「已否决候选」表；顺带修正 §11.2 规则数（基线 2 + 新增 4 = 6）；facts-prompt 新增 C107 守住「故意的冗余」 |
 | **C108 折叠路径记账静态审计（2026-11-02）** | `fold-mark-sites`：静态读 engine.mjs，所有 `foldMarks.push` 与 `recordFoldMark` 必须带 quality/trigger/closure（简写键也认）；防「新增路径漏记 ⇒ doctor 未采集」；坑：正则 `\s` 被脚本吃掉，改无转义字符类 |
 | **C109 预算统计必须落盘（2026-11-02）** | `ledger-budget-persist`：每个 `ledgerBudget.X =` 赋值 15 行内必须 `#persistLedgerBudget()`（节流须写注释）；落盘走 `persist.persistBudget` 单一入口；C109-3 用合成片段验证判据本身不作假 |
+| **C110 节点文档一致性（2026-11-02）** | 缺 `nodes/<id>.md` = 热清单省略行空指针 ⇒ doctor 新增检查（缺 warn / 陈旧仅计数）；live 24 会话：缺 0、陈旧 94；纯函数 `node-docs.mjs` + 2 例 + doctor-cli 1 例；夹具陷阱：makeHome 默认会话也要补 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

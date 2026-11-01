@@ -15,6 +15,7 @@
  */
 
 import nodeFs from "node:fs";
+import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -384,6 +385,50 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+
+/* ── 3.3b 节点文档与棋谱一致（C110）──
+   热清单省略行会写「见 nodes/<id>.md」。文件缺失 = 空指针（模型会去读，然后 ENOENT）；
+   文件比节点多 = 陈旧工件（不影响引用，只计数）。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let scanned = 0;
+  let missingAll = 0;
+  let orphanAll = 0;
+  const worst = [];
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = nodePath.join(sessionsRoot, entry.name);
+      const graphFile = nodePath.join(dir, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let graph;
+      try {
+        graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+      } catch {
+        continue;
+      }
+      scanned += 1;
+      const nodesDir = nodePath.join(dir, "nodes");
+      const files = nodeFs.existsSync(nodesDir) ? nodeFs.readdirSync(nodesDir) : [];
+      const stats = nodeDocStats({ graphNodes: Object.keys(graph.nodes ?? {}), files });
+      missingAll += stats.missing.length;
+      orphanAll += stats.orphan.length;
+      if (stats.missing.length > 0 && worst.length < 3) {
+        worst.push(`${entry.name.slice(0, 16)}:${stats.missing.length}`);
+      }
+    }
+  }
+  const verdict = missingAll > 0
+    ? { level: "warn", detail: `${missingAll} 个节点缺 nodes/<id>.md（热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}` }
+    : {
+        level: "ok",
+        detail:
+          scanned === 0
+            ? "未采集（没有会话图）"
+            : `${scanned} 个会话的节点文档齐全${orphanAll > 0 ? `；${orphanAll} 个陈旧 md（节点已不在图里，仅计数）` : ""}`,
+      };
+  add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
+}
 
 /* ── 3.4 第三方 preset 的压缩后端（C94）──
    我们的 patch 只覆盖**四个官方 preset**。第三方插件若自带 preset（例如 dsh-design-studio 的
