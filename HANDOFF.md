@@ -84,6 +84,7 @@
 | **C71 研究文档收口（2026-11-02）** | `docs/research/00` §11 补 27–33、§11.1 刷新（752 passed / folds 15-6 / c=f=1）、新增 §11.2 审计规则演进（C15→C64 五次扩规则的漏网句式与「自审盲区」教训） |
 | **C72 真实会话校准（2026-11-02）** | `scripts/ledger-calibration.mjs`：live 24 会话按生产形状渲染 → **p50 419** / p90 521 / max 688 / 超预算 3-24；证明 bench 415 与真实中位一致（此前「未校准」已消除）；证据 `evidence/ledger-calibration.{json,md}`；测试 2 例 |
 | **C73 负结论（2026-11-02）** | 试图用 provider `outputTokens` 校准本地 `estimateTokens`：实测比值中位 0.537 但**分母含 reasoning/格式开销**，与摘要正文不同量 ⇒ 指标不落地（脚本已回滚）；正解仍需宿主 tokenizer；判据「分母必须与分子同量」入库 |
+| **C74 合同 §6 现状列刷新（2026-11-02）** | 14 行全部按 20:56Z 实测刷新（2293 渲染/583 超、15 次 fold、dangling 11、sections failures 68%、trigger pressure 11/15、closure preGraph 1 true/7 false、boundary 8 次 openAtEnd 0、buildId 缺失=等重启）；表头标明「这是快照，判读看命令」 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

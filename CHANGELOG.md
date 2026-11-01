@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C74 · 合同 §6「现状」列整体刷新（审计 finding 5 的剩余部分）
+
+专员审计指出 §6 的 live 列**14 行里 8 行过期**；C64 只修了 3 行。本轮把剩余行全部按
+`2026-11-02T20:56Z` 实测刷新，并在表头写明「这一列是快照，判读看命令输出」：
+
+| 行 | 旧 | 新 |
+|---|---|---|
+| 1 / 2 预算 | 2018 次 / 492 超 | **2293 次 / 583 超（25.4%，maxOver 199）** |
+| 3 foldThrash | 10 次 fold | **15 次**，thrash 0 |
+| 4 dangling | 6 次有记录 | **11 次**（liveUnsettled 0 / fromBroken 0；residue 10 / candidates 5 属正常分类） |
+| 5 sections | failures 54% | **failures 68%** / root 8% / constraints 8% / path 8% / 未验证 5% / OPTIONS 1% |
+| 8 trigger | pressure=6 / 10 | **pressure=11 / 15**（4 次升级前老 fold 无字段；0 overflow） |
+| 9 preGraph | 3 次（2 false / 1 true） | **11 次 closure，preGraph 显式 true 1 / false 7** |
+| 10 boundary | 3 次 openAtEnd=0 | **8 次全部 openAtEnd=0** |
+| 12 运行实例 | 「未采集」 | **buildId 缺失 ⇒ 磁盘 `b22edddf2b39` 与运行不符 = 等重启**（对应 `post-restart-check` fail 1） |
+| 14 成本 | 10 次 fold | **15 次**，遮蔽占读入 47–74%、ROI 0.45–0.74 |
+
 ### C73 · 负结论：不能用 provider `outputTokens` 校准本地 token 估算
 
 **起因**：README 里写过「正解是引入宿主 tokenizer 后重测」。既然 foldMark 同时有
