@@ -69,6 +69,7 @@ function makeHome() {
             },
             closure: { nodes: 0, edges: 0, firstNode: null, lastNode: null, preGraph: true, graphNodes: 0 },
             boundary: { overlapping: 40, openAtEnd: 0, unsettled: 3 },
+            dangling: { residue: 3, candidates: 1, liveUnsettled: 0, fromBroken: 0 },
           },
           {
             at: 1762200000000,
@@ -81,6 +82,7 @@ function makeHome() {
             quality: { constraintRecall: 0.8, failureRecall: 0.5, compressionRatio: 12.5, unknownIds: ["e999"], summaryTokens: 400 },
             closure: { nodes: 3, edges: 2, firstNode: "n1", lastNode: "n3", preGraph: false, graphNodes: 7 },
             boundary: { overlapping: 5, openAtEnd: 1, unsettled: 0 },
+            dangling: { residue: 0, candidates: 0, liveUnsettled: 0, fromBroken: 0 },
           },
         ],
       },
@@ -144,6 +146,10 @@ tests["L-2 summarize：覆盖率 / trigger 分布 / 质量下限 / 成本区间 
     t.eq(s.boundary.count, 2, "两次有 boundary");
     t.eq(s.boundary.openAtEnd, 1, "一次切在调用中间（openAtEnd 合计 1）");
     t.eq(s.boundary.unsettled, 3, "未结算边合计 3");
+    t.eq(s.dangling.count, 2, "两次有 dangling");
+    t.eq(s.dangling.residue, 3, "residue 合计 3");
+    t.eq(s.dangling.candidates, 1, "candidates 合计 1");
+    t.eq(s.dangling.liveUnsettled, 0, "liveUnsettled 必须为 0（正常 fold 切在 step 边界）");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -163,6 +169,7 @@ tests["L-3 renderMarkdown：带生成时间、覆盖率表、逐次明细"] = (t
     t.includes(md, "133.76", "明细里要有压缩比");
     t.includes(md, "preGraph", "证据页要解释 preGraph");
     t.includes(md, "边界完整性", "证据页要报告边界完整性");
+    t.includes(md, "悬空", "证据页要报告 dangling");
     t.eq(md.includes("undefined"), false, "不许出现 undefined");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });

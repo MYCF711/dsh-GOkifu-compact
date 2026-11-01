@@ -144,6 +144,14 @@ export function summarizeFolds(records) {
       openAtEnd: records.reduce((sum, r) => sum + (r.boundary?.openAtEnd ?? 0), 0),
       unsettled: records.reduce((sum, r) => sum + (r.boundary?.unsettled ?? 0), 0),
     },
+    // C35：fold 时刻的悬空统计（合同 §6 第 4 行：liveUnsettled 升高 = fold 切在动作中间）
+    dangling: {
+      count: records.filter((r) => r.dangling !== null).length,
+      residue: records.reduce((sum, r) => sum + (r.dangling?.residue ?? 0), 0),
+      candidates: records.reduce((sum, r) => sum + (r.dangling?.candidates ?? 0), 0),
+      liveUnsettled: records.reduce((sum, r) => sum + (r.dangling?.liveUnsettled ?? 0), 0),
+      fromBroken: records.reduce((sum, r) => sum + (r.dangling?.fromBroken ?? 0), 0),
+    },
   };
 }
 
@@ -182,6 +190,7 @@ export function renderMarkdown({ home, records, summary, generatedAt }) {
   lines.push("## 闭包");
   lines.push("");
   lines.push(`- 有 closure 的 fold：**${summary.closure.count}** 次，其中空闭包 **${summary.closure.empty}** 次（新会话尚无节点时属正常）`);
+  lines.push(`- **悬空（dangling）**：${summary.dangling.count} 次有记录 —— residue ${summary.dangling.residue} / candidates ${summary.dangling.candidates} / liveUnsettled ${summary.dangling.liveUnsettled} / fromBroken ${summary.dangling.fromBroken}（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）`);
   lines.push(`- **边界完整性**：${summary.boundary.count} 次有 boundary 记录，其中切点落在工具调用中间的 **${summary.boundary.openAtEnd}** 次（正常应为 0），区间内未结算边合计 **${summary.boundary.unsettled}** 条`);
   lines.push(`- 其中 **preGraph ${summary.closure.preGraph} 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段`);
   lines.push("");

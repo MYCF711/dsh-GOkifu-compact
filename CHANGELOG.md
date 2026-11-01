@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C35 · 合同 §6-4 的消费者：`dangling.liveUnsettled` 进 doctor + 证据页；验收清单刷新到 live 现状
+
+**问题**：合同 §6 第 4 行要求「`foldMarks.dangling.liveUnsettled` 记录趋势，升高说明 fold 边界切在动作中间」，
+但 live 里它**只被写进 graph.json，没有消费者**（`live-folds` 只是搬运字段）。同时 §6 表格的「现在（live）」
+一列还停在 2026-11-01（大量「尚无样本」，与事实不符）。
+
+**做法**：
+
+- `doctor` 新增 **「fold 悬空（dangling）」**：`fromBroken > 0` ⇒ error（图坏了）；
+  `liveUnsettled > 0` ⇒ warn（可能切在动作中间，配合「fold 边界完整性」看）；否则 ok 并报 residue/candidates 合计；
+- `live-folds` 汇总 dangling（residue/candidates/liveUnsettled/fromBroken）并写进证据页；
+- 合同 §6 表格刷新到今天的 live 现实：provenanceMin=1、over-budget=17/637（2.7%）、foldThrash=0、
+  dangling liveUnsettled=0、failures 占比 54%（健康）、trigger pressure=3/7；
+  另补第 9–13 行（preGraph / boundary / 合并审计 / 运行实例版本 / 机器级层漂移）。
+
+live 结果：「fold 悬空」= ✓（3 次 fold：residue 3 / candidates 1 / liveUnsettled 0 / fromBroken 0）。
+
 ### C34 · 「运行实例是哪一版代码」落盘标记（build.json）+ doctor 检查
 
 **问题**：本机踩过两次同类陷阱 —— 磁盘代码已更新，但**正在跑的进程还是旧代码**，新字段/新检查要等重启才出现

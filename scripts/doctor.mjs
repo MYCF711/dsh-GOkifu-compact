@@ -543,6 +543,29 @@ add(
   );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
+/* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ── */
+{
+  const marks = recentFoldMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
+  if (marks.length === 0) {
+    add("fold 悬空（dangling）", "ok", "未采集（foldMark 还没有 dangling —— 旧版本）");
+  } else {
+    const sum = (key) => marks.reduce((acc, m) => acc + (m.dangling[key] ?? 0), 0);
+    const live = sum("liveUnsettled");
+    const broken = sum("fromBroken");
+    const residue = sum("residue");
+    const candidates = sum("candidates");
+    add(
+      "fold 悬空（dangling）",
+      broken > 0 ? "error" : live > 0 ? "warn" : "ok",
+      broken > 0
+        ? `${broken} 条边的 from 节点已不存在（图坏了，需要 migrate）`
+        : live > 0
+          ? `${live} 条边在 fold 时仍未结算（可能切在动作中间）—— 结合「fold 边界完整性」看`
+          : `${marks.length} 次 fold：residue ${residue} / candidates ${candidates} / liveUnsettled 0 / fromBroken 0`,
+    );
+  }
+}
+
 /* ── 4.9 fold 边界完整性（C31）：切点落在工具调用中间 = 摘要引用区间外结果，判 error ── */
 {
   const withBoundary = recentFoldMarks

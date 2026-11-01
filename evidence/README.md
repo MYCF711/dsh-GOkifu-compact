@@ -10,7 +10,7 @@
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **447 tokens**（351 → 446 来自「出处全档保留 + OPTIONS 不沉默」；446 → 447 来自失败边重试计数 `↻k`） |
-| `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T19:0xZ | **7 次 live fold / 15 个会话**：usage 7/7、**trigger 3/7、quality 3/7**、closure 3/7（空闭包 2）；质量 c=1 / f=1、压缩比 127.07–350.68、幻觉探针 0；成本 **1.36–1.81**；C30 起 preGraph/graphNodes、C31 起 boundary（切点/未结算）随 fold 落盘（老 fold 无这些字段）。**看生成时间，不看 mtime** |
+| `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T19:1xZ | **7 次 live fold / 17 个会话**：usage 7/7、trigger 3/7、quality 3/7、closure 3/7；质量 c=1 / f=1、压缩比 127.07–350.68、幻觉探针 0；成本 **1.36–1.81**；边界（openAtEnd 0 次）、悬空（liveUnsettled 0 / residue 3 / candidates 1）、preGraph（C30 起落盘）。**看生成时间，不看 mtime** |
 | `热清单内容普查-2026-11-02.md` | 离线渲染 live 图 + `measureLedgerSections` 分段统计 | 2026-11-02 | session-d70b7c2f（210 节点/228 边）：500 预算 = 574（超 74）· sections failures 898/1415；1200/3000 预算 = 907 · failures 1646/2693。**逐段核实：热清单与摘要指令都不注入工具输出体** ⇒ G-2 `derivable` 在本插件无落点（负结论） |
 | `折叠成本-实测-2026-11-02.md` | 手工汇总 live `foldMarks[i].usage` | 2026-11-02 | 三次真实 fold：摘要 **input/shadowed = 1.43–1.63**（读整个 surface）、输出仅 362–3004 ⇒ 瓶颈在「读」 |
 | `巡检-第2次-2026-11-02.md` | 全门禁重跑 | 2026-11-02 01:0x | 668 测试 / bench 447 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警 |
