@@ -367,7 +367,9 @@ add(
       const kind = m.tier2 === true ? "tier-2 " : "";
       // 2026-11-01（C12）：为什么压也要看得见 —— pressure / context-overflow（已溢出，被迫自救）/ tier2
       const trigger = fmt(m.trigger);
-      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+      // ★ 2026-11-02（C24）：可寻址闭包 —— 这一次 fold 覆盖了图里多少节点/边（老 foldMark 无该字段 ⇒ 不显示）。
+      const closure = m.closure && typeof m.closure === "object" ? ` · closure ${fmt(m.closure.nodes)}n/${fmt(m.closure.edges)}e` : "";
+      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger}${closure} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
     });
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }

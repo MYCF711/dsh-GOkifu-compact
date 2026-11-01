@@ -144,6 +144,8 @@ tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最
   if (!(marks[0].summaryChars > 0)) throw new Error(`tier-2 也要记摘要字符数，实际 ${marks[0].summaryChars}`);
   // ★ 2026-11-01（C12）：tier-2 的触发原因要能与常规 fold / 溢出自救区分
   if (marks[0].trigger !== "tier2") throw new Error(`tier-2 foldMark.trigger 必须是 tier2，实际 ${JSON.stringify(marks[0].trigger)}`);
+  // ★ 2026-11-02（C24）：tier-2 合并同样记可寻址闭包
+  if (!marks[0].closure || typeof marks[0].closure.nodes !== "number") throw new Error(`tier-2 foldMark 必须带 closure，实际 ${JSON.stringify(marks[0].closure)}`);
 };
 
 tests["T2-2 不足阈值不触发：7 个 checkpoint（tier2After=8）一次都不合并"] = async () => {

@@ -1350,6 +1350,11 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
   // ★ 2026-11-01（保真度 L1）：每次 fold 必须留下「约束/失败边有没有留住」的机器判据。
   // ★ 2026-11-01（C12）：常规 fold 必须记触发原因（pressure），与溢出自救区分开
   if (mark.trigger !== "pressure") throw new Error(`常规 fold 的 trigger 必须是 pressure，实际 ${JSON.stringify(mark.trigger)}`);
+  // ★ 2026-11-02（C24）：必须记可寻址闭包（本次折叠覆盖了图里哪些节点/边）
+  if (!mark.closure || typeof mark.closure !== "object") throw new Error(`foldMark 必须带 closure（可寻址闭包）：${JSON.stringify(mark.closure)}`);
+  if (typeof mark.closure.nodes !== "number" || typeof mark.closure.edges !== "number") {
+    throw new Error(`closure 必须带 nodes/edges 计数：${JSON.stringify(mark.closure)}`);
+  }
   if (!mark.quality || typeof mark.quality !== "object") throw new Error(`foldMark 必须带 quality（保真度 L1）：${JSON.stringify(mark)}`);
   if (mark.quality.constraintRecall !== 1) throw new Error(`constraintRecall 应恒为 1，实际 ${mark.quality.constraintRecall}（缺：${JSON.stringify(mark.quality.missingConstraints)}）`);
   if (!(mark.quality.failureRecall >= 0 && mark.quality.failureRecall <= 1)) {
@@ -1451,6 +1456,7 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
       ms: 42,
       usage: { inputTokens: 1200, outputTokens: 300 },
       trigger: "pressure",
+      closure: { nodes: 3, edges: 2, firstNode: "n1", lastNode: "n3", firstEdge: "e1", lastEdge: "e2" },
       // ★ 保真度 L1（2026-11-01）：最近一次 fold 的机器判据
       quality: {
         constraintRecall: 1,
@@ -1492,6 +1498,7 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   if (!lines[0].includes("fallback —")) throw new Error(`正常 fold 的 fallback 应显示「—」：${lines[0]}`);
   // ★ 2026-11-01（C12）：为什么压也要看得见
   if (!lines[0].includes("触发 pressure")) throw new Error(`最近一次 fold 必须显示触发原因：${lines[0]}`);
+  if (!lines[0].includes("closure 3n/2e")) throw new Error(`最近一次 fold 必须显示闭包规模：${lines[0]}`);
   // 旧图那几条：route/ms/usage 都必须是「—」
   for (const line of lines.slice(1)) {
     if (!line.includes("路由 —")) throw new Error(`旧图缺 route 必须显示「—」：${line}`);
@@ -1567,6 +1574,8 @@ tests["C14 手动 /compact 也记 foldMark + 保真度（覆盖最后一条压�
     throw new Error(`手动压缩的保真度样本必须是有内容的（期望约束 >= 1），实际 ${mark.quality.expectedConstraints}`);
   }
   if (mark.quality.constraintRecall !== 1) throw new Error(`约束逐字都在摘要里，recall 必须 1，实际 ${mark.quality.constraintRecall}`);
+  // ★ 2026-11-02（C24）：手动压缩也记可寻址闭包（区间 2-4 覆盖 e1 与 n2）
+  if (!mark.closure || typeof mark.closure.nodes !== "number") throw new Error(`手动压缩也要记 closure，实际 ${JSON.stringify(mark.closure)}`);
   // 谁生产谁消费：pending 摘要字段必须被清掉，不能挂到下一次 fold
   if (engine._lastSummaryText !== undefined || engine._lastSummaryModelText !== undefined) {
     throw new Error("recordFoldMark 必须消费掉 _lastSummaryText/_lastSummaryModelText（避免串到下一次 fold）");

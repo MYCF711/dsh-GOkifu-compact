@@ -256,6 +256,51 @@ export function failureEdges(g) {
     .sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 }
 
+/**
+ * 一次 fold 的「可寻址闭包」：本次被折叠的 seq 区间里，**图里有哪些节点/边**。
+ *
+ * 为什么（2026-11-02，C24；来源 04 §7-D1「派生件带闭包」+ 00 候选 #12「可寻址闭包」）：
+ * 被遮蔽的原文在 append-only 日志里、按 seq 可回读；但从摘要/热清单里看到的 `n41`、`e88`
+ * 属于**哪一次 fold**、原始 seq 落在哪，此前只能靠 `foldMarks` 的区间自己推。
+ * 记下闭包后，「这条边是哪次折叠进来的」可以一步回答 —— 这是压缩产物可回溯的机器判据。
+ *
+ * 只存**计数 + 首尾 id**（不存全量 id 列表）：一个 fold 可能覆盖几百个实体，全存会让 graph.json 膨胀；
+ * 首尾 id + seq 区间已经足够定位（区间内的实体按 id 顺序连续）。
+ *
+ * @param {{nodes:object, order:string[], edges:object}} graph
+ * @param {{start:number,end:number}|null} range
+ * @returns {{nodes:number, edges:number, firstNode:string|null, lastNode:string|null, firstEdge:string|null, lastEdge:string|null}|null}
+ */
+export function foldClosureOf(graph, range) {
+  if (graph === null || typeof graph !== "object") return null;
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
+  const inRange = (seq) => Number.isFinite(seq) && seq >= range.start && seq <= range.end;
+  const nodeIds = [];
+  for (const id of graph.order ?? []) {
+    const node = graph.nodes?.[id];
+    if (node !== undefined && inRange(Number(node.seq))) nodeIds.push(id);
+  }
+  const edgeIds = [];
+  for (const edge of Object.values(graph.edges ?? {})) {
+    const ev = edge?.evidence;
+    const start = typeof ev === "number" ? ev : Number(ev?.start);
+    const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    if (end >= range.start && start <= range.end) edgeIds.push(edge.id);
+  }
+  const byId = (a, b) => Number(String(a).slice(1)) - Number(String(b).slice(1));
+  nodeIds.sort(byId);
+  edgeIds.sort(byId);
+  return {
+    nodes: nodeIds.length,
+    edges: edgeIds.length,
+    firstNode: nodeIds[0] ?? null,
+    lastNode: nodeIds.at(-1) ?? null,
+    firstEdge: edgeIds[0] ?? null,
+    lastEdge: edgeIds.at(-1) ?? null,
+  };
+}
+
 /** 未验证 / 未结算的边。 */
 export function openEdges(g) {
   return Object.values(g.edges).filter((e) => e.result === "unverified" || e.result === "untested");

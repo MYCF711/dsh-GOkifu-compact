@@ -322,9 +322,23 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 测试 `test/docs-index-check.test.mjs` 4 用例（缺失能抓 / 目录列举口径 / 真实仓库 0 缺失 / 索引文件必须存在）；
 - 接入发版验收流程（五步 → 六步）。
 
+### C24 · 可寻址闭包：每次 fold 记下「覆盖了图里哪些节点/边」
+
+04 号调研的 D1（「派生件带闭包」）与 00 候选 #12（可寻址闭包）的最小落地。
+被遮蔽的原文在 append-only 日志里按 seq 可回读；但从摘要/热清单看到的 `n41`、`e88`
+属于**哪一次 fold**、原始 seq 落在哪，此前只能靠 `foldMarks` 的区间自己推。
+
+- `kifu-model`：新增 `foldClosureOf(graph, range)` —— 返回本次折叠区间内的
+  **节点/边计数 + 首尾 id**（不存全量列表：一个 fold 可能覆盖几百个实体，全存会让 graph.json 膨胀；
+  首尾 id + seq 区间已足够定位）；空区间返回 0（不是 null），非法 range 返回 null；
+- engine：**三条 fold 记账路径都带 `closure`**（常规 fold / tier-2 合并 / 手动压缩）；
+- doctor：「最近 5 次 fold」行内显示 `closure <nodes>n/<edges>e`（老 foldMark 无该字段 ⇒ 不显示）；
+- 测试：新增 `test/fold-closure.test.mjs` 4 用例（区间过滤 / 首尾 id 正确 / 空区间与非法 range / 纯函数+可序列化），
+  engine-harness P2-2-1 与 C14、tier2 T2-1 各加「必须带 closure」断言。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**672 passed / 0 skipped / 0 failed**
+- 全量 `node test/run.mjs`（串行）：**676 passed / 0 skipped / 0 failed**
 - `docs-index-check`：27 个文件 / **0 个未索引**
 - `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**
 - `boundary-audit`：0 条；`bench-repro`：447 / 8/8 / exit 0（1.16.0 时 615；本轮与并行会话共新增 23 条）。

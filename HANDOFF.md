@@ -30,6 +30,7 @@
 | **C21 小窗口 headroom 封顶（本轮）** | 07 调研发现 `headroomTokens=65536` 绝对值在小窗口吃掉阈值：100K 窗口 45%→26.3%、≤73,728 直接抛错（压缩不可用）。`resolveSpec` 改为按 `messageBudget×25%` 封顶（大窗口不变）；engine-harness S4-5。07 调研沉淀 `docs/research/07-trigger-and-budget.md` |
 | **C22 巡检第 2 次（本轮）** | 门禁全绿：668 测试 / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警（逐条解释）。修掉 3 处过期文档数字（README 615→668、HANDOFF 634→668、00 §10 补 C18–C21）。证据 `evidence/巡检-第2次-2026-11-02.md` |
 | **C23 文档索引门禁（本轮）** | 新增 `docs/research/README.md`（00–07 唯一入口）+ `scripts/docs-index-check.mjs`（除索引外每个 .md 必须登记，否则 exit 1）；补 `evidence/README.md`（新增折叠成本/巡检第2次、bench 446→447、补 3 份漏登记历史证据）；测试 4 用例；接入发版验收第六步 |
+| **C24 可寻址闭包（本轮）** | `foldClosureOf(graph, range)`：每次 fold 记「覆盖了哪些节点/边」（计数+首尾 id，不存全量）；三条记账路径（常规/tier-2/手动）都带 `closure`；doctor 最近 5 次 fold 显示 `closure 3n/2e`。测试 fold-closure 4 用例 + P2-2-1/C14/T2-1 断言 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
