@@ -998,7 +998,13 @@ function resolvePolicy(chess, target) {
 function resolveSpec(policy, contextWindow, reservedCompletionTokens, firstFold = false) {
   const messageBudget = contextWindow - (reservedCompletionTokens ?? 0);
   if (messageBudget <= 0) throw new Error(`chess-context: ${contextWindow}-token window reserves ${reservedCompletionTokens} completion tokens; no message budget`);
-  const pressureBudget = messageBudget - policy.headroomTokens;
+  // ★ 2026-11-02（C21，07 调研 + 实测）：`headroomTokens` 是**绝对值**（默认 65536），小窗口下会吃掉阈值：
+  //   100K 窗口把 45% 压成 26.3%，≤73,728 窗口直接抛错（压缩完全不可用 —— 上下文只增不减，最坏的一种）。
+  //   这里按 **messageBudget 的 25%** 给 headroom 封顶：大窗口行为完全不变（200K/1M 仍由 thresholdRatio 主导），
+  //   小窗口回到配置的比例语义，也不再抛错。
+  const HEADROOM_MAX_RATIO = 0.25;
+  const headroomTokens = Math.min(Number.isFinite(Number(policy.headroomTokens)) ? Number(policy.headroomTokens) : 0, Math.floor(messageBudget * HEADROOM_MAX_RATIO));
+  const pressureBudget = messageBudget - headroomTokens;
   if (pressureBudget <= 0) {
     throw new Error(
       `chess-context: ${contextWindow}-token window reserves ${reservedCompletionTokens} + ${policy.headroomTokens} headroom; no pressure budget (lower maxTokens/headroomTokens)`,

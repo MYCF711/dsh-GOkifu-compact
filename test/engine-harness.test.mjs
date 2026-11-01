@@ -1277,6 +1277,31 @@ tests["S4-3 50K 小窗口：缩放值仍是 8000（max(8000, 4000)），照常 f
   if (!result) throw new Error("50K 窗口下 minFold 仍是 8000，34000 的可压量必须 fold（不许被缩放误伤）");
 };
 
+tests["S4-5 headroom 按窗口封顶：100K 窗口阈值回到 45%，64K 窗口不再抛错"] = async () => {
+  const { Engine, graphDir } = await load();
+  // 100K 窗口、占用 30K：旧代码 headroom=65536 把阈值压到 26272（26.3%）⇒ 会误压；
+  // 修好后 headroom 封顶为 messageBudget×25% ⇒ 阈值 45000（45%）⇒ 不该 fold。
+  const ctx = makeCtx({ window: 100_000, measureTotal: () => 30_000 });
+  const engine = new Engine(ctx, { graphDir: nodePath.join(graphDir, "s4-5-small"), auto: false, growthFloorTokens: 0, retainRatio: 0.1 });
+  const session = makeSession({ id: "sess-s4-small", tokensPerNode: 500 });
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const folded = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (folded !== null) throw new Error("100K 窗口 + 30K 占用：阈值应是 45%（45K），不该 fold（旧代码的绝对 headroom 会压到 26K）");
+  // 64K 窗口：旧代码 messageBudget(57344) − headroom(65536) < 0 ⇒ 直接抛错（压缩完全不可用）；
+  // 修好后 headroom 按窗口封顶 ⇒ 正常返回 null。
+  const ctx2 = makeCtx({ window: 64_000, measureTotal: () => 10_000 });
+  const engine2 = new Engine(ctx2, { graphDir: nodePath.join(graphDir, "s4-5-tiny"), auto: false, growthFloorTokens: 0, retainRatio: 0.1 });
+  const session2 = makeSession({ id: "sess-s4-tiny", tokensPerNode: 500 });
+  for (let i = 0; i < 8; i += 1) session2.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  let threw = null;
+  try {
+    await engine2.compactIfNeeded({ session: session2, options: {} }, "pressure", undefined);
+  } catch (error) {
+    threw = String(error?.message ?? error);
+  }
+  if (threw !== null) throw new Error(`64K 窗口不该抛错（headroom 应按窗口封顶），实际抛了：${threw}`);
+};
+
 tests["S4-4 overflow 路径不受缩放影响（spec.minFoldTokens 缺省时回落配置值）"] = async () => {
   const { Engine, graphDir } = await load();
   const ctx = makeCtx({ window: 200_000, measureTotal: () => 1_000 });

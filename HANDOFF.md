@@ -27,6 +27,7 @@
 | **C18 重试计数（本轮）** | 失败边同 action 第 k 次失败（k≥2）标 `↻k`，**只在组内最近一条**上标（每条都标 +12 tok，只标最近一条 +1 tok）；bench 基线 446→447、README 同步。ledger-boundary O |
 | **C19 收尾（本轮）** | ①补 C14 接线测试（替换桩基类 compactNow 模拟宿主 → 断言 trigger=manual/区间/pending 被消费）；②`package.json`/README 版本 1.16.0 → **1.17.0（未发布）**——修复「改了代码但版本没 bump ⇒ git 源用户永远停在旧 commit」；`check-maintenance` 现只剩 1 项预期失败（1.17.0 无 tag）|
 | **C20 fold 成本效率（本轮）** | 三次 live fold 实测：摘要 input/shadowed = **1.43–1.63**（读整个 surface，不是被折叠段）、输出仅 362–3004 ⇒ 瓶颈在「读」。doctor 新增「fold 成本效率」，≥2 判 warn；证据 `evidence/折叠成本-实测-2026-11-02.md`；P2-2-4 增断言 |
+| **C21 小窗口 headroom 封顶（本轮）** | 07 调研发现 `headroomTokens=65536` 绝对值在小窗口吃掉阈值：100K 窗口 45%→26.3%、≤73,728 直接抛错（压缩不可用）。`resolveSpec` 改为按 `messageBudget×25%` 封顶（大窗口不变）；engine-harness S4-5。07 调研沉淀 `docs/research/07-trigger-and-budget.md` |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

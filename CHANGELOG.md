@@ -269,9 +269,28 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
   （「读两倍才压一倍：检查触发点是否太晚 / 增量范围是否切得太碎」）；老 foldMark 无 usage ⇒「未采集」；
 - 测试：P2-2-4 增（0.10 → ok；变异成 5.0 → warn 且说明含义）。
 
+### C21 · 小窗口下的 headroom 封顶（07 调研发现的真实缺陷：≤73K 窗口压缩直接抛错）
+
+07 号调研（`docs/research/07-trigger-and-budget.md`）对照生产实践时发现：
+**`headroomTokens` 是绝对值（默认 65536），在小窗口上会吃掉阈值** ——
+
+| 窗口 | 修前有效阈值 | 修后 |
+|---|---|---|
+| 200K | 45% | 45%（不变） |
+| 128K | 42.4% | 45% |
+| 100K | **26.3%**（过度提前压） | 45% |
+| ≤73,728 | **直接抛错**（压缩完全不可用，上下文只增不减） | 45% |
+
+- `resolveSpec`：headroom 按 `messageBudget × 25%` 封顶（`HEADROOM_MAX_RATIO`）。
+  大窗口行为完全不变；小窗口回到 `thresholdRatio` 的比例语义，且不再抛错；
+- 测试：engine-harness 增 **S4-5**（100K 窗口 + 30K 占用 ⇒ 阈值 45K，不该 fold；64K 窗口 ⇒ 不抛错）；
+- 07 调研结论同时沉淀：`thresholdRatio 0.45` 可保留（其合法性来自**增量 fold**，不是 45% 本身更优）；
+  「提前算好」在生产产品里也没做成（Codex 的 prefix 预热 PR 已关闭）；成本函数是「fold 频次 × 单次读入」，
+  已由 `minFoldTokens` / `growthFloor` 兜住。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**667 passed / 0 skipped / 0 failed**
+- 全量 `node test/run.mjs`（串行）：**668 passed / 0 skipped / 0 failed**
 - `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**
 - `boundary-audit`：0 条；`bench-repro`：447 / 8/8 / exit 0（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
