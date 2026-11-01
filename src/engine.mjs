@@ -759,6 +759,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     } finally {
       this._manualCompactDepth = Math.max(0, (this._manualCompactDepth ?? 1) - 1);
       this._manualRange = null;
+      // ★ C137：与 C136 同源 —— 手动压缩无论成功/失败，都不许把 summarize 的 pending 摘要留给下一次 fold。
+      //   成功路径已经在 try 里把这三个字段消费掉了（记 foldMark 用），这里清的一次是**兜底**（异常/空返回）。
+      this._lastSummaryChars = undefined;
+      this._lastSummaryText = undefined;
+      this._lastSummaryModelText = undefined;
     }
   }
 

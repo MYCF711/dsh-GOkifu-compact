@@ -1911,3 +1911,22 @@ tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（�
   if ((after.foldMarks ?? []).length !== beforeMarks) throw new Error("compactNow 返回 null 时不许新增 foldMark（防「假装压过」）");
   void first;
 };
+
+tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fold（与 C136 同源）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c137-manual-pending");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c137");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  // 模拟：summarize 留下 pending（无论是因为异常还是桩不消费）
+  engine._lastSummaryText = "STALE-FROM-MANUAL";
+  engine._lastSummaryChars = engine._lastSummaryText.length;
+  engine._lastSummaryModelText = engine._lastSummaryText;
+  await engine.compactNow({ session }, undefined, "cmd-1");
+
+  if (engine._lastSummaryText !== undefined) throw new Error(`手动压缩后 _lastSummaryText 必须清空，实际 ${JSON.stringify(engine._lastSummaryText)}`);
+  if (engine._lastSummaryChars !== undefined) throw new Error("手动压缩后 _lastSummaryChars 必须清空");
+  if (engine._lastSummaryModelText !== undefined) throw new Error("手动压缩后 _lastSummaryModelText 必须清空");
+};

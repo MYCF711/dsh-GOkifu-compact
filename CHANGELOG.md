@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C137 · 手动 `/compact` 的 pending 摘要兜底清理（C136 的同源缺口）
+
+**动机**：C136 修的是「tier-2 失败后 pending 摘要没清」。同一份 pending 字段还有第三个生命周期 ——
+**手动 `/compact`**。它的 `finally` 原本只复位 `_manualCompactDepth` 与 `_manualRange`，
+不管 `_lastSummaryText / _lastSummaryChars / _lastSummaryModelText`：
+
+- 成功路径：try 里已经消费（记 `foldMark` 用），没问题；
+- **异常/空返回路径**：pending 会残留 → 下一次 fold 吃掉「上一次手动压缩的摘要」（与 C136 完全同型）。
+
+**修复**：`compactNow` 的 `finally` 里补三个字段的清空（**兜底**，也覆盖「桩不消费」这种测试/降级形态）。
+
+**测试 C137**：人为把 pending 三个字段写成 STALE 再调 `compactNow`，断言结束后全部为 `undefined`。
+
+**结果**：54/54 全绿。
+
+★ 这一轮没有发现新 bug（是补漏），但它把「谁生产谁消费」从**两条路径**扩到**三条全部收敛**：
+自动 fold / 规则降级 / tier-2 / 手动 `/compact` 结束后，pending 字段一律不残留。
+
 ### C136 · tier-2 合并失败后，pending 摘要没清 —— 下一次 fold 会「吃掉」别人的摘要（**真 bug，已修**）
 
 **怎么发现的**：给 tier-2 补失败原子性测试时，先写了一版「失败后 pending 字段必须清空」——
