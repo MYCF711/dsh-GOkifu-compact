@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C70 · live fold 逐会话质量快照（15 次 fold 的保真度/边界/闭包一并入库）
+
+**做法**：把 `live-folds.json` 的 `folds[]` 按**会话**摆开，新增
+`evidence/fold质量-多会话-2026-11-02.md`，并刷新 `live-folds.{json,md}`（`--write`）：
+
+| 项 | 数值 |
+|---|---|
+| 有 fold 的会话 / 总 fold | **6 / 15** |
+| 带 quality 的 fold | 11（**召回全为 1**，含本会话的 3 次） |
+| 带 boundary 的 fold | 7（**openAtEnd 全 0**） |
+| 带 closure 的 fold | 11（均有节点/边计数与首尾 id） |
+| `foldThrash` | **0** |
+
+`session-1286ce28` 的 1 次 fold 无任何新字段 —— 明确记为**升级前旧 fold**（字段是 C10/C24/C31 才加的），
+不是失败样本；剩下少数「有 fold 无 quality」同理。
+
+同时把 `scripts/post-restart-check.mjs`（C69）写进合同 §6 的验收流程。
+
 ### C69 · `post-restart-check.mjs`：重启后「新代码接管了吗」一条命令
 
 **问题**：这一版的新能力（buildId 一致、超预算归因字段、C51/C52/C56 的成本下降）**全部要等重启**才生效，
