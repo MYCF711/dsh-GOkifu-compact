@@ -162,9 +162,19 @@ tier-2（合并最老两个 checkpoint）走的是自己的记账路径，`foldM
 - 测试：溢出自救用例断言 `trigger=context-overflow`；P2-2-1 断言常规 fold `trigger=pressure`；
   T2-1 断言 tier-2 `trigger=tier2`；P2-2-4 断言 doctor 显示与 overflow→warn。
 
+### C13 · 交接门禁补 ⑫触发原因（overflow = 压缩没跟上增长，是 per-session 告警）
+
+C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**具体会话**而言，`context-overflow`
+（上下文已溢出、压缩被迫自救）是「压缩健康」的直接告警，不是全局统计问题。
+
+- `handoff-check` 新增 ⑫：分布显示 `pressure=… / context-overflow=… / tier2=…`；
+  出现 `context-overflow` ⇒ **warn** 并写明「压缩没跟上增长」；有 fold 但缺 trigger ⇒ warn「旧版本折叠」；
+  没有 fold 的会话 ⇒ ok（不加噪声）。
+- 测试：`test/handoff-check.test.mjs` 增 H-8/H-9/H-10（pressure 分布 / overflow warn / 缺 trigger 与无 fold 的区分）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**654 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**657 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

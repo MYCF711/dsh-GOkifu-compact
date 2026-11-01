@@ -21,6 +21,7 @@
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本（warn）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
+ *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
  *
  * 用法：
  *   node scripts/handoff-check.mjs                 # 人读
@@ -156,6 +157,27 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
           (vacuum ? " · 真空样本（本次没有可丢内容）" : "") +
           (c < 1 ? ` · 丢失约束：${JSON.stringify(latestQuality.missingConstraints ?? [])}` : "") +
           (f < 1 ? ` · 丢失失败边：${JSON.stringify((latestQuality.missingFailures ?? []).slice(0, 5))}` : ""),
+      ),
+    );
+  }
+
+  // ⑫ fold 触发原因（C12）：context-overflow 出现 = 上下文已经溢出、压缩被迫自救
+  //   （说明压缩没跟上增长）。对一个会话而言这是「压缩健康」的直接告警，不只是一个统计。
+  const triggerMarks = allMarks.filter((m) => typeof m?.trigger === "string");
+  if (allMarks.length === 0) {
+    out.push(check("⑫触发原因", "ok", "本会话没有 fold 记录"));
+  } else if (triggerMarks.length === 0) {
+    out.push(check("⑫触发原因", "warn", `${allMarks.length} 次 fold 都没有 trigger（旧版本折叠；升级后自动出现）`));
+  } else {
+    const counts = new Map();
+    for (const m of triggerMarks) counts.set(m.trigger, (counts.get(m.trigger) ?? 0) + 1);
+    const overflow = counts.get("context-overflow") ?? 0;
+    out.push(
+      check(
+        "⑫触发原因",
+        overflow > 0 ? "warn" : "ok",
+        [...counts.entries()].map(([k, v]) => `${k}=${v}`).join(" / ") +
+          (overflow > 0 ? ` —— ${overflow} 次是「溢出后被迫自救」，压缩没跟上增长` : ""),
       ),
     );
   }

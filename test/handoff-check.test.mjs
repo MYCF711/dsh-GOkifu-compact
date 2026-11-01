@@ -112,6 +112,38 @@ tests["H-6 没有 fold 记录 ⇒ ⑩/⑪ 都 ok（不许给没 fold 过的会�
   t.eq(byName(result, "⑪").level, "ok", "没有样本时探针不告警");
 };
 
+tests["H-8 触发原因 pressure ⇒ ⑫ ok 并显示分布"] = (t) => {
+  const result = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, trigger: "pressure", quality: quality() }] }), {});
+  const trigger = byName(result, "⑫");
+  t.eq(trigger.level, "ok", "只有 pressure 应为 ok");
+  t.includes(trigger.detail, "pressure=1", "必须显示触发原因分布");
+  t.notIncludes(trigger.detail, "被迫自救", "没有 overflow 时不许吓人");
+};
+
+tests["H-9 出现 context-overflow ⇒ ⑫ warn（压缩没跟上增长，已被迫自救）"] = (t) => {
+  const result = checkGraph(
+    mkGraph({
+      foldMarks: [
+        { at: now, foldCount: 1, trigger: "pressure", quality: quality() },
+        { at: now + 1, foldCount: 2, trigger: "context-overflow", quality: quality() },
+      ],
+    }),
+    {},
+  );
+  const trigger = byName(result, "⑫");
+  t.eq(trigger.level, "warn", "overflow 必须 warn");
+  t.includes(trigger.detail, "被迫自救", "必须说明 overflow 的含义");
+  t.includes(trigger.detail, "context-overflow=1", "分布里要看到 overflow 计数");
+};
+
+tests["H-10 有 fold 但缺 trigger ⇒ ⑫ warn『未采集』；没有 fold ⇒ ok"] = (t) => {
+  const legacy = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1 }] }), {}), "⑫");
+  t.eq(legacy.level, "warn", "旧版本折叠缺 trigger 要 warn");
+  t.includes(legacy.detail, "都没有 trigger", "必须写清是旧版本折叠");
+  const empty = byName(checkGraph(mkGraph({ foldMarks: [] }), {}), "⑫");
+  t.eq(empty.level, "ok", "没有 fold 的会话不该被 ⑫ 告警");
+};
+
 tests["H-7 有 fold 但缺 quality ⇒ ⑩ warn『未采集』（旧版本折叠）"] = (t) => {
   const result = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, seqStart: 1, seqEnd: 9 }] }), {});
   const fidelity = byName(result, "⑩");
