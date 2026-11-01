@@ -40,6 +40,11 @@ const BASE_KEYS = new Set(BASE_KEY_LIST);
  *  `tier2After×2`，两条路径各裁各的 ⇒ 行为不可预测）。要改只改这一个常量。 */
 const FOLD_MARKS_KEEP = 20;
 
+/** ★ 2026-11-01（调研候选 #1）：两次 fold 之间少于这么多**事件**，就算「压缩无效（thrashing）」。
+ *  30 个事件约等于 10–15 步（一步通常 2~3 个事件）。取值依据：太大会漏判（正常的重压间隔也就几十事件），
+ *  太小会把「小步高频压缩」误判成故障。只用于记录与提示，不影响是否 fold。 */
+const THRASH_SEQ = 30;
+
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 
 /* ───────────────── P7：fallback 仪表盘（engine 侧） ───────────────── */
@@ -642,6 +647,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
     st.foldFailures = 0;
     st.lastFoldError = "";
+    // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
+    //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
+    //   隔得太近说明上一次回收的空间立刻又满了（典型原因：压完没缩小、或会话本身在灌数据）。
+    //   只记状态、不改行为；低于阈值就累计，否则清零（成功一次就恢复）。
+    //   为什么放 graph 而不是运行时 state：跨重启可见，doctor/热清单都能读。
+    const sinceLastFold = typeof g.lastFoldSeq === "number" ? session.seq - g.lastFoldSeq : Number.POSITIVE_INFINITY;
+    if (g.foldCount > 0 && sinceLastFold < THRASH_SEQ) {
+      g.foldThrash = (g.foldThrash ?? 0) + 1;
+    } else {
+      g.foldThrash = 0;
+    }
+    g.lastFoldSeq = session.seq;
     g.foldCount += 1;
     g.lastFoldTotalTokens = after.totalTokens;
     // 记「checkpoint 消息的 seq」，不是被遮蔽区间的起点 —— 后者 fold 之后已不在 surface 上，

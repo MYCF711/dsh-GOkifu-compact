@@ -724,6 +724,12 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     //   否则模型会把没有润色的规则事实当成正常摘要读。旧图没有这个字段 ⇒ 不显示（向后兼容）。
     //   两个字段都认：`lastFoldMode`（规范字段）与 `lastFoldDegraded`（同时写的布尔别名）。
     if (g.lastFoldMode === "rules" || g.lastFoldDegraded === true) lines.push("⚠ 上次摘要是规则生成（无模型润色）");
+    // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
+    //   压缩无效要当一等状态显示出来。只陈述事实（连续几次、间隔多近），**不给行动指令** ——
+    //   「要不要换策略」是模型的判断，不是压缩该替它做的事。只在真的连续发生时出现，正常会话零成本。
+    if (typeof g.foldThrash === "number" && g.foldThrash >= 2) {
+      lines.push(`⚠ 上次 fold 未回收足够空间（连续 ${g.foldThrash} 次 fold 间隔 < 30 事件）`);
+    }
     // ★ C-17 rev6：L3+ 的 root 裁剪从 180 收到 168 —— 给「最小路径行」预留 12 字符。
     //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 5b38b355 HEAD=497/1490 字符）
     //   只要多一行 `# path: n185` 就 501，成为唯一一个「新增超预算」。路径信息优先于
