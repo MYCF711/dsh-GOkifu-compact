@@ -109,6 +109,13 @@ tests["H-14 ①根目标：agent-only 会话不适用（ok）；有 user 节点�
   t.includes(r2.detail, "漏记", "detail 要点名是 keeper 漏记");
 };
 
+tests["H-15 真空样本（区间无约束/失败边）⇒ ⑩ ok（不算缺陷），但 detail 必须说清是真空"] = (t) => {
+  const q = { constraintRecall: 1, failureRecall: 1, expectedConstraints: 0, expectedFailures: 0, compressionRatio: 10, unknownIds: [], summaryTokens: 100 };
+  const r = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: q }] }), {}).checks.find((c) => c.name.includes("⑩"));
+  t.eq(r.level, "ok", `真空样本必须 ok，实际 ${r.level}：${r.detail}`);
+  t.includes(r.detail, "真空样本", "detail 要标明真空");
+};
+
 tests["H-11 空图 ⇒ ①根目标不适用（ok），不许当成「缺 rootUserNodeIds」告警"] = (t) => {
   const empty = {
     version: 1,
@@ -157,10 +164,10 @@ tests["H-3 failureRecall < 1 ⇒ warn（丢失败边 = 下一个模型重踩）"
   t.includes(byName(result, "⑩").detail, "e12", "必须点名丢失的失败边");
 };
 
-tests["H-4 真空样本（期望全 0）⇒ warn，不许当成『全保住了』"] = (t) => {
+tests["H-4 真空样本（期望全 0）⇒ ok 但必须标明真空（C38：逐会话不再告警，全体真空由 doctor 兜）"] = (t) => {
   const q = quality({ expectedConstraints: 0, expectedFailures: 0 });
   const result = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: q }] }), {});
-  t.eq(byName(result, "⑩").level, "warn", "真空样本必须是 warn（不是 ok）");
+  t.eq(byName(result, "⑩").level, "ok", "真空样本不再是逐会话 warn（C38）");
   t.includes(byName(result, "⑩").detail, "真空", "必须写明真空样本");
 };
 

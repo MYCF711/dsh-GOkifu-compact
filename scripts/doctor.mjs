@@ -513,12 +513,18 @@ add(
     const addressText = preGraph > 0 ? ` · ${preGraph} 次覆盖图外历史（无节点可回查）` : "";
     const ratioText = ratios.length > 0 ? ` · compressionRatio ${Math.min(...ratios)}–${Math.max(...ratios)}` : "";
     const latest = withQuality[0].quality;
+    // C38：逐会话的真空样本不再告警，但**全部**样本都是真空 = 保真度其实从未被检验 ⇒ 这里兜底。
+    const vacuumCount = withQuality.filter(
+      (m) => !(Number(m.quality.expectedConstraints) > 0) && !(Number(m.quality.expectedFailures) > 0),
+    ).length;
+    const allVacuum = vacuumCount === withQuality.length;
     add(
       "压缩保真度（最近 fold）",
-      cMin < 1 ? "error" : fMin < 1 ? "warn" : "ok",
+      cMin < 1 ? "error" : fMin < 1 ? "warn" : allVacuum ? "warn" : "ok",
       `constraintRecall min=${cMin} · failureRecall min=${fMin}${ratioText}` +
         `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
-        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}`,
+        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}` +
+        (allVacuum ? ` —— 全部 ${withQuality.length} 次样本都是真空（折叠区间内没有约束/失败边可丢），保真度实际未被检验` : ""),
     );
     // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了
     const missingC = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingConstraints) ? m.quality.missingConstraints : [])))].slice(0, 5);

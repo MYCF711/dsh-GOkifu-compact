@@ -19,7 +19,7 @@
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
  *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
- *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本（warn）
+ *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本=ok（无内容可丢，非缺陷；C38）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
  *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
  *   ⑬ fold 边界：切点落在工具调用中间（openAtEnd>0）= 摘要引用区间外结果 ⇒ fail（C37）
@@ -168,13 +168,15 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
     const c = Number(latestQuality.constraintRecall ?? 1);
     const f = Number(latestQuality.failureRecall ?? 1);
     const vacuum = !(Number(latestQuality.expectedConstraints) > 0) && !(Number(latestQuality.expectedFailures) > 0);
+    // ★ C38：真空样本（区间里本来就没有约束/失败边可丢）**不是缺陷** —— 逐会话报 warn 只会把门禁
+    //   训练成「满屏噪声」。真正的盲区（**所有**样本都是真空）由 doctor 的保真度检查全局告警。
     out.push(
       check(
         "⑩保真度",
-        c < 1 ? "fail" : f < 1 ? "warn" : vacuum ? "warn" : "ok",
+        c < 1 ? "fail" : f < 1 ? "warn" : "ok",
         `constraintRecall=${c} failureRecall=${f}` +
           `（期望 约束 ${latestQuality.expectedConstraints ?? "?"} / 失败边 ${latestQuality.expectedFailures ?? "?"}）` +
-          (vacuum ? " · 真空样本（本次没有可丢内容）" : "") +
+          (vacuum ? " · 真空样本（本区间没有约束/失败边可丢 —— 不算缺陷；全体真空由 doctor 全局告警）" : "") +
           (c < 1 ? ` · 丢失约束：${JSON.stringify(latestQuality.missingConstraints ?? [])}` : "") +
           (f < 1 ? ` · 丢失失败边：${JSON.stringify((latestQuality.missingFailures ?? []).slice(0, 5))}` : ""),
       ),

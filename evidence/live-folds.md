@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T18:59:09Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T19:06:16Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
