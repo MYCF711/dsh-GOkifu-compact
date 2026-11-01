@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T19:18:01Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T19:33:32Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -32,6 +32,14 @@
 - **悬空（dangling）**：6 次有记录 —— residue 6 / candidates 3 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
 - **边界完整性**：3 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **204** 条
 - 其中 **preGraph 1 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
+
+## 与上次对比（C50）
+
+- 上次快照：2026-11-01T19:33:15Z
+- 新增 fold：**0** 次
+- 质量下限变化：无变化（上次 c=1 / f=1 · unknownIds 0）
+- 边界回归（openAtEnd 增加）：无
+- 遮蔽占读入漂移（下限）：0.0 个百分点
 
 ## 逐次明细
 

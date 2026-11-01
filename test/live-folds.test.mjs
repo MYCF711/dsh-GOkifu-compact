@@ -12,7 +12,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { SCHEMA, collectLiveFolds, main, renderMarkdown, summarizeFolds } from "../scripts/live-folds.mjs";
+import { SCHEMA, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -216,4 +216,32 @@ tests["L-5 空 home：0 条也要给结论，不许抛"] = (t) => {
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
+};
+
+tests["L-6 trendOf：新增 fold / 质量变化 / 边界回归 / 成本漂移都如实报告；没有旧快照返回 null"] = (t) => {
+  t.eq(trendOf(null, {}), null, "没有旧快照 ⇒ null");
+  const prev = {
+    generatedAt: "2026-11-02T00:00:00Z",
+    summary: {
+      total: 7,
+      quality: { constraintRecallMin: 1, failureRecallMin: 1, unknownIdsTotal: 0 },
+      boundary: { openAtEnd: 0 },
+      cost: { shadowedShareMin: 0.6 },
+    },
+    folds: [{}, {}, {}, {}, {}, {}, {}],
+  };
+  const now = {
+    total: 10,
+    quality: { constraintRecallMin: 1, failureRecallMin: 0.5, unknownIdsTotal: 2 },
+    boundary: { openAtEnd: 1 },
+    cost: { shadowedShareMin: 0.5 },
+  };
+  const trend = trendOf(prev, now);
+  t.eq(trend.newFolds, 3, "新增 3 次");
+  t.eq(trend.qualityChanged, true, "质量下限变化必须报告");
+  t.eq(trend.boundaryRegressed, true, "openAtEnd 从 0 变 1 ⇒ 边界回归");
+  t.eq(Number((trend.costShareDelta ?? 0).toFixed(2)), -0.1, "成本占比漂移 = 现在 - 上次");
+  const same = trendOf(prev, prev.summary && { ...prev.summary });
+  t.eq(same.newFolds, 0, "同一快照 ⇒ 0");
+  t.eq(same.boundaryRegressed, false, "同一快照 ⇒ 无回归");
 };

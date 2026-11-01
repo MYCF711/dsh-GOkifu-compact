@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C50 · `live-folds` 跨轮趋势（每小时跑一次时最该看的是「变了什么」）
+
+**问题**：`live-folds` 每次覆盖写证据页，只给**当前快照**。每小时巡检时真正要回答的是
+「这一小时新增了几次 fold？质量下限有没有变差？边界有没有回归？成本占比漂移多少？」—— 之前得手动 diff。
+
+**做法**：
+
+- 新增纯函数 `trendOf(prev, summary)`：`newFolds` / `qualityChanged`（c/f 召回下限与幻觉命中）/
+  `boundaryRegressed`（openAtEnd 增加）/ `costShareDelta`（遮蔽占读入下限漂移）；
+- `main()` 写入前先读上一次的 `live-folds.json`，算 trend 一起落盘（`payload.trend`）；
+- 证据页新增「## 与上次对比（C50）」小节。
+
+**live 首次运行**：上次快照 `2026-11-01T19:33Z` → 新增 fold **0**、质量下限无变化、无边界回归。
+
+测试：`live-folds` 新增 L-6（纯函数四类变化 + 无旧快照返回 null）。
+
 ### C49 · over-budget 归因再细分：`budgetIrreducible`（已列全失败边仍超）
 
 **问题**：C44 只分出「约束+根目标下限即超预算」一种设计内形态。但 C48 的离线归因显示，

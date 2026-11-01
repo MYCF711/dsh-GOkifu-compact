@@ -60,6 +60,7 @@
 | **C47 摘要章节标题去指令（1.17.1）** | `## 已探明死路（逐条保留，一条不许少）` → `## 已探明死路`（facts-prompt 模板 + ruleSummary 两侧一致）；规则已在正文规则段，标题不再长期带指令；真机脚本期望同步；bench 447 / L5 |
 | **C48 over-budget 按会话归因（1.17.1）** | `ledger-budget.json` 新增 `overBySession`（前 8 来源）+ doctor 显示「主要来源」；离线归因证明 19.5% 由 `session-d70b7c2f`（649/500，7 条长失败原因）单会话放大，非系统性退化 |
 | **C49 over-budget 归因细分（1.17.1）** | 新增 `budgetIrreducible`（已列全失败边仍超 ⇒ 再省必须丢失败记忆，设计内）；doctor 同时显示 floorOver / irreducible；测试覆盖两种形态；证据页追加第 6 节 |
+| **C50 live-folds 跨轮趋势（1.17.1）** | `trendOf`：新增 fold / 质量下限变化 / 边界回归 / 成本漂移；`main()` 读上次快照后一起落盘；证据页加「与上次对比」小节；测试 L-6 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

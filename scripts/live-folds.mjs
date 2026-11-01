@@ -77,6 +77,34 @@ export function foldRecord(sessionId, index, mark) {
   };
 }
 
+/**
+ * 与上一次证据快照对比（C50）：每小时跑一次时，最值得看的是「这一小时发生了什么变化」。
+ * 只做事实对比，不给结论：新增几次 fold、质量下限有没有变差、边界有没有回归、成本占比漂移多少。
+ */
+export function trendOf(prev, summary) {
+  if (!prev || typeof prev !== "object" || !summary || typeof summary !== "object") return null;
+  const prevTotal = Number(prev?.summary?.total ?? (Array.isArray(prev?.folds) ? prev.folds.length : NaN));
+  if (!Number.isFinite(prevTotal)) return null;
+  const prevQ = prev?.summary?.quality ?? {};
+  const prevB = prev?.summary?.boundary ?? {};
+  const prevCost = prev?.summary?.cost ?? {};
+  const q = (o, k) => (o && o[k] !== undefined ? o[k] : null);
+  const qualityChanged = ["constraintRecallMin", "failureRecallMin", "unknownIdsTotal"].some((k) => q(prevQ, k) !== q(summary.quality, k));
+  const costShareDelta =
+    typeof prevCost.shadowedShareMin === "number" && typeof summary?.cost?.shadowedShareMin === "number"
+      ? summary.cost.shadowedShareMin - prevCost.shadowedShareMin
+      : null;
+  return {
+    previousAt: typeof prev.generatedAt === "string" ? prev.generatedAt : null,
+    newFolds: summary.total - prevTotal,
+    qualityChanged,
+    boundaryRegressed: Number(prevB.openAtEnd ?? 0) < Number(summary?.boundary?.openAtEnd ?? 0),
+    costShareDelta,
+    prevQuality: prevQ,
+    prevBoundary: prevB,
+  };
+}
+
 /** 扫 home 下所有会话图，按时间升序返回记录。 */
 export function collectLiveFolds(home) {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
@@ -163,7 +191,7 @@ export function summarizeFolds(records) {
 const pad = (value, width) => String(value ?? "—").padStart(width);
 
 /** Markdown 证据页（内容里带生成时间，按 evidence/README 的判据看这里而不是 mtime）。 */
-export function renderMarkdown({ home, records, summary, generatedAt }) {
+export function renderMarkdown({ home, records, summary, generatedAt, trend = null }) {
   const lines = [];
   lines.push("# live fold 证据（自动汇总）");
   lines.push("");
@@ -200,6 +228,16 @@ export function renderMarkdown({ home, records, summary, generatedAt }) {
   lines.push(`- **边界完整性**：${summary.boundary.count} 次有 boundary 记录，其中切点落在工具调用中间的 **${summary.boundary.openAtEnd}** 次（正常应为 0），区间内未结算边合计 **${summary.boundary.unsettled}** 条`);
   lines.push(`- 其中 **preGraph ${summary.closure.preGraph} 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段`);
   lines.push("");
+  if (trend) {
+    lines.push("## 与上次对比（C50）");
+    lines.push("");
+    lines.push(`- 上次快照：${trend.previousAt ?? "—"}`);
+    lines.push(`- 新增 fold：**${trend.newFolds}** 次`);
+    lines.push(`- 质量下限变化：${trend.qualityChanged ? "**有变化**" : "无变化"}（上次 c=${trend.prevQuality?.constraintRecallMin ?? "—"} / f=${trend.prevQuality?.failureRecallMin ?? "—"} · unknownIds ${trend.prevQuality?.unknownIdsTotal ?? "—"}）`);
+    lines.push(`- 边界回归（openAtEnd 增加）：${trend.boundaryRegressed ? "**是 —— 必须排查**" : "无"}`);
+    lines.push(`- 遮蔽占读入漂移（下限）：${trend.costShareDelta === null ? "—" : `${(trend.costShareDelta * 100).toFixed(1)} 个百分点`}`);
+    lines.push("");
+  }
   lines.push("## 逐次明细");
   lines.push("");
   lines.push("| # | 会话 | 时间 | trigger | 遮蔽 tok | 输入 tok | 输入/遮蔽 | ms | c/f 召回 | 压缩比 | 闭包 n/e |");
@@ -229,12 +267,20 @@ export function main(argv = process.argv.slice(2)) {
   const jsonOnly = argv.includes("--json-only");
   const { records, sessions, unreadable } = collectLiveFolds(home);
   const summary = summarizeFolds(records);
+  // C50：先读旧快照再覆盖 —— 每小时一次，最有用的是「与上次相比变了什么」。
+  let previous = null;
+  try {
+    if (nodeFs.existsSync(`${outBase}.json`)) previous = JSON.parse(nodeFs.readFileSync(`${outBase}.json`, "utf8"));
+  } catch {
+    previous = null;
+  }
+  const trend = trendOf(previous, summary);
   const generatedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const payload = { schema: SCHEMA, generatedAt, home, sessions, unreadable, summary, folds: records };
+  const payload = { schema: SCHEMA, generatedAt, home, sessions, unreadable, summary, trend, folds: records };
   if (!dryRun) {
     nodeFs.mkdirSync(nodePath.dirname(outBase), { recursive: true });
     nodeFs.writeFileSync(`${outBase}.json`, JSON.stringify(payload, void 0, 2) + "\n", "utf8");
-    if (!jsonOnly) nodeFs.writeFileSync(`${outBase}.md`, renderMarkdown({ home, records, summary, generatedAt }) + "\n", "utf8");
+    if (!jsonOnly) nodeFs.writeFileSync(`${outBase}.md`, renderMarkdown({ home, records, summary, generatedAt, trend }) + "\n", "utf8");
   }
   console.log(`live folds：${summary.total} 次（${sessions} 个会话${unreadable > 0 ? `，${unreadable} 个图读不出` : ""}）`);
   console.log(`  覆盖率 trigger ${summary.coverage.trigger}/${summary.total} · quality ${summary.coverage.quality}/${summary.total} · closure ${summary.coverage.closure}/${summary.total} · usage ${summary.coverage.usage}/${summary.total}`);
