@@ -288,6 +288,26 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
   「提前算好」在生产产品里也没做成（Codex 的 prefix 预热 PR 已关闭）；成本函数是「fold 频次 × 单次读入」，
   已由 `minFoldTokens` / `growthFloor` 兜住。
 
+### C22 · 巡检第 2 次：门禁全绿，修掉三处过期文档数字
+
+连续多轮改动（C16–C21）之后用**同一套门禁**重新核一遍（`evidence/巡检-第2次-2026-11-02.md`）：
+
+| 门禁 | 结果 |
+|---|---|
+| 全量单测（串行独占） | **668 / 0 / 0** |
+| bench-repro | **447 tokens** · 失败保留 **8/8** · exit 0 |
+| handoff-check（live） | **FAIL 0 / WARN 9** |
+| boundary-audit | **0 条** |
+| check-maintenance | 8 通过 / 0 警告 / **1 预期失败**（1.17.0 无 tag = 未发版） |
+| doctor（live） | **0 错误 / 5 警告**（跨日 + 旧 foldMark 未采集 + 既有 over-budget，逐条已解释） |
+
+**修掉的过期数字**（文档与实测不一致）：
+- `README.md` 顶部「615 项单测」→ **668**；
+- `HANDOFF.md` 1.17.0 行「634 passed」→ **668**；
+- `00 蒸馏 §10` 落地表只到 C17 → 补齐 **C18–C21**（含各自验证证据）。
+
+**没有发现新的代码回归。**
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**668 passed / 0 skipped / 0 failed**

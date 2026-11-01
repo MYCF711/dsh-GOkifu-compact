@@ -5,7 +5,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 | `package.json` 已 bump 到 **1.17.0**（`check-maintenance` 要求：改了代码必须 bump，否则 git 源用户永远停在旧 commit）；**未 npm publish、未打 tag** —— 这两步需主人授权。当前 `check-maintenance` 预期只剩 1 项失败：「1.17.0 没有 tag」= 尚未发版 |
-| 单测 | **634 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；含并行会话新增的 thrashing / 重注入契约 / touched-files 用例） |
+| 单测 | **668 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；并发跑会共用 `test/.harness/graphs`，出现 T2-5 类假红） |
 | 本轮提交 | `e7e72f9`（C2/C3/C4，本会话）；并行会话另有 `262c92d`(thrashing 进 doctor) / `c79c8ed`(fold 无效一等可见 + 重注入契约) / `671132a`(调研三份归档) / `a3fe4d4`(ROOMS 登记 touched-files) / `31188a5`(压缩质量观测盘点) |
 | **C2 出处覆盖率可观测** | `ledgerBudgetMetrics.provenanceCoverage` → `accumulateLedgerBudget()`（`provenanceMin`/`provenanceLow`；旧 `ledger-budget.json` 无字段时首累计按 **1** 起算，不许当 0）→ doctor「热清单预算（fallback）」显示 `provenanceMin`（旧文件显示「未采集」）；覆盖率 <1 时日志升 warn 并带数值 |
 | **C3 省略行可解析** | 热清单省略行 + `FAILED_ATTEMPTS_OMITTED` + `DANGLING_RESIDUE` 统一给「数量 + 区间 + 相对化路径」（`sessions/<sid>/graph.json`、`nodes/<id>.md`；无 treeDir 退化 `graph.json`），**绝不泄漏绝对路径**（P6a）；`renderFacts` 新增 `treeDir/traceRoot` 选项，`engine.summarize` 传入会话目录 |
@@ -28,6 +28,7 @@
 | **C19 收尾（本轮）** | ①补 C14 接线测试（替换桩基类 compactNow 模拟宿主 → 断言 trigger=manual/区间/pending 被消费）；②`package.json`/README 版本 1.16.0 → **1.17.0（未发布）**——修复「改了代码但版本没 bump ⇒ git 源用户永远停在旧 commit」；`check-maintenance` 现只剩 1 项预期失败（1.17.0 无 tag）|
 | **C20 fold 成本效率（本轮）** | 三次 live fold 实测：摘要 input/shadowed = **1.43–1.63**（读整个 surface，不是被折叠段）、输出仅 362–3004 ⇒ 瓶颈在「读」。doctor 新增「fold 成本效率」，≥2 判 warn；证据 `evidence/折叠成本-实测-2026-11-02.md`；P2-2-4 增断言 |
 | **C21 小窗口 headroom 封顶（本轮）** | 07 调研发现 `headroomTokens=65536` 绝对值在小窗口吃掉阈值：100K 窗口 45%→26.3%、≤73,728 直接抛错（压缩不可用）。`resolveSpec` 改为按 `messageBudget×25%` 封顶（大窗口不变）；engine-harness S4-5。07 调研沉淀 `docs/research/07-trigger-and-budget.md` |
+| **C22 巡检第 2 次（本轮）** | 门禁全绿：668 测试 / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警（逐条解释）。修掉 3 处过期文档数字（README 615→668、HANDOFF 634→668、00 §10 补 C18–C21）。证据 `evidence/巡检-第2次-2026-11-02.md` |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
