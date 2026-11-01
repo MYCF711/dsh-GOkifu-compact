@@ -12,6 +12,7 @@
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **447 tokens**（351 → 446 来自「出处全档保留 + OPTIONS 不沉默」；446 → 447 来自失败边重试计数 `↻k`） |
 | `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T19:1xZ | **7 次 live fold / 17 个会话**：usage 7/7、trigger 3/7、quality 3/7、closure 3/7；质量 c=1 / f=1、压缩比 127.07–350.68、幻觉探针 0；成本 **1.36–1.81**；边界（openAtEnd 0 次）、悬空（liveUnsettled 0 / residue 3 / candidates 1）、preGraph（C30 起落盘）。**看生成时间，不看 mtime** |
 | `热清单内容普查-2026-11-02.md` | 离线渲染 live 图 + `measureLedgerSections` 分段统计 | 2026-11-02 | session-d70b7c2f（210 节点/228 边）：500 预算 = 574（超 74）· sections failures 898/1415；1200/3000 预算 = 907 · failures 1646/2693。**逐段核实：热清单与摘要指令都不注入工具输出体** ⇒ G-2 `derivable` 在本插件无落点（负结论） |
+| `热清单超预算归因-2026-11-02.md` | 离线复现 + 成本结构 + 被否决的 L6 实验 | 2026-11-02 | live over-budget 19/263（7.2%）、最大超 117；离线 1/19（574/500）。**结论：诚实超限是设计内行为**；L6（3 条失败+关标记）能把 574 压到 472，但破坏 M2 不变量与「L5 列 10 条」契约、且 bench 447→238 白丢失败记忆 ⇒ **否决** |
 | `折叠成本-实测-2026-11-02.md` | 手工汇总 live `foldMarks[i].usage` | 2026-11-02 | 三次真实 fold：摘要 **input/shadowed = 1.43–1.63**（读整个 surface）、输出仅 362–3004 ⇒ 瓶颈在「读」 |
 | `巡检-第2次-2026-11-02.md` | 全门禁重跑 | 2026-11-02 01:0x | 668 测试 / bench 447 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警 |
 | `最终验收-2026-11-02.md` | 六道门禁 + live 现状 + 发版待办 + 已知缺口 | 2026-11-02 01:0x | **676 测试** / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警（均已解释）|

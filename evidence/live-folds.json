@@ -1,47 +1,47 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-01T19:06:16Z",
+  "generatedAt": "2026-11-01T19:15:47Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 19,
+  "sessions": 21,
   "unreadable": 0,
   "summary": {
-    "total": 7,
+    "total": 10,
     "coverage": {
-      "trigger": 3,
-      "quality": 3,
-      "closure": 3,
-      "usage": 7
+      "trigger": 6,
+      "quality": 6,
+      "closure": 6,
+      "usage": 10
     },
     "triggerCounts": {
-      "pressure": 3
+      "pressure": 6
     },
     "quality": {
-      "count": 3,
+      "count": 6,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
-      "compressionRatioMin": 127.07,
+      "compressionRatioMin": 113.2,
       "compressionRatioMax": 350.68,
       "unknownIdsTotal": 0
     },
     "cost": {
-      "count": 7,
+      "count": 10,
       "inputPerShadowedMin": 1.36,
-      "inputPerShadowedMax": 1.81
+      "inputPerShadowedMax": 2.11
     },
     "closure": {
-      "count": 3,
-      "empty": 2,
-      "preGraph": 0
+      "count": 6,
+      "empty": 3,
+      "preGraph": 1
     },
     "boundary": {
-      "count": 0,
+      "count": 3,
       "openAtEnd": 0,
-      "unsettled": 0
+      "unsettled": 204
     },
     "dangling": {
-      "count": 3,
-      "residue": 3,
-      "candidates": 1,
+      "count": 6,
+      "residue": 6,
+      "candidates": 3,
       "liveUnsettled": 0,
       "fromBroken": 0
     }
@@ -267,6 +267,147 @@
         "fromBroken": 0
       },
       "boundary": null
+    },
+    {
+      "sessionId": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
+      "fold": 3,
+      "at": 1793560279507,
+      "trigger": "pressure",
+      "seqStart": 2333,
+      "seqEnd": 4261,
+      "summaryChars": 2261,
+      "shadowedTokens": 174092,
+      "inputTokens": 251359,
+      "outputTokens": 2136,
+      "inputPerShadowed": 1.44,
+      "ms": 16985,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 151.65,
+        "expectedConstraints": 4,
+        "expectedFailures": 6,
+        "unknownIds": 0,
+        "summaryTokens": 1148
+      },
+      "closure": {
+        "nodes": 156,
+        "edges": 163,
+        "firstNode": "n49",
+        "lastNode": "n204",
+        "preGraph": false,
+        "graphNodes": 240
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 163,
+        "openAtEnd": 0,
+        "unsettled": 145
+      }
+    },
+    {
+      "sessionId": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
+      "fold": 2,
+      "at": 1793560367604,
+      "trigger": "pressure",
+      "seqStart": 4685,
+      "seqEnd": 6211,
+      "summaryChars": 1765,
+      "shadowedTokens": 188541,
+      "inputTokens": 257119,
+      "outputTokens": 5835,
+      "inputPerShadowed": 1.36,
+      "ms": 22257,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 251.05,
+        "expectedConstraints": 0,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 751
+      },
+      "closure": {
+        "nodes": 57,
+        "edges": 61,
+        "firstNode": "n9",
+        "lastNode": "n65",
+        "preGraph": false,
+        "graphNodes": 251
+      },
+      "dangling": {
+        "residue": 3,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 61,
+        "openAtEnd": 0,
+        "unsettled": 59
+      }
+    },
+    {
+      "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
+      "fold": 2,
+      "at": 1793560475183,
+      "trigger": "pressure",
+      "seqStart": 1022,
+      "seqEnd": 1487,
+      "summaryChars": 1746,
+      "shadowedTokens": 104709,
+      "inputTokens": 221163,
+      "outputTokens": 4505,
+      "inputPerShadowed": 2.11,
+      "ms": 18839,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 113.2,
+        "expectedConstraints": 2,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 925
+      },
+      "closure": {
+        "nodes": 0,
+        "edges": 0,
+        "firstNode": null,
+        "lastNode": null,
+        "preGraph": true,
+        "graphNodes": 104
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 0,
+        "openAtEnd": 0,
+        "unsettled": 0
+      }
     }
   ]
 }

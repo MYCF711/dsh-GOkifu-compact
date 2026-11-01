@@ -5,6 +5,40 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C42 · live 验证：C30/C31 真值到齐 + `unsettled` 语义澄清
+
+**本轮 live 新增 3 次 fold（当前 10 次 / 21 个会话）**，`closure` 与 `boundary` 全部落盘：
+
+| fold 区间 | closure | preGraph | graphNodes | boundary |
+|---|---|---|---|---|
+| 2333-4261 | n=156 / e=163 | false | 240 | openAtEnd **0** · overlapping 163 · unsettled 145 |
+| 4685-6211 | n=57 / e=61 | false | 251 | openAtEnd **0** · overlapping 61 · unsettled 59 |
+| 1022-1487 | **n=0 / e=0** | **true** | 104 | openAtEnd **0** · overlapping 0 |
+
+⇒ **C30（preGraph）与 C31（boundary）都在真机上验证通过**；doctor「fold 边界完整性」从「未采集」转为
+**✓（3 次 fold 都切在 step 边界）**。质量仍 c=1 / f=1，幻觉探针 0，压缩比 113–351。
+
+**语义澄清**：`boundary.unsettled` 统计的是「区间内**未拿到强验证**的边」（`unverified`/`untested`）——
+live 里 bash 成功大多没有退出码标记，会落进 `unverified`，所以这个数通常很大（145/163）。
+字段注释与合同 §6 第 10 行已改成这个口径；它只作观测，不参与判错。
+
+合同 §6 的 live 列同步刷新：provenanceMin=1（433 次渲染）、trigger pressure=6/10、liveUnsettled=0。
+
+### C41 · 热清单 over-budget 归因 + 一次被否决的 L6 实验（负结论入库）
+
+**现象**：重启后 `ledger-budget.json` 出现 **over-budget 19/263（7.2%）**，最大超 117 tokens。
+
+**归因**（离线 19 张 live 图，`maxTokens=500`）：只有 1/19 超（`d70b7c2f`，574/500）。
+超限来自**不可再裁的结构** —— 根目标 clip 后 168 字符 + 约束（逐字，丢一条任务就变）+ 最少失败边
++ 标记图例 4 行；这几项的**下限**在个别会话里已经 > 500 tokens。
+
+**实验（否决）**：加 L6「只留 3 条失败边 + 关标记图例」—— 实测把 574 压到 **472**（装下了），
+但同时破坏三条已记录的不变量：① M2「预算内选最省」被 L6 的绝对最省顶掉（bench 447 → **238**，
+白丢 209 token 失败记忆）；② L5「列最近 10 条 + 省略数真实」契约；③ 既有原则**「诚实超限 > 静默省略」**。
+⇒ **不引入 L6**，保持「宁可超预算也不丢约束/失败边」，用 `fallback: over-budget` + `overBudgetBy` 把超限做成可见状态。
+
+证据：`evidence/热清单超预算归因-2026-11-02.md`（含成本结构表与重新评估阈值：占比 >20% 或 maxOver >200 tokens）。
+
 ### C39 · 摘要指令如实告知「本段早于棋谱」（preGraph）
 
 **问题**：重启续跑的历史可能整段早于棋谱（C30 的 `preGraph`）—— 这一段**没有任何节点 id**。

@@ -333,7 +333,8 @@ export function foldClosureOf(graph, range) {
  *
  * 为什么：fold 在 step 边界执行，正常不会切开一个 call（证据区间跨过切点）。一旦切开，
  * 摘要会引用一个结果落在区间外的调用 —— 模型回查时看到的是悬空的 attempt。
- * `unsettled` 记区间内仍未结算的边（跨边界悬空本来就是它们的常态，单列出来供审计）。
+ * `unsettled` 记区间内**未拿到强验证**的边（result 是 unverified/untested —— live 里 bash 成功
+ * 大多没有退出码标记，会落进 unverified，所以这个数通常很大；只作观测，不判错）。
  *
  * @param {{edges:object}} graph
  * @param {{start:number,end:number}|null} range

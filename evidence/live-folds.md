@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T19:06:16Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T19:15:47Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -8,29 +8,29 @@
 
 | 项 | 有值的 fold / 总数 |
 |---|---:|
-| trigger | 3 / 7 |
-| quality（保真度） | 3 / 7 |
-| closure（可寻址闭包） | 3 / 7 |
-| usage（provider 真实 token） | 7 / 7 |
+| trigger | 6 / 10 |
+| quality（保真度） | 6 / 10 |
+| closure（可寻址闭包） | 6 / 10 |
+| usage（provider 真实 token） | 10 / 10 |
 
 ## 质量
 
-- 有 quality 样本：**3** 次
+- 有 quality 样本：**6** 次
 - constraintRecall min：**1** · failureRecall min：**1**
-- compressionRatio：**127.07 – 350.68**
+- compressionRatio：**113.2 – 350.68**
 - unknownIds（幻觉探针命中）：**0**
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
-- 有 usage 的 fold：**7** 次，比值 **1.36 – 1.81**
+- 有 usage 的 fold：**10** 次，比值 **1.36 – 2.11**
 - 判据：比值 ≥ 2 时 doctor 判 warn（读得比压的多一倍以上）
 
 ## 闭包
 
-- 有 closure 的 fold：**3** 次，其中空闭包 **2** 次（新会话尚无节点时属正常）
-- **悬空（dangling）**：3 次有记录 —— residue 3 / candidates 1 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
-- **边界完整性**：0 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **0** 条
-- 其中 **preGraph 0 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
+- 有 closure 的 fold：**6** 次，其中空闭包 **3** 次（新会话尚无节点时属正常）
+- **悬空（dangling）**：6 次有记录 —— residue 6 / candidates 3 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
+- **边界完整性**：3 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **204** 条
+- 其中 **preGraph 1 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 逐次明细
 
@@ -43,4 +43,7 @@
 | 5 | session-8cc34e32-c35d-… | 2026-11-01 18:36:14 | pressure | 163722 | 295805 | 1.81 | 34527 | 1/1 | 133.76 | 0/0 |
 | 6 | session-00b50089-b7a1-… | 2026-11-01 18:36:34 | pressure | 104709 | 163385 | 1.56 | 13935 | 1/1 | 127.07 | 0/0 |
 | 7 | session-1e82afca-8be2-… | 2026-11-01 18:40:52 | pressure | 288608 | 391464 | 1.36 | 14671 | 1/1 | 350.68 | 116/122 |
+| 8 | session-d70b7c2f-c43e-… | 2026-11-01 19:11:19 | pressure | 174092 | 251359 | 1.44 | 16985 | 1/1 | 151.65 | 156/163 |
+| 9 | session-00b50089-b7a1-… | 2026-11-01 19:12:47 | pressure | 188541 | 257119 | 1.36 | 22257 | 1/1 | 251.05 | 57/61 |
+| 10 | session-8cc34e32-c35d-… | 2026-11-01 19:14:35 | pressure | 104709 | 221163 | 2.11 | 18839 | 1/1 | 113.2 | 0/0 |
 
