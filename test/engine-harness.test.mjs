@@ -576,6 +576,11 @@ tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮�
   if (!Array.isArray(g.foldMarks) || g.foldMarks.length !== 1) throw new Error("foldMarks 应有 1 条");
   // ★ 2026-11-01（调研建议 G-5）：每次 fold 都要留下「边界结算状态」快照 ——
   //   让 doctor 能回答"跨 fold 边界还挂着多少未结算的边"，把边界切得好不好从直觉变成数字。
+  // ★ 2026-11-01：摘要长度必须被记下来 —— 保真再高，模型不遵守长度预算也会让上下文成本翻倍。
+  const chars = g.foldMarks[0].summaryChars;
+  if (chars !== null && typeof chars !== "number") {
+    throw new Error(`foldMarks[0].summaryChars 必须是数字或 null，得到 ${JSON.stringify(chars)}`);
+  }
   const dangling = g.foldMarks[0].dangling;
   if (dangling === null || typeof dangling !== "object") throw new Error("foldMarks[0].dangling 必须是对象");
   for (const key of ["residue", "candidates", "liveUnsettled", "fromBroken"]) {

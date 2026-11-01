@@ -337,11 +337,15 @@ add(
       const when = new Date(m.at).toISOString();
       const route = m.route ? `${fmt(m.route.provider)}/${fmt(m.route.model)}` : "—";
       const usage = m.usage ? `in ${fmt(m.usage.inputTokens)} / out ${fmt(m.usage.outputTokens)}` : "—";
+      // ★ 2026-11-01：摘要字符数（老 foldMark 没有 ⇒ 显示「—」）。超 3000 字符标「!」——
+      //   指令预算约 920 字符（40/死路 + 600），模型偶尔会不遵守，长了要能看见。
+      const charsRaw = m.summaryChars;
+      const chars = charsRaw === null || charsRaw === undefined ? "—" : `${charsRaw}${charsRaw > 3000 ? "!" : ""}`;
       const shadow = fmt(m.shadowedTokens);
       const ms = fmt(m.ms);
       const fb = fmt(m.fallback);
       const kind = m.tier2 === true ? "tier-2 " : "";
-      return `${when} ${kind}#${fmt(m.foldCount)} 遮蔽 ${shadow} tok · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+      return `${when} ${kind}#${fmt(m.foldCount)} 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
     });
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }

@@ -557,6 +557,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // doctor / 计费对账直接读，不用再翻会话日志里的 compaction/summary 事件。
     // ★ P2-2（task-192）：**路由无条件记录**（有的 provider 不回 usage，但 route 永远可得）；
     //   usage 只在真返回时记 —— foldMark.route 因此不会因为缺 usage 变成 null。
+    // ★ 2026-11-01（real-model 实测发现）：摘要长度是压缩质量的另一半 —— 保真再高，
+    //   如果模型不遵守长度预算写出一万多字，上下文成本会翻几倍。记进 foldMarks 供 doctor 追踪，
+    //   但**不阻断**（拒绝会丢信息，比长度超标更糟；05 §7.1 的"整条拒绝"在这里不适用）。
+    this._lastSummaryChars = summary.reduce((n, b) => n + String(b.text ?? "").length, 0);
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
@@ -729,6 +733,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   旧图里的 foldMark 没有这些字段 ⇒ doctor 显示「—」（向后兼容）。
     //   **快照必须在下面清空 _lastSummary* 之前取**（否则 route 永远是 null —— 踩过）。
     const summaryMode = this._lastSummaryMode ?? null;
+    const summaryChars = this._lastSummaryChars ?? null;
+    this._lastSummaryChars = undefined;
     const summaryUsage = this._lastSummaryUsage ?? null;
     const summaryRoute = { provider: this._lastSummaryProvider ?? null, model: this._lastSummaryModel ?? null };
     this._lastSummaryMode = undefined;
@@ -754,6 +760,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       fallback: summaryMode === "rules" ? "rules" : null,
       ms: Math.max(0, Date.now() - foldStartedAt),
       usage: summaryUsage === null ? null : { ...summaryUsage },
+      // 摘要总字符数（含机械追加的约束段与最近访问文件）。老 foldMark 没有该字段 ⇒ null。
+      summaryChars,
       // ★ 2026-11-01（调研建议 G-5，来自 docs/research/05-agi-memory-architectures.md §4.4）：
       //   把「边界切得好不好」从直觉变成数字 —— 记下**这次 fold 发生时**的悬空边分类快照。
       //   纯观测：不改任何行为，只是让 doctor 能回答"跨 fold 边界还挂着多少未结算的边"。
