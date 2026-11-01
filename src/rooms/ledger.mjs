@@ -946,7 +946,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
         tailLines.push(
-          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (per node: nodes/<id>.md) / by seq in the session log`,
+          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} / nodes/<id>.md`,
         );
       }
       for (const e of shown) {
@@ -987,7 +987,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   「跑了但没验证」的声明在紧档位整段消失 = 断言「没有未验证的东西」，与 OPTIONS 同一类错误
       //   （提取诱发遗忘）。L2+ 至少留一行计数 + 最近一条 id —— 只陈述事实，不给行动建议。
       const latestOpen = open[open.length - 1];
-      tailLines.push(`UNVERIFIED: ${open.length} unproven (latest ${latestOpen.id}) — detail in graph.json`);
+      // C56：这是计数行、不是省略行 —— 位置信息已由「docs / TRACE」约定承载，不再重复一条指针。
+      tailLines.push(`UNVERIFIED: ${open.length} unproven (latest ${latestOpen.id})`);
     }
     if (path.length > 1) {
       const shape = PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)];

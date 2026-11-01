@@ -5,6 +5,20 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C56 · 清两处冗余指针（无损）：bench 430 → 415
+
+**做法**（纯删冗余，不动任何事实条目）：
+
+1. 省略行的尾巴 `(per node: nodes/<id>.md) / by seq in the session log` →
+   `/ nodes/<id>.md`（`graph.json` 已在前，节点文件也保留；`by seq` 对模型没有额外可执行信息）；
+2. `UNVERIFIED` **计数行**的 `— detail in graph.json` 去掉 —— 它是计数行不是省略行，
+   位置约定已由同一份清单的 `TRACE` 与 docs 承载。
+
+**bench：430 → 415（−15 tok / −3.5%）**；基线、README、合同 §6 的示例文案同步更新。
+
+门禁：全量 731 passed / 0 skipped / 0 failed（无测试引用被删的两个字符串；handoff-check ⑧ 仍能解出省略行 ——
+`omitted for budget` 与 `graph.json` 指针都在）。
+
 ### C55 · 研究文档收口：`docs/research/00` §11 重排 + 状态快照
 
 **问题**：§11 的候选表停在 C33 前后，且行号有重复（两个 `18`），最近 10 刀（C41–C54）的结论
