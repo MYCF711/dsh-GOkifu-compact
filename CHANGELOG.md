@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C63 · 修正 C57 的假阳性：`reducible?` 改为「所选不是最省尝试」的**裁决 bug** 判据
+
+**问题（上线一小时内就被 live 抓到）**：C57 用 `shownFailures < failureCount` 猜「还有更省形态」，
+于是 `session-8fe881d1`（L5、已省略 11 条失败、只超 3 tok）被判成 `reducible?` —— 但 **L5 本身就是最省的一份**，
+再省只能删内容。这条诊断会天天喊狼来了。
+
+**做法**：
+
+- `renderLedger` 返回值新增 **`attemptTokens`**（本次所有档位尝试的 `{level, tokens}`）——
+  「所选是不是最省」从猜测变成可核对的事实；
+- `classifyBudget` 改判据：`floor`（约束+根目标下限即超）→ **`bug`**（所选 tokens > 最省尝试 tokens，
+  兜底裁决真的挑贵了）→ 其余归 `irreducible`（已是最省仍超，只能删内容）；
+- `ledger-properties`（C59）追加不变量：**凡是 `over-budget`，所选 tokens 必须等于 `attemptTokens` 的最小值**。
+
+**live 复核**：24 会话 → `within=22 / floor=1 / irreducible=1 / bug=0`（假阳性消失）。
+
 ### C62 · 连续折叠不变量（增量语义：区间单调、失败边只增不减、每次都留指标）
 
 **问题**：C61 验证了「一次折叠之后账还对」。真实会话是**连续折叠** —— 更需要确认的是

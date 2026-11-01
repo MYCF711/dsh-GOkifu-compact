@@ -60,11 +60,29 @@ function makeHome() {
 }
 
 tests["C57-1 classifyBudget 三态：within / irreducible / floor 必须能分开"] = (t) => {
-  const base = { tokens: 600, level: 5, unyieldingTokens: 100, shownFailures: 8, failureCount: 8, fallback: "over-budget" };
+  const base = {
+    tokens: 600,
+    level: 5,
+    unyieldingTokens: 100,
+    shownFailures: 8,
+    failureCount: 8,
+    fallback: "over-budget",
+    attemptTokens: [{ level: 5, tokens: 600 }, { level: 4, tokens: 720 }],
+  };
   t.eq(classifyBudget({ ...base, fallback: "none", tokens: 400 }, 500).reason, "within", "预算内");
-  t.eq(classifyBudget(base, 500).reason, "irreducible", "失败边已列全仍超");
+  t.eq(classifyBudget(base, 500).reason, "irreducible", "所选已是最省尝试，仍超 ⇒ 只能删内容");
   t.eq(classifyBudget({ ...base, unyieldingTokens: 520 }, 500).reason, "floor", "约束+根目标下限即超");
-  t.eq(classifyBudget({ ...base, shownFailures: 5, failureCount: 20, unyieldingTokens: 100 }, 500).reason, "reducible?", "还有更省形态未选");
+  // ★ C63：只有「所选 tokens > 最省尝试 tokens」才是裁决 bug —— 不能再用 shown<count 猜
+  t.eq(
+    classifyBudget({ ...base, attemptTokens: [{ level: 5, tokens: 480 }, { level: 4, tokens: 600 }] }, 500).reason,
+    "bug",
+    "选了 600 而最省是 480 ⇒ 兜底裁决 bug",
+  );
+  t.eq(
+    classifyBudget({ ...base, shownFailures: 5, failureCount: 20 }, 500).reason,
+    "irreducible",
+    "shown<count 但所选就是最省 ⇒ 不是 bug（旧判据在这里误报过）",
+  );
   t.eq(classifyBudget(null, 500), null, "非对象 ⇒ null");
 };
 

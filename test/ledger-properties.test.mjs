@@ -102,6 +102,11 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
       } else {
         t.eq(led.overBudgetBy, 0, `${where}：没超预算却报 overBudgetBy`);
       }
+      // ③b C63：超预算时，所选必须就是**最省的尝试**（兜底裁决不许挑贵的）
+      if (led.fallback === "over-budget" && Array.isArray(led.attemptTokens) && led.attemptTokens.length > 0) {
+        const cheapest = Math.min(...led.attemptTokens.map((a) => a.tokens));
+        t.eq(led.tokens, cheapest, `${where}：兜底没选最省尝试（选了 ${led.tokens}，最省 ${cheapest}）`);
+      }
       // ④ 出处覆盖率
       if (failureIds.length > 0) t.eq(led.provenanceCoverage, 1, `${where}：出处覆盖率应恒为 1`);
       // ⑤ 模型可见文本的硬约束

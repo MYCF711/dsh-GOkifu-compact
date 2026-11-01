@@ -1161,6 +1161,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         provenanceCoverage: provenanceCoverageOf(chosen.text, failuresById),
         evidenceMissing,
         sections: measureLedgerSections(chosen.text),
+        // C63：所有尝试的 tokens（归因据此判断「所选是否已是最省的一份」）
+        attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
       };
     }
   }
@@ -1178,6 +1180,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // ★ 出处覆盖率（0–1）：边行里带 (seq …) 的比例。应恒为 1；掉下来说明有路径在砍出处。
       provenanceCoverage: provenanceCoverageOf(best.text, failuresById),
       evidenceMissing,
+      attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
       sections: measureLedgerSections(best.text),
     };
   }

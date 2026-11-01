@@ -34,22 +34,26 @@ export function classifyBudget(ledger, budget) {
   const shown = Number(ledger.shownFailures ?? 0);
   const total = Number(ledger.failureCount ?? 0);
   const fallback = typeof ledger.fallback === "string" ? ledger.fallback : "none";
-  // 归因三态：设计内下限 / 已列全仍超（再省只能丢失败记忆）/ 仍有可能的省法（需排查）
+  // ★ C63：判「所选是否已是最省的尝试」必须看**实际尝试过的 tokens**。
+  //   旧判据用 `shown < count` 猜「还有更省形态」，结果把「L5 已省略 11 条、仍只超 3 tok」误报成可疑 ——
+  //   L5 本身就是最省的一份，再省只能删内容。现在只有「所选 tokens > 最省尝试 tokens」才算裁决 bug。
+  const attempts = Array.isArray(ledger.attemptTokens) ? ledger.attemptTokens.map((a) => Number(a.tokens)).filter(Number.isFinite) : null;
+  const cheapest = attempts && attempts.length > 0 ? Math.min(...attempts) : null;
   const reason =
     fallback === "none"
       ? "within"
       : unyielding >= budget
-        ? "floor" // 约束+根目标本身就超预算
-        : total > 0 && shown >= total
-          ? "irreducible" // 失败边已列全，再省必须丢失败记忆
-          : "reducible?"; // 还有更省形态没被选中 —— 需要看一眼
-  return { tokens, over, fallback, level: ledger.level ?? null, unyieldingTokens: unyielding, shownFailures: shown, failureCount: total, reason };
+        ? "floor" // 约束+根目标下限即超预算（不可裁）
+        : cheapest !== null && tokens > cheapest
+          ? "bug" // 所选的不是最省尝试 —— 兜底裁决有问题，需要排查
+          : "irreducible"; // 已是最省仍是超预算：再省只能删内容（失败记忆 / 约束）
+  return { tokens, over, fallback, level: ledger.level ?? null, unyieldingTokens: unyielding, shownFailures: shown, failureCount: total, cheapestTokens: cheapest, reason };
 }
 
 /** 扫 home 下所有会话图；返回超预算清单（按超出量降序）。 */
 export function scanOverBudget(home, { budget = 500 } = {}) {
   const sessionsRoot = nodePath.join(String(home ?? ""), "chess-context", "sessions");
-  const result = { home: String(home ?? ""), budget, sessions: 0, unreadable: 0, over: [], counts: { within: 0, floor: 0, irreducible: 0, "reducible?": 0 } };
+  const result = { home: String(home ?? ""), budget, sessions: 0, unreadable: 0, over: [], counts: { within: 0, floor: 0, irreducible: 0, "bug": 0 } };
   if (!nodeFs.existsSync(sessionsRoot)) return result;
   for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -123,7 +127,7 @@ export function main(argv = process.argv.slice(2)) {
       "# 热清单超预算快照（离线归因）",
       "",
       `- 时间：${payload.generatedAt} · budget=${budget} · 会话 ${report.sessions} 个`,
-      `- 构成：within=${report.counts.within ?? 0} / floor=${report.counts.floor ?? 0} / irreducible=${report.counts.irreducible ?? 0} / reducible?=${report.counts["reducible?"] ?? 0}`,
+      `- 构成：within=${report.counts.within ?? 0} / floor=${report.counts.floor ?? 0} / irreducible=${report.counts.irreducible ?? 0} / bug=${report.counts.bug ?? 0}`,
       "",
       "| 会话 | tokens | 超出 | 档位 | 归因 |",
       "|---|---:|---:|---|---|",
@@ -142,7 +146,7 @@ export function main(argv = process.argv.slice(2)) {
     return 0;
   }
   console.log(`热清单超预算离线归因（budget=${budget}，会话 ${report.sessions} 个${report.unreadable > 0 ? `，${report.unreadable} 个图读不出` : ""}）`);
-  console.log(`  即期快照：within=${report.counts.within} / floor=${report.counts.floor} / irreducible=${report.counts.irreducible} / reducible?=${report.counts["reducible?"]}`);
+  console.log(`  即期快照：within=${report.counts.within} / floor=${report.counts.floor} / irreducible=${report.counts.irreducible} / bug=${report.counts.bug}`);
   if (report.over.length === 0) {
     console.log("  ✓ 当前所有会话图都能装进预算");
     return 0;
@@ -151,9 +155,9 @@ export function main(argv = process.argv.slice(2)) {
     const why =
       row.reason === "floor"
         ? "约束+根目标下限即超（不可裁）"
-        : row.reason === "irreducible"
-          ? `失败边已列全 ${row.shownFailures}/${row.failureCount}（再省必须丢失败记忆）`
-          : `仍可能有更省形态（shown ${row.shownFailures}/${row.failureCount}，unyielding ${row.unyieldingTokens}）`;
+        : row.reason === "bug"
+          ? `**所选不是最省尝试**（选了 ${row.tokens}，最省 ${row.cheapestTokens}）—— 兜底裁决 bug`
+          : `已是最省尝试仍是超预算 ${row.tokens}（再省只能删内容：失败记忆/约束；shown ${row.shownFailures}/${row.failureCount}）`;
     console.log(`  ! ${row.session.slice(0, 24)}… ${row.tokens}/${budget}（超 ${row.over}，L${row.level}）— ${why}`);
   }
   console.log("说明：即期快照 ≠ 累计计数。累计 over-budget 会随会话增长而放大（同一会话每步重渲染）。");
