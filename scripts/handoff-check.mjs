@@ -23,6 +23,7 @@
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
  *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
  *   ⑬ fold 边界：切点落在工具调用中间（openAtEnd>0）= 摘要引用区间外结果 ⇒ fail（C37）
+ *   ⑭ fold 成本：遮蔽占读入 < 30% ⇒ warn（折太碎/太早；C43 指标，C78 进门禁）
  *
  * 用法：
  *   node scripts/handoff-check.mjs                 # 人读
@@ -232,6 +233,29 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
           open > 0
             ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
             : `${boundaryMarks.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
+        ),
+      );
+    }
+  }
+
+  // ⑭ fold 成本口径（C43 的指标，C78 补进交接门禁）：遮蔽占读入 < 30% = 折得太碎/太早。
+  //   以前只有 doctor 在全局看；单会话交接时「这次压缩是不是白折了」同样需要判据。
+  {
+    const withCost = allMarks.filter((m) => typeof m?.shadowedTokens === "number" && m?.usage && typeof m.usage.inputTokens === "number");
+    if (allMarks.length === 0) {
+      out.push(check("⑭fold成本", "ok", "本会话没有 fold 记录"));
+    } else if (withCost.length === 0) {
+      out.push(check("⑭fold成本", "ok", "未采集（旧版本 fold 没有 usage/shadowedTokens —— 升级后自动出现）"));
+    } else {
+      const shares = withCost.map((m) => m.shadowedTokens / Math.max(1, m.usage.inputTokens));
+      const min = Math.min(...shares);
+      out.push(
+        check(
+          "⑭fold成本",
+          min < 0.3 ? "warn" : "ok",
+          min < 0.3
+            ? `最低一次遮蔽只占输入 ${(min * 100).toFixed(0)}%（折太碎/太早 —— 对照 doctor 的 ROI 看）`
+            : `${withCost.length} 次 fold 的遮蔽占读入最低 ${(min * 100).toFixed(0)}%（健康）`,
         ),
       );
     }

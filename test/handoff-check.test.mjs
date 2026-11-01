@@ -235,3 +235,33 @@ tests["H-11 预算检查必须用 ledger.budgetMax 做分母（不是 CLI 默认
   t.eq(String(row.detail).includes("/800"), true, `分母应为 800：${row.detail}`);
   t.eq(String(row.detail).includes("/500"), false, `不许出现默认 500 分母：${row.detail}`);
 };
+
+tests["H-12 ⑭fold成本：遮蔽占读入 < 30% ⇒ warn；≥ 30% ⇒ ok；无 usage ⇒ 未采集 ok"] = (t) => {
+  const thin = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, shadowedTokens: 1000, usage: { inputTokens: 10000 } }] }), {});
+  t.eq(byName(thin, "⑭").level, "warn", "遮蔽只占 10% ⇒ 折太碎 warn");
+  t.includes(byName(thin, "⑭").detail, "折太碎", "文案要点明折太碎");
+
+  const healthy = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, shadowedTokens: 3000, usage: { inputTokens: 10000 } }] }), {});
+  t.eq(byName(healthy, "⑭").level, "ok", "遮蔽占 30% 以上 ⇒ ok");
+
+  const legacy = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1 }] }), {});
+  t.eq(byName(legacy, "⑭").level, "ok", "旧 fold 没 usage ⇒ 不许 fail");
+  t.includes(byName(legacy, "⑭").detail, "未采集", "要写「未采集」");
+
+  const none = checkGraph(mkGraph({ foldMarks: [] }), {});
+  t.eq(byName(none, "⑭").level, "ok", "没有 fold ⇒ ok");
+  t.includes(byName(none, "⑭").detail, "没有 fold", "文案说明没有 fold");
+};
+
+tests["H-13 ⑭fold成本按最差一次判：多次 fold 里只要有一次 <30% 就 warn"] = (t) => {
+  const mixed = checkGraph(
+    mkGraph({
+      foldMarks: [
+        { at: now, foldCount: 1, shadowedTokens: 5000, usage: { inputTokens: 10000 } },
+        { at: now, foldCount: 2, shadowedTokens: 500, usage: { inputTokens: 10000 } },
+      ],
+    }),
+    {},
+  );
+  t.eq(byName(mixed, "⑭").level, "warn", "最差一次 5% ⇒ warn（不能被另一次健康样本掩盖）");
+};
