@@ -66,8 +66,8 @@ const ROOMS = {
   },
   "build-stamp": {
     file: "build-stamp.mjs",
-    // 读 package.json 版本 + 写 <chess-context>/build.json：只允许 fs/path/url
-    allowed: ["node:fs", "node:path", "node:url"],
+    // 读 package.json 版本 + src 内容哈希（C53）+ 写 <chess-context>/build.json：允许 fs/path/url/crypto
+    allowed: ["node:fs", "node:path", "node:url", "node:crypto"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "user-patch": {

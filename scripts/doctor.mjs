@@ -27,7 +27,7 @@ import { inspectProfileInstall } from "./link-path.mjs";
 import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
-import { compareBuildStamp, readBuildStamp, repoVersion } from "../src/rooms/build-stamp.mjs";
+import { compareBuildId, compareBuildStamp, readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
 import { foldCostMetrics } from "../src/rooms/fold-quality.mjs";
 
 const asJson = process.argv.includes("--json");
@@ -163,16 +163,22 @@ add(
 
 /* ── 1.7 运行实例版本（C34）：磁盘更新了但进程还是旧代码时，必须一眼看出来 ── */
 {
-  const cmp = compareBuildStamp(readBuildStamp(nodePath.join(home, "chess-context")), repoVersion());
+  const stamp = readBuildStamp(nodePath.join(home, "chess-context"));
+  const cmp = compareBuildStamp(stamp, repoVersion());
+  // ★ C53：semver 长期不变（1.17.1），只比版本号会把「运行实例是几小时前的代码」判成一致 ——
+  //   构建标识（src 内容哈希）才能看出落后。
+  const diskBuild = repoBuildId();
+  const buildCmp = compareBuildId(stamp, diskBuild);
   const started = Number.isFinite(cmp.startedAt) ? new Date(cmp.startedAt).toISOString().slice(11, 19) + "Z" : "?";
+  const buildNote = `build ${buildCmp.running ?? "?"} vs 磁盘 ${diskBuild}`;
   add(
     "运行实例版本（build.json）",
-    cmp.state === "ok" ? "ok" : "warn",
-    cmp.state === "ok"
-      ? `运行实例 v${cmp.running}（启动于 ${started}）与磁盘代码一致`
-      : cmp.state === "stale"
-        ? `运行实例 v${cmp.running}，磁盘已更新到 v${cmp.disk} —— **重启 DSH 后才生效**（新字段/新检查此时还不会出现）`
-        : `未采集（还没有 build.json —— 旧版本或还没重启过；磁盘代码 v${cmp.disk}）`,
+    cmp.state === "ok" && buildCmp.state === "ok" ? "ok" : "warn",
+    cmp.state === "missing"
+      ? `未采集（还没有 build.json —— 旧版本或还没重启过；磁盘代码 v${cmp.disk} · build ${diskBuild}）`
+      : buildCmp.state === "stale" || cmp.state === "stale"
+        ? `运行实例 v${cmp.running} / **${buildNote}** —— 磁盘代码已变（新字段/新检查此时还不会出现），**重启 DSH 后才生效**`
+        : `运行实例 v${cmp.running}（启动于 ${started}，${buildNote}）与磁盘代码一致`,
   );
 }
 

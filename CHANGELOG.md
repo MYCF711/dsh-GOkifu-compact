@@ -5,6 +5,26 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C53 · 构建标识（buildId）：版本号比不出「运行实例落后」
+
+**发现（C34 的设计缺陷）**：`build.json` 只记 semver，而整轮优化里版本号一直是 **1.17.1** ——
+于是 C44–C52 全部落盘后，doctor 仍显示「运行实例 v1.17.1 与磁盘代码一致」。
+「哪一版代码在跑」这个核心问题其实**没被回答**。
+
+**做法**：
+
+- `build-stamp.mjs` 新增 **`repoBuildId()`**：`package.json` + `src` 下所有 `.mjs` 的内容哈希（12 位十六进制）；
+  写入 `build.json` 的 `buildId` 字段（`writeBuildStamp` 默认自动算）；
+- 新增 **`compareBuildId(stamp, diskBuildId)`**：ok / stale / missing；
+- `doctor` 的「运行实例版本」同时比较 semver 与构建标识 —— stale 时直接写
+  **「运行实例 build X vs 磁盘 Y —— 重启 DSH 后才生效」**。
+
+**live 即刻生效**：当前进程的戳里没有 `buildId`（旧代码写的），doctor 现在如实报
+**「运行实例 build unknown vs 磁盘 11f699aeab7d —— 磁盘代码已变，重启后才生效」** ——
+这正是此前几轮反复踩的坑，现在一眼可见。
+
+房间契约：`build-stamp` 允许 `node:crypto`（rooms 单测同步）。测试：S-6（哈希稳定、改文件即变）、S-7（三态比较）。
+
 ### C52 · 同类失败的无损压缩：标记提到一行汇总（bench 446 → 430）
 
 **做法**：L2+ 且失败边 ≥3 时，若每条失败行的**完整标记串完全相同**（典型：全部 `blocked:permission`），
