@@ -641,6 +641,13 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
         (Number(stats.budgetFloorOver) > 0
           ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
           : "") +
+        (stats.overBySession && typeof stats.overBySession === "object" && Object.keys(stats.overBySession).length > 0
+          ? ` · 主要来源：${Object.entries(stats.overBySession)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 2)
+              .map(([sid, n]) => `${sid.slice(0, 16)}… ${n} 次`)
+              .join(" / ")}`
+          : "") +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
     );
     // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。

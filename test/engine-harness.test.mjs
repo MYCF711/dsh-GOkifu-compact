@@ -1005,6 +1005,14 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
     provenanceCoverage: 1,
   });
   if (notFloor.budgetFloorOver !== undefined) throw new Error(`不是底线超预算时不许计数，实际 ${notFloor.budgetFloorOver}`);
+  // ★ C48：超预算按会话归因（有界前 8）
+  const bySession = mod.accumulateLedgerBudget({}, { fallback: "over-budget", overBudgetBy: 20, budgetMax: 500, provenanceCoverage: 1 }, 1, "session-a");
+  mod.accumulateLedgerBudget(bySession, { fallback: "over-budget", overBudgetBy: 20, budgetMax: 500, provenanceCoverage: 1 }, 2, "session-a");
+  mod.accumulateLedgerBudget(bySession, { fallback: "over-budget", overBudgetBy: 20, budgetMax: 500, provenanceCoverage: 1 }, 3, "session-b");
+  if (bySession.overBySession["session-a"] !== 2) throw new Error(`session-a 应计 2，实际 ${JSON.stringify(bySession.overBySession)}`);
+  if (bySession.overBySession["session-b"] !== 1) throw new Error(`session-b 应计 1，实际 ${JSON.stringify(bySession.overBySession)}`);
+  const noneCase = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, budgetMax: 500, provenanceCoverage: 1 }, 1, "session-c");
+  if (noneCase.overBySession !== undefined) throw new Error("非超预算不许记会话归因");
   if (old.provenanceMin !== 1) throw new Error(`旧文件首累计 provenanceMin 必须是 1，实际 ${old.provenanceMin}`);
 };
 

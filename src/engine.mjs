@@ -110,7 +110,7 @@ export function ledgerBudgetLogLine(metrics, sessionId = "") {
  * 旧文件没有 `provenanceMin` 字段 ⇒ 首次累计按 1 起算（1 = 没有观察到任何下降），
  * 不能因为旧文件缺字段就报成 0（那会让 doctor 误报「出处全丢了」）。
  */
-export function accumulateLedgerBudget(stats, metrics, now = Date.now()) {
+export function accumulateLedgerBudget(stats, metrics, now = Date.now(), sessionId = "") {
   const target = stats ?? {};
   target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
   target.samples = (target.samples ?? 0) + 1;
@@ -123,6 +123,14 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now()) {
     metrics.unyieldingTokens >= metrics.budgetMax
   ) {
     target.budgetFloorOver = (Number.isFinite(target.budgetFloorOver) ? target.budgetFloorOver : 0) + 1;
+  }
+  // ★ C48：超预算按会话归因 —— 只有一个会话反复超时，聚合数字会误导（"系统性问题" vs "这一个会话"）。
+  //   有界保留前 8 个来源，避免 ledger-budget.json 无限增长。
+  if (metrics.fallback === "over-budget" && typeof sessionId === "string" && sessionId.length > 0) {
+    const by = target.overBySession && typeof target.overBySession === "object" ? { ...target.overBySession } : {};
+    by[sessionId] = (Number.isFinite(by[sessionId]) ? by[sessionId] : 0) + 1;
+    const entries = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    target.overBySession = Object.fromEntries(entries);
   }
   if (Number.isFinite(metrics.provenanceCoverage)) {
     const prev = Number.isFinite(target.provenanceMin) ? target.provenanceMin : 1;
@@ -237,7 +245,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   consumeLedgerBudget(ledger, session = null) {
     const metrics = ledgerBudgetMetrics(ledger);
     // ★ 2026-11-01：累计规则抽到 `accumulateLedgerBudget()`（纯函数），这里只负责日志/钩子/落盘。
-    accumulateLedgerBudget(this.ledgerBudget, metrics);
+    accumulateLedgerBudget(this.ledgerBudget, metrics, Date.now(), session?.id ?? "");
     const level = ledgerBudgetLogLevel(metrics);
     const line = ledgerBudgetLogLine(metrics, session?.id ?? "");
     try {

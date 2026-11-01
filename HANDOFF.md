@@ -58,6 +58,7 @@
 | **C45 图例去行动建议 + 审计规则（1.17.1）** | `MARKER_LEGEND` 8 条全部改事实口径（删 retry when / take it / or create it）；`boundary-audit` 新增 `retry-advice` error 规则（英文行动建议与中文同口径）；markers 测试同步；bench 447 / L5 不变 |
 | **C46 UNVERIFIED 去认知指令（1.17.1）** | `treat as unproven` → `unproven`（只陈述状态）；`boundary-audit` 新增 `epistemic-advice`（treat as / you can / make sure to…）；测试 B-6/B-7 + 事实写法不假红 + U-4；B-1 放宽为「至少命中行为指导」 |
 | **C47 摘要章节标题去指令（1.17.1）** | `## 已探明死路（逐条保留，一条不许少）` → `## 已探明死路`（facts-prompt 模板 + ruleSummary 两侧一致）；规则已在正文规则段，标题不再长期带指令；真机脚本期望同步；bench 447 / L5 |
+| **C48 over-budget 按会话归因（1.17.1）** | `ledger-budget.json` 新增 `overBySession`（前 8 来源）+ doctor 显示「主要来源」；离线归因证明 19.5% 由 `session-d70b7c2f`（649/500，7 条长失败原因）单会话放大，非系统性退化 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
