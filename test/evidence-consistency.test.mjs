@@ -1,0 +1,70 @@
+/**
+ * evidence-consistency.test.mjs —— 证据文档里引用的数字必须与 `live-folds.json` 一致（2026-11-02，C118）
+ *
+ * 为什么：`evidence/README.md` 与 `docs/research/00` §11.1 里写的是「19 次 / 7 会话 / 压缩比 48.45–350.68 /
+ * 成本 47–76%」这类**从 JSON 抄来的**数字。抄写一定会漂移 —— 而 C100/C117 只守文档里的**常量锚**
+ * （规则数、bench tokens、测试数），守不住「从证据文件同步的数字」。
+ *
+ * 判据：直接从 `evidence/live-folds.json` 重新算，再断言文档里出现同样口径的字符串。
+ * 这是**只读**检查；它不重新采集（要新鲜数据先跑 `node scripts/live-folds.mjs --write`）。
+ */
+
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const REPO = nodePath.join(HERE, "..");
+const EVIDENCE = JSON.parse(nodeFs.readFileSync(nodePath.join(REPO, "evidence", "live-folds.json"), "utf8"));
+
+export const tests = {};
+
+const read = (rel) => nodeFs.readFileSync(nodePath.join(REPO, rel), "utf8");
+
+/** 从 evidence JSON 的 summary 推出文档里应该出现的几组字符串。 */
+function expectedFacts() {
+  const s = EVIDENCE.summary;
+  const pctMin = Math.round(s.cost.shadowedShareMin * 100);
+  const pctMax = Math.round(s.cost.shadowedShareMax * 100);
+  return {
+    total: s.total,
+    sessions: s.bySession.sessionsWithFolds,
+    qualityCount: s.quality.count,
+    ratioRange: `${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}`,
+    costRange: `${pctMin}–${pctMax}%`,
+    thrash: s.thrash.sessions,
+  };
+}
+
+tests["C118-1 evidence/README 与 research §11.1 的数字必须与 live-folds.json 一致"] = (t) => {
+  const f = expectedFacts();
+  const readme = read("evidence/README.md");
+  const research = read("docs/research/00-蒸馏-对本插件的可执行结论.md");
+
+  // 总数与会话数（两处都要有）
+  for (const [label, text] of [["evidence/README.md", readme], ["research §11.1", research]]) {
+    t.includes(text, `**${f.total} 次`, `${label} 必须写总 fold 数 ${f.total}`);
+    t.eq(text.includes(`${f.sessions} 会话`) || text.includes(`${f.sessions} 个有 fold 的会话`), true, `${label} 必须写有 fold 的会话数 ${f.sessions}`);
+    t.includes(text, `quality ${f.qualityCount}`, `${label} 必须写 quality 样本数 ${f.qualityCount}`);
+  }
+
+  // 区间类：压缩比与成本（容差为 0 —— 抄错就是错）
+  t.includes(readme, `压缩比 ${f.ratioRange}`, `evidence/README.md 的压缩比必须等于 ${f.ratioRange}`);
+  t.includes(readme, `成本 ${f.costRange}`, `evidence/README.md 的成本必须等于 ${f.costRange}`);
+  t.includes(research, `压缩比 ${f.ratioRange}`, `research 的压缩比必须等于 ${f.ratioRange}`);
+  t.includes(research, `成本 ${f.costRange}`, `research 的成本必须等于 ${f.costRange}`);
+
+  // thrash 必须仍是 0（一旦非 0，文档需要改写而不是沉默）
+  t.eq(f.thrash, 0, `foldThrash 必须为 0 才与文档一致，实际 ${f.thrash}`);
+};
+
+tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本会话折了几次）"] = (t) => {
+  const doc = read("evidence/fold质量-多会话-2026-11-02.md");
+  const ours = EVIDENCE.summary.bySession.top.find((x) => x.sessionId.startsWith("session-00b50089"));
+  t.eq(!!ours, true, "顶层会话列表里必须有本会话");
+  t.includes(doc, `| ${ours.folds} |`, `逐会话表必须写本会话的 fold 次数 ${ours.folds}`);
+  const boundaryCount = (EVIDENCE.folds ?? []).filter((x) => x.boundary && typeof x.boundary.openAtEnd === "number").length;
+  t.includes(doc, `${boundaryCount} 次带 boundary`, `文档必须写「${boundaryCount} 次带 boundary」`);
+  const openSum = (EVIDENCE.folds ?? []).reduce((sum, x) => sum + (x.boundary?.openAtEnd ?? 0), 0);
+  t.eq(openSum, 0, `openAtEnd 总和必须为 0（实际 ${openSum}）`);
+};
