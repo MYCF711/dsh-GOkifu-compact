@@ -313,7 +313,38 @@ export function foldClosureOf(graph, range) {
   };
 }
 
-/** 未验证 / 未结算的边。 */
+/**
+ * 折叠边界完整性（C31，2026-11-02）：判断这次 fold 的切点有没有把「工具调用」切成两半。
+ *
+ * 为什么：fold 在 step 边界执行，正常不会切开一个 call（证据区间跨过切点）。一旦切开，
+ * 摘要会引用一个结果落在区间外的调用 —— 模型回查时看到的是悬空的 attempt。
+ * `unsettled` 记区间内仍未结算的边（跨边界悬空本来就是它们的常态，单列出来供审计）。
+ *
+ * @param {{edges:object}} graph
+ * @param {{start:number,end:number}|null} range
+ * @returns {{overlapping:number, openAtEnd:number, unsettled:number}|null}
+ */
+export function foldBoundaryOf(graph, range) {
+  if (graph === null || typeof graph !== "object") return null;
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
+  let overlapping = 0;
+  let openAtEnd = 0;
+  let unsettled = 0;
+  for (const edge of Object.values(graph.edges ?? {})) {
+    const ev = edge?.evidence;
+    const start = typeof ev === "number" ? ev : Number(ev?.start);
+    const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    if (end < range.start || start > range.end) continue;
+    overlapping += 1;
+    if (edge.result === "unverified" || edge.result === "untested") unsettled += 1;
+    // 证据区间跨过 fold 终点 = 切点落在一次工具调用中间（正常应为 0）
+    if (start <= range.end && end > range.end) openAtEnd += 1;
+  }
+  return { overlapping, openAtEnd, unsettled };
+}
+
+/** 未验证 / 未结算的边。 *//** 未验证 / 未结算的边。 */
 export function openEdges(g) {
   return Object.values(g.edges).filter((e) => e.result === "unverified" || e.result === "untested");
 }

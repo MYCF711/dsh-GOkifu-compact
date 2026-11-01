@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C31 · 折叠边界完整性（切点不许落在工具调用中间）
+
+**问题**：fold 在 step 边界执行，正常不会切开一次工具调用；一旦切开，摘要引用的调用其**结果落在区间外**，
+模型回查时看到悬空 attempt。此前没有任何记录，只能事后猜。
+
+**做法**：新增 `foldBoundaryOf(graph, range)`（纯函数）：`{overlapping, openAtEnd, unsettled}` ——
+`openAtEnd` = 证据区间跨过 fold 终点的边数（正常应为 0）；`unsettled` = 区间内未结算边（只观测）。
+三条记账路径（自动 fold / 溢出 / tier-2）都写进 `foldMark.boundary`。
+
+消费者：`doctor` 新增「fold 边界完整性」（openAtEnd>0 ⇒ **error**；旧 fold 无字段 ⇒ 未采集）；
+`live-folds` 证据页加"边界完整性"行（切点数 + 未结算边合计）。
+
+测试：新增 `fold-boundary.test.mjs` 4 用例；`engine-harness` 的 foldMark 断言加 boundary
+（并断言 openAtEnd=0）；`live-folds` L-2/L-3 同步。
+
 ### C30 · 闭包如实标注 preGraph（区间早于本图时，「可回查」不是承诺）
 
 **问题**：C24 的闭包只记节点/边计数 + 首尾 id。重启续跑会话时，fold 覆盖的 seq 段可能**没有任何图节点**

@@ -40,6 +40,7 @@
 | **C28 live fold 证据（1.17.1 后）** | `node scripts/live-folds.mjs` 扫 `foldMarks` 生成 `evidence/live-folds.{json,md}`（只读）。真机 6 次 fold：usage 6/6、trigger 2/6、quality 2/6（其余是老 fold 无字段）、c=1/f=1、压缩比 127–133.8、成本 1.43–1.81、空闭包 2。巡检照它报数，不再手抄 |
 | **C29 机器级层漂移观测（1.17.1）** | doctor 新增「机器级层与用户层一致（未漂移）」：`planHomePatch(profile,home).needed` 判副本落后 ⇒ warn（可自愈）；测试 H-10 覆盖「改人设 ⇒ 判漂移、新副本带新人设」 |
 | **C30 闭包 preGraph（1.17.1 后）** | `foldClosureOf` 增 `preGraph`/`graphNodes`：区间早于本图（或图空）⇒ preGraph=true（重启续跑的历史不可回查）；`live-folds` 证据页 + `doctor` 保真度 detail 消费；测试 CL-5/CL-6 + live-folds 3 条 |
+| **C31 fold 边界完整性（1.17.1 后）** | `foldBoundaryOf` 记 `{overlapping, openAtEnd, unsettled}`，三条记账路径都写 `foldMark.boundary`；doctor 新检查（openAtEnd>0 ⇒ error）；live-folds 证据页加边界行；测试 fold-boundary 4 用例 + harness 断言 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

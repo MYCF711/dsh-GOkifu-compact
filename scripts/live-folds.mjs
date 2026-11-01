@@ -68,6 +68,10 @@ export function foldRecord(sessionId, index, mark) {
         }
       : null,
     dangling: mark?.dangling ?? null,
+    // C31 起才有：切点是否落在工具调用中间
+    boundary: mark?.boundary
+      ? { overlapping: mark.boundary.overlapping ?? null, openAtEnd: mark.boundary.openAtEnd ?? null, unsettled: mark.boundary.unsettled ?? null }
+      : null,
   };
 }
 
@@ -135,6 +139,11 @@ export function summarizeFolds(records) {
       inputPerShadowedMax: costRatios.length ? Math.max(...costRatios) : null,
     },
     closure: { count: closureRecords.length, empty: emptyClosure, preGraph: closureRecords.filter((r) => r.closure.preGraph === true).length },
+    boundary: {
+      count: records.filter((r) => r.boundary !== null).length,
+      openAtEnd: records.reduce((sum, r) => sum + (r.boundary?.openAtEnd ?? 0), 0),
+      unsettled: records.reduce((sum, r) => sum + (r.boundary?.unsettled ?? 0), 0),
+    },
   };
 }
 
@@ -173,6 +182,7 @@ export function renderMarkdown({ home, records, summary, generatedAt }) {
   lines.push("## 闭包");
   lines.push("");
   lines.push(`- 有 closure 的 fold：**${summary.closure.count}** 次，其中空闭包 **${summary.closure.empty}** 次（新会话尚无节点时属正常）`);
+  lines.push(`- **边界完整性**：${summary.boundary.count} 次有 boundary 记录，其中切点落在工具调用中间的 **${summary.boundary.openAtEnd}** 次（正常应为 0），区间内未结算边合计 **${summary.boundary.unsettled}** 条`);
   lines.push(`- 其中 **preGraph ${summary.closure.preGraph} 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段`);
   lines.push("");
   lines.push("## 逐次明细");

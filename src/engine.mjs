@@ -22,7 +22,7 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-ai/dsh-compaction";
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf } from "./rooms/kifu-model.mjs";
+import { fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
@@ -658,6 +658,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       trigger,
       // 2026-11-02（C24）：手动压缩同样记可寻址闭包（与自动 fold 同口径）
       closure: foldClosureOf(g, range),
+      // C31：切点是否落在工具调用中间（正常应为 0）
+      boundary: foldBoundaryOf(g, range),
       summaryChars,
       quality,
     };
@@ -831,6 +833,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       seqEnd: range.end,
       // 2026-11-02（C24）：可寻址闭包 —— 本次折叠覆盖了图里哪些节点/边（计数 + 首尾 id）。
       closure: foldClosureOf(g, range),
+      // C31：切点是否落在工具调用中间（正常应为 0）
+      boundary: foldBoundaryOf(g, range),
       // 2026-11-01（C12）：**为什么压**也要可观测 —— pressure（到阈值）/ context-overflow（已经溢出、被迫自救）。
       // overflow 出现说明「压缩没跟上上下文增长」，这是压缩健康的真实告警信号（此前只存在日志里）。
       trigger,
@@ -942,7 +946,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryModelText = undefined;
       const quality =
         summaryText === "" ? null : measureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
-      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), summaryChars, quality });
+      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), boundary: foldBoundaryOf(g, { start, end }), summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);

@@ -1355,6 +1355,12 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
   if (typeof mark.closure.nodes !== "number" || typeof mark.closure.edges !== "number") {
     throw new Error(`closure 必须带 nodes/edges 计数：${JSON.stringify(mark.closure)}`);
   }
+  // ★ 2026-11-02（C31）：必须记折叠边界完整性（切点是否落在工具调用中间 = openAtEnd 应为 0）
+  if (!mark.boundary || typeof mark.boundary !== "object") throw new Error(`foldMark 必须带 boundary：${JSON.stringify(mark.boundary)}`);
+  if (typeof mark.boundary.openAtEnd !== "number" || typeof mark.boundary.unsettled !== "number") {
+    throw new Error(`boundary 必须带 openAtEnd/unsettled 计数：${JSON.stringify(mark.boundary)}`);
+  }
+  if (mark.boundary.openAtEnd !== 0) throw new Error(`正常 fold 的切点不许落在工具调用中间，实际 openAtEnd=${mark.boundary.openAtEnd}`);
   if (!mark.quality || typeof mark.quality !== "object") throw new Error(`foldMark 必须带 quality（保真度 L1）：${JSON.stringify(mark)}`);
   if (mark.quality.constraintRecall !== 1) throw new Error(`constraintRecall 应恒为 1，实际 ${mark.quality.constraintRecall}（缺：${JSON.stringify(mark.quality.missingConstraints)}）`);
   if (!(mark.quality.failureRecall >= 0 && mark.quality.failureRecall <= 1)) {

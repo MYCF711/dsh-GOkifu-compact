@@ -1,6 +1,6 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-01T18:44:37Z",
+  "generatedAt": "2026-11-01T18:47:41Z",
   "home": "D:\\DeepSeek Harness\\home",
   "sessions": 15,
   "unreadable": 0,
@@ -32,6 +32,11 @@
       "count": 3,
       "empty": 2,
       "preGraph": 0
+    },
+    "boundary": {
+      "count": 0,
+      "openAtEnd": 0,
+      "unsettled": 0
     }
   },
   "folds": [
@@ -55,7 +60,8 @@
       "fallback": null,
       "quality": null,
       "closure": null,
-      "dangling": null
+      "dangling": null,
+      "boundary": null
     },
     {
       "sessionId": "session-1286ce28-dba8-448b-9827-e6ccacdf9806",
@@ -77,7 +83,8 @@
       "fallback": null,
       "quality": null,
       "closure": null,
-      "dangling": null
+      "dangling": null,
+      "boundary": null
     },
     {
       "sessionId": "session-1e82afca-8be2-42f9-8186-2bd274e30342",
@@ -99,7 +106,8 @@
       "fallback": null,
       "quality": null,
       "closure": null,
-      "dangling": null
+      "dangling": null,
+      "boundary": null
     },
     {
       "sessionId": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
@@ -121,7 +129,8 @@
       "fallback": null,
       "quality": null,
       "closure": null,
-      "dangling": null
+      "dangling": null,
+      "boundary": null
     },
     {
       "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
@@ -163,7 +172,8 @@
         "candidates": 0,
         "liveUnsettled": 0,
         "fromBroken": 0
-      }
+      },
+      "boundary": null
     },
     {
       "sessionId": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
@@ -205,7 +215,8 @@
         "candidates": 1,
         "liveUnsettled": 0,
         "fromBroken": 0
-      }
+      },
+      "boundary": null
     },
     {
       "sessionId": "session-1e82afca-8be2-42f9-8186-2bd274e30342",
@@ -247,7 +258,8 @@
         "candidates": 0,
         "liveUnsettled": 0,
         "fromBroken": 0
-      }
+      },
+      "boundary": null
     }
   ]
 }

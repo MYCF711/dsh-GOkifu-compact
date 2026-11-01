@@ -503,6 +503,26 @@ add(
   );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
+/* ── 4.9 fold 边界完整性（C31）：切点落在工具调用中间 = 摘要引用区间外结果，判 error ── */
+{
+  const withBoundary = recentFoldMarks
+    .filter((m) => m?.boundary && typeof m.boundary.openAtEnd === "number")
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+    .slice(0, 10);
+  if (withBoundary.length === 0) {
+    add("fold 边界完整性", "warn", "未采集（foldMark 还没有 boundary —— 旧版本或还没 fold 过）");
+  } else {
+    const open = withBoundary.reduce((sum, m) => sum + (m.boundary.openAtEnd ?? 0), 0);
+    add(
+      "fold 边界完整性",
+      open > 0 ? "error" : "ok",
+      open > 0
+        ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
+        : `${withBoundary.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
+    );
+  }
+}
+
 /* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──
    engine 每次 renderLedger 后会把 {none, over-budget, impossible, maxOverBudgetBy} 落到
    `<DSH_HOME>/chess-context/ledger-budget.json`。没有这个文件 = 从未采集（旧版本或还没跑过）
