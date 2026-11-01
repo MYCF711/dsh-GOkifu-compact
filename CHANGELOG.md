@@ -1,5 +1,40 @@
 # 更新记录
 
+## 1.15.1 — 2026-11-01
+
+> 1.15.0 的**安装路径回归修复**（1.15.0 已发出去，只能往上补一版）。
+
+### 修了什么
+
+1.15.0 把 preset 声明并进本包后，`findPresetFiles` / `presetsWithCompaction` 已经能在
+「只有本包、没有旧 preset bundle」的 home 上发现它 —— 但旧一代的**早退分支**没改：
+
+```js
+const root = nodePath.join(dshHome, "preset-bundles");
+if (!nodeFs.existsSync(root)) return [];   // ← 新式 home 根本没有这个目录，直接返回 []
+```
+
+⇒ 全新安装（profile 里只有 `dsh-gokifu-compact` 一个包）时，唯一那份 preset 声明被这行
+`return []` 吞掉：`health.mounted` 假红、页面显示「未接管」、`verify-install` 的 preset 组也会
+判「两代都找不到」。live 桌面因为还挂着旧的 `dsh-gokifu-preset` 包才侥幸没暴露。
+
+现在该分支返回 `ownPreset === null ? [] : [ownPreset]`（`src/ui.mjs` 与 `scripts/install.mjs`
+两份实现同步改，`test/preset-discovery.test.mjs` 的「两处一致」用例继续锁着）。
+
+### 新增回归（预设发现）
+
+- 「本包 patch 自己声明 preset 时必须被发现；UI-only 的 ≤1.14.0 旧包仍必须排除」；
+- 「只有本包声明 preset、home 里没有 `preset-bundles/` ⇒ 不许被旧一代早退吞掉」（就是本 bug）。
+
+### 验证
+
+- 全量单测 **617 passed / 0 skipped / 0 failed**（54 个测试文件；1.15.0 基线 615）。
+- 隔离实例 `web115b`（只装本包 1.15.x 的 tarball，无旧 preset bundle）：
+  `findPresetFiles` / `presetsWithCompaction` 都返回 `[dsh-gokifu-compact]`；
+  `--dump-config` 三条（registry default / gokifu-ui / preset-gokifu）齐全。
+
+---
+
 ## 1.15.0 — 2026-11-01
 
 > 本轮主题：**把安装做成「跟别的插件一样」** —— 一个包、一次安装、装上即接管。
