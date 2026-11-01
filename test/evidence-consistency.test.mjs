@@ -90,3 +90,45 @@ tests["C119-2 校准证据的 p50/p90/min/max/超预算必须与 README 行一�
   }
   t.includes(line, `超预算 ${s.over}/${s.n}`, `README 行必须写超预算 ${s.over}/${s.n}`);
 };
+
+tests["C120-1 证据目录里的每个文件都必须能被 README 找到（按文件主干匹配，允许 `X.*`）"] = (t) => {
+  const dir = nodePath.join(REPO, "evidence");
+  const readme = read("evidence/README.md");
+  const files = nodeFs.readdirSync(dir).filter((f) => /\.(json|md)$/.test(f) && f !== "README.md");
+  t.eq(files.length >= 20, true, `证据文件应有 20+，实际 ${files.length}`);
+  const missing = files.filter((f) => {
+    const stem = f.replace(/\.(json|md)$/, "");
+    return !readme.includes(stem);
+  });
+  t.eq(missing.length, 0, `这些证据文件在 README 里找不到（新证据没登记 / 被改名）：${missing.join(", ")}`);
+};
+
+tests["C120-2 README 里点名的证据文件必须真实存在（反过来防「删了文件但索引还写着」）"] = (t) => {
+  const readme = read("evidence/README.md");
+  const refs = [...new Set([...readme.matchAll(/`([^`\s]+?\.(?:md|json))`/g)].map((m) => m[1]))];
+  t.eq(refs.length >= 10, true, `README 至少点名 10 个文件，实际 ${refs.length}`);
+  const missing = refs.filter((name) => !nodeFs.existsSync(nodePath.join(REPO, "evidence", name)));
+  t.eq(missing.length, 0, `README 点名但文件不存在：${missing.join(", ")}`);
+};
+
+tests["C120-3 现行文档里以 `evidence/xxx.{md,json}` 形式引用的文件必须存在"] = (t) => {
+  const docs = [
+    "README.md",
+    "QUICKSTART.md",
+    "docs/压缩的重注入契约.md",
+    "docs/发布就绪-2026-11-02.md",
+    "docs/research/00-蒸馏-对本插件的可执行结论.md",
+    "docs/落盘与回滚不变量.md",
+  ];
+  let seen = 0;
+  const missing = [];
+  for (const rel of docs) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    for (const m of read(rel).matchAll(/(evidence\/[A-Za-z0-9一-鿿_.\-]+\.(?:md|json))/g)) {
+      seen += 1;
+      if (!nodeFs.existsSync(nodePath.join(REPO, m[1]))) missing.push(`${rel} → ${m[1]}`);
+    }
+  }
+  void seen;
+  t.eq(missing.length, 0, `现行文档引用了不存在的证据文件：${missing.join(" / ")}`);
+};
