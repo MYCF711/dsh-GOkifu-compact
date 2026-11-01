@@ -132,3 +132,26 @@ tests["C120-3 现行文档里以 `evidence/xxx.{md,json}` 形式引用的文件�
   void seen;
   t.eq(missing.length, 0, `现行文档引用了不存在的证据文件：${missing.join(" / ")}`);
 };
+
+tests["C121 文档里对 `docs/research/NN-*.md` 的引用必须存在（调研文改名最容易留下死引用）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  void NL;
+  const targets = ["README.md", "QUICKSTART.md", "evidence/README.md"];
+  for (const rel of nodeFs.readdirSync(nodePath.join(REPO, "docs"))) {
+    if (rel.endsWith(".md")) targets.push(`docs/${rel}`);
+  }
+  for (const rel of nodeFs.readdirSync(nodePath.join(REPO, "docs", "research"))) {
+    if (rel.endsWith(".md") && rel !== "README.md") targets.push(`docs/research/${rel}`);
+  }
+  let seen = 0;
+  const missing = [];
+  for (const rel of targets) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    for (const m of read(rel).matchAll(/docs\/research\/([A-Za-z0-9一-鿿_.\-]+\.md)/g)) {
+      seen += 1;
+      if (!nodeFs.existsSync(nodePath.join(REPO, "docs", "research", m[1]))) missing.push(`${rel} → ${m[1]}`);
+    }
+  }
+  t.eq(seen >= 5, true, `至少要扫到 5 处对调研文的引用，实际 ${seen}`);
+  t.eq(missing.length, 0, `引用了不存在的调研文：${missing.join(" / ")}`);
+};

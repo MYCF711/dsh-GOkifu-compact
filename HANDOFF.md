@@ -131,6 +131,7 @@
 | **C118 证据数字一致性（2026-11-02）** | `evidence-consistency`：从 `live-folds.json` 重算总数/会话数/quality 数/压缩比/成本/thrash，断言 README 与 research §11.1 出现同口径字符串；逐会话表与 bySession 一致、openAtEnd 和为 0；措辞容错、数字不饶 |
 | **C119 证据文件陈旧（2026-11-02）** | `bench-2000.json` 还写着 447（文档/基线全写 415）—— C85 改成不写盘后没人刷新；已 `--write` 刷成 415/L5；新增 C119-1（证据==基线）与 C119-2（校准 p50/p90/min/max/超预算==README 行） |
 | **C120 证据双向可发现性（2026-11-02）** | C120-1 每个 evidence 文件主干必须在 README（允许 `X.*`）/ C120-2 README 点名文件必须存在 / C120-3 现行文档 `evidence/xxx` 引用必须存在；体检 39 文件 0 孤儿、27 引用 0 悬空 |
+| **C121 调研文死链（2026-11-02）** | `压缩质量盘点` 指向不存在的 `04-compression-evaluation.md`（实际是 01-academic / 02-product）已修正；新增 C121：现行文档 + research 内对 `docs/research/NN-*.md` 的引用必须存在（只查调研文，历史引用不误报） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

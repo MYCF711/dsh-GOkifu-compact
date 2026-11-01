@@ -5,6 +5,26 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C121 · 调研文引用的死链（`04-compression-evaluation.md` 根本不存在）
+
+**发现**：扫「现行文档 → 文件」引用时，`docs/压缩质量-现有观测盘点与缺口.md` 指向
+`docs/research/04-compression-evaluation.md` —— 该文件**不存在**（`docs/research/` 实际有
+00/01-academic-compression/02-product-practice/03-human-memory/04-memory-systems/05-agi-memory-architectures/06/07）。
+读者顺着这条引用会什么都找不到。
+
+**做法**：
+
+- 修正为 `01-academic-compression.md` + `02-product-practice.md`（学术与工程调研），并注明原引用作废；
+- 新增 **C121**：所有现行文档 + `docs/research/*.md` 里对 `docs/research/NN-*.md` 的引用**必须存在**，
+  且必须扫到至少 5 处（否则判据退化）。
+
+**为什么只查调研文**：全仓 644 处文件引用里大多是**有意为之的历史引用**
+（迁移映射 `src/graph.mjs` → `src/rooms/kifu-model.mjs`、「未实现」的前瞻用例、宿主路径等）。
+调研文（8 份、命名稳定）是唯一能「放之四海而皆准」的小集合，查它既有效又不误报。
+
+**顺带确认**：`docs/架构-房间契约.md` 里的 `src/graph.mjs`、`test/rooms-isolation.test.mjs` 等
+是**有意保留的历史/前瞻引用**（文中已标「已删原型」「未实现」），不算死链。
+
 ### C120 · 证据目录的双向可发现性（每个文件有人索引 / 每条索引都有文件）
 
 **动机**：`docs-index-check` 只管 `docs/research/` 与 `evidence/` 里的 **.md**；而 `evidence/` 里有
