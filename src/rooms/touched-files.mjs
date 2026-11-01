@@ -65,14 +65,15 @@ export function parseTouchedFileAction(action) {
   const truncated = next === null;
   if (next !== null) rest = rest.slice(0, next.index);
   rest = rest.trim();
+  // 没被截断时 action 以 `)` 收尾；路径内部合法的 `)` 无法与语法括号区分，因此只在**末尾**剥一个。
+  // ★ 必须先剥括号再剥引号：`file_path="…"）` 的末尾是 `"` + `)`，顺序反了会剩一个孤引号。
+  if (truncated && rest.endsWith(")")) rest = rest.slice(0, -1);
   // 引号：成对出现就剥两层；被截断时只会剩开头引号，也要剥（否则路径带着 `"` 去重会错）。
   if (rest.length >= 2 && ((rest.startsWith('"') && rest.endsWith('"')) || (rest.startsWith("'") && rest.endsWith("'")))) {
     rest = rest.slice(1, -1);
   } else if (rest.startsWith('"') || rest.startsWith("'")) {
     rest = rest.slice(1);
   }
-  // 没被截断时 action 以 `)` 收尾；路径内部合法的 `)` 无法与语法括号区分，因此只在**末尾**剥一个。
-  if (truncated && rest.endsWith(")")) rest = rest.slice(0, -1);
   rest = rest.replace(/\s+/g, " ").trim();
   return rest === "" ? null : rest.slice(0, MAX_PATH_CHARS);
 }
@@ -137,4 +138,22 @@ export function extractTouchedFiles(graph, { range = null, limit = 5 } = {}) {
 export function formatTouchedFiles(list) {
   if (!Array.isArray(list) || list.length === 0) return "";
   return list.map((row) => `- ${row.path} (seq ${row.seqStart}-${row.seqEnd})`).join("\n");
+}
+
+/** 追加段的标题（机械段，与「约束（机械保留…）」同一种语气：只陈述事实，不给行动指令）。 */
+export const TOUCHED_FILES_HEADER = "## 最近访问的文件（机械保留，不由模型改写）";
+
+/**
+ * 给 `engine.summarize` 的一整段文本（含前导空行）；空集返回空串（**不要**输出一个空标题）。
+ *
+ * 边界：只进**折叠摘要**（一次 fold 的产物），不进每步热清单 —— 后者是常驻成本。
+ * 内容只陈述「哪个文件、在哪个 seq 区间被访问过」，不写「下一步该读哪个」。
+ *
+ * @param {object} graph 棋谱
+ * @param {{start:number,end:number}|null} [range] 本次 fold 遮蔽的 seq 区间
+ */
+export function touchedFilesBlock(graph, range = null) {
+  const body = formatTouchedFiles(extractTouchedFiles(graph, { range, limit: 5 }));
+  if (body === "") return "";
+  return `\n\n${TOUCHED_FILES_HEADER}\n${body}`;
 }

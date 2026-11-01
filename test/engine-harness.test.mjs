@@ -268,7 +268,8 @@ export async function load() {
   cached = await (async () => {
     const stubs = writeStubs();
     const mod = await import(stubs.engineUrl);
-    return { Engine: mod.default, graphDir: stubs.graphDir };
+    // ★ 2026-11-01：把整个模块也带出来（`mod`），供纯函数单测用（accumulateLedgerBudget 等）。
+    return { Engine: mod.default, graphDir: stubs.graphDir, mod };
   })();
   return cached;
 }
@@ -917,11 +918,75 @@ tests["P7-4 doctor：展示 fallback 分布与最大 overBudgetBy；缺文件写
   }
   if (!check.detail.includes("最大 overBudgetBy=42")) throw new Error(`最大 overBudgetBy 缺失：${check.detail}`);
   if (check.status !== "error") throw new Error(`有 impossible 时必须 error，实际 ${check.status}`);
+  // ★ 2026-11-01（候选 #2）：旧版 ledger-budget.json 没有 provenanceMin ⇒ 必须写「未采集」，
+  //   不许把它当成 0（那会把「没采集」误报成「出处全丢了」）。
+  if (!check.detail.includes("provenanceMin=未采集")) throw new Error(`旧文件缺字段必须写「未采集」：${check.detail}`);
+  // 新格式：覆盖率掉下来 ⇒ warn + 打印下限与掉档次数
+  nodeFs.writeFileSync(
+    file,
+    JSON.stringify({ none: 3, "over-budget": 0, impossible: 0, maxOverBudgetBy: 0, provenanceMin: 0.5, provenanceLow: 2, updatedAt: 1_800_000_000_000 }),
+    "utf8",
+  );
+  const withProv = run(home);
+  const provCheck = withProv.checks.find((c) => c.name === "热清单预算（fallback）");
+  if (!provCheck) throw new Error("doctor 缺少 fallback 检查项（新格式）");
+  if (!provCheck.detail.includes("provenanceMin=0.5")) throw new Error(`覆盖率下限缺失：${provCheck.detail}`);
+  if (!provCheck.detail.includes("<1 共 2 次")) throw new Error(`掉档次数缺失：${provCheck.detail}`);
+  if (provCheck.status !== "warn") throw new Error(`覆盖率下降必须 warn，实际 ${provCheck.status}`);
   // 缺文件 ⇒ 明确「未采集」
   nodeFs.rmSync(file, { force: true });
   const empty = run(home);
   const emptyCheck = empty.checks.find((c) => c.name === "热清单预算（fallback）");
   if (!emptyCheck || !emptyCheck.detail.includes("未采集")) throw new Error(`缺文件必须写「未采集」：${JSON.stringify(emptyCheck)}`);
+};
+
+tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日志只在掉档时警告"] = async () => {
+  const { Engine } = await load();
+  const graphDir = nodePath.join(GRAPHS, "p7-provenance");
+  nodeFs.rmSync(graphDir, { recursive: true, force: true });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { auto: false, graphDir });
+  const led = (coverage, level = 0) => ({ text: "x", tokens: 10, level, fallback: "none", budgetMax: 500, overBudgetBy: 0, provenanceCoverage: coverage });
+  engine.consumeLedgerBudget(led(1), { id: "sess-prov" });
+  if (ctx.warns.some((w) => w.includes("provenance="))) throw new Error(`覆盖率 1 时不许警告：${JSON.stringify(ctx.warns)}`);
+  engine.consumeLedgerBudget(led(0.5, 2), { id: "sess-prov" });
+  const stats = engine.getLedgerBudgetStats();
+  if (stats.provenanceMin !== 0.5) throw new Error(`provenanceMin 必须是 0.5，实际 ${stats.provenanceMin}`);
+  if (stats.provenanceLow !== 1) throw new Error(`provenanceLow 必须是 1，实际 ${stats.provenanceLow}`);
+  if (!ctx.warns.some((w) => w.includes("provenance=0.5"))) throw new Error(`掉档必须打 warn 且带数值，实际 warns=${JSON.stringify(ctx.warns)}`);
+  // 落盘：doctor 读的就是这个文件
+  const disk = JSON.parse(nodeFs.readFileSync(nodePath.join(graphDir, "ledger-budget.json"), "utf8"));
+  if (disk.provenanceMin !== 0.5 || disk.provenanceLow !== 1) throw new Error(`落盘口径不对：${JSON.stringify(disk)}`);
+  // 旧文件（没有该字段）首累计必须从 1 起算 —— 不许把「没采集」当成 0
+  const { mod } = await load();
+  const old = mod.accumulateLedgerBudget({ none: 5 }, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1 }, 1);
+  if (old.provenanceMin !== 1) throw new Error(`旧文件首累计 provenanceMin 必须是 1，实际 ${old.provenanceMin}`);
+};
+
+tests["C4 折叠摘要机械追加「最近访问的文件」（零模型调用、只进摘要）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c4-touched");
+  const session = makeSession({ id: "sess-c4-touched" });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  await ctx.emitRaw("session/event", session, userEvent("检查 src/a.mjs 和 src/b.mjs 的实现。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "read", { file_path: "src/a.mjs" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "const a = 1;", 3));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  await ctx.emitRaw("session/event", session, assistantEvent("c2", "edit", { file_path: "src/b.mjs" }, 5));
+  await ctx.emitRaw("session/event", session, resultEvent("c2", "ok", 6));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 7, data: { turn: 1, step: 2 } });
+  engine._chessActiveRange = { start: 2, end: 7 };
+  try {
+    const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+    const text = out.summary.map((block) => String(block.text ?? "")).join("\n");
+    if (!text.includes("最近访问的文件")) throw new Error(`摘要必须含「最近访问的文件」机械段：\n${text}`);
+    if (!text.includes("src/a.mjs")) throw new Error(`摘要必须记住读过的 a.mjs：\n${text}`);
+    if (!text.includes("src/b.mjs")) throw new Error(`摘要必须记住改过的 b.mjs：\n${text}`);
+    if (!/\(seq \d+-\d+\)/.test(text)) throw new Error(`每个文件必须带 seq 出处（可回溯）：\n${text}`);
+  } finally {
+    engine._chessActiveRange = null;
+  }
 };
 
 /* ═════════════ S8 首折削峰（task-170） ═════════════ */

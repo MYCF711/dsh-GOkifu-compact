@@ -31,6 +31,7 @@ import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-pr
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
+import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
@@ -66,26 +67,54 @@ export function ledgerBudgetMetrics(ledger) {
     tokens: Number.isFinite(ledger?.tokens) ? ledger.tokens : null,
     budgetMax: Number.isFinite(ledger?.budgetMax) ? ledger.budgetMax : null,
     overBudgetBy: Number.isFinite(ledger?.overBudgetBy) ? ledger.overBudgetBy : 0,
+    // ★ 2026-11-01（调研候选 #2 / 建议 I）：出处覆盖率（边行带 (seq …) 的比例，应恒为 1）。
+    //   只是**观测**：任何 <1 都说明某条降级路径在砍出处，必须能被告警发现，而不是等到模型胡猜。
+    provenanceCoverage: Number.isFinite(ledger?.provenanceCoverage) ? ledger.provenanceCoverage : null,
   };
 }
 
-/** 预算状态对应的日志级别：impossible 必须 error，over-budget 至少 warn，其余 info。 */
+/** 预算状态对应的日志级别：impossible 必须 error，over-budget / 出处覆盖率下降至少 warn，其余 info。 */
 export function ledgerBudgetLogLevel(metrics) {
   if (!metrics || metrics.fallback === "impossible") return "error";
   if (metrics.fallback === "over-budget") return "warn";
+  if (Number.isFinite(metrics.provenanceCoverage) && metrics.provenanceCoverage < 1) return "warn";
   return "info";
 }
 
 /** 一行可读的日志文案（含 overBudgetBy —— 验收明确要求）。 */
 export function ledgerBudgetLogLine(metrics, sessionId = "") {
   const who = sessionId ? ` session=${sessionId}` : "";
+  // 只在覆盖率掉下来时才追加这一段 —— 正常路径的日志文案与旧版逐字一致（不给日志刷屏）。
+  const prov =
+    Number.isFinite(metrics?.provenanceCoverage) && metrics.provenanceCoverage < 1 ? ` provenance=${metrics.provenanceCoverage}` : "";
   if (metrics.fallback === "over-budget") {
-    return `chess-context: 热清单兜底超限（over-budget）${who} tokens=${metrics.tokens} budget=${metrics.budgetMax} overBudgetBy=${metrics.overBudgetBy} level=L${metrics.level}`;
+    return `chess-context: 热清单兜底超限（over-budget）${who} tokens=${metrics.tokens} budget=${metrics.budgetMax} overBudgetBy=${metrics.overBudgetBy} level=L${metrics.level}${prov}`;
   }
   if (metrics.fallback === "impossible") {
-    return `chess-context: 热清单无解（impossible）${who} level=L${metrics.level} —— 连最省兜底都构造不出，这是 bug，不是预算问题`;
+    return `chess-context: 热清单无解（impossible）${who} level=L${metrics.level} —— 连最省兜底都构造不出，这是 bug，不是预算问题${prov}`;
   }
-  return `chess-context: 热清单预算正常（${metrics.fallback}）${who} tokens=${metrics.tokens}/${metrics.budgetMax}`;
+  return `chess-context: 热清单预算正常（${metrics.fallback}）${who} tokens=${metrics.tokens}/${metrics.budgetMax}${prov}`;
+}
+
+/**
+ * 把一次渲染的 metrics 累计进统计对象（纯函数，便于单测；engine 的 `consumeLedgerBudget` 调用它）。
+ *
+ * 为什么单独抽出来：累计规则是**持久化文件的口径**（`ledger-budget.json` 被 doctor 读），
+ * 旧文件没有 `provenanceMin` 字段 ⇒ 首次累计按 1 起算（1 = 没有观察到任何下降），
+ * 不能因为旧文件缺字段就报成 0（那会让 doctor 误报「出处全丢了」）。
+ */
+export function accumulateLedgerBudget(stats, metrics, now = Date.now()) {
+  const target = stats ?? {};
+  target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
+  target.samples = (target.samples ?? 0) + 1;
+  target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
+  if (Number.isFinite(metrics.provenanceCoverage)) {
+    const prev = Number.isFinite(target.provenanceMin) ? target.provenanceMin : 1;
+    target.provenanceMin = Math.min(prev, metrics.provenanceCoverage);
+    if (metrics.provenanceCoverage < 1) target.provenanceLow = (Number.isFinite(target.provenanceLow) ? target.provenanceLow : 0) + 1;
+  }
+  target.updatedAt = now;
+  return target;
 }
 
 /** 预算统计文件的相对位置（相对 graphDir）：`<graphDir>/ledger-budget.json`。 */
@@ -146,7 +175,18 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
      *  同一时刻只允许一个 tier-2 在跑（防递归 / 二次 compactRegion）。 */
     this._tier2InFlight = false;
     /** ★ P7：热清单预算统计（跨会话累计；doctor 从这里读）。 */
-    this.ledgerBudget = { none: 0, "over-budget": 0, impossible: 0, 未采集: 0, maxOverBudgetBy: 0, updatedAt: 0, samples: 0 };
+    this.ledgerBudget = {
+      none: 0,
+      "over-budget": 0,
+      impossible: 0,
+      未采集: 0,
+      maxOverBudgetBy: 0,
+      // ★ 2026-11-01：出处覆盖率下限（初值 1 = 还没有观察到任何下降）+ 掉档次数。
+      provenanceMin: 1,
+      provenanceLow: 0,
+      updatedAt: 0,
+      samples: 0,
+    };
     if (this.chess.hotLedger) this.#bindLedger();
     this.#bindKeeper();
   }
@@ -159,10 +199,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    */
   consumeLedgerBudget(ledger, session = null) {
     const metrics = ledgerBudgetMetrics(ledger);
-    this.ledgerBudget[metrics.fallback] = (this.ledgerBudget[metrics.fallback] ?? 0) + 1;
-    this.ledgerBudget.samples += 1;
-    this.ledgerBudget.maxOverBudgetBy = Math.max(this.ledgerBudget.maxOverBudgetBy, metrics.overBudgetBy);
-    this.ledgerBudget.updatedAt = Date.now();
+    // ★ 2026-11-01：累计规则抽到 `accumulateLedgerBudget()`（纯函数），这里只负责日志/钩子/落盘。
+    accumulateLedgerBudget(this.ledgerBudget, metrics);
     const level = ledgerBudgetLogLevel(metrics);
     const line = ledgerBudgetLogLine(metrics, session?.id ?? "");
     try {
@@ -395,7 +433,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const priorFold = hasPriorCheckpoint(session);
     const range = this.#activeRange();
     const instruction = buildChessInstruction({
-      facts: renderFacts(g, { range }),
+      // ★ 2026-11-01（调研候选 #3）：把会话目录（相对化后）传进事实块 —— 省略行要给出「去哪查」。
+      facts: renderFacts(g, {
+        range,
+        treeDir: this.#sessionDir(session),
+        traceRoot: this.chess.hotLedgerTraceRoot ?? "",
+      }),
       shadowedStart: range?.start,
       shadowedEnd: range?.end,
       priorFold,
@@ -492,6 +535,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
 ## 约束（机械保留，逐字；不由模型改写）
 ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
+    // ★ 2026-11-01（调研候选 #4）：机械追加「最近访问的文件」。
+    //   折叠段里的 read/edit/write 在摘要里只剩一句「改了接口」，然后模型就不知道是**哪个文件**；
+    //   而路径本来就在图边的 action 里。机械解析、零模型调用、只进摘要（不进每步热清单）。
+    const touchedBlock = touchedFilesBlock(g, range);
+    if (touchedBlock) summary.push({ type: "text", text: touchedBlock });
     // 记账：这次摘要调用了多少 token（provider 真实 usage）。#commit 会把它写进 graph.lastFoldUsage，
     // doctor / 计费对账直接读，不用再翻会话日志里的 compaction/summary 事件。
     // ★ P2-2（task-192）：**路由无条件记录**（有的 provider 不回 usage，但 route 永远可得）；

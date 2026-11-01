@@ -679,7 +679,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   // ★ S5（2026-10-31）：TRACE 行两形态。带 recent 的版本在**预算装不下时退回旧形态**，
   //   否则「加一条新信息」会把本来刚好装下的会话顶到 500 以上（真实语料实测 30→31 个超预算）。
   //   先算好两条候选行，各档按预算选（见循环末尾的 dropped 逻辑）。
-  const traceBaseLine = treeDir ? `TRACE: ${traceRelativeDir(treeDir, traceRoot)}/index.md` : null;
+  // ★ 2026-11-01（调研候选 #3）：热清单里任何「有东西被省掉了」的行都必须给出**可解析的位置**。
+  //   规则与 TRACE 行一致：treeDir 先相对化成 `sessions/<sid>`（或配置的 traceRoot），绝不泄漏绝对路径（P6a）；
+  //   treeDir 为空时退化成 `graph.json`，但仍带节点区间 —— 不许只剩一个泛称。
+  const relTree = treeDir ? traceRelativeDir(treeDir, traceRoot) : "";
+  const traceBaseLine = relTree ? `TRACE: ${relTree}/index.md` : null;
   const traceRecentSeg = traceBaseLine === null ? "" : traceRecentSegment(path);
   const traceRecentLine = traceRecentSeg === "" ? null : `${traceBaseLine} · ${traceRecentSeg}`;
 
@@ -785,7 +789,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
         tailLines.push(
-          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${treeDir ? `${treeDir}/index.md` : "index.md"} (per node: nodes/<id>.md) / by seq in the session log`,
+          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (per node: nodes/<id>.md) / by seq in the session log`,
         );
       }
       for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
@@ -1090,7 +1094,13 @@ export function collectConstraints(g) {
  * 这些内容由规则抽取、逐字保留，模型只负责压缩表达，不负责决定丢什么。
  * ★ 这里**全量**（不降级）—— 摘要是一次性成本，且失败边正是压缩必须保住的东西。
  */
-export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = null, now = Date.now() } = {}) {
+export function renderFacts(
+  g,
+  { maxFailures = 800, headFailures = 80, range = null, treeDir = "", traceRoot = "", now = Date.now() } = {},
+) {
+  // ★ 2026-11-01（调研候选 #3）：省略行必须给出**可解析的位置**，且不允许泄漏绝对路径（P6a）。
+  //   与热清单的 TRACE 行同一套相对化规则：`treeDir` → `sessions/<sid>`（或配置的 traceRoot）。
+  const relTree = treeDir ? traceRelativeDir(treeDir, traceRoot) : "";
   let allFailures = failureEdges(g);
   // ★ P1-8：增量 fold 只应把**本段**失败边塞进摘要。旧版取全量 → 摘要体积随全局失败数增长，
   //   真实会话的 fold 摘要已 13,953 字符；再涨会触发官方「summary 不小于被遮蔽内容」，fold 永久失败。
@@ -1140,7 +1150,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     for (const c of cons) lines.push(`* ${c}`);
   }
   if (omitted > 0) {
-    lines.push(`FAILED_ATTEMPTS_OMITTED: ${omitted} earlier dead ends ${omittedSpan} are NOT listed here for budget — their full text is in graph.json; do not invent or merge them, just note that they exist.`);
+    lines.push(`FAILED_ATTEMPTS_OMITTED: ${omitted} earlier dead ends ${omittedSpan} are NOT listed here for budget — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (node files: nodes/<id>.md); do not invent or merge them, just note that they exist.`);
   }
   if (failures.length) {
     lines.push(`FAILED_ATTEMPTS (${failures.length} listed of ${allFailures.length}; keep every line, never merge, never drop):`);
@@ -1167,7 +1177,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     const residueFailures = allFailures.filter((e) => classifyDangling(e, { graph: g, now }) === "residue");
     if (residueFailures.length > 0) {
       lines.push(
-        `DANGLING_RESIDUE: ${residueFailures.length} of the failed attempts above have no endpoint (to=null; 1.9.1 rewash residue) — excluded from hot-list analysis, data kept in graph.json.`,
+        `DANGLING_RESIDUE: ${residueFailures.length} of the failed attempts above have no endpoint (to=null; 1.9.1 rewash residue) — excluded from hot-list analysis, data kept in ${relTree ? `${relTree}/graph.json` : "graph.json"}.`,
       );
     }
     if (stats.fromBroken > 0) {

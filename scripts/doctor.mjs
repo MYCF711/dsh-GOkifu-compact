@@ -381,10 +381,18 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     const impossible = Number(stats.impossible ?? 0);
     const maxOver = Number(stats.maxOverBudgetBy ?? 0);
     const total = none + over + impossible;
+    // ★ 2026-11-01（调研候选 #2）：出处覆盖率下限。旧版 ledger-budget.json 没有该字段 ⇒ 写「未采集」，
+    //   不许报 0（那会把「没采集」误报成「出处全丢了」）。
+    const provMin = stats.provenanceMin;
+    const provLow = Number(stats.provenanceLow ?? 0);
+    const provText =
+      provMin === undefined || provMin === null
+        ? " · provenanceMin=未采集"
+        : ` · provenanceMin=${provMin}${provLow > 0 ? `（<1 共 ${provLow} 次）` : ""}`;
     add(
       "热清单预算（fallback）",
-      impossible > 0 ? "error" : over > 0 ? "warn" : "ok",
-      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}` +
+      impossible > 0 ? "error" : over > 0 || provLow > 0 ? "warn" : "ok",
+      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}` +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
     );
   }
