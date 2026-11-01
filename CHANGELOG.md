@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C100 · 文档数字锚的机器判据（立刻抓到「5 条规则」其实已是 6 条）
+
+**动机**：前面几轮反复人肉修同一类问题（bench 447/446/430、verify-install 18→19、doctor 警告数…）。
+凡是**代码里已有唯一来源**的数字，就不该靠人复查。
+
+**做法**：新增 `test/docs-numbers.test.mjs`，只查四份面向用户/合同的文档
+（README / 职责边界 / 重注入契约 / 发布就绪；历史计划文档与 evidence 快照不参与）：
+
+1. 文档里「boundary-audit **N 条规则**」的 N 必须等于 `RULES.length`；
+2. 文档里 bench 的「**N tokens**」必须等于 `scripts/bench-repro.mjs` 的 `EXPECTED_TOKENS`；
+3. 两条判据都要求**至少命中一次**（否则判据会退化成永远为真）。
+
+**立刻抓到的真问题**：`RULES.length` 现在是 **6**（behavior-guidance / retry-advice / epistemic-advice /
+directive-short / memory-restore-advice / tool-governance），而两份文档还写着「5 条规则」
+—— 已改正，并顺带把 6 条规则的名字列全（此前只列了 5 个类别）。
+
 ### C99 · QUICKSTART 里写死的「verify-install 18 项」已经过期（实际 19）
 
 **问题**：QUICKSTART §1 写着「**18 项**里只有『运行期已产出棋谱』可能短红；跑过一个会话后应 **18/18**」——
