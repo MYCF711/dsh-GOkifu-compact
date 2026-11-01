@@ -92,6 +92,23 @@ engine-harness P2-2-1 增「compressionRatio 必须严格等于 shadowed/summary
 真正要防的是**静默省略**（由 `ledger-boundary` J/K 与 `handoff-check` ⑧ 守住）。
 改成中性 `[INFO]`，让这条门禁不再"狼来了"；同时把脚本头部示例里的旧基线 351 对齐到 446。
 
+### C8 · 保真度的「真值链路」跑通了：real-fold-trigger 现在能验证（更正上一轮结论）
+
+上一轮把「real-fold-trigger 不能验证保真度」写进了文档。诊断对了（keeper 没跑），**结论下早了**：
+问题不是「没法验证」，而是「手写桩没把事件派发出去」。
+
+- `session.append()` 里加 `session._emit(event)` → `buildCtx()` 接成 `ctx.emit("session/event", session, event)`
+  —— engine 的 keeper 正是注册在这里；
+- 补一条**失败的**工具调用 + 紧随一个 `step/end`（keeper 在该步建 agent 节点并把边指向它；
+  否则边一直 `to=null`，10 分钟后被判成 rewash 残留，保真度统计不到它）；
+- 校验改成看**所有** foldMark（增量 fold 的早期 range 才包含那条失败边），并优先读引擎内存图
+  （落盘是 debounce/idle 触发的，进程退出时盘上可能是旧快照）。
+
+实测（真实模型，3 次 fold）：`fold#1 quality: c=2/1 f=1/0` —— **期望约束 2 / 期望失败边 1，不再是真空通过**。
+**证据边界**：本文件的 `ctx.llm` 是桩（自己拼 prompt，不用引擎的棋谱指令），所以 `constraintRecall=1`
+是引擎机械追加保证的（有效），`failureRecall` 受桩 prompt 影响、**不代表生产**；它证明的是
+`engine → keeper → fold-quality → foldMarks` 这一段真的在跑。证据：`evidence/fold触发验证.{json,md}`。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**645 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
