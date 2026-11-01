@@ -1480,3 +1480,33 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
 function GRAPH_PATH_HOME() {
   return GRAPHS;
 }
+
+tests["C7：规则摘要路径也必须记 quality（降级时不能成为指标盲区）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-rules-quality" });
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  // summaryMode: rules ⇒ 走 ruleResult()，完全不调模型。旧版只有模型路径设置 _lastSummaryText，
+  // 于是 rules 降级时 foldMarks.quality 缺失 —— 而「降级」恰恰是最需要看保真度的时候。
+  const engine = new Engine(ctx, {
+    graphDir: nodePath.join(GRAPHS, "g-rules-quality"),
+    auto: false,
+    growthFloorTokens: 0,
+    minFoldTokens: 0,
+    retainRatio: 0.1,
+    summaryMode: "rules",
+  });
+  for (let i = 0; i < 19; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("应当 fold");
+  const g = readGraph(nodePath.join(GRAPHS, "g-rules-quality"), "sess-rules-quality");
+  const mark = (g.foldMarks ?? []).at(-1);
+  if (!mark) throw new Error("foldMarks 应有记录");
+  if (mark.quality === null || typeof mark.quality !== "object") {
+    throw new Error(`规则摘要路径也必须记 quality，实际 ${JSON.stringify(mark.quality)}`);
+  }
+  for (const key of ["constraintRecall", "failureRecall"]) {
+    if (typeof mark.quality[key] !== "number") {
+      throw new Error(`rules 路径的 quality.${key} 必须是数字，得到 ${JSON.stringify(mark.quality[key])}`);
+    }
+  }
+};
