@@ -163,6 +163,7 @@ tests["C66-4 热清单预算：无 ledger-budget.json ⇒ warn 未采集；分�
       maxOverBudgetBy: 0,
       provenanceMin: 1,
       sectionsAvg: { root: 100, constraints: 100, failures: 600, options: 0, unverified: 0, path: 100, other: 0, total: 900 },
+      minimalRenders: 7,
       updatedAt: Date.now(),
     },
   });
@@ -171,6 +172,8 @@ tests["C66-4 热清单预算：无 ledger-budget.json ⇒ warn 未采集；分�
     const budget = r.find("热清单预算");
     t.eq(budget.status, "ok", `健康统计应 ok：${JSON.stringify(budget)}`);
     // 分项占用是独立检查项（「热清单分项占用（平均）」）——它才是 sectionsAvg 的消费者
+    // C67：最小清单渲染次数必须出现在预算行（否则 minimal 字段又成死数据）
+    t.eq(String(budget.detail).includes("最小清单"), true, `预算行应带最小清单次数：${budget.detail}`);
     const sections = r.find("热清单分项占用");
     t.eq(!!sections, true, "必须有分项占用检查项");
     t.eq(String(sections.detail).includes("失败边"), true, `detail 应给出失败边占比：${sections.detail}`);

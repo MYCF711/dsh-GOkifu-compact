@@ -5,6 +5,20 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C67 · `minimal` 字段接上消费者（无失败边时的最小清单次数）
+
+**背景**：专员审计最后一条 P2 —— `renderMinimalLedger` 返回的 `minimal: true` **全仓无读者**
+（写入即弃），违反仓库自己的「指标必须有消费者」纪律。
+
+**做法**：
+
+- `ledgerBudgetMetrics` 透传 `minimal`；`accumulateLedgerBudget` 新增 **`minimalRenders`**；
+- `doctor` 预算行显示「最小清单（无失败边）N 次」——它回答的是「有多少次注入还没走到失败清单这一步」；
+- `ledger-budget` 新增 T-5（`renderMinimalLedger` 必须带 `minimal:true`，普通渲染不许冒充）；
+  `engine-harness` 断言累计（minimal 计 1、非 minimal 不计）；`doctor-cli` C66-4 断言该次数出现在预算行。
+
+**至此专员审计 12 条全部收口。**
+
 ### C66 · doctor 四项「只有消费者、没有测试」的检查补测（审计 P2 收尾）
 
 **背景**：专员审计指出 `fold 悬空 / fold 边界完整性 / 置换合并可追溯 / 热清单分项占用`

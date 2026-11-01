@@ -648,6 +648,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
         (Number(stats.budgetFloorOver) > 0
           ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
           : "") +
+        (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
         (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
         (Number(stats.budgetIrreducible) > 0
           ? ` · ${stats.budgetIrreducible} 次已列全失败边仍超（再省只能丢失败记忆 —— 设计内，见 C49）`

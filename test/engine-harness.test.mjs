@@ -1021,6 +1021,11 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (traced.traceDropped !== 1) throw new Error(`TRACE 降级应计 1，实际 ${traced.traceDropped}`);
   const notTraced = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1, traceRecent: "full" });
   if (notTraced.traceDropped !== undefined) throw new Error("未降级不许计数");
+  // ★ C67：最小清单（zero-failure 路径）的渲染次数必须被统计
+  const mini = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1, minimal: true });
+  if (mini.minimalRenders !== 1) throw new Error(`最小清单应计 1，实际 ${mini.minimalRenders}`);
+  const notMini = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1 });
+  if (notMini.minimalRenders !== undefined) throw new Error("非最小清单不许计数");
   // ★ C49：已列全失败边仍超 ⇒ budgetIrreducible（设计内）；还有更省形式（shown < count）⇒ 不计
   const irre = mod.accumulateLedgerBudget({}, {
     fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 300,

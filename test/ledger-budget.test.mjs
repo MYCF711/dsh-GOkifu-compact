@@ -15,7 +15,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, fallbackStatusOf, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderMinimalLedger, renderFacts, fallbackStatusOf, _internal } from "../src/rooms/ledger.mjs";
 
 const { pickFallback } = _internal;
 
@@ -167,3 +167,14 @@ function heavyGraph({ constraints = 6, failures = 2, sessionId = "fx-floor" } = 
   }
   return g;
 }
+
+tests["T-5 最小清单（C67）：renderMinimalLedger 必须标 minimal:true，且指标层能读到"] = (t) => {
+  const g = createGraph({ sessionId: "fx-minimal" });
+  const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+  addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  t.eq(led.minimal, true, "最小清单必须带 minimal:true（否则该字段永远无消费者）");
+  t.eq(typeof led.tokens, "number", "仍要有 tokens");
+  const full = renderLedger(g, { maxTokens: 500 });
+  t.eq(full.minimal === true, false, "普通渲染不许冒充最小清单");
+};

@@ -94,6 +94,9 @@ export function ledgerBudgetMetrics(ledger) {
     // ★ C65（专员审计 P2）：traceRecent 此前只被一个测试读取（写入即弃）。接进 doctor 统计：
     //   dropped-for-budget = 「为装进预算而退回了旧 TRACE 形态」的次数，是成本换信息的真实频率。
     traceRecent: typeof ledger?.traceRecent === "string" ? ledger.traceRecent : null,
+    // ★ C67（专员审计 P2 收尾）：`renderMinimalLedger` 的 `minimal: true` 此前无任何消费者。
+    //   把「零失败边时的最小清单」渲染次数接进统计 —— 它回答「有多少次注入还没走到失败清单这一步」。
+    minimal: ledger?.minimal === true,
     // ★ C49：本次列了几条失败边 / 一共几条 —— 用来判断超预算时「还有没有更省的形式」。
     shownFailures: Number.isFinite(ledger?.shownFailures) ? ledger.shownFailures : null,
     failureCount: Number.isFinite(ledger?.failureCount) ? ledger.failureCount : null,
@@ -134,6 +137,9 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
   const target = stats ?? {};
   target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
   target.samples = (target.samples ?? 0) + 1;
+  if (metrics.minimal === true) {
+    target.minimalRenders = (Number.isFinite(target.minimalRenders) ? target.minimalRenders : 0) + 1;
+  }
   if (metrics.traceRecent === "dropped-for-budget") {
     target.traceDropped = (Number.isFinite(target.traceDropped) ? target.traceDropped : 0) + 1;
   }
