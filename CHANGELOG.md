@@ -87,6 +87,11 @@
 engine-harness P2-2-1 增「compressionRatio 必须严格等于 shadowed/summary」；P2-2-2 增
 「规则降级 fold 必须带 quality 且 constraintRecall = 1」。
 
+**C7.1 顺手修掉发布门禁里的一条假警告**：`scripts/bench-repro.mjs` 对 2000 边夹具在 L5 下必然省略 1191 条边，
+旧文案会打 `[WARN] 降级不应丢边` —— 但 L4/L5 的省略是**设计**（清单里有汇总行指向 graph.json），
+真正要防的是**静默省略**（由 `ledger-boundary` J/K 与 `handoff-check` ⑧ 守住）。
+改成中性 `[INFO]`，让这条门禁不再"狼来了"；同时把脚本头部示例里的旧基线 351 对齐到 446。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**645 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。

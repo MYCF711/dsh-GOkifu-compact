@@ -2,7 +2,7 @@
  * bench-repro.mjs —— 一条命令复现 README 顶部的两个指标
  *
  *   node scripts/bench-repro.mjs
- *   # hot-list tokens: 351 (fixture=2000-edges, tier=L5)
+ *   # hot-list tokens: 446 (fixture=2000-edges, tier=L5)
  *   # failure-retention: 8 / 8
  *
  * 退出码：
@@ -101,7 +101,15 @@ if (tier !== null && tier !== EXPECTED_TIER) {
   console.error(`[DRIFT] 降级档期望 L${EXPECTED_TIER}，实测 L${tier}`);
   drift += 1;
 }
-if (omitted !== 0) console.error(`[WARN] 本次渲染省略了 ${omitted} 条边（降级不应丢边）`);
+if (omitted !== 0) {
+  // ★ 2026-11-01：L4/L5 的省略是**设计** —— 只列最近 N 条 + 一行汇总（`… N earlier dead ends omitted …`，
+  //   指向 graph.json / nodes/<id>.md），所以「省略」本身不是问题；真正要防的是**静默省略**，
+  //   那由 `ledger-boundary` 的 J/K 与 `handoff-check` 的 ⑧ 守住。
+  //   旧文案「降级不应丢边」在每次正常降级时都会叫（1191 条边时必响）—— 假警告会让门禁失去意义。
+  console.log(
+    `[INFO] L${tier ?? "?"} 省略 ${omitted} 条边（设计如此：清单里有汇总行指向 graph.json；静默省略由 ledger-boundary J/K 守住）`,
+  );
+}
 
 if (drift > 0) {
   console.error("[DRIFT] 数字与基线不一致：确认是有意改动后更新脚本里的 EXPECTED_* 与 README，再提交。");
