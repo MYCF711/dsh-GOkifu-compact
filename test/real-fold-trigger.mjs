@@ -225,6 +225,12 @@ async function main() {
 
   session.seed("system", "sys");
   session.append("turn/start", { turn: 1 });
+  // ★ 2026-11-01：这里补了一条带约束的 user 消息，但**它对 fold-quality 不生效** ——
+  //   本文件的 session 是手写桩，没有触发 `ctx.on("session/event", …)`，所以 keeper 根本不会跑，
+  //   图里一个节点都没有（实测 user 节点数 = 0、expectedConstraints 恒为 0）。
+  //   保留这行是为了将来若把桩改成会发 session/event，这条约束能自动开始起作用；
+  //   **保真度验证请走 `test/fold-quality.test.mjs`（合成图）或真实 DSH 会话，不要指望本文件。**
+  session.seed("user", "硬约束：不要动 prod 配置；测试必须串行跑，不要并发。");
   for (let i = 0; i < 24; i += 1) session.seed("user", `第 ${i} 步：${i % 3 === 0 ? "改缓存策略" : "跑测试"}（这是用于验证 fold 的长历史）`);
 
   const agent = { session, options: {} };
