@@ -49,3 +49,21 @@ tests["F-3 契约要点仍在：约束逐字 / 失败边逐条 / 不许把 UNVER
   t.includes(text, "Never promote an UNVERIFIED_CLAIM", "不许把未验证升成事实");
   t.includes(text, "Never invent a node, an edge", "不许编造节点/边");
 };
+
+tests["C107 摘要 prompt 必须保留两条冗余保险（约束逐字 + 每条失败边）"] = (t) => {
+  // 设计取舍：机械追加已经保证召回，prompt 仍要求模型复述 —— 这是**故意的冗余**（防线纵深）。
+  // 任何「去重式优化」若删掉这两条规则，等于把「模型丢约束」的风险重新引回来
+  // —— 见 docs/research/00 §11.3 对候选 #17（derivable 标记）的否决。
+  const prompt = buildChessInstruction({
+    facts: FACTS,
+    shadowedStart: 1,
+    shadowedEnd: 20,
+    preGraph: false,
+  });
+  t.includes(prompt, "must be preserved word-for-word", "约束必须要求逐字保留（不许改写）");
+  t.includes(prompt, "COPY every CONSTRAINTS_VERBATIM bullet", "必须要求把约束逐条抄进输出");
+  t.includes(prompt, "EVERY line under FAILED_ATTEMPTS must appear in your output", "必须要求每条失败边都出现");
+  t.includes(prompt, "Count them", "必须要求清点数量（防「看起来写了其实少一条」）");
+  // 反向：这两条不许被「精简」成软性措辞
+  t.eq(/MAY (summarize|paraphrase) (constraints|failed attempts)/i.test(prompt), false, "不许出现「可概括约束/失败」的软性措辞");
+};

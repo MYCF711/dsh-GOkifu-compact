@@ -117,6 +117,7 @@
 | **C104 越界引用探针（2026-11-02）** | `findOutOfRangeIds`：id 存在但不在本次折叠区间 ⇒ 出界（幻觉探针抓不到的一类）；`measureFoldQuality.outOfRangeIds`、handoff ⑪ 合并两路、doctor 新增一行；测试 Q-8 + H-16；实现坑：`` 被脚本写坏成控制字符 ⇒ 改「不依赖转义」的匹配 |
 | **C105 合并 id 不再算幻觉（2026-11-02）** | 置换合并会把被吞节点从 nodes 删除、只留 `superseded[]`；`findUnknownIds` 曾把它判成编造 id（假红）。已把合并历史纳入已知集合；越界探针不重复报；测试 Q-9；live 当前无合并 ⇒ 不改变现有数字 |
 | **C106 合并 vs 闭包自洽（2026-11-02）** | 查证 ⑯ 用的是折叠当时的 `closure.graphNodes`（非当前图）⇒ 后续合并缩图不会假红；加回归 H-17（历史闭包不误判 / 真坏数据仍 fail）；无 bug |
+| **C107 否决 #17 derivable（2026-11-02）** | 理由：认知指令（epistemic-advice 已禁）/ 需先判定「可推导」/ 收益微小；research §11.3 新增「已否决候选」表；顺带修正 §11.2 规则数（基线 2 + 新增 4 = 6）；facts-prompt 新增 C107 守住「故意的冗余」 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
