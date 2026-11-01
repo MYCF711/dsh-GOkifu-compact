@@ -18,7 +18,17 @@ const REPO = nodePath.join(HERE, "..");
 
 export const tests = {};
 
-const USER_DOCS = ["README.md", "QUICKSTART.md"];
+const USER_DOCS = [
+  "README.md",
+  "QUICKSTART.md",
+  // ★ C125：把 docs/README.md 里标为「现行（会被人照着做）」的文档一并纳入 ——
+  //   它们同样会被人照抄命令，此前完全没有判据。
+  "docs/核查清单.md",
+  "docs/工程教训集.md",
+  "docs/性能与成本.md",
+  "docs/P6C-停窗执行手册.md",
+  "docs/落盘与回滚不变量.md",
+];
 
 function scan() {
   const paths = new Set();
@@ -74,4 +84,10 @@ tests["C99-1 QUICKSTART 不许写死 verify-install 的项数（检查项会随�
     t.eq(quick.includes(stale), false, `QUICKSTART 不许写死检查项数（出现过期的「${stale}」会让用户以为少了一项）`);
   }
   t.eq(quick.includes("运行期已产出棋谱"), true, "必须保留「哪一项可能短暂为红」的说明（否则用户会误判）");
+};
+
+tests["C125 被纳入检查的每份文档都必须存在（列表本身不许指向不存在的文件）"] = (t) => {
+  for (const rel of USER_DOCS) {
+    t.eq(nodeFs.existsSync(nodePath.join(REPO, rel)), true, `USER_DOCS 里的 ${rel} 不存在（要么文档改名，要么列表过期）`);
+  }
 };

@@ -5,6 +5,20 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C125 · 命令检查扩到「现行」设计文档（此前只查 README/QUICKSTART）
+
+**问题**：C86 只扫 `README.md` / `QUICKSTART.md` 里的命令。而 `docs/README.md` 里标为
+**「现行（会被人照着做）」** 的那批文档同样充满可照抄的命令：
+`核查清单.md`（bench-repro / doctor / handoff-check / run）、`性能与成本.md`（bench / evidence / real-model-scenarios / replay-verify）、
+`P6C-停窗执行手册.md`（migrate-dangling / p6c-preflight）—— 它们**一条判据都没有**。
+
+**做法**：
+
+- `docs-commands` 的 `USER_DOCS` 扩到 7 份（README / QUICKSTART + 核查清单 / 工程教训集 / 性能与成本 / P6C 手册 / 落盘与回滚不变量）；
+- 新增 **C125**：`USER_DOCS` 里每份文档**必须存在**（否则列表本身会悄悄过期 —— 与 C124 同一教训）。
+
+**首跑结果**：这些文档里的命令**全部有效**（0 处悬空）—— 本轮是把「碰巧对」变成「有人守」。
+
 ### C124 · HANDOFF 顶部加「当前状态」块（它一直是 1.17.0 未发布的标题）
 
 **问题**：`HANDOFF.md` 有 **621 行**、**119 行**追加日志；而它开头仍写着
