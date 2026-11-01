@@ -1,6 +1,20 @@
 # dsh-GOkifu-compact · 交接文件
 
-## 🆕 2026-11-01 22:55 · 1.17.0 候选（**未发布**，当前工作树）
+## ✅ 当前状态（滚动更新，2026-11-02 07:1x 本地）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.17.1**（`package.json`；已装到本机并被机器级层接管。`npm publish` / 打 tag **待主人授权** —— `check-maintenance` 只剩这一项预期失败） |
+| 代码 | 见 `git log --oneline`；本块写于 `C123`（`e6655c9`）之后 |
+| 门禁（串行） | 全量 **835 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 4 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** |
+| ⏳ **唯一待办** | **重启 DSH**：`post-restart-check` 仍 `fail 1`（`build.json` 无 `buildId` = 03:01 启动的旧进程）。重启后才会：① `renderErrors` / `skipReasons` / 四个归因字段**首次落盘**；② 新 fold 第一次跑上 C112/C113 的回滚/自愈路径；③ 94 个陈旧 `nodes/*.md` 在各会话下次 fold 时被清掉 |
+| 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
+| 怎么读这份文件 | 本块 = 现状；下面的是**追加日志**（C1 → C124，旧在上、新在下），只用于查「某个改动为什么这么写」。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` → `docs/落盘与回滚不变量.md` |
+
+---
+
+## 🗒 追加日志（旧在上、新在下；最后更新到 C124）
+
 
 | 项 | 值 |
 |---|---|

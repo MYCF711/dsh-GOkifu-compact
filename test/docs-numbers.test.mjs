@@ -111,3 +111,14 @@ tests["C117 现行文档里的「N passed」必须带时间戳或当次输出提
   }
   t.eq(seen > 0, true, "至少要有一处现行文档记录测试数（否则判据形同虚设）");
 };
+
+tests["C124 HANDOFF 顶部的「当前状态」块必须与 package.json 版本一致"] = (t) => {
+  const handoff = read("HANDOFF.md");
+  const head = handoff.slice(0, 4000);
+  t.includes(head, "## ✅ 当前状态", "HANDOFF 顶部必须有「当前状态」块（新读者先看这里，别让他翻 600 行日志）");
+  const pkg = JSON.parse(read("package.json"));
+  t.includes(head, `**${pkg.version}**`, `当前状态块必须写当前版本 ${pkg.version}`);
+  // 旧版把「1.17.0 候选（未发布）」当标题，实际已 1.17.1 —— 这种漂移必须能被抓
+  t.eq(head.includes("1.17.0 候选（**未发布**，当前工作树）"), false, "顶部不许再留过期的「候选未发布」标题（它曾被当成现状）");
+  t.includes(head, "唯一待办", "当前状态块必须明确「唯一待办」（重启 DSH）");
+};
