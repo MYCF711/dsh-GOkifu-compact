@@ -280,3 +280,15 @@ tests["S5 · TRACE recent 与标记/相对路径契约共存，且不泄漏绝�
   if (!r.text.includes("[blocked:permission]")) throw new Error(`recent 段挤掉了失败标记：\n${r.text}`);
   if (r.tokens > 500) throw new Error(`超预算：${r.tokens} > 500`);
 };
+
+tests["C51 L2+ 图例压成一行（无换行）；L0/L1 保持多行可读"] = (t) => {
+  const wide = renderLedger(multiBaselineGraph().g, { maxTokens: 5000 });
+  t.eq(wide.level <= 1, true, `宽预算应落在 L0/L1，实际 L${wide.level}`);
+  t.eq(wide.text.includes("# markers:"), true, "宽预算要有图例");
+  const NL = String.fromCharCode(10);
+  t.eq(wide.text.split(NL).some((l) => l.startsWith("#   ")), true, "L0/L1 图例必须是多行形式（好读）");
+  const tight = renderLedger(manyFailuresGraph(40).g, { maxTokens: 400 });
+  t.eq(tight.level >= 2, true, `紧预算应落到 L2+，实际 L${tight.level}`);
+  t.eq(tight.text.includes("# markers: "), true, "L2+ 图例必须压成一行");
+  t.eq(tight.text.split(NL).some((l) => l.startsWith("#   ")), false, "L2+ 不许再有多行图例");
+};

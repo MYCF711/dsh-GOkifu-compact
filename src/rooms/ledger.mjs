@@ -931,7 +931,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   无论总数多少，最近这批边都有标记。
       // ★ P1（2026-10-30）：直接复用本函数开头算好的 tewariMap（失败边尾部 30 条，覆盖所有档位），
       //   不再每个档位重算一遍 —— 旧写法 6 个档位 × 30 条 = 180 次重复手割，是渲染耗时的主因。
-      const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)));
+      const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)), { compact: level >= 2 });
       for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
         tailLines.push(
@@ -939,7 +939,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         );
       }
       for (const e of shown) {
-        tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges), retriedTimesOf(e)));
+        tailLines.push(
+          renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges), retriedTimesOf(e)),
+        );
       }
     }
     // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
@@ -1238,7 +1240,7 @@ function pickFallback(attempts, maxTokens, failureCount) {
  * 这是「模型能不能看懂标记」的兜底：标记只要出现，解释就一定在同一份清单里，
  * 不依赖「有没有检测到手割」这种无关条件（旧版的 bug：只有 EACCES 的会话里 [blocked] 裸奔）。
  */
-function markerLegendLines(tagLists) {
+function markerLegendLines(tagLists, { compact = false } = {}) {
   const seen = [];
   for (const tags of tagLists) {
     for (const tag of tags ?? []) {
@@ -1247,6 +1249,11 @@ function markerLegendLines(tagLists) {
     }
   }
   if (seen.length === 0) return [];
+  // ★ C51：L2+ 起图例压成**一行**（`a = x · b = y`）—— 每多一行都要付换行与前缀的 token；
+  //   在预算紧张的中低档位，语义一个不少、只省排版。L0/L1 仍用多行形式（预算宽裕时更好读）。
+  if (compact) {
+    return ["# markers: " + seen.map((key) => `${key} = ${MARKER_LEGEND[key] ?? "(unknown marker)"}`).join(" · ")];
+  }
   const out = ["# markers:"];
   for (const key of seen) out.push(`#   ${key} = ${MARKER_LEGEND[key] ?? "(unknown marker)"}`);
   return out;
