@@ -81,6 +81,7 @@
 | **C68 发布就绪评估（2026-11-02）** | `docs/发布就绪-2026-11-02.md`：交付物形态 / 能力面 / 七层验证证据 / 「已无优化方向」逐项依据 / 已知缺口与不修理由 / 专员审核结论 / 重启清单（交用户）/ 结论：到达能力上限，唯一待办=重启 |
 | **C69 重启后核对脚本（2026-11-02）** | `scripts/post-restart-check.mjs`：buildId/版本/预算归因三态 + doctor 0 错 + boundary 0 条，一条命令给 fail/warn；live 实测 fail 1（缺 buildId）/ warn 1（578 次 over 无归因）⇒ 明确指向「等重启」；测试 3 例 |
 | **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`session-1286ce28` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
+| **C71 研究文档收口（2026-11-02）** | `docs/research/00` §11 补 27–33、§11.1 刷新（752 passed / folds 15-6 / c=f=1）、新增 §11.2 审计规则演进（C15→C64 五次扩规则的漏网句式与「自审盲区」教训） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
