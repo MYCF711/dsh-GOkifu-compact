@@ -238,9 +238,24 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 测试：ledger-boundary 增 O（↻2 出现且只出现 1 次 / 不许 ↻1 / 不许变成「不要重试」指令）；
 - 基线更新：bench-repro `EXPECTED_TOKENS 446 → 447`、README 顶部数字同步（+1 的来源写明是 ↻k）。
 
+### C19 · 补手动压缩的接线测试 + 版本号 bump（1.16.0 → 1.17.0）
+
+两件收尾工作：
+
+1. **补 C14 的接线测试**（此前 `recordFoldMark()` 有测试，但「`compactNow` 真的会调到它」没有覆盖）：
+   在 engine-harness 里临时替换桩基类的 `compactNow` 模拟宿主（算 range → 调 `compactRegion` → 返回成功），
+   断言 `foldMark.trigger="manual"`、区间正确、pending 摘要被消费。这是 C14 唯一没被钉住的接线。
+2. **版本号 bump**：`check-maintenance` 报「改了 24 个代码文件但 version 还是 1.16.0」——
+   后果是 **git 源的用户永远停在旧 commit**（magpie 按版本号判断有没有更新）。
+   `package.json` / README 当前版本 → **1.17.0**，并明确标注**未发布**。
+   bump 后 `check-maintenance` 只剩 1 项预期失败：「1.17.0 没有 tag」= 尚未发版；
+   **打 tag / npm publish 需主人授权**，本轮不做。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**666 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**667 passed / 0 skipped / 0 failed**
+- `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**
+- `boundary-audit`：0 条；`bench-repro`：447 / 8/8 / exit 0（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

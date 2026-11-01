@@ -1543,6 +1543,37 @@ tests["C14 手动 /compact 也记 foldMark + 保真度（覆盖最后一条压�
   if (disk?.trigger !== "manual") throw new Error(`graph.json 里必须能看到手动压缩记录，实际 ${JSON.stringify(disk?.trigger)}`);
 };
 
+tests["C14b 手动 /compact 的接线：compactNow → compactRegion 记区间 → recordFoldMark"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c14-wiring");
+  const session = makeSession({ id: "sess-c14-wire" });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  const seqA = session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "一" }] });
+  const seqB = session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "二" }] });
+  // 桩基类的 compactNow 是空的（返回 null）⇒ 临时替换成「模拟宿主」：算出 range、调 compactRegion、返回成功。
+  // 这一步正是 C14 里唯一没被覆盖的接线（真实宿主就是这么做的）。
+  const baseProto = Object.getPrototypeOf(Object.getPrototypeOf(engine));
+  const original = baseProto.compactNow;
+  baseProto.compactNow = async function (agent) {
+    await this.compactRegion(seqA, seqB, agent);
+    return { ok: true };
+  };
+  try {
+    // summarize 在 compactRegion 里会留下 pending 摘要文本；这里直接给（与 P2-2-1 处理桩的方式一致）
+    engine._lastSummaryText = ["## 目标", "- x"].join(String.fromCharCode(10));
+    engine._lastSummaryChars = 8;
+    engine._lastSummaryModelText = engine._lastSummaryText;
+    await engine.compactNow({ session, options: {} });
+    const mark = (engine.graphs.get(session.id)?.foldMarks ?? []).at(-1);
+    if (mark?.trigger !== "manual") throw new Error(`手动 /compact 必须记 trigger=manual，实际 ${JSON.stringify(mark?.trigger)}`);
+    if (mark.seqStart !== seqA || mark.seqEnd !== seqB) throw new Error(`手动压缩记的区间错：${mark.seqStart}-${mark.seqEnd}（期望 ${seqA}-${seqB}）`);
+    if (engine._lastSummaryText !== undefined) throw new Error("recordFoldMark 之后 pending 摘要必须被消费");
+  } finally {
+    baseProto.compactNow = original;
+  }
+};
+
 /** doctor 夹具的上级目录（test/.harness/graphs）。 */
 function GRAPH_PATH_HOME() {
   return GRAPHS;

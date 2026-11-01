@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | `package.json` 仍 **1.16.0**；本轮是「1.17.0 候选」——**未 npm publish、未打 tag**（发版需主人授权） |
+| 版本 | `package.json` 已 bump 到 **1.17.0**（`check-maintenance` 要求：改了代码必须 bump，否则 git 源用户永远停在旧 commit）；**未 npm publish、未打 tag** —— 这两步需主人授权。当前 `check-maintenance` 预期只剩 1 项失败：「1.17.0 没有 tag」= 尚未发版 |
 | 单测 | **634 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；含并行会话新增的 thrashing / 重注入契约 / touched-files 用例） |
 | 本轮提交 | `e7e72f9`（C2/C3/C4，本会话）；并行会话另有 `262c92d`(thrashing 进 doctor) / `c79c8ed`(fold 无效一等可见 + 重注入契约) / `671132a`(调研三份归档) / `a3fe4d4`(ROOMS 登记 touched-files) / `31188a5`(压缩质量观测盘点) |
 | **C2 出处覆盖率可观测** | `ledgerBudgetMetrics.provenanceCoverage` → `accumulateLedgerBudget()`（`provenanceMin`/`provenanceLow`；旧 `ledger-budget.json` 无字段时首累计按 **1** 起算，不许当 0）→ doctor「热清单预算（fallback）」显示 `provenanceMin`（旧文件显示「未采集」）；覆盖率 <1 时日志升 warn 并带数值 |
@@ -25,6 +25,7 @@
 | **C16 重访标记（本轮）** | CURRENT PATH / WORKING 的节点标签带 `×N`（`transpositions` 的符号化，N=总到达次数）；只陈述图结构事实、零成本（无重访逐字节不变）、`# path:` 极压档不标。测试 ledger-boundary M |
 | **C17 因果配对（本轮）** | 失败边若被**同一 action 的更晚成功边**解决，行尾标 `↑later-ok:<边id>`（`laterSuccessOf()` 可单测）；只陈述事实、不写建议；live +11 tokens（4/33 命中）、bench 446 不变。测试 ledger-boundary N |
 | **C18 重试计数（本轮）** | 失败边同 action 第 k 次失败（k≥2）标 `↻k`，**只在组内最近一条**上标（每条都标 +12 tok，只标最近一条 +1 tok）；bench 基线 446→447、README 同步。ledger-boundary O |
+| **C19 收尾（本轮）** | ①补 C14 接线测试（替换桩基类 compactNow 模拟宿主 → 断言 trigger=manual/区间/pending 被消费）；②`package.json`/README 版本 1.16.0 → **1.17.0（未发布）**——修复「改了代码但版本没 bump ⇒ git 源用户永远停在旧 commit」；`check-maintenance` 现只剩 1 项预期失败（1.17.0 无 tag）|
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
