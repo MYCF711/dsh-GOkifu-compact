@@ -67,3 +67,11 @@ tests["C98-1 QUICKSTART 必须给「重启后核对」入口（link 安装最常
   t.eq(quick.includes("第三方 preset 的压缩后端"), true, "QUICKSTART 必须解释第三方 preset 不走棋谱压缩");
   t.eq(quick.includes("insert id 唯一性"), true, "QUICKSTART 必须给出「页面消失」的排查入口");
 };
+
+tests["C99-1 QUICKSTART 不许写死 verify-install 的项数（检查项会随版本增加）"] = (t) => {
+  const quick = nodeFs.readFileSync(nodePath.join(REPO, "QUICKSTART.md"), "utf8");
+  for (const stale of ["18/18", "18 项", "19/19", "19 项"]) {
+    t.eq(quick.includes(stale), false, `QUICKSTART 不许写死检查项数（出现过期的「${stale}」会让用户以为少了一项）`);
+  }
+  t.eq(quick.includes("运行期已产出棋谱"), true, "必须保留「哪一项可能短暂为红」的说明（否则用户会误判）");
+};
