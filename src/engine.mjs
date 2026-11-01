@@ -1147,7 +1147,8 @@ function ruleSummary(g, range) {
   if (agents.length === 0) lines.push("- (none)");
   for (const a of agents.slice(-20)) lines.push(`- ${a.id} seq=${a.seq} 目标=${a.goal || "-"} 状态=${String(a.worldHash).slice(0, 8)}/${String(a.constraintHash).slice(0, 8)}`);
   lines.push("");
-  lines.push("## 已探明死路（逐条保留，一条不许少）");
+  // C47：规则摘要同样只写章节名 —— 摘要会成为后续轮次的上下文内容，标题里的指令会一直生效。
+  lines.push("## 已探明死路");
   if (failures.length === 0) lines.push("- (none)");
   for (const e of failures) lines.push(`- ${e.id} "${e.intent || e.action}" → ${(e.errorSnippet || e.verify?.summary || "-").split("\n")[0]} (evidence seq ${e.evidence?.start ?? "?"}-${e.evidence?.end ?? "?"})`);
   lines.push("");

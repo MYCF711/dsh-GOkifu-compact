@@ -70,7 +70,9 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("## 棋谱（状态节点）");
   lines.push("- n<id> seq=<seq> 目标=<one line> 状态=<world8>/<constraint8>");
   lines.push("");
-  lines.push("## 已探明死路（逐条保留，一条不许少）");
+  // C47：标题只写事实（章节名）；「一条都不许丢」已在上面的规则里说过两遍，
+  // 写进标题会随摘要**长期留在上下文里**，变成一条对后来模型的指令。
+  lines.push("## 已探明死路");
   lines.push("- e<id> \"<intent>\" → <reason> (evidence seq <a-b>)");
   lines.push("");
   lines.push("## 已验证事实");
