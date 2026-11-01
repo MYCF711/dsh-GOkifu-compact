@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C84 · 安装产物生成器的安全性与确定性（`make-presets-override` 此前零测试）
+
+**问题**：`scripts/make-presets-override.mjs` 生成的是 **`cordis.patch.yml`（安装产物）** ——
+它写错整个插件就不接管。但此前它**没有任何测试**：dry-run 会不会误写、自检过不过、两次生成是否一致，
+全靠人看。
+
+**做法**：新增 `test/make-presets-override.test.mjs`（**不测 `--write`** —— 那等于在测试里做发布动作）：
+
+1. **dry-run 安全**：`cordis.patch.yml` 的 sha256 前后不变、不留 `.bak-*`、输出含「自检通过」「dry-run」；
+2. **确定性**：两次 dry-run 的 stdout **逐字相同**（四个 preset 的行数/引擎行/`!!js` 统计不抖）；
+3. **产物正确性**：仓库里的 `cordis.patch.yml` 覆盖 `preset-standard / -ptc / -minimal / -cordis`，
+   且**不再引用 `compaction-basic`**、确实指向 `dsh-gokifu-compact`。
+
+**结果**：3 例全绿 —— 安装产物第一次有了「不是手改的、生成器还认同」的机器证据。
+
 ### C83 · CLI 路由测试（用户装完第一条命令不许断）
 
 **问题**：`package.json` 的 `bin` 指向 `scripts/cli.mjs`，用户从 npm 装完第一件事就是
