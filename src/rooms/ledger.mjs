@@ -815,7 +815,10 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     const cons = collectConstraints(g);
     if (cons.length) {
       lines.push("CONSTRAINTS (verbatim):");
-      for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c, level <= 1 ? 220 : 120)}`);
+      // ★ 2026-11-01（边界复审发现的显示 bug）：约束原文常常自带 markdown 列表符号
+      //   （用户写「- 不要动 prod 配置」），渲染时再补一个 `- ` 就变成 `- - 不要动…`。
+      //   这里只剥掉**渲染用的前缀符号**，正文一个字不改（逐字保留的口径不受影响）。
+      for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c.replace(/^\s*[-*]\s+/, ""), level <= 1 ? 220 : 120)}`);
     }
     // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
     //   这样路径行的预算能扣掉它的**真实长度**。
