@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C66 · doctor 四项「只有消费者、没有测试」的检查补测（审计 P2 收尾）
+
+**背景**：专员审计指出 `fold 悬空 / fold 边界完整性 / 置换合并可追溯 / 热清单分项占用`
+四项 doctor 检查**没有任何测试引用** —— 它们恰好是合同 §6 里最容易悄悄失效的验收项。
+
+**做法**：新增 `test/doctor-cli.test.mjs`，用**子进程 + 临时 home** 测真实行为（doctor 是脚本、无 export）：
+造最小 home（`chess-context/sessions/<sid>/graph.json` + 可选 `ledger-budget.json`），跑
+`node scripts/doctor.mjs --json` 再断言指定检查项（注意 doctor 有警告时退出码非 0，`execFileSync` 会 throw，
+测试里改用 `error.stdout`）：
+
+1. **fold 悬空**：无 `dangling` ⇒ **warn「未采集」**（C64 刚改的纪律），全 0 ⇒ ok；
+2. **fold 边界完整性**：`openAtEnd > 0` ⇒ **error**，=0 ⇒ ok；
+3. **置换合并可追溯**：`superseded` 记录指向**仍在图里**的节点 ⇒ error「自相矛盾」；指向已消失节点 ⇒ ok 并报合并次数；
+4. **热清单预算 / 分项占用**：无统计文件 ⇒ warn 未采集；有 `sectionsAvg` ⇒ 预算 ok 且分项占用行给出失败边占比（夹具 ≈67%）。
+
 ### C65 · 诊断脚本默认不写盘 + 收掉两个「写入即弃」字段
 
 **背景**：C64 的审计员把 `live-folds.mjs` 当只读跑，结果覆盖了两个已跟踪证据文件（已还原）。

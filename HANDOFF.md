@@ -76,6 +76,7 @@
 | **C63 修正超预算归因假阳性（1.17.1）** | `renderLedger` 新增 `attemptTokens`；`classifyBudget` 把 `reducible?` 换成 `bug`（所选 > 最省尝试才报）；C59 追加「over-budget ⇒ 所选 = 最省尝试」不变量；live 复核 bug=0（此前 8fe881d1 被误报） |
 | **C64 专员审计落地（1.17.1）** | P0：摘要模板「需要时按 seq 回读」→「（seq 可定位）」；P1：删置换告警「别重复」、图例去 retry-if 建议、`safeMeasureFoldQuality` 兜住诊断异常、职责边界改「已修清单」；P2：handoff-check 用 `budgetMax`、overbudget-report 按生产形状渲染（666 而非 641）、doctor 悬空未采集→warn、审计补 `directive-short`/`memory-restore-advice`、文档数字统一 415 |
 | **C65 诊断脚本安全默认（1.17.1）** | `live-folds` 默认只打印、`--write` 才落盘（L-8 用例）；`traceRecent` 接入 `traceDropped` 计数并在 doctor 显示；bench 415 不变 |
+| **C66 doctor 四项检查补测（2026-11-02）** | `test/doctor-cli.test.mjs`：子进程 + 临时 home 断言 fold 悬空 / 边界完整性 / 置换合并可追溯 / 分项占用四项（含「未采集必须 warn」与「自相矛盾必须 error」）；4 例全绿 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
