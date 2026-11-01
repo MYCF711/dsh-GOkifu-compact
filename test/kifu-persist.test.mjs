@@ -401,3 +401,43 @@ tests["C112 回滚后 index.md 必须跟着图重渲染（不许残留已删节�
     t.eq(index.includes(u), true, "仍存在的节点必须还在索引里");
   });
 };
+
+tests["C133 任意写序点失败：磁盘上的图必须仍可解析，且节点集只会是「旧」或「新」"] = (t) => {
+  // 泛化 C111 那三个手挑注入点：把失败打到稳态落盘的**每一个** fs 操作上，
+  // 不允许出现「既不是旧图也不是新图」的第三种状态（那意味着半写/丢数据）。
+  let checked = 0;
+  for (let failIndex = 1; failIndex <= 8; failIndex += 1) {
+    withTmp((root) => {
+      // 先正常落一版基线
+      const okStore = createPersistStore({ port: makePort().port, root });
+      const base = buildGraph();
+      okStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base);
+      const beforeIds = Object.keys(base.nodes).sort();
+
+      // 再加一个节点，然后在第 failIndex 次 fs 操作上失败
+      let ops = 0;
+      const badPort = makePort({
+        failWhen: () => {
+          ops += 1;
+          return ops === failIndex;
+        },
+      });
+      const badStore = createPersistStore({ port: badPort.port, root });
+      addUserNodeId(base, { seq: 777, turn: 77, text: `第 ${failIndex} 次注入` });
+      const afterIds = Object.keys(base.nodes).sort();
+      const bad = badStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base);
+
+      // 失败之后必须能用新 store 读回来，且节点集是两者之一
+      const reload = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+      const loadedIds = Object.keys(reload.graph.nodes).sort();
+      const asBefore = JSON.stringify(loadedIds) === JSON.stringify(beforeIds);
+      const asAfter = JSON.stringify(loadedIds) === JSON.stringify(afterIds);
+      t.eq(asBefore || asAfter, true, `failIndex=${failIndex}（ok=${bad.ok}）读回的节点集既不是旧图也不是新图：${loadedIds.join(",")}`);
+      if (!bad.ok) {
+        t.eq(peekDirty(base).empty, false, `failIndex=${failIndex} 失败后 dirty 必须保留（下次重试还要写）`);
+        checked += 1;
+      }
+    });
+  }
+  t.eq(checked >= 4, true, `至少要有 4 个注入点真的失败（否则判据空转），实际 ${checked}`);
+};
