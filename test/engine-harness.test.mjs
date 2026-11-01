@@ -1337,6 +1337,14 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
   if (mark.quality.compressionRatio !== expectedRatio) {
     throw new Error(`compressionRatio 必须 = shadowed/summary = ${expectedRatio}，实际 ${mark.quality.compressionRatio}`);
   }
+  // ★ 2026-11-01（C10）：hybrid 路径必须记录「纯模型输出」的约束召回（不含机械追加段）——
+  //   它是「如果去掉机械兜底，模型会丢多少约束」的唯一观测，必须能回答。
+  if (typeof mark.quality.modelConstraintRecall !== "number") {
+    throw new Error(`hybrid fold 必须记录 modelConstraintRecall，实际 ${JSON.stringify(mark.quality.modelConstraintRecall)}`);
+  }
+  if (!(mark.quality.modelConstraintRecall >= 0 && mark.quality.modelConstraintRecall <= 1)) {
+    throw new Error(`modelConstraintRecall 必须在 0–1，实际 ${mark.quality.modelConstraintRecall}`);
+  }
 };
 
 tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = async () => {
@@ -1359,6 +1367,11 @@ tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = asyn
   }
   if (!(mark.quality.summaryTokens > 0)) throw new Error(`规则摘要摘要 token 必须 > 0，实际 ${mark.quality.summaryTokens}`);
   if (!(mark.quality.compressionRatio > 0)) throw new Error(`规则摘要也要有 compressionRatio，实际 ${mark.quality.compressionRatio}`);
+  // ★ 2026-11-01（C10）：规则摘要没有「模型自己的输出」这一层 ⇒ modelConstraintRecall 必须 null，
+  //   不许把上一次模型 fold 的值串过来（跨 fold 串味）。
+  if (mark.quality.modelConstraintRecall !== null) {
+    throw new Error(`规则摘要的 modelConstraintRecall 必须 null，实际 ${JSON.stringify(mark.quality.modelConstraintRecall)}`);
+  }
 };
 
 tests["P2-2-3 foldMarks 只保留最近 20 条（旧版无限增长）"] = async () => {

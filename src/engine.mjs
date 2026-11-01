@@ -430,6 +430,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       //   规则摘要是机械生成的（约束逐条、失败边逐条、带 evidence seq），recall 应恒为 1。
       this._lastSummaryChars = text.length;
       this._lastSummaryText = text;
+      // 规则摘要是机械生成的，没有「模型自己的输出」这一层 ⇒ 显式清空，别让上一次的值串味。
+      this._lastSummaryModelText = undefined;
       return {
         summary: [{ type: "text", text }],
         rawOutput: undefined,
@@ -543,6 +545,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (!summary.some((block) => String(block.text ?? "").trim().length > 0)) {
       throw new Error("chess-context: summarization produced no text summary content");
     }
+    // 2026-11-01（C10）：把**模型自己的输出**单独留一份 —— 机械追加段（约束 / 最近访问的文件）之后，
+    // 最终产物里约束必然齐，但那不是模型的功劳。modelConstraintRecall 回答的是
+    // 「如果去掉机械兜底，模型会丢多少约束」—— 它是决定「机械兜底值不值得维护」的唯一观测。
+    // 必须在下面 push 机械段**之前**取，否则它就不是「模型自己的输出」了。
+    const modelText = summary.map((block) => String(block.text ?? "")).join(String.fromCharCode(10));
     // ★ 机械追加约束段：实测模型在 15 条失败边的压力下会把 3 条约束全丢（多规模测试 B 场景 0/3）。
     //   约束丢失 = 任务漂移，比失败边丢失更致命。所以约束不经过模型 —— 规则抽什么，产物里就有什么。
     const constraintsBlock = extractConstraintsBlock(renderFacts(g));
@@ -566,6 +573,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   但**不阻断**（拒绝会丢信息，比长度超标更糟；05 §7.1 的"整条拒绝"在这里不适用）。
     this._lastSummaryChars = summary.reduce((n, b) => n + String(b.text ?? "").length, 0);
     this._lastSummaryText = summary.map((b) => String(b.text ?? "")).join("\n");
+    this._lastSummaryModelText = modelText;
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
@@ -740,8 +748,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const summaryMode = this._lastSummaryMode ?? null;
     const summaryChars = this._lastSummaryChars ?? null;
     const summaryText = this._lastSummaryText ?? "";
+    const modelText = this._lastSummaryModelText ?? "";
     this._lastSummaryChars = undefined;
     this._lastSummaryText = undefined;
+    this._lastSummaryModelText = undefined;
     // ★ 2026-11-01：保真度 L1（零模型调用）—— 前两项必须 = 1。
     //   接在这里是为了让它有**真实语料消费者**：只算不接的指标会一直算着假数（第 2 轮的教训）。
     const foldQuality = measureFoldQuality({
@@ -751,6 +761,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ 2026-11-01（C7）：不传 summaryTokens —— 让 fold-quality 用与账本/bench 同一套 CJK 感知口径
       //   （CJK 1 token/字 + 其余 1/4）现算。旧写法 `Math.ceil(summaryChars/2)` 对 ASCII 重的摘要会
       //   系统性高估 token ⇒ compressionRatio（遮蔽÷摘要）被系统性低估，指标失真。
+      modelText,
       shadowedTokens: range?.shadowedTokens ?? null,
     });
     const summaryUsage = this._lastSummaryUsage ?? null;

@@ -124,6 +124,21 @@ engine-harness P2-2-1 增「compressionRatio 必须严格等于 shadowed/summary
 
 live 复跑：FAIL 0 / WARN 6（2 张无 user 节点孤儿图 + 3 个旧折叠缺 quality + 1 次 over-budget，均可解释）。
 
+### C10 · 记录「模型自己的约束召回」（去掉机械兜底后还剩多少）
+
+`constraintRecall` 量的是**最终产物**，而约束是引擎在模型输出之后**机械追加**的 —— 所以它恒为 1，
+回答不了「模型自己保住了多少」。`modelConstraintRecall`（只对模型输出那部分算）此前在生产路径上恒为 null，
+因为这个字段只有单测传了 `modelText`。
+
+- engine.summarize：在 push 机械段（约束 / 最近访问文件）**之前**留一份纯模型文本 `modelText`，
+  随其他 `_lastSummary*` 一起交给 `#commit` → `measureFoldQuality({ modelText })`；
+- 规则摘要路径**显式清空** `_lastSummaryModelText`（没有模型输出，不许把上一次 fold 的值串过来）；
+- 现在 `foldMarks[i].quality.modelConstraintRecall` 是真实数字，doctor 的「压缩保真度」已经会显示
+  `模型自身约束召回 x`（C6 就留好了位置，只是此前永远是 null）。
+
+测试：engine-harness P2-2-1 增「hybrid fold 必须有 0–1 的 modelConstraintRecall」；
+P2-2-2 增「规则摘要的 modelConstraintRecall 必须 null（不许串味）」。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**654 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
