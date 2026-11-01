@@ -19,6 +19,8 @@
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
  *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
+ *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本（warn）
+ *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
  *
  * 用法：
  *   node scripts/handoff-check.mjs                 # 人读
@@ -127,6 +129,45 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
       "⑨预算",
       ledger.fallback === "impossible" ? "fail" : ledger.fallback === "over-budget" ? "warn" : "ok",
       `${ledger.fallback} tokens=${ledger.tokens}/${ledger.maxTokens ?? maxTokens} level=L${ledger.level}`,
+    ),
+  );
+
+  // ⑩ 保真度（fold-quality L1，2026-11-01）：最近一次有质量样本的 fold 有没有把约束/失败边留住。
+  //   判据：《重注入契约》§6 第 6b 行 —— constraintRecall 必须 = 1（丢一条约束 = 任务变了 ⇒ fail）；
+  //   failureRecall < 1 ⇒ warn（丢一条失败边 = 下一个模型必然重踩）；expected 全 0 ⇒ 真空样本（warn）。
+  const allMarks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
+  const qualityMarks = allMarks.filter((m) => m?.quality);
+  const latestQuality = qualityMarks.at(-1)?.quality ?? null;
+  if (allMarks.length === 0) {
+    // 没 fold 过就没有「压缩产物」可评 —— 这不是缺陷，不该拉高告警数（否则门禁满屏噪声）。
+    out.push(check("⑩保真度", "ok", "本会话没有 fold 记录（无需保真度样本）"));
+  } else if (latestQuality === null) {
+    out.push(check("⑩保真度", "warn", `${allMarks.length} 次 fold 都没有 quality（旧版本折叠；升级后会自然出现）`));
+  } else {
+    const c = Number(latestQuality.constraintRecall ?? 1);
+    const f = Number(latestQuality.failureRecall ?? 1);
+    const vacuum = !(Number(latestQuality.expectedConstraints) > 0) && !(Number(latestQuality.expectedFailures) > 0);
+    out.push(
+      check(
+        "⑩保真度",
+        c < 1 ? "fail" : f < 1 ? "warn" : vacuum ? "warn" : "ok",
+        `constraintRecall=${c} failureRecall=${f}` +
+          `（期望 约束 ${latestQuality.expectedConstraints ?? "?"} / 失败边 ${latestQuality.expectedFailures ?? "?"}）` +
+          (vacuum ? " · 真空样本（本次没有可丢内容）" : "") +
+          (c < 1 ? ` · 丢失约束：${JSON.stringify(latestQuality.missingConstraints ?? [])}` : "") +
+          (f < 1 ? ` · 丢失失败边：${JSON.stringify((latestQuality.missingFailures ?? []).slice(0, 5))}` : ""),
+      ),
+    );
+  }
+
+  // ⑪ 幻觉探针（fold-quality 的 findUnknownIds）：摘要里提到的 eN/nN 必须在图里找得到。
+  //   非空 = 模型编造了节点/边编号（`docs/research/01…` 的「8 类语义错误」里的 hallucinated 类）。
+  const unknown = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
+  out.push(
+    check(
+      "⑪幻觉探针",
+      unknown.length === 0 ? "ok" : "warn",
+      unknown.length === 0 ? (qualityMarks.length === 0 ? "没有质量样本（未采集）" : "") : `摘要提到但图里没有：${unknown.join(", ")}`,
     ),
   );
 

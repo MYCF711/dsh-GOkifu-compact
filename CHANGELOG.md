@@ -109,9 +109,24 @@ engine-harness P2-2-1 增「compressionRatio 必须严格等于 shadowed/summary
 是引擎机械追加保证的（有效），`failureRecall` 受桩 prompt 影响、**不代表生产**；它证明的是
 `engine → keeper → fold-quality → foldMarks` 这一段真的在跑。证据：`evidence/fold触发验证.{json,md}`。
 
+### C9 · 把保真度/幻觉探针接进「交接门禁」
+
+`handoff-check` 原来只查重注入契约 ①–⑨；`fold-quality` 落地后 `foldMarks[i].quality` 已是图的一部分，
+门禁必须一起看 —— 否则「交接合格」可能掩盖「约束/失败边丢了、或者摘要编造了 id」。
+
+- 新增 **⑩保真度**：最近一次有质量样本的 fold —— `constraintRecall < 1` ⇒ **fail**（丢约束=任务变了，并点名）；
+  `failureRecall < 1` ⇒ warn（并点名丢失的失败边）；`expectedConstraints/expectedFailures` 全 0 ⇒ warn「真空样本」。
+- 新增 **⑪幻觉探针**：`findUnknownIds` 的 `unknownIds` 非空 ⇒ warn 并点名「摘要提到但图里没有的 eN/nN」。
+- 噪声控制：**没有 fold 记录**的会话 ⑩/⑪ 直接 ok（不给没压缩过的会话加告警）；有 fold 但缺 quality ⇒
+  warn「旧版本折叠，升级后会自然出现」。
+- 测试：`test/handoff-check.test.mjs` 7 用例（健康样本 / 丢约束 fail / 丢失败边 warn / 真空 warn /
+  未知 id warn / 无 fold 不告警 / 旧折叠缺 quality warn）。
+
+live 复跑：FAIL 0 / WARN 6（2 张无 user 节点孤儿图 + 3 个旧折叠缺 quality + 1 次 over-budget，均可解释）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**645 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**654 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、
