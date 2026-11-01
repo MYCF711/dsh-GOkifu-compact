@@ -25,6 +25,7 @@ import { inspectProfileInstall } from "./link-path.mjs";
 //   选 `./install.mjs` 而不是 `../src/ui.mjs`：doctor 是 CLI 侧脚本，install.mjs 就在同目录、
 //   模块级零副作用；ui.mjs 是**宿主半**（webServer 路由 + DEFAULTS），CLI 不该为一段发现逻辑拉它进来。
 import { presetsWithCompaction } from "./install.mjs";
+import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -102,6 +103,27 @@ add(
       ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）"
       : `preset（${preset.file}）里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
 );
+/* ── 1.5 用户层 patch 不能遮蔽压缩引擎（2026-11-02 实机事故） ──
+   用户层 `profiles/<p>/cordis.patch.yml` 是**最后**应用的一层：GUI 的预设快照会把它整份复制出来，
+   里面一旦写着 `@deepseek-ai/dsh-compaction-basic`，插件 bundle 层「换成 engine」的覆盖就被盖回去。
+   现象：插件 UI 正常、工具齐全，但会话里跑的是官方压缩，keeper 不落盘（chess-context 不再写入）。
+   这是静默失效，上面的「压缩后端已接管」只看包内 patch，发现不了它。 */
+{
+  let shadowed = [];
+  try {
+    if (nodeFs.existsSync(profilePatch)) shadowed = findShadowedUserPresets(nodeFs.readFileSync(profilePatch, "utf8"));
+  } catch {
+    /* 读不出就按未采集处理（下面 detail 会说清） */
+  }
+  add(
+    "用户层 patch 不遮蔽压缩引擎",
+    shadowed.length > 0 ? "error" : "ok",
+    shadowed.length > 0
+      ? `${shadowed.join(", ")} 在 ${profilePatch} 里又写回了 @deepseek-ai/dsh-compaction-basic —— 用户层最后应用，会把 bundle 的引擎覆盖盖回去（会话里跑官方压缩、keeper 不落盘）。修：DSH 完全退出后运行 home/.gokifu-fix-2026-11-02/apply-fix.cmd，或改用设置 UI 的模式编辑`
+      : "用户层 patch 没有把 preset 写回 compaction-basic",
+  );
+}
+
 add(
   "原生 compaction-basic 已让位（单实例）",
   preset === null ? "warn" : hasNative ? "error" : "ok",

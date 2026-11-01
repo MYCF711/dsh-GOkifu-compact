@@ -38,6 +38,7 @@ import { inspectProfileInstall, samePath } from "../scripts/link-path.mjs";
 //   的 F1/F2 夹具（makeInstalledCopy）本来就会复制 scripts/install.mjs 进「已装包」副本，
 //   所以经 junction 执行本文件时这条相对 import 也能解析 —— 不需要第三份内联实现。
 import { presetsWithCompaction } from "../scripts/install.mjs";
+import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 
 export const PKG = "dsh-gokifu-compact";
 export const DEFAULT_DSH_HOME = "D:\\DeepSeek Harness\\home";
@@ -388,6 +389,26 @@ export function verifyInstall(options = {}) {
     for (const name of ["preset 引用了 dsh-gokifu-compact/engine", "preset 里没有 compaction-basic（单实例）", "preset 保留 command-compact", "preset 保留 tool-result-pruner"]) {
       addPreset(name, false, why);
     }
+  }
+
+  /* ⑦ 用户层 patch 不能遮蔽压缩引擎（2026-11-02 实机事故）
+     用户层 `cordis.patch.yml` 最后应用：里面的 preset 快照一旦写着 compaction-basic，
+     就会把 bundle 层的「换成 engine」覆盖盖回去 —— 插件 UI 正常、工具齐全，但会话跑的是官方压缩。 */
+  {
+    const userPatch = nodePath.join(PROFILE_DIR, "cordis.patch.yml");
+    let shadowed = [];
+    try {
+      if (nodeFs.existsSync(userPatch)) shadowed = findShadowedUserPresets(nodeFs.readFileSync(userPatch, "utf8"));
+    } catch {
+      /* 读不出按未采集处理（detail 会说清） */
+    }
+    add(
+      "用户层 patch 不遮蔽压缩引擎",
+      shadowed.length === 0,
+      shadowed.length > 0
+        ? `${shadowed.join(", ")} 又写回了 @deepseek-ai/dsh-compaction-basic（用户层最后应用 ⇒ 引擎被盖回）—— DSH 完全退出后跑 home/.gokifu-fix-2026-11-02/apply-fix.cmd`
+        : "用户层没有把 preset 写回 compaction-basic",
+    );
   }
 
   /* ⑥ 运行期证据 */

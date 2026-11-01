@@ -345,9 +345,33 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 版本 **1.17.0 未发布**：tag / npm publish 两步待主人授权（按铁律不由我触发）；
 - 已知缺口诚实列出：live 真值样本、`#9/#11/#17` 未做、`#12` 仅最小版。
 
+### C26 · 实机事故：用户层 patch 遮蔽压缩引擎 —— 加检测 + 修复脚本
+
+**现象**：重启 1.17.0 后，插件 UI 正常（`/gokifu/api` 报 version 1.17.0、mounted）、工具齐全、
+`doctor`/`verify-install` 全绿 —— 但 `chess-context/` 不再落盘，会话里跑的是官方压缩。
+
+**根因**：`profiles/desktop/cordis.patch.yml`（**用户层 patch，最后应用**）里有一份 `preset-standard`
+快照，写着 `@deepseek-ai/dsh-compaction-basic`。用户层在 bundle 层之后应用 ⇒ 把插件
+cordis.patch.yml 里「换成 `dsh-gokifu-compact/engine`」的覆盖又盖回去了。
+（这份快照由 GUI 的预设编辑/快照机制生成；`cordis.patch.yml.pre-v33.bak` 等备份即其痕迹。）
+
+**修法（两条）**：
+
+1. **检测**（不能再静默绿）：`preset-format.mjs` 新增 `findShadowedUserPresets(patchText)`；
+   `doctor` 新增「用户层 patch 不遮蔽压缩引擎」（error）；`verify-install` 新增同项检查。
+   live 上立刻从「全绿」变为准确报错 1 项。
+2. **修复**（按本机铁律：不在会话里直接写 profile patch）：生成
+   `home/.gokifu-fix-2026-11-02/{cordis.patch.yml.fixed, apply-fix.cmd, rollback.cmd, README.txt}`
+   —— 只改 2 行（preset-standard 的 compaction 成员 → engine），脚本要求 DSH 完全退出后运行，
+   自动备份 → 原子替换 → 校验 → 失败自动回滚；幂等（已修好会直接提示无需操作）。
+
+测试：新增 `test/user-patch-shadow.test.mjs` 5 用例（顶层 preset 才认 / 引擎干净不误报 /
+多 preset 只报坏的 / 缩进 id 不制造假 preset / CRLF）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**676 passed / 0 skipped / 0 failed**
+- 全量 `node test/run.mjs`（串行）：**681 passed / 0 skipped / 0 failed**
+- `doctor`（live）：**1 错误 / 4 警告** —— 该错误即本条事故的真实状态，修复脚本跑完并重启后应变绿
 - 六道门禁与 live 数据见 `evidence/最终验收-2026-11-02.md`
 - `docs-index-check`：27 个文件 / **0 个未索引**
 - `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**

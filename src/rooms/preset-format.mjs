@@ -57,6 +57,40 @@ export function replaceCompactionBlock(text, blockLines) {
 }
 
 /** 我们的引擎块（不含缩进，缩进由 replaceCompactionBlock 加）。 */
+/**
+ * 检测「用户层 patch 是否把压缩引擎又盖回官方实现」。
+ *
+ * 为什么（2026-11-02 实机事故）：profile 的 `cordis.patch.yml`（用户层）是**最后**应用的一层。
+ * GUI 的预设编辑器/快照会把它整份复制出来（含 `- id: preset-*` 与内层的 compaction 成员）；
+ * 一旦里面写的是 `@deepseek-ai/dsh-compaction-basic`，插件 bundle 层里"换成 engine"的覆盖就被遮蔽 ——
+ * 表现是：插件 UI 正常、工具齐全、doctor 的「压缩后端已接管」还是 ✓，但会话里跑的其实是官方压缩，
+ * keeper 根本没跑（`chess-context/` 不再落盘）。这是静默失效，必须单独检查。
+ *
+ * @param {string} patchText 用户层 patch 文本
+ * @returns {string[]} 被遮蔽的 preset id 列表（空数组 = 没被遮蔽）
+ */
+export function findShadowedUserPresets(patchText) {
+  const LF = String.fromCharCode(10);
+  const CR = String.fromCharCode(13);
+  const lines = String(patchText ?? "")
+    .split(LF)
+    .map((line) => (line.endsWith(CR) ? line.slice(0, -1) : line));
+  const found = [];
+  let current = null;
+  for (const line of lines) {
+    // 只看**顶层** `- id: preset-*`（行首无缩进），缩进的是内层成员
+    const preset = /^-\s*id:\s*(preset-[A-Za-z0-9._-]+)\s*$/.exec(line);
+    if (preset) {
+      current = { id: preset[1], bad: false };
+      found.push(current);
+      continue;
+    }
+    if (current === null) continue;
+    if (/dsh-compaction-basic/.test(line) || /^-\s*id:\s*compaction-basic\s*$/.test(line)) current.bad = true;
+  }
+  return found.filter((item) => item.bad).map((item) => item.id);
+}
+
 export function engineBlock() {
   return [
     `# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。`,
