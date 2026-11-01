@@ -15,6 +15,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { RULES } from "../scripts/boundary-audit.mjs";
+import { SCHEMA } from "../src/rooms/config-schema.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -53,4 +54,40 @@ tests["C100-2 文档里 bench 的「N tokens」必须等于 bench-repro 的 EXPE
     }
   }
   t.eq(seen > 0, true, "至少要有一处文档写 bench 的 tokens 数");
+};
+
+tests["C101-1 文档「fold 间隔 < N 事件」必须等于 engine 的 THRASH_SEQ"] = (t) => {
+  const engine = read("src/engine.mjs");
+  const m = engine.match(/const THRASH_SEQ = (\d+);/);
+  t.eq(m !== null, true, "engine.mjs 必须有 THRASH_SEQ 常量");
+  const expected = Number(m[1]);
+  let seen = 0;
+  for (const rel of [...CHECKED_DOCS, "docs/压缩质量-现有观测盘点与缺口.md"]) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    for (const hit of read(rel).matchAll(/间隔\s*<?\s*(\d+)\s*事件/g)) {
+      seen += 1;
+      t.eq(Number(hit[1]), expected, `${rel} 里的「间隔 ${hit[1]} 事件」与 THRASH_SEQ=${expected} 不一致`);
+    }
+  }
+  t.eq(seen > 0, true, "至少要有一处文档写 thrash 窗口（否则判据形同虚设）");
+};
+
+tests["C101-2 文档里的 hotLedgerMaxTokens 默认值必须等于配置 schema"] = (t) => {
+  const entry = SCHEMA.find((row) => row.key === "hotLedgerMaxTokens");
+  t.eq(!!entry, true, "config-schema 必须有 hotLedgerMaxTokens");
+  const expected = Number(entry.default);
+  t.eq(Number.isFinite(expected), true, "默认值必须是数字");
+  let seen = 0;
+  for (const rel of ["README.md", "QUICKSTART.md"]) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    const text = read(rel);
+    const docLines = text.split(String.fromCharCode(10)).filter((line) => line.includes("hotLedgerMaxTokens"));
+    for (const line of docLines) {
+      const hit = line.match(/(\d{2,5})/);
+      if (hit === null) continue;
+      seen += 1;
+      t.eq(Number(hit[1]), expected, `${rel} 里的 hotLedgerMaxTokens=${hit[1]} 与 schema 默认 ${expected} 不一致`);
+    }
+  }
+  t.eq(seen > 0, true, "用户文档至少要提一次 hotLedgerMaxTokens 的数值");
 };
