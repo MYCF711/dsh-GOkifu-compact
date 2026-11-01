@@ -106,6 +106,7 @@
 | **C93 索引端点指纹（2026-11-02）** | `endpointNumber`：非 `n<数字>` 的 id 不再退化成 0（`node42`⇒42，无数字⇒字符串指纹）；2 例（稳定性/区分度 + 端点变化后必须重建）；记下「快路径靠 cheapKey，改结构必须 bump 版本」的设计约定 |
 | **C94 第三方 preset 压缩边界（2026-11-02）** | 发现 `dsh-design-studio:preset-design` 自带 compaction-basic（设计模式不走棋谱压缩）；doctor 新增「第三方 preset 的压缩后端」检查（warn 点名，不强行覆盖）；坑：preset 行缩进，`^- id:` 漏扫 ⇒ 改 `^\s*- id:` |
 | **C95 preset 覆盖唯一性（2026-11-02）** | doctor 新增检查：同一 preset 被 ≥2 个 bundle 覆盖 ⇒ warn 点名（后写者整体接管、压缩后端可能被静默顶掉）；live 实测 5 个 preset 各单 owner、扫 12 个 patch；测试 C95 |
+| **C96 insert id 唯一性（2026-11-02）** | doctor 新增检查：insert 行按 id 建索引，撞到本插件 `gokifu-ui` ⇒ **error**（设置页/API 会消失），别人之间撞 ⇒ warn；live 实测 16 个 id 各单 owner、扫 12 个 patch；测试三态 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

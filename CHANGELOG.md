@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C96 · insert id 唯一性（撞到 `gokifu-ui` ⇒ 设置页消失，判 error）
+
+**问题**：bundle patch 的 `insert` 行靠 **id** 建索引 —— 两个插件插同一个 id 时，后写的会**替换**先写的，
+被替掉的那个等于**静默禁用**。若撞的正是本插件的 `gokifu-ui`，设置页与 `/gokifu/api` 会**消失**
+（压缩照跑，用户却找不到页面）。C95 查的是 preset 覆盖，这里查的是 insert 行 —— 同一类静默覆盖。
+
+**做法**：doctor 新增 **「insert id 唯一性（C96）」**：
+
+- 扫每个 bundle patch 的 `insert` 子行（宿主语法固定 4 空格缩进 `    - id: X`）；
+- 冲突且**涉及本插件的 `gokifu-ui`** ⇒ **error**（后果写清：设置页 / `/gokifu/api` 可能消失）；
+- 别人之间冲突 ⇒ **warn**（后写替换先写，被替掉的插件静默禁用）；
+- 无冲突 ⇒ ok，报「N 个 insert id 各只有一个 owner（扫了 M 个 patch）」。
+
+**live 实测**：`✓ insert id 唯一性（C96） — 16 个 insert id 各只有一个 owner（扫了 12 个 bundle patch）`
+⇒ 当前没有冲突；这条检查负责将来「装了新插件之后我们的页面突然没了」这种无头案。
+
+测试：`doctor-cli` C96 三态（撞本插件 ⇒ error 且点名后果 / 撞别人的 ⇒ warn / 单 owner ⇒ ok）。
+
 ### C95 · preset 覆盖唯一性（别人的 patch 可能把我们的引擎静默顶掉）
 
 **问题**：C94 发现第三方 preset 自带 `compaction-basic`。更危险的一种情况是**两个 bundle 覆盖同一个

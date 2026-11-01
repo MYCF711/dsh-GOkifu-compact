@@ -270,3 +270,47 @@ tests["C95 preset 覆盖唯一性：两个 bundle 覆盖同一 preset ⇒ warn �
     nodeFs.rmSync(single, { recursive: true, force: true });
   }
 };
+
+tests["C96 insert id 唯一性：撞到本插件 gokifu-ui ⇒ error；撞别的 id ⇒ warn；单 owner ⇒ ok"] = (t) => {
+  const NL = String.fromCharCode(10);
+  const mk = (ids) => ["- insert:", ...ids.flatMap((id) => [`    - id: ${id}`, `      name: ${id}/x`])].join(NL);
+
+  const ours = makeHome({
+    foreignPatches: [
+      { bundle: "dsh-a", text: mk(["gokifu-ui"]) },
+      { bundle: "dsh-b", text: mk(["gokifu-ui"]) },
+    ],
+  });
+  try {
+    const row = runDoctor(ours).find("insert id 唯一性");
+    t.eq(!!row, true, "必须有该检查项");
+    t.eq(row.status, "error", `撞到本插件 UI 行必须 error：${JSON.stringify(row)}`);
+    t.includes(row.detail, "gokifu-ui", "要点名被撞的 id");
+    t.includes(row.detail, "/gokifu/api", "要说明后果（设置页/API 消失）");
+  } finally {
+    nodeFs.rmSync(ours, { recursive: true, force: true });
+  }
+
+  const foreign = makeHome({
+    foreignPatches: [
+      { bundle: "dsh-a", text: mk(["dsh-other-row"]) },
+      { bundle: "dsh-b", text: mk(["dsh-other-row"]) },
+    ],
+  });
+  try {
+    const row = runDoctor(foreign).find("insert id 唯一性");
+    t.eq(row.status, "warn", `别人的 id 冲突是 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "dsh-other-row", "要点名冲突的 id");
+  } finally {
+    nodeFs.rmSync(foreign, { recursive: true, force: true });
+  }
+
+  const single = makeHome({ foreignPatches: [{ bundle: "dsh-only", text: mk(["dsh-only-row"]) }] });
+  try {
+    const row = runDoctor(single).find("insert id 唯一性");
+    t.eq(row.status, "ok", "单 owner 应 ok");
+    t.includes(row.detail, "各只有一个 owner", "文案说明唯一");
+  } finally {
+    nodeFs.rmSync(single, { recursive: true, force: true });
+  }
+};

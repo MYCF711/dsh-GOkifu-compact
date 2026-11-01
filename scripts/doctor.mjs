@@ -430,6 +430,55 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   }
 }
 
+/* ── 3.4b insert id 唯一性（C96）──
+   bundle patch 的 `insert` 行靠 id 建索引：两个插件插同一个 id，后写的会**替换**先写的 ——
+   被替掉的那个插件等于静默禁用。若撞的是我们的 `gokifu-ui`，设置页/`/gokifu/api` 会消失。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const owners = new Map();
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        // insert 块的子行固定 4 空格缩进（宿主 patch 语法），这里只认这一层
+        for (const m of text.matchAll(/^    - id:\s*([a-z0-9-]+)\s*$/gm)) {
+          const id = m[1];
+          if (!owners.has(id)) owners.set(id, []);
+          if (!owners.get(id).includes(name)) owners.get(id).push(name);
+        }
+      }
+    } catch {
+      /* 读不出清单不影响其它检查 */
+    }
+  }
+  const conflicts = [...owners.entries()].filter(([, list]) => list.length > 1);
+  const ours = conflicts.filter(([id]) => id === "gokifu-ui");
+  if (scanned === 0) {
+    add("insert id 唯一性（C96）", "ok", "未采集（profile 里没有 bundle patch）");
+  } else if (ours.length > 0) {
+    add(
+      "insert id 唯一性（C96）",
+      "error",
+      `**本插件的 gokifu-ui 行被别的 bundle 撞了**：${ours.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 设置页/\`/gokifu/api\` 可能消失`,
+    );
+  } else if (conflicts.length > 0) {
+    add(
+      "insert id 唯一性（C96）",
+      "warn",
+      `${conflicts.length} 个 insert id 被多个 bundle 使用：${conflicts.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 后写者会替换先写者（被替掉的插件等于静默禁用）`,
+    );
+  } else {
+    add("insert id 唯一性（C96）", "ok", `${owners.size} 个 insert id 各只有一个 owner（扫了 ${scanned} 个 bundle patch）`);
+  }
+}
+
 /* ── 3.45 preset 覆盖唯一性（C95）──
    多个 bundle 若覆盖**同一个 preset id**，后写的那份会整体接管 config ——
    若别人的覆盖里又带回调 compression-basic，我们的引擎就被**静默顶掉**了。
