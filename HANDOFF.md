@@ -86,6 +86,7 @@
 | **C73 负结论（2026-11-02）** | 试图用 provider `outputTokens` 校准本地 `estimateTokens`：实测比值中位 0.537 但**分母含 reasoning/格式开销**，与摘要正文不同量 ⇒ 指标不落地（脚本已回滚）；正解仍需宿主 tokenizer；判据「分母必须与分子同量」入库 |
 | **C74 合同 §6 现状列刷新（2026-11-02）** | 14 行全部按 20:56Z 实测刷新（2293 渲染/583 超、15 次 fold、dangling 11、sections failures 68%、trigger pressure 11/15、closure preGraph 1 true/7 false、boundary 8 次 openAtEnd 0、buildId 缺失=等重启）；表头标明「这是快照，判读看命令」 |
 | **C75 模糊测试加固（2026-11-02）** | `ledger-properties` 种子 10→40（50→200 次渲染）+ 断言「必须命中 over-budget / 省略分支」；`fold-properties` 闭包种子 7→20 + 断言「必须覆盖到节点」；防止属性测试退化成恒真 |
+| **C76 live 证据补采（2026-11-02）** | 新增第 7 个会话 `634616f8`（第 16 次 fold：pressure、c=1/f=1、closure+boundary 齐全、openAtEnd=0）；live-folds / 逐会话页 / evidence README / research §11.1 四处口径同步（16 次 / 7 会话 / 8 次 boundary 全 0 / 成本 47–76%） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

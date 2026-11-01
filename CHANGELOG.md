@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C76 · live 证据补采：新增第 7 个会话（16 次 fold）并刷新三处口径
+
+**本轮采集**：自上次快照后新增 **1 次 fold** —— `634616f8`（seq 9–208，`pressure`，
+quality c=1/f=1，closure + boundary 齐全，`openAtEnd=0`）。
+
+**刷新**：
+
+- `evidence/live-folds.{json,md}`：15 → **16 次 fold**（7 个有 fold 的会话；coverage 16/16 usage、12/16 trigger/quality/closure）；
+- `evidence/fold质量-多会话-2026-11-02.md`：逐会话表补第 7 行，总数与结论同步；
+  并把「召回最小值」列改成更准确的 `c=1 / f=1` 与「旧 fold 无字段 ≠ 召回 <1」的说明；
+- `evidence/README.md`、`docs/research/00` §11.1：数字同步（16 次 / 7 会话 / boundary 8 次 openAtEnd 0 / 成本 47–76%）。
+
+**读出来的信号**：新增的这一次同样是 c=1/f=1、切在 step 边界、闭包可寻址 —— 与既有 15 次一致，
+没有出现任何新的失败形态；`foldThrash` 仍为 0。
+
 ### C75 · 模糊测试加固：覆盖 4 倍 + 「不许退化成恒真」的覆盖性断言
 
 **问题**：C59/C60 的模糊测试虽然全绿，但有一个隐性风险 —— **生成器一旦变小/变简单，
