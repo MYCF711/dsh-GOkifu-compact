@@ -155,3 +155,16 @@ tests["C121 文档里对 `docs/research/NN-*.md` 的引用必须存在（调研�
   t.eq(seen >= 5, true, `至少要扫到 5 处对调研文的引用，实际 ${seen}`);
   t.eq(missing.length, 0, `引用了不存在的调研文：${missing.join(" / ")}`);
 };
+
+tests["C122 可引用数字表的 bench 行必须等于当前基线（它是「引用前先看这里」的那张表）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "bench-repro.mjs"), "utf8");
+  const expected = Number((src.match(/const EXPECTED_TOKENS = (\d+);/) ?? [])[1]);
+  t.eq(Number.isFinite(expected), true, "bench-repro 必须有 EXPECTED_TOKENS");
+  const doc = read("docs/research/06-可引用数字表.md");
+  const rows = doc.split(String.fromCharCode(10)).filter((line) => line.includes("bench-repro"));
+  t.eq(rows.length >= 1, true, "06 表里必须有一行以 bench-repro 为来源的热清单数字");
+  const hit = rows.find((line) => /\*\*(\d+) tokens\*\*/.test(line));
+  t.eq(!!hit, true, `bench 行必须写「**N tokens**」：${rows.join(" | ")}`);
+  const number = Number(hit.match(/\*\*(\d+) tokens\*\*/)[1]);
+  t.eq(number, expected, `可引用数字表写的是 ${number}，当前基线是 ${expected}（这张表就是给人抄的，抄错代价最大）`);
+};
