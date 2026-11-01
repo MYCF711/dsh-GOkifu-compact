@@ -142,7 +142,7 @@ export const tests = {
     const live = addEdge(g, { from: a, intent: "正在执行第 3 步", action: "bash(sleep 1)" });
     g.edges[live].ts = NOW - 1000;
     const r = renderLedger(g, { maxTokens: 500, now: NOW });
-    t.ok(r.text.includes("OPTIONS (not yet landed — you may continue or abandon):"), `必须有 OPTIONS 段：\n${r.text}`);
+    t.ok(r.text.includes("OPTIONS (not yet landed):"), `必须有 OPTIONS 段：\n${r.text}`);
     t.ok(r.text.includes(live), `live_unsettled 边 ${live} 必须保留：\n${r.text}`);
     t.ok(r.text.includes("正在执行第 3 步"), "live 边的意图必须可见（防误清）");
     // ★ P6C-1：未落地的边不再混进 UNVERIFIED（那是「跑了但没验证信号」）
@@ -158,7 +158,7 @@ export const tests = {
     t.eq(s.candidates, 1, `candidates 必须计 1，实际 ${JSON.stringify(s)}`);
     t.eq(s.residue, 0, "陈旧 untested 不许计入 residue");
     const r = renderLedger(g, { maxTokens: 500, now: NOW });
-    t.ok(r.text.includes("OPTIONS (not yet landed — you may continue or abandon):"), `必须有 OPTIONS 段：\n${r.text}`);
+    t.ok(r.text.includes("OPTIONS (not yet landed):"), `必须有 OPTIONS 段：\n${r.text}`);
     t.ok(r.text.includes(stale), `陈旧选项 ${stale} 必须出现：\n${r.text}`);
     t.includes(r.text, "[stale 42m]", "陈旧选项必须标出年龄");
     t.eq(r.text.includes("UNVERIFIED (ran, but no external signal"), false, "陈旧选项不许混进 UNVERIFIED");
@@ -187,7 +187,7 @@ export const tests = {
     const unv = addEdge(g, { from: a, intent: "没信号", action: "bash(z)" });
     settleEdge(g, unv, { to: a, result: "unverified", verify: { kind: "no-exit", summary: "x" } });
     const facts = renderFacts(g, { now: NOW });
-    t.includes(facts, "OPTIONS (not yet landed — you may continue or abandon):", "硬事实必须有 OPTIONS 段");
+    t.includes(facts, "OPTIONS (not yet landed):", "硬事实必须有 OPTIONS 段");
     t.includes(facts, live, "新鲜选项必须在 OPTIONS 里");
     t.includes(facts, stale, "陈旧选项必须在 OPTIONS 里");
     t.includes(facts, "[stale 180m]", "陈旧选项必须标年龄");

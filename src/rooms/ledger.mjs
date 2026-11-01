@@ -40,7 +40,9 @@ import { weakKindOf } from "./verify.mjs";
  * ★ P6C-1（2026-10-30）：**超过 10 分钟的 untested 不再是 residue，而是 candidate。**
  *   旧判据把它当「死边」整条丢掉 —— 但模型崩溃/中断留下的未结算边恰恰是「下一步还能接着做」
  *   的信息，丢掉等于把线索一起丢了。现在它进热清单的 OPTIONS 区段（标 `[stale Xm]`），
- *   明确写成「not yet landed — you may continue or abandon」，不混进 UNVERIFIED（那是「跑了但没验证」）。
+ *   明确写成「not yet landed」，不混进 UNVERIFIED（那是「跑了但没验证」）。
+ *   ★ 边界（2026-11-01）：旧文案还带「you may continue or abandon」—— 那是**行动许可**（指导模型
+ *   怎么做），属于 AGENTS/persona；压缩只陈述「有哪些未落地的选项」（见 docs/压缩的职责边界.md）。
  *
  * 为什么 residue 只留「已结算」：结算过（success/failure/unverified）的边必须有终点，
  * 无终点只可能是 1.9.1 rewash 留下的历史残留（数据事实 5,564/5,567）。
@@ -204,6 +206,27 @@ function clip(text, n) {
 }
 
 /**
+ * 中段省略截断：保留首部 + 尾部，丢掉中段。
+ *
+ * 为什么（2026-11-01，来自 docs/research/03-human-memory.md 建议 C）：
+ *   失败原因是模型「避免重犯」的唯一判据，而关键 token 常常**不在开头**：
+ *     `ERROR: EACCES: permission denied, open '/x/y/z.txt'` —— 开头是错误类，末尾才是**路径**；
+ *     `bash(command=cd /a && node test.mjs 2>&1 | tail -3)` —— 开头是命令名，末尾才是**目标**。
+ *   旧版 `clip` 是纯首部截断，预算紧的档位（reasonLen=25）会把路径整段切掉，
+ *   模型看到「EACCES: permissio…」却不知道是哪个文件 —— 这条失败边就失去了判别价值。
+ *   首尾各留一部分：代价是中间少几个字，收益是「错在哪 + 对什么操作」都还在。
+ */
+function clipMiddle(text, n) {
+  const t = norm(text);
+  if (t.length <= n) return t;
+  if (n <= 2) return t.slice(0, n);
+  const head = Math.max(1, Math.ceil((n - 1) * 0.55));
+  const tail = Math.max(1, n - 1 - head);
+  if (head + tail + 1 > n) return `${t.slice(0, Math.max(0, n - 1))}…`;
+  return `${t.slice(0, head)}…${t.slice(-tail)}`;
+}
+
+/**
  * ★ P6a（2026-10-30）：把 `treeDir` 变成**相对** TRACE 路径（默认挂在 `sessions/` 下）。
  *
  * 为什么：生产口径实测 94/133 个会话带 TRACE 行，绝对路径平均 137.7 字符 ——
@@ -362,12 +385,16 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
   //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」。而原因正是它避免重犯的判据。
   //   现在最省的一档也留 25 字（"Error: EACCES: permissio…" 足够认出是什么错）。
   const reasonLen = [90, 60, 36, 25][Math.min(level, 3)];
-  const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
-  const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
+  // ★ 2026-11-01：intent / reason 都改用「中段省略」——命令与路径常在尾部，纯首部截断会丢掉它们。
+  const intent = clipMiddle(edge.intent || edge.action || "(未记录意图)", intentLen);
+  const reason = clipMiddle(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
   const seq = seqSpan(edge);
   const tags = failureTags(edge, tewari, mode);
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
-  return `- ${edge.id} "${intent}" → ${reason}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
+  // ★ 2026-11-01（docs/research/03-human-memory.md 建议 A）：出处（seq）任何档位都不砍。
+  //   越紧的档位越需要判断「这条边是什么时候发生的」；只留 edge id 时模型知道「e12 失败过」，
+  //   却无法把它和当前进度对齐。代价：每行 +8~10 字符。
+  return `- ${edge.id} "${intent}" → ${reason}${seq ? ` (seq ${seq})` : ""}${tag}`;
 }
 
 /**
@@ -740,9 +767,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     }
     // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
   //   与 UNVERIFIED 同档 —— 它们是「下一步要不要接着做」的决策信息，预算紧张时先让位给失败记忆。
-  if (options.length && level <= 1) {
-      tailLines.push("OPTIONS (not yet landed — you may continue or abandon):");
-      for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
+  if (options.length) {
+      // ★ 2026-11-01（调研建议 D + 提取诱发遗忘依据）：L2+ 也不再整段消失 ——
+      //   至少留「还有几个选项 + 最近一条」。只列当前路径会让模型忘记还有别的路，
+      //   而沉默本身就是一种断言（"只有这一条路"）。
+      if (level <= 1) {
+        tailLines.push("OPTIONS (not yet landed):");
+        for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
+      } else {
+        const latest = options[options.length - 1];
+        tailLines.push(`OPTIONS: ${options.length} not yet landed (latest ${latest.id} "${clip(latest.intent || latest.action, 30)}")`);
+      }
     }
     if (open.length && level <= 1) {
       tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
@@ -1108,7 +1143,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
   const options = openAll.filter((e) => isDanglingOption(e, { graph: g, now }));
   const open = openAll.filter((e) => !isDanglingOption(e, { graph: g, now }));
   if (options.length) {
-    lines.push("OPTIONS (not yet landed — you may continue or abandon):");
+    lines.push("OPTIONS (not yet landed):");
     for (const e of options.slice(-40)) lines.push(`* ${e.id} "${clip(e.intent || e.action, 90)}"${staleTagOf(e, now)}`);
   }
   if (open.length) {
