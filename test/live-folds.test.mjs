@@ -184,7 +184,7 @@ tests["L-4 main：写 json+md；--dry-run 不落盘；json schema 可回读"] = 
   const outDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-live-out-"));
   try {
     const base = nodePath.join(outDir, "live-folds");
-    main(["--home", home, "--out", base]);
+    main(["--home", home, "--out", base, "--write"]);
     const json = JSON.parse(nodeFs.readFileSync(`${base}.json`, "utf8"));
     t.eq(json.schema, SCHEMA, "schema 必须写明");
     t.eq(json.folds.length, 3, "json 里也要有 3 条");
@@ -263,6 +263,23 @@ tests["L-7 会话分布：同一会话折 ≥3 次进 multiFold；foldThrash≥2
     t.eq(thrash.length, 1, "foldThrash≥2 的会话必须列出");
     t.eq(thrash[0].foldThrash, 3, "thrash 深度如实");
   } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["L-8 默认不写盘（C65）：不传 --write 时证据文件不应被创建/覆盖"] = (t) => {
+  const home = makeHome();
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-live-nowrite-"));
+  try {
+    const base = nodePath.join(root, "live");
+    const code = main(["--home", home, "--out", base]);
+    t.eq(code, 0, "默认 dry-run 也要正常退出");
+    t.eq(nodeFs.existsSync(`${base}.json`), false, "默认不许写 json");
+    t.eq(nodeFs.existsSync(`${base}.md`), false, "默认不许写 md");
+    main(["--home", home, "--out", base, "--write"]);
+    t.eq(nodeFs.existsSync(`${base}.json`), true, "--write 才落盘");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
 };

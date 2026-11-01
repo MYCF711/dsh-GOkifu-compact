@@ -10,7 +10,7 @@
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **415 tokens**（口径演进见 `scripts/bench-repro.mjs` 顶部注释；最近三刀：`↻k` +1 → 图例单行 −1 → 同类失败标记汇总 −16 → 清冗余指针 −15） |
-| `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T19:4xZ | **12 次 live fold / 6 个有 fold 的会话**（2 个 multiFold ≥3）：usage 12/12、trigger 8/12、quality 8/12、closure 8/12；质量 c=1 / f=1、压缩比 48.45–350.68、幻觉探针 0；成本 47–74%（ROI 0.45–0.74）；边界 openAtEnd 全 0；`foldThrash` 0；含 C50 跨轮趋势与 C54 会话分布 |
+| `live-folds.json` / `.md` | `node scripts/live-folds.mjs --write`（**默认只打印**，显式 `--write` 才落盘；只读采集 `foldMarks`） | 2026-11-02T19:4xZ | **12 次 live fold / 6 个有 fold 的会话**（2 个 multiFold ≥3）：usage 12/12、trigger 8/12、quality 8/12、closure 8/12；质量 c=1 / f=1、压缩比 48.45–350.68、幻觉探针 0；成本 47–74%（ROI 0.45–0.74）；边界 openAtEnd 全 0；`foldThrash` 0；含 C50 跨轮趋势与 C54 会话分布 |
 | `热清单内容普查-2026-11-02.md` | 离线渲染 live 图 + `measureLedgerSections` 分段统计 | 2026-11-02 | session-d70b7c2f（210 节点/228 边）：500 预算 = 574（超 74）· sections failures 898/1415；1200/3000 预算 = 907 · failures 1646/2693。**逐段核实：热清单与摘要指令都不注入工具输出体** ⇒ G-2 `derivable` 在本插件无落点（负结论） |
 | `热清单超预算归因-2026-11-02.md` | 离线复现 + 成本结构 + 被否决的 L6 实验 | 2026-11-02 | live over-budget 19/263（7.2%，2026-11-02 早间快照）、最大超 117；离线 1/19（574/500）。**结论：诚实超限是设计内行为**；L6（3 条失败+关标记）能把 574 压到 472，但破坏 M2 不变量与「L5 列 10 条」契约、且 bench 447→238 白丢失败记忆 ⇒ **否决** |
 | `over-budget-snapshot.json` / `.md` | `node scripts/overbudget-report.mjs --out evidence/over-budget-snapshot`（只读+写快照） | 2026-11-01T20:02Z | budget=500、23 会话：within **22** / irreducible **1** / floor 0 / reducible? **0**；唯一超限 `d70b7c2f` 641/500（失败边 10/10 已列全）。含 C58 跨轮对比（构成增删 / 头号来源变化） |

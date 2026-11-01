@@ -91,6 +91,9 @@ export function ledgerBudgetMetrics(ledger) {
     sections: ledger?.sections && typeof ledger.sections === "object" ? { ...ledger.sections } : null,
     // ★ C44：不可裁下限（root + constraints）的 token 数 —— 用来区分「渲染超预算」与「底线即超预算」。
     unyieldingTokens: Number.isFinite(ledger?.unyieldingTokens) ? ledger.unyieldingTokens : null,
+    // ★ C65（专员审计 P2）：traceRecent 此前只被一个测试读取（写入即弃）。接进 doctor 统计：
+    //   dropped-for-budget = 「为装进预算而退回了旧 TRACE 形态」的次数，是成本换信息的真实频率。
+    traceRecent: typeof ledger?.traceRecent === "string" ? ledger.traceRecent : null,
     // ★ C49：本次列了几条失败边 / 一共几条 —— 用来判断超预算时「还有没有更省的形式」。
     shownFailures: Number.isFinite(ledger?.shownFailures) ? ledger.shownFailures : null,
     failureCount: Number.isFinite(ledger?.failureCount) ? ledger.failureCount : null,
@@ -131,6 +134,9 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
   const target = stats ?? {};
   target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
   target.samples = (target.samples ?? 0) + 1;
+  if (metrics.traceRecent === "dropped-for-budget") {
+    target.traceDropped = (Number.isFinite(target.traceDropped) ? target.traceDropped : 0) + 1;
+  }
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
   // ★ C44：over-budget 里有多少次是「约束+根目标下限」本身就超预算（不可裁 ⇒ 设计内，不是渲染 bug）。
   if (

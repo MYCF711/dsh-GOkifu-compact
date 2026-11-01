@@ -1,7 +1,7 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T20:18:02Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
-> 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
+> 生成于 **2026-11-01T20:34:57Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成命令：`node scripts/live-folds.mjs --write`（只读采集；显式 --write 才覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
 ## 覆盖率
@@ -35,8 +35,8 @@
 
 ## 与上次对比（C50）
 
-- 上次快照：2026-11-01T20:05:09Z
-- 新增 fold：**1** 次
+- 上次快照：2026-11-01T20:18:02Z
+- 新增 fold：**0** 次
 - 质量下限变化：无变化（上次 c=1 / f=1 · unknownIds 0）
 - 边界回归（openAtEnd 增加）：无
 - 遮蔽占读入漂移（下限）：0.0 个百分点

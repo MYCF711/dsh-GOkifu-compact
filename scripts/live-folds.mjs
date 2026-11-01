@@ -1,5 +1,5 @@
 /**
- * live-folds.mjs —— 把 live `foldMarks` 汇总成可引用的证据（只读，不改任何图）
+ * live-folds.mjs —— 把 live `foldMarks` 汇总成可引用的证据（**默认只打印**；--write 才落盘）
  *
  * 为什么需要它：`doctor` 只看最近 fold 的几个数，`evidence/折叠成本-实测-*.md` 是手工汇总；
  * 每轮巡检要回答「这次 fold 有没有 trigger / quality / closure」「成本效率多少」，
@@ -9,9 +9,10 @@
  * 只读：不写 home，不碰 profile patch；输出目录默认 `evidence/`（仓库内）。
  *
  * 用法：
- *   node scripts/live-folds.mjs                     # 读 DSH_HOME（或 ~/.dsh），写 evidence/live-folds.{json,md}
+ *   node scripts/live-folds.mjs                     # 读 DSH_HOME（或 ~/.dsh），**只打印摘要**（安全默认）
+ *   node scripts/live-folds.mjs --write             # 落盘 evidence/live-folds.{json,md}
  *   node scripts/live-folds.mjs --home D:/x/home    # 指定 home
- *   node scripts/live-folds.mjs --dry-run           # 只打印摘要，不写文件
+ *   node scripts/live-folds.mjs --dry-run           # 同默认（保留旧参数，向后兼容）
  */
 
 import nodeFs from "node:fs";
@@ -210,7 +211,7 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
   lines.push("# live fold 证据（自动汇总）");
   lines.push("");
   lines.push(`> 生成于 **${generatedAt}**（UTC），数据源 \`${home}/chess-context/sessions/*/graph.json\` 的 \`foldMarks[i]\`。`);
-  lines.push("> 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。");
+  lines.push("> 生成命令：`node scripts/live-folds.mjs --write`（只读采集；显式 --write 才覆盖本文件与同名 .json）。");
   lines.push("> 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。");
   lines.push("");
   lines.push("## 覆盖率");
@@ -283,7 +284,9 @@ export function main(argv = process.argv.slice(2)) {
   };
   const home = getArg("home", process.env.DSH_HOME && process.env.DSH_HOME.trim() !== "" ? process.env.DSH_HOME : nodePath.join(nodeOs.homedir(), ".dsh"));
   const outBase = getArg("out", nodePath.join(REPO, "evidence", "live-folds"));
-  const dryRun = argv.includes("--dry-run");
+  // ★ C65（专员审计事故的教训）：诊断脚本的**默认行为不该是写仓库**。
+  //   审计员把本脚本当只读跑，覆盖了两个已跟踪文件。现在默认只打印，落盘必须显式 --write。
+  const dryRun = !argv.includes("--write");
   const jsonOnly = argv.includes("--json-only");
   const { records, sessions, unreadable, thrash = [] } = collectLiveFolds(home);
   const summary = summarizeFolds(records);
@@ -317,7 +320,7 @@ export function main(argv = process.argv.slice(2)) {
     `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold · ` +
       `multi-fold(≥3) ${summary.bySession.multiFold} 个 · foldThrash ${summary.thrash.sessions} 个`,
   );
-  console.log(dryRun ? "（dry-run：未写文件）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
+  console.log(dryRun ? "（dry-run：未写文件；要落盘请加 --write）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
   return 0;
 }
 

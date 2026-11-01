@@ -1016,6 +1016,11 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (bySession.overBySession["session-b"] !== 1) throw new Error(`session-b 应计 1，实际 ${JSON.stringify(bySession.overBySession)}`);
   const noneCase = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, budgetMax: 500, provenanceCoverage: 1 }, 1, "session-c");
   if (noneCase.overBySession !== undefined) throw new Error("非超预算不许记会话归因");
+  // ★ C65：TRACE 为预算降级的次数必须被统计（traceRecent 不再是写入即弃的字段）
+  const traced = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1, traceRecent: "dropped-for-budget" });
+  if (traced.traceDropped !== 1) throw new Error(`TRACE 降级应计 1，实际 ${traced.traceDropped}`);
+  const notTraced = mod.accumulateLedgerBudget({}, { fallback: "none", overBudgetBy: 0, provenanceCoverage: 1, traceRecent: "full" });
+  if (notTraced.traceDropped !== undefined) throw new Error("未降级不许计数");
   // ★ C49：已列全失败边仍超 ⇒ budgetIrreducible（设计内）；还有更省形式（shown < count）⇒ 不计
   const irre = mod.accumulateLedgerBudget({}, {
     fallback: "over-budget", overBudgetBy: 30, budgetMax: 500, unyieldingTokens: 300,
