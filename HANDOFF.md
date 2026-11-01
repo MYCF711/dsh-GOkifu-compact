@@ -20,6 +20,7 @@
 | **C11 tier-2 保真度（本轮）** | 合并最老两个 checkpoint 的 tier-2 路径也记 `quality` + `summaryChars`，并消费 summarize 留下的 pending 字段（谁生产谁消费）；T2-1 增三条断言。至此**常规 fold / 规则降级 / tier-2 合并**三条压缩路径都有保真度样本 |
 | **C12 fold 触发原因（本轮）** | `foldMarks[i].trigger`（pressure / context-overflow / tier2）；doctor 最近 5 次 fold 行内显示，并新增「fold 触发原因」分布（出现 context-overflow ⇒ warn「已被迫自救，压缩没跟上增长」）。测试：溢出自救 / P2-2-1 / T2-1 / P2-2-4 各加断言 |
 | **C13 门禁补 ⑫（本轮）** | `handoff-check` 增 ⑫触发原因：分布显示 pressure/context-overflow/tier2；出现 overflow ⇒ warn「压缩没跟上增长」；缺 trigger ⇒「旧版本折叠」warn；无 fold ⇒ ok。`handoff-check` 测试 10/10。live：FAIL 0 / WARN 9（新增的 2 条 ⑥⑫ 均为旧 foldMark 缺字段的「未采集」） |
+| **C14 手动压缩记账（本轮）** | `compactNow` 包装 + 公开 `recordFoldMark()` 测试接缝：手动 `/compact` 也写 `foldMark`（trigger="manual"）+ 保真度样本 + summaryChars，并消费 pending 摘要字段。至此 5 类压缩路径（自动/规则降级/tier-2/溢出/手动）全覆盖。engine-harness 47/47 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

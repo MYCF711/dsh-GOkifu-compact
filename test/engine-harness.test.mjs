@@ -1508,6 +1508,41 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   if (!namedAfter || !namedAfter.detail.includes("prod")) throw new Error(`必须点名丢失的约束，实际 ${JSON.stringify(namedAfter)}`);
 };
 
+tests["C14 手动 /compact 也记 foldMark + 保真度（覆盖最后一条压缩路径）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c14-manual");
+  const session = makeSession({ id: "sess-c14-manual" });
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  // 让图里真的有约束与失败边（keeper 真跑）
+  await ctx.emitRaw("session/event", session, userEvent("硬约束：不要动 prod 配置。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", "ERR_EACCES: permission denied", 3, true));
+  await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  // 真实流程里 summarize() 会留下 pending 摘要文本；这里直接给（与 P2-2-1 处理桩的方式一致）
+  const NL = String.fromCharCode(10);
+  const summary = ["## 目标", "- 硬约束：不要动 prod 配置。", "## 已探明死路", '- e1 "npm test" → ERR_EACCES (evidence seq 2-3)'].join(NL);
+  engine._lastSummaryText = summary;
+  engine._lastSummaryChars = summary.length;
+  engine._lastSummaryModelText = summary;
+  const mark = engine.recordFoldMark(session, { range: { start: 2, end: 4 }, trigger: "manual" });
+  if (mark.trigger !== "manual") throw new Error(`手动压缩的 foldMark.trigger 必须是 manual，实际 ${JSON.stringify(mark.trigger)}`);
+  if (mark.seqStart !== 2 || mark.seqEnd !== 4) throw new Error(`foldMark 区间错：${mark.seqStart}-${mark.seqEnd}`);
+  if (!mark.quality || typeof mark.quality !== "object") throw new Error(`手动压缩也必须记保真度，实际 ${JSON.stringify(mark.quality)}`);
+  if (!(mark.quality.expectedConstraints >= 1)) {
+    throw new Error(`手动压缩的保真度样本必须是有内容的（期望约束 >= 1），实际 ${mark.quality.expectedConstraints}`);
+  }
+  if (mark.quality.constraintRecall !== 1) throw new Error(`约束逐字都在摘要里，recall 必须 1，实际 ${mark.quality.constraintRecall}`);
+  // 谁生产谁消费：pending 摘要字段必须被清掉，不能挂到下一次 fold
+  if (engine._lastSummaryText !== undefined || engine._lastSummaryModelText !== undefined) {
+    throw new Error("recordFoldMark 必须消费掉 _lastSummaryText/_lastSummaryModelText（避免串到下一次 fold）");
+  }
+  // 落盘可查（doctor/handoff-check 读的是 graph.json）
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const disk = (readGraph(dir, "sess-c14-manual").foldMarks ?? []).at(-1);
+  if (disk?.trigger !== "manual") throw new Error(`graph.json 里必须能看到手动压缩记录，实际 ${JSON.stringify(disk?.trigger)}`);
+};
+
 /** doctor 夹具的上级目录（test/.harness/graphs）。 */
 function GRAPH_PATH_HOME() {
   return GRAPHS;

@@ -597,6 +597,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   async compactRegion(start, end, agent, signal) {
     const prev = this._chessActiveRange ?? null;
     this._chessActiveRange = { start, end };
+    // 2026-11-01（C14）：手动 `/compact` 走的是 compactNow → compactRegion，不经过 compactIfNeeded，
+    // 所以此前**手动压缩没有任何 foldMark / 保真度样本**（覆盖缺口）。这里在手动深度标记生效时记下区间。
+    if ((this._manualCompactDepth ?? 0) > 0) this._manualRange = { start, end };
     try {
       return await super.compactRegion(start, end, agent, signal);
     } finally {
@@ -613,12 +616,54 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *     `name` / `code` / `cause` / `stack` 全部保留（宿主按 code 分类，不按 message）。
    */
   async compactNow(agent, signal, sourceCommandId) {
+    this._manualCompactDepth = (this._manualCompactDepth ?? 0) + 1;
     try {
-      return await super.compactNow(agent, signal, sourceCommandId);
+      const result = await super.compactNow(agent, signal, sourceCommandId);
+      // 2026-11-01（C14）：手动 /compact 也记一条 foldMark（trigger="manual"）+ 保真度样本。
+      // 这是最后一块覆盖缺口：自动 fold / 规则降级 / tier-2 都有样本，只有手动压缩此前没有。
+      const range = this._manualRange ?? null;
+      if (result !== null && result !== undefined && range !== null) {
+        this.recordFoldMark(agent.session, { range, trigger: "manual" });
+      }
+      return result;
     } catch (error) {
       annotateManualCompactError(error);
       throw error;
+    } finally {
+      this._manualCompactDepth = Math.max(0, (this._manualCompactDepth ?? 1) - 1);
+      this._manualRange = null;
     }
+  }
+
+  /**
+   * 记一条 foldMark（公开方法 = 测试接缝，与 `consumeLedgerBudget` 同一性质）。
+   *
+   * 为什么抽出来：手动 `/compact` 的记账逻辑要和自动 fold 同口径（quality 来自 summarize 留下的
+   * pending 摘要文本），但它不在 `compactIfNeeded` 里，没法复用内联代码。
+   * **谁生产谁消费**：这里会清空 `_lastSummary*`，避免这些字段挂到下一次 fold。
+   */
+  recordFoldMark(session, { range = null, trigger = "manual", shadowedTokens = null } = {}) {
+    const g = this.#graph(session);
+    const summaryText = this._lastSummaryText ?? "";
+    const summaryChars = this._lastSummaryChars ?? null;
+    const modelText = this._lastSummaryModelText ?? "";
+    this._lastSummaryChars = undefined;
+    this._lastSummaryText = undefined;
+    this._lastSummaryModelText = undefined;
+    const quality = summaryText === "" ? null : measureFoldQuality({ graph: g, range, summaryText, modelText });
+    const mark = {
+      at: Date.now(),
+      seqStart: range?.start ?? null,
+      seqEnd: range?.end ?? null,
+      trigger,
+      summaryChars,
+      quality,
+    };
+    if (Number.isFinite(shadowedTokens)) mark.shadowedTokens = shadowedTokens;
+    g.foldMarks.push(mark);
+    if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
+    this.#flush(session);
+    return mark;
   }
 
   #activeRange() {

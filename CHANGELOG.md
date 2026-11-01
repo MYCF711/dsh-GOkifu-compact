@@ -172,9 +172,22 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
   没有 fold 的会话 ⇒ ok（不加噪声）。
 - 测试：`test/handoff-check.test.mjs` 增 H-8/H-9/H-10（pressure 分布 / overflow warn / 缺 trigger 与无 fold 的区分）。
 
+### C14 · 手动 `/compact` 也记账（最后一条没有保真度样本的压缩路径）
+
+自动 fold / 规则降级 / tier-2 / 溢出都有 `foldMark` + 保真度样本，只有**手动 `/compact`** 没有：
+它走 `compactNow → compactRegion`，不经过 `compactIfNeeded`，所以连 `foldMark` 都不写。
+用户手动压一次，doctor/handoff-check 完全看不见。
+
+- `compactNow` 包装：进入时置 `_manualCompactDepth`，成功后用 `recordFoldMark(session, {range, trigger:"manual"})` 记账；
+- `compactRegion`：手动深度 > 0 时记下本次区间（`_manualRange`），供 `recordFoldMark` 用；
+- 新增公开方法 `recordFoldMark()`（测试接缝，与 `consumeLedgerBudget` 同性质）：消费 summarize 留下的
+  pending 摘要文本 → `measureFoldQuality` → 写 `quality`/`summaryChars`/`trigger` → 裁剪到 `FOLD_MARKS_KEEP` → 落盘；
+- 至此 **5 类压缩路径全部有保真度样本**：自动 fold / 规则降级 / tier-2 / 溢出 / 手动。
+- 测试：engine-harness 增 C14（手动记录 must be 有内容：期望约束 ≥ 1、recall = 1、pending 被消费、落盘可查）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**657 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**658 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、
