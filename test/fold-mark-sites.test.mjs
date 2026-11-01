@@ -78,3 +78,14 @@ tests["C108-2 recordFoldMark（手动 /compact 与调用方）也必须记质量
   }
   t.includes(body, "safeMeasureFoldQuality", "质量必须用 safeMeasure（诊断抛错不许拖垮压缩）");
 };
+
+tests["C112 每个回滚点（restore()）之后必须走 tree 落盘"] = (t) => {
+  const text = nodeFs.readFileSync(ENGINE, "utf8");
+  const lines = text.split(String.fromCharCode(10));
+  const sites = lines.map((line, i) => (line.trim() === "restore();" ? i : -1)).filter((i) => i >= 0);
+  t.eq(sites.length >= 3, true, `至少要找到 3 处 restore()，实际 ${sites.length}`);
+  for (const lineNo of sites) {
+    const window = lines.slice(lineNo, lineNo + 6).join(String.fromCharCode(10));
+    t.includes(window, "#flush(session, { tree: true })", `第 ${lineNo + 1} 行回滚后必须 tree 落盘（否则 index.md / nodes/*.md 与图不一致）`);
+  }
+};

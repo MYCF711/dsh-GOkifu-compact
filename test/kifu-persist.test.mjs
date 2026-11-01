@@ -378,3 +378,26 @@ tests["C111-2 假 port 必须与 createFsPort 的接口一致（缺方法会被 
     t.eq(typeof fake[key], "function", `假 port 缺少 createFsPort 的方法 "${key}" —— 注入方与真实实现接口必须一致`);
   }
 };
+
+tests["C112 回滚后 index.md 必须跟着图重渲染（不许残留已删节点）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+    const eid = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: eid }).id;
+    settleEdge(g, eid, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    t.eq(nodeFs.readFileSync(paths.indexFile, "utf8").includes(n), true, "首次渲染必须包含 agent 节点");
+
+    // 模拟回滚：agent 节点从图里消失
+    delete g.nodes[n];
+    g.order = g.order.filter((x) => x !== n);
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const index = nodeFs.readFileSync(paths.indexFile, "utf8");
+    t.eq(index.includes(n), false, `回滚后 index.md 不许还写着 ${n}（否则人看索引 = 看旧状态）`);
+    t.eq(index.includes(u), true, "仍存在的节点必须还在索引里");
+  });
+};

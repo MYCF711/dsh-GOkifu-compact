@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C112 · 回滚后必须 `tree` 落盘（`index.md` 不许停在回滚前）
+
+**问题**：engine 有三处「恢复图快照」的路径（`range === null` / fold 抛错 / fold 返回 null），
+原来恢复后都调 `#flush(session)`（**非 tree**）—— 只追加 delta 帧、**不重渲染 `index.md`**。
+后果：`graph.json` 已经回滚，`index.md` 还停在回滚前的渲染上；`nodes/*.md` 也留着被回滚掉的节点
+（C110/C111 观测到的 94 个残骸正是这条路径留下的）。
+
+**做法**：三处 rollback 后的落盘全部改成 `#flush(session, { tree: true })`：
+
+- `index.md` 与回滚后的图一致（人看索引不会看到「其实已经不存在」的节点）；
+- 同时触发 C111 的 `nodes/*.md` 自愈清理 ⇒ 残骸会在**回滚当场**被清掉，而不是等下一次 fold。
+
+**测试**：
+
+- **静态**（`fold-mark-sites` C112）：每处 `restore();` 之后 6 行内必须是 `#flush(session, { tree: true })`；
+- **行为**（`kifu-persist` C112）：tree 落盘 → 从图里删一个节点 → 再 tree 落盘 ⇒
+  `index.md` **不许**再出现被删节点、仍在的节点必须还在。
+
 ### C111 · 陈旧节点文档的自愈清理（`tree` 落盘时顺手清掉）
 
 **C110 留下的问题**：live 有 **94 个陈旧 `nodes/<id>.md`**。查清成因后才动手 ——

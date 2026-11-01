@@ -872,7 +872,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const range = this.#selectRange(session, measurement, g, spec, overflow);
     if (range === null) {
       restore();
-      this.#flush(session);
+      // ★ C112：回滚后必须走 `tree` 落盘 —— 否则 index.md 还停在回滚前的渲染上，
+      //   nodes/*.md 也留着被回滚掉的节点（C110/C111 观测到的 94 个残骸正是这么来的）。
+      this.#flush(session, { tree: true });
       return null;
     }
 
@@ -887,14 +889,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       restore();
       st.foldFailures += 1;
       st.lastFoldError = String(error?.message ?? error).slice(0, 180);
-      this.#flush(session);
+      this.#flush(session, { tree: true });
       throw error;
     } finally {
       this._chessActiveRange = null;
     }
     if (result === null || result === undefined) {
+      // ★ C112：同 range===null 分支 —— 回滚后必须 tree 落盘，让 index.md / nodes 跟上图
       restore();
-      this.#flush(session);
+      this.#flush(session, { tree: true });
       return null;
     }
     const after = meter.measure(session);
