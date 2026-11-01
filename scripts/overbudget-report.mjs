@@ -72,6 +72,30 @@ export function scanOverBudget(home, { budget = 500 } = {}) {
   return result;
 }
 
+/**
+ * 与上一次快照对比（C58）：每小时跑一次，最有用的是「超预算的构成变了没有」。
+ * 只报事实变化，不给结论。
+ */
+export function trendOverBudget(prev, report) {
+  if (!prev || typeof prev !== "object" || !report || typeof report !== "object") return null;
+  const prevCounts = prev.counts && typeof prev.counts === "object" ? prev.counts : null;
+  if (prevCounts === null) return null;
+  const delta = {};
+  for (const key of new Set([...Object.keys(prevCounts), ...Object.keys(report.counts ?? {})])) {
+    const before = Number(prevCounts[key] ?? 0);
+    const after = Number(report.counts?.[key] ?? 0);
+    if (before !== after) delta[key] = after - before;
+  }
+  const prevTop = Array.isArray(prev.over) && prev.over.length > 0 ? prev.over[0].session : null;
+  const nowTop = Array.isArray(report.over) && report.over.length > 0 ? report.over[0].session : null;
+  return {
+    previousAt: typeof prev.generatedAt === "string" ? prev.generatedAt : null,
+    countsDelta: delta,
+    topSessionChanged: prevTop !== nowTop,
+    topSession: nowTop,
+  };
+}
+
 /** CLI。 */
 export function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
@@ -81,7 +105,38 @@ export function main(argv = process.argv.slice(2)) {
   const home = getArg("home", process.env.DSH_HOME && process.env.DSH_HOME.trim() !== "" ? process.env.DSH_HOME : nodePath.join(nodeOs.homedir(), ".dsh"));
   const budget = Number(getArg("budget", 500)) || 500;
   const asJson = argv.includes("--json");
+  const out = getArg("out", "");
   const report = scanOverBudget(home, { budget });
+  // C58：--out 写快照（json + 人读 md），并带上与上一次快照的对比
+  if (out) {
+    let previous = null;
+    try {
+      if (nodeFs.existsSync(`${out}.json`)) previous = JSON.parse(nodeFs.readFileSync(`${out}.json`, "utf8"));
+    } catch {
+      previous = null;
+    }
+    const trend = trendOverBudget(previous, report);
+    const payload = { generatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), ...report, trend };
+    nodeFs.mkdirSync(nodePath.dirname(out), { recursive: true });
+    nodeFs.writeFileSync(`${out}.json`, JSON.stringify(payload, null, 2) + String.fromCharCode(10), "utf8");
+    const lines = [
+      "# 热清单超预算快照（离线归因）",
+      "",
+      `- 时间：${payload.generatedAt} · budget=${budget} · 会话 ${report.sessions} 个`,
+      `- 构成：within=${report.counts.within ?? 0} / floor=${report.counts.floor ?? 0} / irreducible=${report.counts.irreducible ?? 0} / reducible?=${report.counts["reducible?"] ?? 0}`,
+      "",
+      "| 会话 | tokens | 超出 | 档位 | 归因 |",
+      "|---|---:|---:|---|---|",
+      ...report.over.map((r) => `| ${r.session.slice(0, 24)}… | ${r.tokens} | ${r.over} | L${r.level} | ${r.reason} |`),
+      "",
+      trend
+        ? `与上次对比（${trend.previousAt ?? "—"}）：${Object.entries(trend.countsDelta).map(([k, v]) => `${k} ${v > 0 ? "+" : ""}${v}`).join(" · ") || "构成无变化"}${trend.topSessionChanged ? ` · 头号来源变为 ${trend.topSession?.slice(0, 24)}…` : ""}`
+        : "与上次对比：无旧快照（首次写入）",
+      "",
+    ];
+    nodeFs.writeFileSync(`${out}.md`, lines.join(String.fromCharCode(10)), "utf8");
+    console.log(`已写 ${out}.json 与 ${out}.md`);
+  }
   if (asJson) {
     console.log(JSON.stringify(report, null, 2));
     return 0;

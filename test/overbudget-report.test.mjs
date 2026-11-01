@@ -14,7 +14,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { createGraph, addUserNodeId, addEdge, settleEdge, toJSON } from "./graph-fixtures.mjs";
-import { classifyBudget, scanOverBudget } from "../scripts/overbudget-report.mjs";
+import { classifyBudget, scanOverBudget, trendOverBudget } from "../scripts/overbudget-report.mjs";
 
 export const tests = {};
 
@@ -93,4 +93,18 @@ tests["C57-3 空 home 不许抛：0 会话、0 超预算"] = (t) => {
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["C58 trendOverBudget：构成增删如实报告；头号来源变化要标出；无旧快照返回 null"] = (t) => {
+  t.eq(trendOverBudget(null, { counts: {} }), null, "无旧快照 ⇒ null");
+  const prev = { generatedAt: "2026-11-02T00:00:00Z", counts: { within: 22, irreducible: 1 }, over: [{ session: "a" }] };
+  const now = { counts: { within: 20, irreducible: 3 }, over: [{ session: "b" }, { session: "c" }] };
+  const trend = trendOverBudget(prev, now);
+  t.eq(trend.countsDelta.within, -2, "within 减少 2");
+  t.eq(trend.countsDelta.irreducible, 2, "irreducible 增加 2");
+  t.eq(trend.topSessionChanged, true, "头号来源变了");
+  t.eq(trend.topSession, "b", "报出新的头号来源");
+  const same = trendOverBudget(prev, { counts: { within: 22, irreducible: 1 }, over: [{ session: "a" }] });
+  t.eq(Object.keys(same.countsDelta).length, 0, "构成没变 ⇒ 无 delta");
+  t.eq(same.topSessionChanged, false, "头号来源没变");
 };

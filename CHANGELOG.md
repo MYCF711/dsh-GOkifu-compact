@@ -5,6 +5,18 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C58 · 超预算快照 + 跨轮对比（`--out`）
+
+**做法**：`overbudget-report.mjs --out <base>` 写 `json` + 人读 `md` 快照，并计算与**上一次快照**的对比
+（`trendOverBudget`：构成增删、头号来源是否变化）。每小时跑一次时，直接回答「超预算的构成变了没有」。
+
+**live 首快照**：`2026-11-01T20:02Z`，budget=500、23 会话 → `within=22 / irreducible=1 / reducible?=0`，
+唯一超限 `session-d70b7c2f`（641/500，失败边 10/10 已列全）。trend 首次写入 = 「无旧快照」。
+
+证据：`evidence/over-budget-snapshot.{json,md}`（已登记到 `evidence/README.md`）。
+
+测试：`overbudget-report` 新增 C58（delta 增删 / 头号来源变化 / 无旧快照）。
+
 ### C57 · `scripts/overbudget-report.mjs`：超预算的离线归因（一键回答「26% 到底是什么」）
 
 **问题**：`ledger-budget.json` 只给聚合计数（例如 `over-budget 384/1477 ≈ 26%`）。聚合会被

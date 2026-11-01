@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-11-01T20:02:00Z",
+  "home": "D:\\DeepSeek Harness\\home",
+  "budget": 500,
+  "sessions": 23,
+  "unreadable": 0,
+  "over": [
+    {
+      "session": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
+      "tokens": 641,
+      "over": 141,
+      "fallback": "over-budget",
+      "level": 3,
+      "unyieldingTokens": 300,
+      "shownFailures": 10,
+      "failureCount": 10,
+      "reason": "irreducible"
+    }
+  ],
+  "counts": {
+    "within": 22,
+    "floor": 0,
+    "irreducible": 1,
+    "reducible?": 0
+  },
+  "trend": null
+}
