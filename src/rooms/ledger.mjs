@@ -958,7 +958,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       }
     }
     if (open.length && level <= 1) {
-      tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
+      // C46：只陈述状态（unproven），不写「把它当成未验证来对待」这类认知指令。
+      tailLines.push("UNVERIFIED (ran, but no external signal — unproven):");
       for (const e of open.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"`);
     } else if (open.length) {
       // ★ 2026-11-01（handoff-check 在 live 语料上抓到：契约 ⑤ 在 L2+ 静默消失）：

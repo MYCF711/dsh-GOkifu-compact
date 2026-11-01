@@ -15,6 +15,13 @@ import { renderLedger } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
+tests["U-4 UNVERIFIED 段只陈述状态（unproven），不许出现「treat as …」这类认知指令（C46）"] = (t) => {
+  const r = renderLedger(mkGraph([unverifiedEdge("e1", 3)]), { now, maxTokens: 500 });
+  t.eq(r.text.includes("treat as"), false, "不许出现认知指令（treat as）");
+  t.eq(/UNVERIFIED \(ran, but no external signal/.test(r.text), true, "段落标题仍是事实口径（未验证 / 无外部信号）");
+};
+
+
 const now = Date.now();
 
 /** 最小棋谱：n1 = 根目标（user），n2 = 当前 agent 位置。 */

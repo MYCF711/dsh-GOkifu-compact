@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C46 · UNVERIFIED 段去认知指令 + 审计新增 `epistemic-advice` 规则
+
+**发现（C45 的同类清扫）**：`UNVERIFIED (ran, but no external signal — treat as unproven)`
+里的 **`treat as unproven`** 是「告诉模型怎么看待这批边」的**认知指令** —— 与「何时再试」的行动指导同源，
+属于 AGENTS/persona。压缩该做的是陈述状态（跑了、没有外部信号、因此未验证），不是教模型怎么处理它。
+
+**做法**：
+
+- 标题改为事实口径：`UNVERIFIED (ran, but no external signal — unproven)`（保留 `unproven` 状态词，
+  去掉 `treat as` 指令）；
+- `boundary-audit` 新增规则 **`epistemic-advice`**（error）：`treat as|you can|you may|make sure to|be sure to|feel free`；
+- 规则重叠处（如 `you should retry it` 同时命中 behavior-guidance 与 retry-advice）在测试里按
+  「**至少命中行为指导**」断言，不强行二选一。
+
+测试：`boundary-audit` 新增 B-6（英文 retry 建议）与 B-7（认知指令），并验证**纯事实写法不假红**
+（`connection refused` / `the required resource is absent`）；`unverified-tier` 新增 U-4
+（UNVERIFIED 段不许出现 `treat as`）。B-1 同时放宽为「至少命中行为指导」（多规则可并存）。
+
 ### C45 · 标记图例去掉行动建议 + 越界审计补英文「retry advice」规则
 
 **发现的越界（模型可见文本）**：热清单的标记图例从 1.9.x 起就带着行动指导 ——

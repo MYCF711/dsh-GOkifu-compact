@@ -14,8 +14,9 @@ export const tests = {};
 tests["B-1 行为指导出现在字符串字面量里 ⇒ 必须抓（含中文与英文两种写法）"] = (t) => {
   for (const bad of ['"下一步：接着改配置"', "'不要重试这条死路'", '"you should retry it"', '"OPTIONS (continue or abandon)"']) {
     const findings = scanSource(`const x = ${bad};`, { file: "src/x.mjs" });
-    t.eq(findings.length, 1, `必须抓到：${bad}（实际 ${JSON.stringify(findings)}）`);
-    t.eq(findings[0].rule, "behavior-guidance", "归类必须是 behavior-guidance");
+    t.eq(findings.length >= 1, true, `必须抓到：${bad}（实际 ${JSON.stringify(findings)}）`);
+    // C45/C46 起可能同时命中 retry-advice / epistemic-advice（同一句话两重越界），只要求其中命中行为指导
+    t.eq(findings.some((f) => f.rule === "behavior-guidance"), true, `必须归类到 behavior-guidance：${JSON.stringify(findings)}`);
   }
 };
 
@@ -27,6 +28,25 @@ tests["B-2 注释里的引述不算越界（我们的注释大量引用「旧版
   `;
   t.eq(scanSource(source, { file: "src/y.mjs" }).length, 0, "注释必须被剥掉，不许假红");
   t.includes(stripComments(source), "最近一条用户消息", "剥注释不改变正常代码内容");
+};
+
+tests["B-6 英文 retry 建议必须抓（C45：图例曾长期带 retry when / take it）"] = (t) => {
+  for (const bad of ['"needs a permission — retry when it changes"', '"working edge e1 reaches it — take it"', '"retry only if retry-if breaks"']) {
+    const findings = scanSource(`const x = ${bad};`, { file: "src/ledger.mjs" });
+    t.eq(findings.length >= 1, true, `必须抓到：${bad}`);
+    t.eq(findings[0].rule, "retry-advice", `归类必须是 retry-advice：${JSON.stringify(findings)}`);
+  }
+  // 纯事实写法不许误报
+  const ok = scanSource('const x = "connection refused"; const y = "the required resource is absent";', { file: "src/ledger.mjs" });
+  t.eq(ok.length, 0, `事实陈述不许假红：${JSON.stringify(ok)}`);
+};
+
+tests["B-7 认知指令必须抓（C46：treat as / you can 也是教模型怎么看待事实）"] = (t) => {
+  for (const bad of ['"UNVERIFIED (ran) — treat as unproven"', '"you can continue from here"', '"make sure to re-read it"']) {
+    const findings = scanSource(`const x = ${bad};`, { file: "src/ledger.mjs" });
+    t.eq(findings.length >= 1, true, `必须抓到：${bad}`);
+    t.eq(findings[0].rule, "epistemic-advice", `归类必须是 epistemic-advice：${JSON.stringify(findings)}`);
+  }
 };
 
 tests["B-3 工具治理字样同样抓（permission: deny / sandbox_permissions）"] = (t) => {

@@ -42,7 +42,14 @@ export const RULES = [
     id: "retry-advice",
     level: "error",
     why: "压缩产物不得给出「何时再试 / 该走哪条路」的行动建议（属于 AGENTS / persona）",
-    re: /(retry when|retry only|retry it|retry whenever|take it|or create it|should retry)/i,
+    re: /(retry when|retry only|retry it|retry whenever|take it|or create it)/i,
+  },
+  {
+    // ★ C46：认知指令（"treat as …" / "you can …"）与行动指导同源：压缩只陈述状态，不教模型怎么看待它。
+    id: "epistemic-advice",
+    level: "error",
+    why: "压缩产物不得教模型「怎么看待/怎么处理」这些事实（属于 AGENTS / persona）",
+    re: /(treat as|you can |you may |make sure to|be sure to|feel free)/i,
   },
   {
     id: "tool-governance",
