@@ -67,6 +67,21 @@ function quality(over = {}) {
 
 const byName = (result, prefix) => result.checks.find((c) => c.name.startsWith(prefix));
 
+tests["H-12 只有 WORKING 行（当前路径===工作路径）也算「当前位置」—— 不许误报 FAIL"] = async (t) => {
+  const { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } = await import("./graph-fixtures.mjs");
+  const g = createGraph({ sessionId: "s-working-only" });
+  const u = addUserNodeId(g, { seq: 9, text: "把设置改回侧边栏" });
+  const e1 = addEdge(g, { from: u, intent: "看设置", action: "bash(grep)", evidence: { start: 10, end: 11 } });
+  const n2 = addAgentNode(g, { seq: 12, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 });
+  settleEdge(g, e1, { to: n2.id, result: "unverified", verify: { kind: "no-exit", summary: "no exit" }, weak: "shell" });
+  const e2 = addEdge(g, { from: n2.id, intent: "再试", action: "bash(curl)", evidence: { start: 13, end: 14 } });
+  const n3 = addAgentNode(g, { seq: 15, goal: "", worldHash: "W2", constraintHash: "C1", via: e2 });
+  settleEdge(g, e2, { to: n3.id, result: "unverified", verify: { kind: "no-exit", summary: "no exit" }, weak: "shell" });
+  const result = checkGraph(g, {});
+  const path = result.checks.find((c) => c.name.includes("⑥当前位置"));
+  t.eq(path.level, "ok", `只有 WORKING 行时必须判 ok（实际 ${path.level}：${path.detail}）`);
+};
+
 tests["H-11 空图 ⇒ ①根目标不适用（ok），不许当成「缺 rootUserNodeIds」告警"] = (t) => {
   const empty = {
     version: 1,

@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C36.1 · handoff-check ⑥ 误报修复：单独 `WORKING:` 行也是「当前位置」
+
+**发现**：C36 收尾跑门禁时出现 **FAIL 1**（会话 `7520721a`，⑥当前位置）——离线复现后确认是**检查器的锅**：
+当前路径 === 工作路径时，ledger 只写一行 `WORKING: user → n21 → n22`（省 20–40 tokens 的既定行为），
+而 ⑥ 只认 `CURRENT PATH` / `# path:` / `# WORKING:` 三种字面 ⇒ 把合法渲染判成 FAIL。
+
+**修法**：⑥ 的判据补 `/^WORKING:/m`；新增 H-12（构造只渲染 WORKING 行的图，断言 ⑥ = ok）。
+
+live 效果：`handoff-check` **FAIL 1 → 0**，WARN 7（3 条真空质量样本、2 条旧 fold 无 quality/trigger、
+1 条 over-budget、1 条真空样本）；C36 提交信息里写的 FAIL 0 至此才真正成立。
+
+**付记（同轮重启验证）**：主人 03:01 重启后，C29/C34 两项 live 转 ✓ ——
+`build.json` 已落盘（version 1.17.1 / startedAt 03:01）、home 层漂移已自愈；doctor 只剩 1 条警告
+（「fold 边界完整性」未采集，等重启后第一次 fold 落 `boundary` 即转 ✓）。
+
 ### C36 · handoff-check ①：空图是「不适用」，不是「缺 rootUserNodeIds」
 
 **问题**：`handoff-check` 的 ①根目标 把两种完全不同的情况混成一个 warn：

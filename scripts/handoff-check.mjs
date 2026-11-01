@@ -102,7 +102,10 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
 
   // ⑥ 当前位置（只有当图里真的有路径时才要求 —— 没有 agent 节点的会话本来就没有路径可放）
   const factsHasPath = facts.includes("CURRENT_PATH:");
-  const hasPath = text.includes("CURRENT PATH") || text.includes("# path:") || text.includes("# WORKING:");
+  // ★ C36.1：单独 WORKING 行（当前路径 === 工作路径时 ledger 只写这一行）也是「当前位置」。
+  //   旧判据只认 CURRENT PATH / # path: / # WORKING: —— live 会话因它误报 FAIL（实测 7520721a）。
+  const hasPath =
+    text.includes("CURRENT PATH") || text.includes("# path:") || text.includes("# WORKING:") || /^WORKING:/m.test(text);
   out.push(
     check(
       "⑥当前位置",
