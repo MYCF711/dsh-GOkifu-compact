@@ -321,6 +321,26 @@ add(
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
       `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
 );
+/* ★ 2026-11-01（C20）：fold 的**成本效率** —— 摘要请求读了多少 token，才换回多少遮蔽 token。
+   live 实测 input/shadowed = 1.43–1.63：**摘要请求读的是整个 surface，不是只读被折叠段**。
+   比值 ≥2 说明「读两倍才压一倍」—— 触发点太晚、或增量范围切得太碎。纯观测，不改行为。 */
+{
+  const rows = recentFoldMarks.filter((m) => Number(m?.usage?.inputTokens) > 0 && Number(m?.shadowedTokens) > 0);
+  if (rows.length === 0) {
+    add("fold 成本效率（摘要输入 ÷ 遮蔽）", "warn", "未采集（老 foldMark 没有 usage/shadowedTokens）");
+  } else {
+    const ratios = rows.map((m) => Number(m.usage.inputTokens) / Number(m.shadowedTokens));
+    const min = Math.min(...ratios);
+    const max = Math.max(...ratios);
+    add(
+      "fold 成本效率（摘要输入 ÷ 遮蔽）",
+      max >= 2 ? "warn" : "ok",
+      `input/shadowed = ${min.toFixed(2)}–${max.toFixed(2)}（${rows.length} 次有 usage 的 fold）` +
+        (max >= 2 ? " —— 读两倍才压一倍：检查触发点是否太晚 / 增量范围是否切得太碎" : ""),
+    );
+  }
+}
+
 /* ★ P2-2（task-192）：最近 5 次 fold 的 route / fallback / ms / usage。
    旧图的 foldMark 没有这些字段 ⇒ 明确写「—」（不许用 0/undefined 冒充数据）。
    tier-2 的合并记录不是 fold（没有 route/usage），也按「—」显示。 */

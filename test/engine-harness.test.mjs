@@ -1486,6 +1486,11 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   if (!triggerCheck) throw new Error(`doctor 缺「fold 触发原因」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
   if (triggerCheck.status !== "ok") throw new Error(`只有 pressure 时应 ok，实际 ${triggerCheck.status}：${triggerCheck.detail}`);
   if (!triggerCheck.detail.includes("pressure=1")) throw new Error(`必须显示触发原因分布：${triggerCheck.detail}`);
+  // ★ 2026-11-01（C20）：fold 成本效率（摘要输入 ÷ 遮蔽）必须可观测
+  const costCheck = (parsed.checks ?? []).find((c) => c.name.includes("fold 成本效率"));
+  if (!costCheck) throw new Error(`doctor 缺「fold 成本效率」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
+  if (costCheck.status !== "ok") throw new Error(`比值 0.10 应 ok，实际 ${costCheck.status}：${costCheck.detail}`);
+  if (!costCheck.detail.includes("0.10")) throw new Error(`必须显示比值：${costCheck.detail}`);
   const fidelityOf = (p) => (p.checks ?? []).find((c) => c.name.includes("压缩保真度"));
   const okFidelity = fidelityOf(parsed);
   if (!okFidelity) throw new Error(`doctor 缺「压缩保真度」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
@@ -1496,10 +1501,14 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   // 变异：约束丢一条 + 失败边丢一条 ⇒ 必须 error 并点名
   marks[0].quality = { ...marks[0].quality, constraintRecall: 0.5, failureRecall: 0.5, missingConstraints: ["不要动 prod 配置"], missingFailures: ["e12"] };
   marks[0].trigger = "context-overflow";
+  marks[0].usage = { ...marks[0].usage, inputTokens: 60000 }; // 60000/12000 = 5.0 ⇒ 成本效率必须 warn
   nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(graph, null, 1), "utf8");
   const degradedParsed = runDoctor();
   const degraded = fidelityOf(degradedParsed);
   if (!degraded || degraded.status !== "error") throw new Error(`约束召回 <1 必须 error，实际 ${JSON.stringify(degraded)}`);
+  const costAfter = (degradedParsed.checks ?? []).find((c) => c.name.includes("fold 成本效率"));
+  if (!costAfter || costAfter.status !== "warn") throw new Error(`input/shadowed=5 必须 warn，实际 ${JSON.stringify(costAfter)}`);
+  if (!costAfter.detail.includes("读两倍才压一倍")) throw new Error(`必须说明含义：${costAfter.detail}`);
   const overflowCheck = (degradedParsed.checks ?? []).find((c) => c.name === "fold 触发原因");
   if (!overflowCheck || overflowCheck.status !== "warn") throw new Error(`出现 context-overflow 必须 warn，实际 ${JSON.stringify(overflowCheck)}`);
   if (!overflowCheck.detail.includes("被迫自救")) throw new Error(`必须说明 overflow 的含义：${overflowCheck.detail}`);
