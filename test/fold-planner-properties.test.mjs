@@ -129,3 +129,42 @@ tests["C127-5 溢出只会更宽松：常规能折时溢出必须也能折，且
   }
   t.eq(pairs > 0, true, "至少要有一次「常规可折」的对照");
 };
+
+/** 更容易产生「可折叠区间」的用例生成器（minFold 小、节点更大）—— 用于尾部保留量的判据。 */
+function makeCaseFoldable(rand) {
+  const n = 4 + Math.floor(rand() * 7); // 4..10
+  const seqs = [];
+  let seq = 1;
+  for (let i = 0; i < n; i += 1) {
+    seqs.push(seq);
+    seq += 1;
+  }
+  const priced = seqs.map((x) => ({ seq: x, tokens: 400 + Math.floor(rand() * 2100), heuristicTokens: 0 }));
+  const eventAt = () => ({ type: "user/message" });
+  return {
+    surfaceNodes: seqs,
+    pricedNodes: priced,
+    eventAt,
+    retainTokens: [0, 500, 2000][Math.floor(rand() * 3)],
+    minFoldTokens: [0, 200][Math.floor(rand() * 2)],
+    overflow: false,
+    seqs,
+    priced,
+  };
+}
+
+tests["C128 尾部保留量不超界：常规折叠后未折的尾巴 ≤ retainTokens + 单个最大节点"] = (t) => {
+  // 规划器从尾部按 retainTokens 累积，允许「最后多加一个节点」，所以上界是 retain + maxNode。
+  const rand = rng(31415);
+  let checked = 0;
+  for (let i = 0; i < 40; i += 1) {
+    const c = makeCaseFoldable(rand);
+    const { range } = planFold(c);
+    if (range === null) continue;
+    checked += 1;
+    const tail = c.priced.filter((p) => p.seq > range.end).reduce((sum, p) => sum + p.tokens, 0);
+    const maxNode = Math.max(...c.priced.map((p) => p.tokens));
+    t.eq(tail <= c.retainTokens + maxNode, true, `第 ${i + 1} 组尾部保留 ${tail} 超过上界 ${c.retainTokens + maxNode}（retain=${c.retainTokens}）`);
+  }
+  t.eq(checked >= 8, true, `至少要检查 8 个可折叠样本，实际 ${checked}（否则判据样本不足）`);
+};
