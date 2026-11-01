@@ -78,6 +78,7 @@
 | **C65 诊断脚本安全默认（1.17.1）** | `live-folds` 默认只打印、`--write` 才落盘（L-8 用例）；`traceRecent` 接入 `traceDropped` 计数并在 doctor 显示；bench 415 不变 |
 | **C66 doctor 四项检查补测（2026-11-02）** | `test/doctor-cli.test.mjs`：子进程 + 临时 home 断言 fold 悬空 / 边界完整性 / 置换合并可追溯 / 分项占用四项（含「未采集必须 warn」与「自相矛盾必须 error」）；4 例全绿 |
 | **C67 minimal 字段接消费者（1.17.1）** | `minimal` → `minimalRenders` 计数 → doctor 显示「最小清单（无失败边）N 次」；T-5 + engine-harness + doctor-cli 三处断言；**专员审计 12 条全部收口** |
+| **C68 发布就绪评估（2026-11-02）** | `docs/发布就绪-2026-11-02.md`：交付物形态 / 能力面 / 七层验证证据 / 「已无优化方向」逐项依据 / 已知缺口与不修理由 / 专员审核结论 / 重启清单（交用户）/ 结论：到达能力上限，唯一待办=重启 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
