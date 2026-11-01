@@ -362,6 +362,27 @@ async function main() {
           " f=" + q.expectedFailures + "/" + q.failureRecall,
       );
     }
+    // C30/C31：真实链路也必须把 closure(preGraph/graphNodes) 与 boundary(openAtEnd) 落进 foldMark，
+    // 不只是单测里过。缺字段 = 记账退化，直接判失败（这是 gate，不是提示）。
+    const fieldGaps = [];
+    for (const m of marks) {
+      if (!m.closure || typeof m.closure.nodes !== "number") fieldGaps.push(`fold#${m.foldCount} 缺 closure`);
+      else if (typeof m.closure.preGraph !== "boolean" || typeof m.closure.graphNodes !== "number") fieldGaps.push(`fold#${m.foldCount} closure 缺 preGraph/graphNodes`);
+      if (!m.boundary || typeof m.boundary.openAtEnd !== "number") fieldGaps.push(`fold#${m.foldCount} 缺 boundary`);
+      else if (m.boundary.openAtEnd !== 0) fieldGaps.push(`fold#${m.foldCount} 切点落在调用中间（openAtEnd=${m.boundary.openAtEnd}）`);
+    }
+    if (fieldGaps.length > 0) {
+      console.log("  字段缺口：" + fieldGaps.join("；"));
+      results.push({ step: "fold-fields", folded: true, status: "fail", gaps: fieldGaps });
+    } else {
+      const sample = marks[0];
+      console.log(
+        "  字段：closure n/e=" + sample.closure.nodes + "/" + sample.closure.edges +
+          " preGraph=" + sample.closure.preGraph + " graphNodes=" + sample.closure.graphNodes +
+          " boundary=" + JSON.stringify(sample.boundary),
+      );
+      results.push({ step: "fold-fields", folded: true, status: "ok" });
+    }
     if (quality === null) qualityVerdict = "foldMark.quality 缺失";
     else if (!(quality.expectedConstraints > 0) || !(quality.expectedFailures > 0)) {
       qualityVerdict = "真空通过（expectedConstraints=" + quality.expectedConstraints + " / expectedFailures=" + quality.expectedFailures + "）";

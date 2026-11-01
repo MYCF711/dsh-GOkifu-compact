@@ -5,6 +5,19 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C32 · 研究收口（G-2 负结论）+ 真实链路字段 gate
+
+**① G-2 `derivable` 负结论（不适用）**：离线渲染 live 图（`session-d70b7c2f`，210 节点/228 边）并逐段核对
+`renderLedger` 的注入内容 —— 热清单只有失败原因/约束原文/未验证状态/路径，摘要指令只有
+ROOT+CONSTRAINTS+FAILED_ATTEMPTS，**两处都没有可再取的「工具输出体」** ⇒ 没有"先降级"的落点，
+强加字段会变成无消费者的死数据。证据：`evidence/热清单内容普查-2026-11-02.md`；
+候选 #17 在 research/00 §11 改为「✅ 不适用」。
+
+**② 真实链路字段 gate**：`real-fold-trigger` 增加 `fold-fields` 断言 —— 真实模型路径上，每次 fold 的
+`closure.nodes/edges`、`closure.preGraph/graphNodes`、`boundary.openAtEnd` 必须存在，且 `openAtEnd` 必须为 0；
+缺字段或切开调用直接判 **fail**（不再只靠单测）。真机重跑：**6/6**，字段样例
+`closure n/e=22/1 preGraph=false graphNodes=26 boundary={overlapping:1, openAtEnd:0, unsettled:0}`。
+
 ### C31 · 折叠边界完整性（切点不许落在工具调用中间）
 
 **问题**：fold 在 step 边界执行，正常不会切开一次工具调用；一旦切开，摘要引用的调用其**结果落在区间外**，
