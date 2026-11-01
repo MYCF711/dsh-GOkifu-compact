@@ -40,7 +40,8 @@ function fail(code, message) {
 }
 
 /* ── 指标一：热清单 tokens（2000 边夹具，L5 降级档） ── */
-const bench = spawnSync(process.execPath, [nodePath.join(ROOT, "test", "bench.mjs"), "2000"], {
+const benchArgs = [nodePath.join(ROOT, "test", "bench.mjs"), "2000", ...(process.argv.includes("--write") ? ["--write"] : [])];
+const bench = spawnSync(process.execPath, benchArgs, {
   cwd: ROOT,
   encoding: "utf8",
 });
@@ -49,19 +50,12 @@ if (bench.status !== 0) {
   console.error(bench.stderr || "");
   fail(1, "test/bench.mjs 2000 无法跑通");
 }
-const summary = (bench.stdout.match(/热上下文 (\d+) tokens（丢边 (\d+) 条）/) || []);
+const summary = (bench.stdout.match(/热上下文 (\d+) tokens（丢边 (\d+) 条(?:，档位 L(\d+))?/) || []);
 if (!summary.length) fail(1, "无法从 bench 输出解析热上下文 tokens");
 const tokens = Number(summary[1]);
 const omitted = Number(summary[2]);
-
-let tier = null;
-try {
-  const raw = nodePath.join(ROOT, "evidence", "bench-2000.json");
-  const { readFileSync } = await import("node:fs");
-  tier = JSON.parse(readFileSync(raw, "utf8")).ledgerLevel ?? null;
-} catch {
-  /* tier 仅用于展示：证据文件缺失不阻塞复跑 */
-}
+// ★ C85：档位从 stdout 拿（旧写法读证据文件，一旦 bench 不写盘就会拿旧档位比对）
+const tier = summary[3] === undefined ? null : Number(summary[3]);
 
 /* ── 指标二：失败保留（8 条互不相同的失败原因是否逐字可见） ── */
 const CAUSES = Array.from({ length: EXPECTED_RETENTION }, (_, i) => `ERR_${i}: unique failure cause ${i}`);

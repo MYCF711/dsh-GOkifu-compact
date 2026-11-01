@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C85 · `bench` 默认不再写仓库（每跑一次门禁就脏一次工作树）
+
+**问题**：`test/bench.mjs` 每次运行都写 `evidence/bench-N.json` —— 于是**每跑一轮门禁，工作树就脏一次**
+（本会话连续几十轮都要 `git checkout -- evidence/bench-2000.json` 才能提交）。
+C65 已经给 `live-folds` 立过同一条纪律（**诊断/测试脚本默认不许写仓库**），bench 漏了。
+
+**做法**：
+
+- `test/bench.mjs`：写盘改为**显式 `--write`**；摘要行补上档位
+  （`… tokens（丢边 N 条，档位 L5）`）；
+- `scripts/bench-repro.mjs`：**档位改从 stdout 解析**（旧写法读 `evidence/bench-2000.json` ——
+  一旦 bench 不写盘，那份文件就会过期，门禁会拿旧档位比对，形同虚设）；`--write` 透传给 bench；
+- 文档同步：`evidence/README.md` 与合同 §6 流程里 bench 的命令标名「默认不写盘；`--write` 才更新证据」。
+
+**效果**：门禁跑完工作树保持干净（不再需要 `git checkout --`）；证据更新仍是显式动作。
+
+测试：`test/bench-cli.test.mjs` 3 例（默认不产生文件 + 摘要带档位 / `--write` 才写 / bench-repro 默认不改证据且无 DRIFT）。
+
 ### C84 · 安装产物生成器的安全性与确定性（`make-presets-override` 此前零测试）
 
 **问题**：`scripts/make-presets-override.mjs` 生成的是 **`cordis.patch.yml`（安装产物）** ——

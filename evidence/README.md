@@ -10,7 +10,7 @@
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
 | `ledger-calibration.json` / `.md` | `node scripts/ledger-calibration.mjs --write`（默认只打印） | 2026-11-01T20:50Z | budget=500、24 会话：**p50 = 419** / p90 = 521 / min 32 / max 688；超预算 3/24；档位 L3=11 L0=5 L2=4 L5=2 L1=2 —— 与合成夹具 415 基本一致，证明 bench 不是虚高 |
-| `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **415 tokens**（口径演进见 `scripts/bench-repro.mjs` 顶部注释；最近三刀：`↻k` +1 → 图例单行 −1 → 同类失败标记汇总 −16 → 清冗余指针 −15） |
+| `bench-2000.json` | `node scripts/bench-repro.mjs --write`（**默认只打印**，C85） | 2026-11-02 | 2000 边夹具 L5 档 = **415 tokens**（口径演进见 `scripts/bench-repro.mjs` 顶部注释；最近三刀：`↻k` +1 → 图例单行 −1 → 同类失败标记汇总 −16 → 清冗余指针 −15） |
 | `live-folds.json` / `.md` | `node scripts/live-folds.mjs --write`（**默认只打印**，显式 `--write` 才落盘） | 2026-11-01T21:0xZ | **16 次 live fold / 7 个有 fold 的会话**（4 个 multiFold ≥3）：usage 16/16、trigger 12/16、quality 12/16、closure 12/16；质量 c=1 / f=1、压缩比 48.45–350.68、幻觉探针 0；成本 47–76%；`foldThrash` 0；含跨轮趋势与会话分布 |
 | `fold质量-多会话-2026-11-02.md` | 从 `live-folds.json` 的 `folds[]` 按会话摆开（逐会话 fold 次数 / quality / closure / boundary / openAtEnd / 召回最小值） | 2026-11-01T21:0xZ | **7 个有 fold 的会话、16 次 fold**：采集到 quality 的 12 次召回全 1；带 boundary 的 8 次 openAtEnd 全 0；closure 12 次（preGraph true 1 / false 7）；新增样本 `634616f8`（seq 9–208） |
 | `热清单内容普查-2026-11-02.md` | 离线渲染 live 图 + `measureLedgerSections` 分段统计 | 2026-11-02 | session-d70b7c2f（210 节点/228 边）：500 预算 = 574（超 74）· sections failures 898/1415；1200/3000 预算 = 907 · failures 1646/2693。**逐段核实：热清单与摘要指令都不注入工具输出体** ⇒ G-2 `derivable` 在本插件无落点（负结论） |
@@ -47,7 +47,7 @@
 
 | 想验证什么 | 跑什么 |
 |---|---|
-| 热清单体积 / 失败边保留 | `node scripts/bench-repro.mjs` |
+| 热清单体积 / 失败边保留 | `node scripts/bench-repro.mjs`（默认不写盘；加 `--write` 才更新本页 `bench-2000.json`） |
 | 自动 fold 触发 + 保真度链路 | `node test/real-fold-trigger.mjs`（调真实模型） |
 | 与官方模板的对照 | `node test/real-model.mjs --runs 3`（调真实模型） |
 | 压缩产物交接 | `node scripts/handoff-check.mjs` |
