@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T09:34:05.902Z",
+  "generatedAt": "2026-11-01T15:24:59.197Z",
   "model": "group/deepseek-v4.1-flash1017",
   "window": 200000,
   "threshold": 90000,
@@ -12,9 +12,9 @@
     {
       "step": "over-threshold",
       "folded": true,
-      "before": 25,
+      "before": 26,
       "after": 6,
-      "summaryChars": 307,
+      "summaryChars": 435,
       "status": "ok"
     },
     {
@@ -43,9 +43,9 @@
   },
   "usage": {
     "calls": 3,
-    "prompt": 1552,
-    "completion": 3102,
-    "total": 4654,
+    "prompt": 1535,
+    "completion": 2875,
+    "total": 4410,
     "empty": 0
   }
 }
