@@ -1837,3 +1837,44 @@ tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次
   if (marks.length !== 3) throw new Error(`应留 3 条 foldMark，实际 ${marks.length}`);
   if (lastFailures < 3) throw new Error(`三次折叠后失败边应 >=3，实际 ${lastFailures}`);
 };
+
+tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了一半」的图）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c134-atomic");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c134");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 先落一版基线
+  const before = readGraph(dir, "sess-c134");
+  const beforeNodes = Object.keys(before.nodes).sort();
+  const beforeMarks = (before.foldMarks ?? []).length;
+  const beforeFoldCount = before.foldCount ?? 0;
+
+  // 让真实的 compactRegion 事务在半途炸掉（harness 的 ctx 提供的是桩）
+  const original = engine.compactRegion.bind(engine);
+  engine.compactRegion = async () => {
+    throw new Error("injected-boom");
+  };
+  let threw = false;
+  try {
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  } catch {
+    threw = true;
+  } finally {
+    engine.compactRegion = original;
+  }
+  if (!threw) throw new Error("compactRegion 抛错时 compactIfNeeded 必须把错抛出来（不许静默）");
+
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 回滚后的图落盘
+  const after = readGraph(dir, "sess-c134");
+  const afterNodes = Object.keys(after.nodes).sort();
+  if (JSON.stringify(afterNodes) !== JSON.stringify(beforeNodes)) {
+    throw new Error(`fold 失败后节点集变了：${beforeNodes.length} → ${afterNodes.length}`);
+  }
+  if ((after.foldMarks ?? []).length !== beforeMarks) {
+    throw new Error(`fold 失败后不许新增 foldMark：${beforeMarks} → ${(after.foldMarks ?? []).length}`);
+  }
+  if ((after.foldCount ?? 0) !== beforeFoldCount) {
+    throw new Error(`fold 失败后 foldCount 不许变：${beforeFoldCount} → ${after.foldCount}`);
+  }
+};
