@@ -5,6 +5,27 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C82 · `pack-check`：包内文件必须全部来自 git 跟踪（发布可复现性）
+
+**问题**：发布走 `npm pack`，而 `files` 白名单是**目录级**的（`docs`、`evidence`、`scripts`）——
+磁盘上任何一个没提交的新文件都会被一起打进包。历史上已有「打包内容 ≠ 任何 commit」的记录
+（`docs/方案-持续优化.md` B4 ⛔），但**没有机器判据**。
+
+**做法**：新增 `scripts/pack-check.mjs`（只读；不生成 tarball）：
+
+- `npm pack --dry-run --json` 的文件列表必须**全部**出现在 `git ls-files` 里；
+- 关键文件清单（`src/ui.mjs` / `src/engine.mjs` / `src/rooms/ledger.mjs` / `cordis.patch.yml` / `scripts/cli.mjs` / `lib/client.js`）
+  一个都不能少（防止白名单被改坏后「只打一个文件」也算通过）；
+- 退出码 1 仅当有「打进包但 git 不跟踪」或「关键文件缺失」。
+
+**踩到并记下的坑**：`git ls-files` 默认 `core.quotePath=true`，会把中文路径转义成八进制
+（`"docs/ä¸…"`）—— 第一次比对把 **57 个中文文档全判成未跟踪**（假红）；
+必须 `git -c core.quotePath=false ls-files -z`。
+
+**当前实测**：包内 **121** 个文件、跟踪 240 个、无出处 **0**（脚本自身提交后即可通过）、关键文件齐全。
+
+测试：`test/pack-check.test.mjs` 3 例（干净/多文件含中文/关键缺失/空输入）。
+
 ### C81 · 终验收尾：一次完整串行核对 + 证据归档
 
 **做法**：把 7 道门禁 + `verify-install` + `post-restart-check` + 即期归因**一次串行跑完**，
