@@ -8,7 +8,7 @@
  *   3. 空集返回 1（不是 0 —— 「没有可丢的」不等于「全丢了」）。
  */
 
-import { measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
+import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
 
 export const tests = {};
 
@@ -166,4 +166,20 @@ tests["幻觉探针：摘要里提到、图里没有的 eN/nN 必须被点名"] 
   t.eq(findUnknownIds(g, "第 3 步 / step 3 / v2 版本 / 共 12 次").unknown, [], "无字母前缀的数字不许误报");
   // e1 与 e12 必须分开（这是老坑：子串匹配会把 e1 算进 e12）
   t.eq(findUnknownIds({ nodes: {}, edges: { e12: {} } }, "e1 ").unknown, ["e1"], "e1 不能被 e12 的存在骗过");
+};
+
+tests["Q-8 越界引用（C104）：图里有、但不在本次折叠区间内的 id 必须被点出来"] = (t) => {
+  const graph = {
+    nodes: { n1: { id: "n1", seq: 5 }, n2: { id: "n2", seq: 200 } },
+    edges: { e1: { id: "e1", evidence: { start: 10, end: 20 } }, e2: { id: "e2", evidence: { start: 100, end: 110 } } },
+  };
+  const inRange = findOutOfRangeIds(graph, { start: 1, end: 50 }, "e1 说明 n1 的问题；e2 与 n2 是后来的事");
+  t.eq(inRange.outOfRange.includes("e2"), true, "e2（证据 100-110）在区间外，必须报");
+  t.eq(inRange.outOfRange.includes("n2"), true, "n2（seq 200）在区间外，必须报");
+  t.eq(inRange.outOfRange.includes("e1"), false, "e1 在区间内，不许报");
+  t.eq(inRange.outOfRange.includes("n1"), false, "n1 在区间内，不许报");
+
+  t.eq(findOutOfRangeIds(graph, null, "e2 n2").outOfRange.length, 0, "没有区间时不判（手动/tier2 无从界定）");
+  t.eq(findOutOfRangeIds(graph, { start: 1, end: 50 }, "e99 n99").outOfRange.length, 0, "不存在的 id 归幻觉探针，这里不重复报");
+  t.eq(findOutOfRangeIds(graph, { start: 1, end: 50 }, "step3 xe1y e1").outOfRange.length, 0, "非独立 token（xe1y / step3）不许误判");
 };

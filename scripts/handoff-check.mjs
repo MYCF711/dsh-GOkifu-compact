@@ -20,7 +20,8 @@
  *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本=ok（无内容可丢，非缺陷；C38）
- *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
+ *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）；
+ *      C104 起还检查「图里有、但不在本次折叠区间」（`outOfRangeIds`）
  *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
  *   ⑬ fold 边界：切点落在工具调用中间（openAtEnd>0）= 摘要引用区间外结果 ⇒ fail（C37）
  *   ⑭ fold 成本：遮蔽占读入 < 30% ⇒ warn（折太碎/太早；C43 指标，C78 进门禁）
@@ -210,13 +211,16 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   // ⑪ 幻觉探针（fold-quality 的 findUnknownIds）：摘要里提到的 eN/nN 必须在图里找得到。
   //   非空 = 模型编造了节点/边编号（`docs/research/01…` 的「8 类语义错误」里的 hallucinated 类）。
   const unknown = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
-  out.push(
-    check(
-      "⑪幻觉探针",
-      unknown.length === 0 ? "ok" : "warn",
-      unknown.length === 0 ? (qualityMarks.length === 0 ? "没有质量样本（未采集）" : "") : `摘要提到但图里没有：${unknown.join(", ")}`,
-    ),
-  );
+  // ★ C104：除了「图里根本没有」，还有「图里有、但不在本次折叠区间」—— 后者幻觉探针沉默，却同样是错引用。
+  const outOfRange = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : [])))].slice(0, 10);
+  const probeDetail = (() => {
+    const parts = [];
+    if (unknown.length > 0) parts.push(`摘要提到但图里没有：${unknown.join(", ")}`);
+    if (outOfRange.length > 0) parts.push(`摘要提到但不在本次折叠区间：${outOfRange.join(", ")}`);
+    if (parts.length > 0) return parts.join("；");
+    return qualityMarks.length === 0 ? "没有质量样本（未采集）" : "";
+  })();
+  out.push(check("⑪幻觉探针", unknown.length === 0 && outOfRange.length === 0 ? "ok" : "warn", probeDetail));
 
   // ⑬ fold 边界（C31/C37）：切点落在工具调用中间 ⇒ 摘要引用的结果在区间外（悬空引用）。
   //   以前只有 doctor 在全局看，单会话交接门禁看不到；这里补齐，fail 与 doctor 的 error 同口径。

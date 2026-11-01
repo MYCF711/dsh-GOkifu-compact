@@ -297,3 +297,14 @@ tests["H-15 ⑯闭包自洽：seqStart>seqEnd 或 nodes>graphNodes ⇒ fail；�
   const legacy = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1 }] }), {});
   t.eq(byName(legacy, "⑯").level, "ok", "旧 fold 无 closure ⇒ 不许 fail");
 };
+
+tests["H-16 ⑪幻觉探针：『图里有但不在本次折叠区间』也要 warn 并点名（C104）"] = (t) => {
+  const q = quality({ unknownIds: [], outOfRangeIds: ["e42", "n7"] });
+  const row = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: q }] }), {}), "⑪");
+  t.eq(row.level, "warn", "越界引用必须 warn");
+  t.includes(row.detail, "不在本次折叠区间", "文案要说清是「区间外」而不是「图里没有」");
+  t.includes(row.detail, "e42", "要点名越界 id");
+
+  const clean = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality({ unknownIds: [], outOfRangeIds: [] }) }] }), {}), "⑪");
+  t.eq(clean.level, "ok", "没有越界引用应 ok");
+};

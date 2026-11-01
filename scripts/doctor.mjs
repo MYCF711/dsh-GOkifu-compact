@@ -682,8 +682,13 @@ add(
     // ★ 2026-11-01：幻觉探针（`findUnknownIds`）—— 摘要提到但图里没有的 id。
     //   只在真出现时显示一行（正常会话零成本）；非空意味着模型的摘要编造了边/节点编号。
     const unknownIds = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
+    // ★ C104：还有一类探针沉默的错引用 —— 图里有、但不在本次折叠区间内。
+    const outOfRangeIds = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : [])))].slice(0, 8);
     if (unknownIds.length > 0) {
       add("压缩摘要的未知 id（幻觉探针）", "warn", `摘要提到但图里没有：${unknownIds.join(", ")}`);
+    }
+    if (outOfRangeIds.length > 0) {
+      add("压缩摘要的越界 id（C104）", "warn", `摘要提到但不在本次折叠区间：${outOfRangeIds.join(", ")}`);
     }
   }
 }

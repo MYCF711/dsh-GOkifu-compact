@@ -130,6 +130,48 @@ export function findUnknownIds(graph, summaryText) {
   return { checked: seen.size, unknown };
 }
 
+/**
+ * ★ C104：摘要引用的 id **是否落在这次折叠的区间内**。
+ *
+ * 幻觉探针（`findUnknownIds`）只回答「图里有没有」；但还有一种更隐蔽的错：
+ * 摘要写到了**别处**的边/节点（例如引用上一次 fold 之前的死路，或引用尚未发生的事），
+ * 编号真实存在、图里查得到，于是探针沉默 —— 可这次 fold 的摘要根本没有覆盖它。
+ *
+ * 判据：id 在图里存在，但它的 seq 跨度与 `range` **不相交** ⇒ 出界。
+ * `range` 为空（手动/tier-2 合并等无法界定）时不判，返回空数组。
+ * @returns {{checked:number, outOfRange:string[]}}
+ */
+export function findOutOfRangeIds(graph, range, summaryText) {
+  const text = String(summaryText ?? "");
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return { checked: 0, outOfRange: [] };
+  }
+  const seen = new Set();
+  const outOfRange = [];
+  // 注意：这里刻意不用 backslash 转义的词边界（历史上有过被脚本写坏成控制字符的坑），
+  // 改成「匹配后手动检查前后字符是不是标识符字符」，语义等价且不依赖转义。
+  for (const match of text.matchAll(/[en][0-9]{1,4}/g)) {
+    const at = match.index ?? 0;
+    const before = at > 0 ? text[at - 1] : "";
+    const after = text[at + match[0].length] ?? "";
+    if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) continue;
+    const id = match[0];
+    if (seen.has(id) || outOfRange.length >= 20) continue;
+    seen.add(id);
+    const isEdge = id[0] === "e";
+    const edge = isEdge ? graph?.edges?.[id] : null;
+    const node = isEdge ? null : (graph?.nodes?.[id] ?? null);
+    if (isEdge && (edge === null || edge === undefined)) continue; // 不存在的 id 归幻觉探针，这里不重复报
+    if (!isEdge && (node === null || node === undefined)) continue;
+    let span = null;
+    if (edge !== null) span = evidenceSpan(edge);
+    else if (node !== null && Number.isFinite(node.seq)) span = { start: node.seq, end: node.seq };
+    if (span === null) continue;
+    if (span.end < range.start || span.start > range.end) outOfRange.push(id);
+  }
+  return { checked: seen.size, outOfRange };
+}
+
 export function measureFoldQuality({
   graph,
   range = null,
@@ -174,6 +216,8 @@ export function measureFoldQuality({
     shadowedTokens: shadowed,
     // ★ 2026-11-01：幻觉探针 —— 摘要里提到的 eN/nN 必须都在图里（见 findUnknownIds）。
     unknownIds: findUnknownIds(graph, summaryText || modelText).unknown,
+    // C104：引用存在但**不在本次折叠区间内**的 id（幻觉探针抓不到的那一类）
+    outOfRangeIds: findOutOfRangeIds(graph, range, summaryText || modelText).outOfRange,
     modelConstraintRecall,
   };
 }
