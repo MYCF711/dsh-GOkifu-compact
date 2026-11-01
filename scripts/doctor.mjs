@@ -382,6 +382,12 @@ add(
     const missingF = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingFailures) ? m.quality.missingFailures : [])))].slice(0, 5);
     if (missingC.length > 0) add("压缩保真度 · 丢失的约束", "error", missingC.join(" | "));
     if (missingF.length > 0) add("压缩保真度 · 丢失的失败边", "warn", missingF.join(", "));
+    // ★ 2026-11-01：幻觉探针（`findUnknownIds`）—— 摘要提到但图里没有的 id。
+    //   只在真出现时显示一行（正常会话零成本）；非空意味着模型的摘要编造了边/节点编号。
+    const unknownIds = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
+    if (unknownIds.length > 0) {
+      add("压缩摘要的未知 id（幻觉探针）", "warn", `摘要提到但图里没有：${unknownIds.join(", ")}`);
+    }
   }
 }
   // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 与有没有 fold 记录无关，单独一行。
