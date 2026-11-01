@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C97 · README 排查入口：三种「看起来像坏了」的情况
+
+**问题**：C94/C95/C96 三条共存检查只活在 doctor 输出里 —— 用户遇到
+「某个模式没走棋谱压缩」「装完别的插件后设置页不见了」「doctor 说运行实例版本不一致」时，
+不知道这些**已经是可解释的已知情况**，会当成插件坏了。
+
+**做法**：README「常见问题」补三条，并把「检查名」写进去（用户可 grep / 对照 doctor 输出）：
+
+1. **某个模式没走棋谱压缩** → 本插件只覆盖四个官方 preset；第三方 preset（如 `dsh-design-studio` 的
+   「设计模式」）自带 `compaction-basic` ⇒ 只登记不覆盖，由「第三方 preset 的压缩后端（C94）」点名；
+2. **装上别的插件后设置页不见了** → `insert` id 撞车，由「insert id 唯一性（C96）」在撞到 `gokifu-ui` 时
+   直接报 **error**；preset 被抢则由「preset 覆盖唯一性（C95）」报 warn；
+3. **doctor 报「运行实例版本」不一致** → 磁盘代码已更新但进程还是旧的（`link:` 安装），要重启；
+   重启后 `node scripts/post-restart-check.mjs` 一次核对。
+
+**测试**：`docs-commands` 新增 **C97-1** —— README 点名的三个 doctor 检查**必须真实存在于 doctor.mjs**
+（文档与体检不许各说各话）。
+
 ### C96 · insert id 唯一性（撞到 `gokifu-ui` ⇒ 设置页消失，判 error）
 
 **问题**：bundle patch 的 `insert` 行靠 **id** 建索引 —— 两个插件插同一个 id 时，后写的会**替换**先写的，

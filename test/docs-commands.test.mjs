@@ -49,3 +49,14 @@ tests["C86-2 用户文档里的 npx 子命令必须在 cli.mjs 里有分派"] = 
     t.eq(cli.includes(`command === "${sub}"`), true, `cli.mjs 没有分派子命令 "${sub}"（文档会误导用户）`);
   }
 };
+
+tests["C97-1 README 点名的 doctor 检查必须真实存在（文档与体检不许各说各话）"] = (t) => {
+  const readme = nodeFs.readFileSync(nodePath.join(REPO, "README.md"), "utf8");
+  const doctor = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "doctor.mjs"), "utf8");
+  // README 里承诺的三个共存检查（C94/C95/C96）
+  const promised = ["第三方 preset 的压缩后端", "preset 覆盖唯一性", "insert id 唯一性"];
+  for (const name of promised) {
+    t.eq(readme.includes(name), true, `README 必须提到「${name}」（用户排查入口）`);
+    t.eq(doctor.includes(name), true, `doctor.mjs 必须真有「${name}」这个检查（否则文档在骗人）`);
+  }
+};

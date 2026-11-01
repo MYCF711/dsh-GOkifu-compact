@@ -214,6 +214,19 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 
 **能和多分支/子代理一起用吗？** 子代理各自独立会话、各自一张棋谱；主会话的置换提示只在同一会话内生效。
 
+**某个模式好像没走棋谱压缩？** 本插件只覆盖**四个官方 preset**（标准 / PTC / 极简 / 创造）。
+第三方插件自带的 preset（例如 `dsh-design-studio` 的「设计模式」）可能在自己的 bundle patch 里
+重新声明 `compaction-basic` —— 那个模式下就是原生压缩。强覆盖别人的 preset 属于越权且会被对方升级冲掉，
+所以本插件**只登记不覆盖**：`doctor` 的「第三方 preset 的压缩后端（C94）」会点名是哪个 preset。
+
+**装了别的插件之后设置页不见了？** 多半是 bundle patch 的 `insert` **id 撞车**：宿主按 id 建索引，
+后写的会替换先写的。`doctor` 的「insert id 唯一性（C96）」会在撞到本插件 `gokifu-ui` 时直接报 **error**；
+若是两个 preset 被同一批插件抢着覆盖，则由「preset 覆盖唯一性（C95）」报 warn。
+
+**`doctor` 报「运行实例版本」不一致？** 说明磁盘上的代码已更新、但运行中的进程还是旧的 ——
+本插件以 `link:` 安装，改完代码要**重启 DSH** 才生效（`build.json` 里的 `buildId` 就是干这个用的；
+重启后跑 `node scripts/post-restart-check.mjs` 可一次核对）。
+
 ## 参考源
 
 只借鉴**结构与规律**，未复制代码：
