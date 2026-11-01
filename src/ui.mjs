@@ -340,9 +340,14 @@ function profileFromRequest(body) {
 function health(home = resolveHome(), presets = findPresetFiles(home), profile = "desktop") {
   const profileName = profile || "desktop";
   const profileDir = nodePath.join(home, "profiles", profileName);
-  // mounted：发现了挂了本引擎的 preset 声明；
-  // singleInstance：**在这个声明里**没有 compaction-basic（单实例规则的作用域是 preset 内部，
-  // 不是「别的 preset 里也不许有」—— 1.15.0 起 preset 进了本包 bundle，作用域判错会永远显示未接管）。
+  // mounted 的判据（1.16 起改口径）：
+  //   · 旧架构（≤1.15.x）：靠「preset 声明里出现本引擎行」证明挂上了；
+  //   · 新架构（1.16+）：**不需要 preset 文件** —— 压缩后端由 bundle patch 里
+  //     `- id: preset-{standard,ptc,minimal,cordis}` 四行整体覆盖直接换掉（见 scripts/make-presets-override.mjs）。
+  //     此时若还按 preset 判，明明装好了，页面 pill 仍然写「未接管」⇒ 直接说假话。
+  //   ⇒ 两个通道任一成立即算挂载：本包进了 profile 的 `dsh.profile.bundles`（UI 行会启动、patch 会合并），
+  //     或仍存在挂了本引擎的 preset 声明（兼容 1.15.x 的 home）。
+  // singleInstance：**在这份声明里**没有 compaction-basic（作用域是 preset 内部，不是全局）。
   const withOurs = presets.filter((p) => p.text.includes(ENTRY_ID));
   const withNative = withOurs.filter((p) => /^\s*- id: compaction-basic\s*$/m.test(p.text));
   const profilePkgFile = nodePath.join(profileDir, "package.json");
@@ -360,7 +365,7 @@ function health(home = resolveHome(), presets = findPresetFiles(home), profile =
   return {
     profile: profileName,
     installed: profileOk,
-    mounted: withOurs.length > 0,
+    mounted: inBundles || withOurs.length > 0,
     singleInstance: withNative.length === 0,
     notInBundles: !inBundles,
     presets: presets.map((p) => ({ name: p.name, file: p.file })),

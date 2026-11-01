@@ -2,11 +2,14 @@
 
 > 给「已经装好，现在要用」的人。安装/回滚细节见 [README](README.md)。
 >
-> **1.15.0 起安装只有一步**：插件市场点「安装」，或 `dsh plugin --profile <p> add dsh-gokifu-compact`，
-> 然后重启 DSH —— 本包自带 bundle patch，会同时装 UI、把官方 standard preset 的压缩引擎换成 gokifu、
-> 并把新会话默认 preset 指向它。**不要再单独装 `dsh-gokifu-preset`**（旧版做法；两个都装会导致同名 preset 重复）。
+> **安装只有一步**：插件市场点「安装」，或 `dsh plugin --profile <p> add dsh-gokifu-compact`，
+> 然后重启 DSH。**装好重启即可，不需要去设置里选任何模式** —— 本包的 bundle patch 会按 id
+> 整体覆盖 DSH 内置的四个 agent preset（标准 / PTC / 极简 / 创造），把它们的压缩引擎
+> `@deepseek-ai/dsh-compaction-basic` 换成 `dsh-gokifu-compact/engine`。所以四个模式**都是**棋谱压缩。
+> 也不会多出一个叫 `gokifu` 的模式（1.16 起不再新增 preset）。
+> **不要再单独装 `dsh-gokifu-preset`**（1.15.x 的旧版做法；两个都装会导致同名 preset 重复）。
 
-## 一 · 重启后先做这三步（3 分钟）
+## 一 · 重启后先做这四步（3 分钟）
 
 ### 1. 确认插件已加载
 
@@ -40,9 +43,27 @@ node -e "const g=require('D:/DeepSeek Harness/home/chess-context/sessions/<目�
 
 或者直接看当前会话的 `graph.json` 是否在增长（每步都会更新）。
 
+### 4. 确认四个模式都换成了棋谱引擎
+
+看组合出来的树里，每个内置 preset 的 compaction group 是不是我们的引擎：
+
+```bash
+dsh --profile <p> --dump-config | grep -E "^- id: preset-|gokifu-compact/engine"
+```
+
+期望：`preset-standard` / `preset-ptc` / `preset-minimal` / `preset-cordis` 四行都出现，
+且每行下面各有一个 `name: dsh-gokifu-compact/engine`。
+
+更省事的判据：**随便选一个模式开会话，发一条消息，看 `<DSH_HOME>/chess-context/sessions/<id>/graph.json`
+有没有出现** —— 官方压缩不会产生这个目录。
+
+- 只出现部分 preset ⇒ 宿主版本变了（preset 文件形状变了），重跑
+  `node scripts/make-presets-override.mjs` 看哪一步报错（生成器有自检，不会产出坏文件）；
+- 一个都没有 ⇒ 本包没进 `dsh.profile.bundles`，或 profile 里还留着旧手工行（两条通道只能二选一）。
+
 ## 二 · 日常怎么用
 
-**你不需要做任何事。** 插件挂在 `compaction` 槽位上，行为是：
+**你不需要做任何事。**（选标准模式、PTC、极简、创造都一样。）插件挂在 `compaction` 槽位上，行为是：
 
 | 时机 | 它做什么 |
 |---|---|

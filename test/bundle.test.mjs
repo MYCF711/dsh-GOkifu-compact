@@ -12,8 +12,8 @@
  *
  * 本文件锁四件事：
  *   ① package.json 的 bundle 声明齐全（patch 路径 / manifestVersion / files / exports）；
- *   ② `cordis.patch.yml` 是**生成物**：UI 行 + preset 行（引擎在 compaction group 里）+ 把新会话默认 preset 指向 gokifu
- *      —— 一个包装上就接管，不需要再单独装 preset bundle；
+ *   ② `cordis.patch.yml` **只插 UI 一行**：不新增 agent preset、不改默认 preset（主人 2026-11-01 拍板 B：
+ *      要的是「替换官方压缩」，不是多一个模式）；引擎替换由 `src/rooms/takeover.mjs` 运行时接管；
  *   ③ 安装器的 bundle 优先与手工行删除（含备份、幂等、dry-run 零写、别的行不动）；
  *   ④ 已存在的 registry/git 规格**不被改写**成 link（用户装的是哪个版本要可追溯）。
  */
@@ -90,38 +90,42 @@ export const tests = {
     t.eq(pkg.main, "src/ui.mjs", "main 仍是 host 半入口（bundle 不改变它）");
   },
 
-  "B-2 cordis.patch.yml：一个包装上就接管（UI 行 + preset 行 + 默认 preset）"(t) {
+  "B-2 cordis.patch.yml：UI 行 + 覆盖四个官方 preset（替换官方压缩、不新增 preset）"(t) {
     const text = nodeFs.readFileSync(nodePath.join(REPO, "cordis.patch.yml"), "utf8");
     const NL = String.fromCharCode(10);
     const lines = text.split(NL);
     const body = lines.filter((line) => !line.trim().startsWith("#")).join(NL);
-    t.includes(text, "生成物", "必须是生成器产物（头部声明「生成物 · 不要手改」）");
+    t.includes(text, "bundle patch", "必须是本包的 bundle patch 说明");
     t.eq(lines.filter((l) => l.trim() === "- insert:").length, 1, "顶层 - insert: 必须恰好 1 个");
 
     // ① UI host 行 —— 裸包名（client-modules 只对包根说明符发现客户端）
     const childIds = lines.filter((l) => l.indexOf("- id:") === 4).map((l) => l.trim());
-    t.eq(childIds, ["- id: gokifu-ui", "- id: preset-gokifu"], "insert 里恰好两行：UI host + preset 声明");
+    t.eq(childIds, ["- id: gokifu-ui"], "insert 里只许 UI host 一行");
     t.includes(body, `name: '${PKG}'`, "UI 行必须用裸包名");
 
-    // ② preset 声明：引擎必须在 compaction group 内（包根是 UI host，必须写 /engine 子路径）
-    t.includes(body, "name: '@deepseek-ai/dsh-agent-preset'", "必须有 agent preset 声明");
-    t.includes(body, `name: '${PKG}/engine'`, "引擎必须是 /engine 子路径");
-    t.eq(body.includes("- id: compaction-basic"), false, "preset 里不许再挂 compaction-basic（单实例）");
-    t.includes(body, "dsh-command-compact", "command-compact 必须保留");
-    t.includes(body, "dsh-compaction-tool-result-pruner", "tool-result-pruner 必须保留");
-    const groupAt = body.indexOf("- id: compaction");
-    const iso = groupAt < 0 ? "" : body.slice(groupAt, groupAt + 320);
-    t.eq(iso.includes("isolate:") && iso.includes("compaction: true"), true, "引擎所在 group 必须 isolate:{compaction:true}");
+    // ② 产品决定（B，2026-11-01）：压缩后端是「替换官方压缩」，不是新增一个模式。
+    //    ⇒ 按 id 整体覆盖四个官方 preset 的 config，把 compaction-basic 换成我们的引擎；
+    //      不新增 preset、不改 agent-preset-registry 的默认 preset。
+    const topIds = lines.filter((l) => l.startsWith("- id: ")).map((l) => l.slice(6).trim());
+    t.eq(
+      topIds,
+      ["preset-standard", "preset-ptc", "preset-minimal", "preset-cordis"],
+      "顶层必须恰好覆盖四个官方 preset（顺序与生成器一致）",
+    );
 
-    // ③ 新会话默认 preset 指向 gokifu（装上即接管，不需要用户再挑 preset）
-    const registryAt = body.indexOf("- id: agent-preset-registry");
-    t.eq(registryAt > 0, true, "必须有 agent-preset-registry 补丁");
-    const registryLines = registryAt < 0 ? [] : body.slice(registryAt).split(NL).map((l) => l.trim());
-    t.eq(registryLines.includes("default: gokifu"), true, "必须把 agent-preset-registry 的默认 preset 指向 gokifu");
+    // ③ 每个 preset 的 compaction group 里都是我们的引擎
+    const engineCount = body.split(`name: '${PKG}/engine'`).length - 1;
+    t.eq(engineCount, 4, "四个 preset 的压缩行都必须换成 dsh-gokifu-compact/engine");
+    t.eq(body.includes("- id: compaction-basic"), false, "不许残留官方引擎行");
+    t.includes(body, "compaction: true", "引擎行必须落在 isolate:{compaction:true} 的 group 里");
 
-    // ④ 顶层条目只许两类：insert + 注册表补丁（多出来的 = 悄悄挂别的层）
-    const top = lines.filter((l) => l.startsWith("- ")).map((l) => l.trim());
-    t.eq(top, ["- insert:", "- id: agent-preset-registry"], "顶层条目只许这两条");
+    // ④ 不新增 preset、不改默认 preset（注释里解释可以，代码行里出现不行）
+    t.eq(/\n\s*name: '@deepseek-ai\/dsh-agent-preset'/.test(body), false, "不许新增 agent preset（主人明确：不要新模式）");
+    t.eq(/\n\s*-?\s*id: agent-preset-registry/.test(body), false, "不许改「新会话默认 preset」");
+
+    // ⑤ !!js 表达式必须逐字保留 —— YAML round-trip 会把它退化成普通值，工具启停会变
+    const jsCount = (body.match(/!!js /g) ?? []).length;
+    t.ok(jsCount >= 4, `!!js 表达式必须逐字保留，实际 ${jsCount} 个`);
   },
 
   "B-3 findManualUiRow：整块识别 / 多子行时只删本行 / 结构不认识时拒绝"(t) {

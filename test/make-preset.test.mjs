@@ -29,14 +29,12 @@ import {
   ENGINE_ROW,
   UsageError,
   assertOutDirAllowed,
-  buildBundlePatch,
   buildPresetBundle,
   findCompactionGroup,
   parseArgs,
   rewriteCompactionEngine,
   run,
   runningHomes,
-  validateBundlePatch,
 } from "../scripts/make-preset.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -203,8 +201,7 @@ export const tests = {
     t.includes(body, "        id: gokifu", "config.id 必须是 gokifu");
     t.includes(body, "        order: 1", "order 默认沿用官方值");
     // 引擎替换
-    // 只判行 id：description 里解释「换掉 compaction-basic」不是残留。
-    t.eq(/^\s*- id: compaction-basic\s*$/m.test(body), false, "声明正文里不许再有 - id: compaction-basic");
+    t.notIncludes(body, "compaction-basic", "声明正文里不许再有 compaction-basic");
     t.includes(body, ENGINE_ROW.name, "必须写 /engine 子路径（包根是 UI host，绝不能当引擎）");
     t.notIncludes(body, "name: 'dsh-gokifu-compact'", "绝不能写包根当引擎");
     // 官方行逐字保留（防冻结的核心证据）
@@ -305,8 +302,7 @@ export const tests = {
       t.ok(nodeFs.existsSync(patchFile) && nodeFs.existsSync(packageFile), "落盘必须同时有 cordis.patch.yml 与 package.json");
       const body = bodyOf(nodeFs.readFileSync(patchFile, "utf8"));
       t.includes(body, ENGINE_ROW.name, "落盘 patch 必须含引擎行");
-      // 只判「行 id」：description 里会解释「把 compaction-basic 换掉」，那不是残留。
-      t.eq(/^\s*- id: compaction-basic\s*$/m.test(body), false, "落盘 patch 正文不许残留 - id: compaction-basic");
+      t.notIncludes(body, "compaction-basic", "落盘 patch 正文不许残留 compaction-basic");
       t.includes(body, "command-compact", "命令压缩行必须保留");
       t.includes(body, "tool-result-pruner", "工具结果裁剪行必须保留");
       t.includes(body, "          - id: time-context", "官方新增的 time-context 行（本轮 0.2.1-rc.5 就有）必须被带上");
@@ -364,50 +360,4 @@ export const tests = {
       cleanup(root);
     }
   },
-
-/* ─────────────── B · 1.15.0：一个包装上就接管（bundle patch 组合模式） ─────────────── */
-
-"B-1 buildBundlePatch：UI 行 + preset 行 + 默认 preset，官方插件行逐字保留": (t) => {
-  const bundle = buildBundlePatch({ officialText: OFFICIAL_FIXTURE, hostVersion: "0.2.1-rc.5" });
-  const body = bodyOf(bundle.patchYml);
-  t.eq(bundle.presetId, "gokifu", "preset id");
-  t.includes(body, "- id: gokifu-ui", "必须插 UI host 行");
-  t.includes(body, "name: 'dsh-gokifu-compact'", "UI 行必须用裸包名");
-  t.includes(body, "- id: preset-gokifu", "必须插 preset 声明行");
-  t.includes(body, "name: 'dsh-gokifu-compact/engine'", "引擎行必须是 /engine 子路径");
-  t.eq(body.includes("- id: compaction-basic"), false, "不许残留 compaction-basic");
-  t.includes(body, "        description: '棋谱式上下文压缩", "preset 描述必须写进 patch（否则新会话选择器显示「暂无描述」）");
-  t.includes(body, "- id: agent-preset-registry", "必须把注册表默认 preset 指向 gokifu");
-  t.includes(body, "default: gokifu", "注册表补丁的默认值");
-  t.eq(body.split(String.fromCharCode(10)).filter((l) => l.trim() === "- insert:").length, 1, "顶层 - insert: 恰好一条");
-  for (const id of ["persona", "agent-instructions", "time-context", "tool-schedule", "plan-mode", "command-compact", "tool-result-pruner", "workflow-ptc", "tool-ask-user"]) {
-    t.includes(body, `- id: ${id}`, `官方插件行 ${id} 必须逐字保留`);
-  }
-  const NL = String.fromCharCode(10);
-  const presetLines = bundle.presetPatchYml.split(NL).filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));
-  const combinedLines = new Set(bundle.patchYml.split(NL));
-  t.eq(presetLines.filter((l) => !combinedLines.has(l)), [], "组合 patch 必须逐行包含纯 preset 产物");
-},
-
-"B-2 validateBundlePatch：缺注册表 / 残留 compaction-basic / 缺 UI 行都必须拒绝（不许半成品）": (t) => {
-  const good = buildBundlePatch({ officialText: OFFICIAL_FIXTURE, hostVersion: "0.2.1-rc.5" });
-  t.eq(validateBundlePatch(good.patchYml, good.presetPatchYml, OFFICIAL_FIXTURE), true, "健康产物必须过检");
-  // 回归：preset 的 description 里会解释「把 compaction-basic 换掉」——那**不是**残留的行，
-  // 校验器只许看 `- id: compaction-basic`，不许对任意出现做 substring 判红。
-  const withDescription = buildBundlePatch({ officialText: OFFICIAL_FIXTURE, hostVersion: "0.2.1-rc.5", description: "x compaction-basic y" });
-  t.includes(withDescription.patchYml, "description: 'x compaction-basic y'", "自定义描述要原样写进 patch");
-
-  t.throws(
-    () => validateBundlePatch(good.patchYml.replace("- id: agent-preset-registry", "- id: not-the-registry"), good.presetPatchYml, OFFICIAL_FIXTURE),
-    "缺注册表补丁必须拒绝",
-  );
-  t.throws(
-    () => validateBundlePatch(good.patchYml.replace("name: 'dsh-gokifu-compact/engine'", "name: '@deepseek-ai/dsh-compaction-basic'"), good.presetPatchYml, OFFICIAL_FIXTURE),
-    "引擎换回 compaction-basic 必须拒绝",
-  );
-  t.throws(
-    () => validateBundlePatch(good.patchYml.replace("- id: gokifu-ui", "- id: uh-oh"), good.presetPatchYml, OFFICIAL_FIXTURE),
-    "缺 UI 行必须拒绝",
-  );
-},
 };
