@@ -16,6 +16,7 @@
       config:
         id: gokifu
         name: 'gokifu'
+        description: '棋谱式上下文压缩 — 替换内置 compaction-basic：失败记忆逐字保留、每步热清单、置换检测；压缩永不裸截断。'
         order: 1
         plugins:
           - id: persona

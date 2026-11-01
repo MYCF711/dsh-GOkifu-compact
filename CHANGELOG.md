@@ -1,5 +1,28 @@
 # 更新记录
 
+## 1.15.2 — 2026-11-01
+
+> 小版本：**新会话选择器里那个「gokifu / 暂无描述」补上描述**，并把生成器自检口径修正。
+
+### 改了什么
+
+1. preset 声明里写入 `description`（registry 的 `list()` 会读它，新会话选择器直接显示）：
+   `棋谱式上下文压缩 — 替换内置 compaction-basic：失败记忆逐字保留、每步热清单、置换检测；压缩永不裸截断。`
+   - 生成器默认带这段文案；`node scripts/make-preset.mjs --bundle --write --description '...'` 可覆盖。
+2. 校验器口径修正（真 bug）：`validatePresetPatch` / `validateBundlePatch` 原来对 `compaction-basic`
+   做**任意子串**判红 —— 描述里写「把 compaction-basic 换掉」就会被自己误杀。现在只认
+   `- id: compaction-basic` 这种**行 id**；测试里两处 `notIncludes(body, "compaction-basic")` 同步改成行 id 判定。
+   为什么值得单独说：这条误杀会让**任何带解释性描述的生成物都产不出来**，是隐藏的自锁。
+
+### 验证
+
+- 全量单测 **617 passed / 0 skipped / 0 failed**（54 文件）。
+- 生成物：`cordis.patch.yml` 7910 B，`description` 在 preset config 里（第 19 行）；
+  32 条官方插件行仍逐字保留、无 `- id: compaction-basic`。
+- ⚠ 描述要**重启 DSH 后**才出现在选择器里（bundle patch 只在启动时读）。
+
+---
+
 ## 1.15.1 — 2026-11-01
 
 > 1.15.0 的**安装路径回归修复**（1.15.0 已发出去，只能往上补一版）。
