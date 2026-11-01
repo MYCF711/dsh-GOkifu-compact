@@ -108,6 +108,17 @@ tests["Q-5 空集返回 1（没有可丢的 ≠ 全丢了）；压缩比只在�
   t.eq(withTokens.compressionRatio, 80, "8000 / 100 估算 token = 80（记录趋势用，不设阈值）");
 };
 
+tests["Q-7 summaryTokens 用 CJK 感知口径（4 单位=1 token），不是 chars/2"] = (t) => {
+  const g = mkGraph();
+  // 12 个汉字（12×4=48 单位）+ 40 个 ASCII（40 单位）= 88 单位 ⇒ ceil(88/4) = 22 tokens
+  const text = "汉".repeat(12) + "a".repeat(40);
+  const q = measureFoldQuality({ graph: g, summaryText: text, shadowedTokens: 1000 });
+  t.eq(q.summaryTokens, 22, "CJK 1 token/字 + 其余 1/4 的口径（与热清单/bench 同一套）");
+  t.eq(q.compressionRatio, Math.round((1000 / 22) * 100) / 100, "compressionRatio = 遮蔽 ÷ 该口径 token");
+  // 旧口径 Math.ceil(chars/2) 会把同一段文本算成 26 —— 两种口径必须区分开，否则比值被系统性低估
+  t.ne(q.summaryTokens, Math.ceil(text.length / 2), "不许退回 chars/2 的粗估口径");
+};
+
 tests["Q-6 模型输出 vs 最终产物：机械追加段让 constraintRecall 从 <1 回到 1"] = (t) => {
   const g = mkGraph({ constraints: ["约束甲", "约束乙"] });
   const modelOnly = measureFoldQuality({ graph: g, modelText: "## 目标\n- 约束甲\n", summaryText: "## 目标\n- 约束甲\n" });

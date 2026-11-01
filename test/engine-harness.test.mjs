@@ -1331,6 +1331,12 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
   if (mark.quality.compressionRatio === null || !(mark.quality.compressionRatio > 0)) {
     throw new Error(`有 shadowedTokens + summaryTokens 时必须能算 compressionRatio，实际 ${mark.quality.compressionRatio}`);
   }
+  // ★ 2026-11-01（C7）：compressionRatio 必须严格等于 shadowedTokens / summaryTokens（四舍五入两位）——
+  //   不许出现「比值和两个源数对不上」的指标（第 2 轮 provenanceCoverage 口径错误的同类问题）。
+  const expectedRatio = Math.round((mark.quality.shadowedTokens / mark.quality.summaryTokens) * 100) / 100;
+  if (mark.quality.compressionRatio !== expectedRatio) {
+    throw new Error(`compressionRatio 必须 = shadowed/summary = ${expectedRatio}，实际 ${mark.quality.compressionRatio}`);
+  }
 };
 
 tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = async () => {
@@ -1345,6 +1351,14 @@ tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = asyn
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 标量 foldMarks 靠 idle 全量 flush 提交
   const mark = (readGraph(dir, "sess-p22-degraded").foldMarks ?? []).at(-1);
   if (mark?.fallback !== "rules") throw new Error(`降级时 fallback 应为 rules，实际 ${JSON.stringify(mark?.fallback)}`);
+  // ★ 2026-11-01（C7）：规则摘要（降级路径）也必须记保真度 —— 以前 only 模型路径设置 _lastSummaryText，
+  //   降级 fold 的 quality 永远是 null，doctor 只能写「未采集」。
+  if (!mark.quality || typeof mark.quality !== "object") throw new Error(`规则摘要也必须记 quality，实际 ${JSON.stringify(mark.quality)}`);
+  if (mark.quality.constraintRecall !== 1) {
+    throw new Error(`规则摘要逐条抄约束，constraintRecall 必须 = 1，实际 ${mark.quality.constraintRecall}（缺 ${JSON.stringify(mark.quality.missingConstraints)}）`);
+  }
+  if (!(mark.quality.summaryTokens > 0)) throw new Error(`规则摘要摘要 token 必须 > 0，实际 ${mark.quality.summaryTokens}`);
+  if (!(mark.quality.compressionRatio > 0)) throw new Error(`规则摘要也要有 compressionRatio，实际 ${mark.quality.compressionRatio}`);
 };
 
 tests["P2-2-3 foldMarks 只保留最近 20 条（旧版无限增长）"] = async () => {

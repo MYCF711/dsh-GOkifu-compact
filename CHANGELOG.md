@@ -71,9 +71,25 @@
 - 测试：`test/fold-quality.test.mjs` 6 用例（逐字约束/边界匹配/区间过滤/residue/空集/模型 vs 最终产物）；
   engine-harness 扩 P2-2-1（foldMark 必须带 quality 且 recall 口径正确）与 P2-2-4（doctor 显示保真度、召回<1 升级告警并点名）。
 
+### C7 · 保真度指标的「口径与覆盖」两个漏洞（规则降级模式 + token 单位）
+
+`fold-quality` 接进 fold/doctor 之后暴露出两个会让指标**报假数**的漏洞（不是算错，是口径不对）：
+
+1. **规则摘要 / 全挂降级 fold 的 `quality` 永远是 null**：`_lastSummaryText` 只在模型路径设置，
+   于是 `summaryMode: rules` 与 hybrid 全挂后的降级路径，doctor 只能写「未采集」——
+   而「降级路径有没有丢约束/失败边」恰恰最该被机器证明（规则摘要是机械生成的，recall 应恒为 1）。
+   修法：把摘要文本记账收进 `ruleResult()`，降级分支复用同一个 `ruleResult()`。
+2. **`summaryTokens` 用 `Math.ceil(summaryChars/2)` 粗估**：对 ASCII 重的摘要系统性高估 token ⇒
+   `compressionRatio`（遮蔽÷摘要）被系统性低估。修法：不传 `summaryTokens`，让 `fold-quality`
+   用与热清单/bench 同一套 **CJK 感知口径**（CJK 1 token/字 + 其余 1/4）现算。
+
+测试：`fold-quality` 增 Q-7（混合文本 88 单位 = 22 tokens，明确 `ne` 掉 chars/2 的旧口径）；
+engine-harness P2-2-1 增「compressionRatio 必须严格等于 shadowed/summary」；P2-2-2 增
+「规则降级 fold 必须带 quality 且 constraintRecall = 1」。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**638 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**645 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

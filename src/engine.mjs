@@ -422,13 +422,22 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     //   假 Session（单测 / real-fold）不校验 JSON 序列化，所以之前一直没暴露 —— **summaryMode: rules 在
     //   真实 DSH 里从未成功过**。规则摘要没有模型，就用当前路由做「记账口径」，没有路由则用哨兵值。
     const routed = routedTarget(session);
-    const ruleResult = () => ({
-      summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
-      rawOutput: undefined,
-      llmStreamCall: false,
-      provider: routed?.provider ?? "chess-context",
-      model: routed?.model ?? "rules",
-    });
+    const ruleResult = () => {
+      const text = ruleSummary(g, this.#activeRange());
+      // ★ 2026-11-01（C7）：**规则摘要也要记保真度**。以前只有模型路径设置 `_lastSummaryText`，
+      //   于是 `summaryMode: rules` / hybrid 全挂后的降级 fold，`foldMark.quality` 永远是 null，
+      //   doctor 只能写「未采集」—— 而「降级路径有没有丢约束/失败边」恰恰是最该被机器证明的。
+      //   规则摘要是机械生成的（约束逐条、失败边逐条、带 evidence seq），recall 应恒为 1。
+      this._lastSummaryChars = text.length;
+      this._lastSummaryText = text;
+      return {
+        summary: [{ type: "text", text }],
+        rawOutput: undefined,
+        llmStreamCall: false,
+        provider: routed?.provider ?? "chess-context",
+        model: routed?.model ?? "rules",
+      };
+    };
 
     if (mode === "rules") {
       this.#markFoldMode(g, "rules");
@@ -525,14 +534,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         `chess-context: 摘要模型全部不可用（${String(error?.message ?? error)}）——退回规则摘要（零模型调用），保证 fold 能落地`,
       );
       this.#markFoldMode(g, "rules");
-      return {
-        summary: [{ type: "text", text: ruleSummary(g, this.#activeRange()) }],
-        rawOutput: undefined,
-        llmStreamCall: false,
-        provider: routed?.provider ?? "chess-context",
-        model: routed?.model ?? "rules",
-        degraded: "rules",
-      };
+      // ★ 2026-11-01（C7）：走同一个 ruleResult()，这样降级摘要也会被保真度指标统计到。
+      return { ...ruleResult(), degraded: "rules" };
     }
     const raw = assembler.blocks();
     if (contentHasImage(raw)) throw new LlmError("chess summary cannot contain image output", "UNSUPPORTED_CONTENT");
@@ -745,7 +748,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       graph: g,
       range,
       summaryText,
-      summaryTokens: summaryChars === null ? null : Math.ceil(summaryChars / 2),
+      // ★ 2026-11-01（C7）：不传 summaryTokens —— 让 fold-quality 用与账本/bench 同一套 CJK 感知口径
+      //   （CJK 1 token/字 + 其余 1/4）现算。旧写法 `Math.ceil(summaryChars/2)` 对 ASCII 重的摘要会
+      //   系统性高估 token ⇒ compressionRatio（遮蔽÷摘要）被系统性低估，指标失真。
       shadowedTokens: range?.shadowedTokens ?? null,
     });
     const summaryUsage = this._lastSummaryUsage ?? null;
