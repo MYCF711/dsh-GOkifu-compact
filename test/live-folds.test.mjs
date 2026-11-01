@@ -150,6 +150,8 @@ tests["L-2 summarize：覆盖率 / trigger 分布 / 质量下限 / 成本区间 
     t.eq(s.dangling.residue, 3, "residue 合计 3");
     t.eq(s.dangling.candidates, 1, "candidates 合计 1");
     t.eq(s.dangling.liveUnsettled, 0, "liveUnsettled 必须为 0（正常 fold 切在 step 边界）");
+    t.eq(typeof s.cost.shadowedShareMin, "number", "必须给出遮蔽占读入的下限（C43 口径）");
+    t.eq(s.cost.shadowedShareMin <= s.cost.shadowedShareMax, true, "share 区间必须有序");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -170,6 +172,7 @@ tests["L-3 renderMarkdown：带生成时间、覆盖率表、逐次明细"] = (t
     t.includes(md, "preGraph", "证据页要解释 preGraph");
     t.includes(md, "边界完整性", "证据页要报告边界完整性");
     t.includes(md, "悬空", "证据页要报告 dangling");
+    t.includes(md, "遮蔽占读入", "证据页要报告 C43 成本口径");
     t.eq(md.includes("undefined"), false, "不许出现 undefined");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });

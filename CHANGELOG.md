@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C43 · 成本口径修正：`input/shadowed` 含 host 固定开销，改用「遮蔽占读入」
+
+**问题**：`doctor` 的 fold 成本检查用 `input/shadowed ≥ 2` 判「读两倍才压一倍」。live 里出现 2.11 就直接告警 ——
+但摘要请求的 input **包含 host 固定开销**（工具 schema、system/AGENTS、保留尾部、旧 checkpoint），
+这些与压缩策略无关；工具多的会话会被误判成「折得太碎」。
+
+**做法**：
+
+- `fold-quality.mjs` 新增纯函数 `foldCostMetrics`，三个数各回答一件事：
+  `share = shadowed/input`（**判据**：<30% 才算折太碎/太早）、`ratio = input/shadowed`（旧口径，仅对照）、
+  `roi = (shadowed - summary)/input`（每读 1 token 换回多少永久缩减）；
+- `doctor` 检查改名「fold 成本口径（遮蔽占读入）」：按 `share` 判定，文本同时给出 ratio 与 ROI；
+- `live-folds` 每条 fold 记 `shadowedShare`，summary/证据页/控制台都改用新口径。
+
+live 结果：**遮蔽占读入 47%–74%**，ROI **0.45–0.74** —— 10 次 fold 全部健康，此前的 2.11 告警是误读。
+
+测试：`fold-quality` 新增 Q-8/Q-9（三口径计算、非法输入返回 null、share 与 ROI 同向）；
+`live-folds` L-2 断言必带 share 区间。
+
 ### C42 · live 验证：C30/C31 真值到齐 + `unsettled` 语义澄清
 
 **本轮 live 新增 3 次 fold（当前 10 次 / 21 个会话）**，`closure` 与 `boundary` 全部落盘：

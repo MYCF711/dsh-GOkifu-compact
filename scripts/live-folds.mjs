@@ -42,6 +42,8 @@ export function foldRecord(sessionId, index, mark) {
     inputTokens: input || null,
     outputTokens: Number(usage?.outputTokens ?? 0) || null,
     inputPerShadowed: shadowed > 0 && input > 0 ? Number((input / shadowed).toFixed(2)) : null,
+    // C43：遮蔽占读入的比例与 ROI（旧口径 input/shadowed 含 host 固定开销，不能单独判错）
+    shadowedShare: shadowed > 0 && input > 0 ? Number((shadowed / input).toFixed(3)) : null,
     ms: Number(mark?.ms ?? 0) || null,
     route: mark?.route ?? null,
     fallback: mark?.fallback ?? null,
@@ -114,6 +116,7 @@ export function summarizeFolds(records) {
   const unknown = qualityRecords.reduce((sum, r) => sum + (r.quality.unknownIds ?? 0), 0);
   const costRecords = records.filter((r) => r.inputPerShadowed !== null);
   const costRatios = costRecords.map((r) => r.inputPerShadowed);
+  const costShares = costRecords.map((r) => r.shadowedShare).filter((v) => v !== null);
   const closureRecords = records.filter((r) => r.closure !== null);
   const emptyClosure = closureRecords.filter((r) => (r.closure.nodes ?? 0) === 0 && (r.closure.edges ?? 0) === 0).length;
   return {
@@ -137,6 +140,8 @@ export function summarizeFolds(records) {
       count: costRecords.length,
       inputPerShadowedMin: costRatios.length ? Math.min(...costRatios) : null,
       inputPerShadowedMax: costRatios.length ? Math.max(...costRatios) : null,
+      shadowedShareMin: costShares.length ? Math.min(...costShares) : null,
+      shadowedShareMax: costShares.length ? Math.max(...costShares) : null,
     },
     closure: { count: closureRecords.length, empty: emptyClosure, preGraph: closureRecords.filter((r) => r.closure.preGraph === true).length },
     boundary: {
@@ -184,8 +189,9 @@ export function renderMarkdown({ home, records, summary, generatedAt }) {
   lines.push("");
   lines.push("## 成本（摘要输入 ÷ 被遮蔽 token）");
   lines.push("");
-  lines.push(`- 有 usage 的 fold：**${summary.cost.count}** 次，比值 **${summary.cost.inputPerShadowedMin ?? "—"} – ${summary.cost.inputPerShadowedMax ?? "—"}**`);
-  lines.push("- 判据：比值 ≥ 2 时 doctor 判 warn（读得比压的多一倍以上）");
+  lines.push(`- 有 usage 的 fold：**${summary.cost.count}** 次 · **遮蔽占读入 ${summary.cost.shadowedShareMin === null ? "—" : (summary.cost.shadowedShareMin * 100).toFixed(0) + "%"} – ${summary.cost.shadowedShareMax === null ? "—" : (summary.cost.shadowedShareMax * 100).toFixed(0) + "%"}**（C43 口径）`);
+  lines.push(`- 对照：input/shadowed ${summary.cost.inputPerShadowedMin ?? "—"} – ${summary.cost.inputPerShadowedMax ?? "—"}（含 host 工具/system 固定开销）`);
+  lines.push("- 判据：遮蔽占读入 < 30% 时 doctor 判 warn（折得太碎/太早）；比值本身不判错");
   lines.push("");
   lines.push("## 闭包");
   lines.push("");
@@ -234,7 +240,11 @@ export function main(argv = process.argv.slice(2)) {
   console.log(`  覆盖率 trigger ${summary.coverage.trigger}/${summary.total} · quality ${summary.coverage.quality}/${summary.total} · closure ${summary.coverage.closure}/${summary.total} · usage ${summary.coverage.usage}/${summary.total}`);
   console.log(`  trigger 分布：${Object.entries(summary.triggerCounts).map(([k, v]) => `${k}=${v}`).join(" ") || "（无）"}`);
   console.log(`  质量：c=${summary.quality.constraintRecallMin ?? "—"} / f=${summary.quality.failureRecallMin ?? "—"} · 压缩比 ${summary.quality.compressionRatioMin ?? "—"}–${summary.quality.compressionRatioMax ?? "—"} · unknownIds ${summary.quality.unknownIdsTotal}`);
-  console.log(`  成本：输入/遮蔽 ${summary.cost.inputPerShadowedMin ?? "—"}–${summary.cost.inputPerShadowedMax ?? "—"}（${summary.cost.count} 次有 usage）`);
+  const pct = (v) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(0)}%`);
+  console.log(
+    `  成本：遮蔽占读入 ${pct(summary.cost.shadowedShareMin)}–${pct(summary.cost.shadowedShareMax)}` +
+      `（对照 input/shadowed ${summary.cost.inputPerShadowedMin ?? "—"}–${summary.cost.inputPerShadowedMax ?? "—"}，${summary.cost.count} 次有 usage）`,
+  );
   console.log(dryRun ? "（dry-run：未写文件）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
   return 0;
 }

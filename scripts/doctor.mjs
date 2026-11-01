@@ -28,6 +28,7 @@ import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
 import { compareBuildStamp, readBuildStamp, repoVersion } from "../src/rooms/build-stamp.mjs";
+import { foldCostMetrics } from "../src/rooms/fold-quality.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -422,18 +423,23 @@ add(
    live 实测 input/shadowed = 1.43–1.63：**摘要请求读的是整个 surface，不是只读被折叠段**。
    比值 ≥2 说明「读两倍才压一倍」—— 触发点太晚、或增量范围切得太碎。纯观测，不改行为。 */
 {
-  const rows = recentFoldMarks.filter((m) => Number(m?.usage?.inputTokens) > 0 && Number(m?.shadowedTokens) > 0);
+  const rows = recentFoldMarks
+    .map((m) => foldCostMetrics({ inputTokens: m?.usage?.inputTokens, shadowedTokens: m?.shadowedTokens, summaryTokens: m?.usage?.outputTokens }))
+    .filter(Boolean);
   if (rows.length === 0) {
-    add("fold 成本效率（摘要输入 ÷ 遮蔽）", "warn", "未采集（老 foldMark 没有 usage/shadowedTokens）");
+    add("fold 成本口径（遮蔽占读入）", "warn", "未采集（老 foldMark 没有 usage/shadowedTokens）");
   } else {
-    const ratios = rows.map((m) => Number(m.usage.inputTokens) / Number(m.shadowedTokens));
-    const min = Math.min(...ratios);
-    const max = Math.max(...ratios);
+    const shares = rows.map((r) => r.share);
+    const ratios = rows.map((r) => r.ratio);
+    const rois = rows.map((r) => r.roi);
+    const minShare = Math.min(...shares);
     add(
-      "fold 成本效率（摘要输入 ÷ 遮蔽）",
-      max >= 2 ? "warn" : "ok",
-      `input/shadowed = ${min.toFixed(2)}–${max.toFixed(2)}（${rows.length} 次有 usage 的 fold）` +
-        (max >= 2 ? " —— 读两倍才压一倍：检查触发点是否太晚 / 增量范围是否切得太碎" : ""),
+      "fold 成本口径（遮蔽占读入）",
+      minShare < 0.3 ? "warn" : "ok",
+      `遮蔽占读入 ${(minShare * 100).toFixed(0)}–${(Math.max(...shares) * 100).toFixed(0)}%` +
+        `（${rows.length} 次 fold；input/shadowed ${Math.min(...ratios).toFixed(2)}–${Math.max(...ratios).toFixed(2)} 含 host 工具/system 固定开销，不单独判错）` +
+        ` · 每读 1 token 换回 ${Math.min(...rois).toFixed(2)}–${Math.max(...rois).toFixed(2)} token 永久缩减` +
+        (minShare < 0.3 ? " —— 折得太碎/太早：遮蔽段占读入不足 30%，考虑提高增长闸" : ""),
     );
   }
 }

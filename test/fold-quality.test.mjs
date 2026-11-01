@@ -8,9 +8,31 @@
  *   3. 空集返回 1（不是 0 —— 「没有可丢的」不等于「全丢了」）。
  */
 
-import { measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds } from "../src/rooms/fold-quality.mjs";
+import { measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
 
 export const tests = {};
+
+tests["Q-8 foldCostMetrics：share/ratio/roi 三个口径各回答一件事，非法输入返回 null"] = (t) => {
+  const m = foldCostMetrics({ inputTokens: 200, shadowedTokens: 80, summaryTokens: 10 });
+  t.eq(Number(m.share.toFixed(2)), 0.4, "share = shadowed/input");
+  t.eq(Number(m.ratio.toFixed(2)), 2.5, "ratio = input/shadowed（旧口径）");
+  t.eq(m.savedTokens, 70, "saved = shadowed - summary");
+  t.eq(Number(m.roi.toFixed(3)), 0.35, "roi = saved/input");
+  t.eq(foldCostMetrics({ inputTokens: 0, shadowedTokens: 10 }), null, "input 非法 ⇒ null");
+  t.eq(foldCostMetrics({ inputTokens: 100, shadowedTokens: 0 }), null, "shadowed 非法 ⇒ null");
+  const noSummary = foldCostMetrics({ inputTokens: 100, shadowedTokens: 50 });
+  t.eq(noSummary.summaryTokens, null, "没有摘要长度时如实标 null（不拿 0 冒充）");
+  t.eq(noSummary.savedTokens, 50, "没有摘要长度时 saved 按整段遮蔽算");
+};
+
+tests["Q-9 share 是「折得碎不碎」的判据：读得多压得少 ⇒ share 低"] = (t) => {
+  const early = foldCostMetrics({ inputTokens: 300, shadowedTokens: 60 });   // 折得太碎
+  const healthy = foldCostMetrics({ inputTokens: 300, shadowedTokens: 210 }); // 大头都压上了
+  t.eq(early.share < 0.3, true, "share < 0.3 才是「折太碎」");
+  t.eq(healthy.share >= 0.3, true, "share ≥ 0.3 属健康");
+  t.eq(healthy.roi > early.roi, true, "ROI 与 share 同向（压得多自然换回多）");
+};
+
 
 const now = Date.now();
 

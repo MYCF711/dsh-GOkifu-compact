@@ -42,6 +42,38 @@ function evidenceSpan(edge) {
  * @param {object} graph 棋谱
  * @param {{start:number,end:number}|null} [range] 本次 fold 遮蔽的 seq 区间（null = 不按区间过滤）
  */
+/**
+ * fold 的成本口径（2026-11-02，C43）。
+ *
+ * 为什么改口径：旧指标是 `input / shadowed`，live 里读到 2.11 就报「读两倍才压一倍」。
+ * 但摘要请求的 input **包含 host 的固定开销**（工具 schema、system、AGENTS、保留尾部、旧 checkpoint），
+ * 这些开销与压缩策略无关；把它算进「fold 效率」会把工具多的会话误判成压缩问题。
+ *
+ * 现在的三个数各回答一件事：
+ *   · `share`  = shadowed / input   —— 这次 fold「读了这么多、其中多少是真要压的」；share 低才说明折得太碎/太早；
+ *   · `ratio`  = input / shadowed   —— 旧口径，保留做对照（含固定开销，不单独判错）；
+ *   · `roi`    = (shadowed - summary) / input —— 每读 1 token 换回多少**永久**上下文缩减。
+ *
+ * @returns {{inputTokens:number, shadowedTokens:number, summaryTokens:number|null, ratio:number, share:number, savedTokens:number, roi:number}|null}
+ */
+export function foldCostMetrics({ inputTokens, shadowedTokens, summaryTokens = null } = {}) {
+  const input = Number(inputTokens);
+  const shadowed = Number(shadowedTokens);
+  if (!Number.isFinite(input) || input <= 0) return null;
+  if (!Number.isFinite(shadowed) || shadowed <= 0) return null;
+  const summary = Number.isFinite(Number(summaryTokens)) && Number(summaryTokens) > 0 ? Number(summaryTokens) : null;
+  const saved = Math.max(0, shadowed - (summary ?? 0));
+  return {
+    inputTokens: input,
+    shadowedTokens: shadowed,
+    summaryTokens: summary,
+    ratio: input / shadowed,
+    share: shadowed / input,
+    savedTokens: saved,
+    roi: saved / input,
+  };
+}
+
 export function failuresInFoldRange(graph, range = null) {
   const all = failureEdges(graph).filter((edge) => !isDanglingResidue(edge, { graph }));
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return all;
