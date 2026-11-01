@@ -66,8 +66,18 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   const out = [];
 
   // ① 根目标
+  // ★ C36：空图（0 节点）是「本次会话没有记录任何节点」，不是「缺 rootUserNodeIds」——
+  //   旧写法把两者混成同一个 warn，live 里 2 个空图长期占着告警位（没有可检查的内容）。
+  const nodeCount = Object.keys(graph?.nodes ?? {}).length;
   const hasRoot = Array.isArray(graph?.rootUserNodeIds) && graph.rootUserNodeIds.length > 0;
-  out.push(check("①根目标", !hasRoot ? "warn" : text.includes("ROOT USER") ? "ok" : "fail", hasRoot ? "" : "图里没有 rootUserNodeIds（可能不是从用户消息开始的会话）"));
+  const rootState = nodeCount === 0 ? "ok" : !hasRoot ? "warn" : text.includes("ROOT USER") ? "ok" : "fail";
+  const rootDetail =
+    nodeCount === 0
+      ? "空图（本次会话没有记录任何节点 ⇒ 根目标检查不适用）"
+      : hasRoot
+        ? ""
+        : "图里没有 rootUserNodeIds（可能不是从用户消息开始的会话）";
+  out.push(check("①根目标", rootState, rootDetail));
 
   // ② 约束
   const factsHasConstraints = facts.includes("CONSTRAINTS_VERBATIM:");

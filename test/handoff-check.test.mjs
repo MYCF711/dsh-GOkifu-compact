@@ -67,6 +67,32 @@ function quality(over = {}) {
 
 const byName = (result, prefix) => result.checks.find((c) => c.name.startsWith(prefix));
 
+tests["H-11 空图 ⇒ ①根目标不适用（ok），不许当成「缺 rootUserNodeIds」告警"] = (t) => {
+  const empty = {
+    version: 1,
+    sessionId: "s-empty",
+    cwd: "E:/x",
+    order: [],
+    nodes: {},
+    edges: {},
+    nextNode: 1,
+    nextEdge: 1,
+    rootUserNodeIds: [],
+    foldMarks: [],
+  };
+  const r1 = checkGraph(empty, {});
+  const root1 = r1.checks.find((c) => c.name.includes("①根目标"));
+  t.eq(root1.level, "ok", `空图应是 ok，实际 ${root1.level}：${root1.detail}`);
+  t.includes(root1.detail, "空图", "detail 要说清是空图（不是缺 rootUserNodeIds）");
+
+  const noRoot = mkGraph();
+  noRoot.rootUserNodeIds = [];
+  const r2 = checkGraph(noRoot, {});
+  const root2 = r2.checks.find((c) => c.name.includes("①根目标"));
+  t.eq(root2.level, "warn", "有节点但没有 rootUserNodeIds ⇒ 仍是 warn");
+  t.includes(root2.detail, "rootUserNodeIds", "detail 要指出缺字段");
+};
+
 tests["H-1 有健康质量样本 ⇒ ⑩保真度 ok、⑪幻觉探针 ok"] = (t) => {
   const result = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality() }] }), {});
   t.eq(byName(result, "⑩").level, "ok", "召回全 1 应为 ok");

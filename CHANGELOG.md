@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C36 · handoff-check ①：空图是「不适用」，不是「缺 rootUserNodeIds」
+
+**问题**：`handoff-check` 的 ①根目标 把两种完全不同的情况混成一个 warn：
+「图里没有 rootUserNodeIds（可能不是从用户消息开始的会话）」——
+live 里有 2 个会话是**空图**（0 节点，本次没记录任何事件），它们长期占着告警位，
+但根本没有可检查的内容。门禁的可信度取决于告警都指向真问题。
+
+**做法**：先数节点 —— `nodes === 0` ⇒ ① 记 **ok**，detail 写「空图（本次会话没有记录任何节点 ⇒
+根目标检查不适用）」；有节点但缺 `rootUserNodeIds` ⇒ 仍是 warn；有根但清单里没有 ROOT USER ⇒ fail。
+
+live 效果：`handoff-check` **WARN 9 → 7**（两个空图不再误报）；其余 7 条均可解释
+（3 条真空质量样本、2 条旧 fold 无 quality/trigger、1 条 over-budget、1 条真空样本）。
+
+测试：`handoff-check` 新增 H-11（空图 ⇒ ok + detail 含「空图」；有节点缺 root ⇒ 仍 warn）。
+
 ### C35 · 合同 §6-4 的消费者：`dangling.liveUnsettled` 进 doctor + 证据页；验收清单刷新到 live 现状
 
 **问题**：合同 §6 第 4 行要求「`foldMarks.dangling.liveUnsettled` 记录趋势，升高说明 fold 边界切在动作中间」，

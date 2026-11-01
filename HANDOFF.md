@@ -45,6 +45,7 @@
 | **C33 非破坏合并数据层（1.17.1 后）** | `into.superseded[]`（≤8 条 id/seq/goal/ts/at）+ `supersededCount` + 出边 `retargetedFrom`；`transpositions`/`×N` 渲染不动；doctor 新增「置换合并可追溯」审计（记录指向仍在图里的节点 ⇒ error）；测试 merge-provenance 4 用例 |
 | **C34 运行实例版本标记（1.17.1 后）** | engine 启动写 `<chess-context>/build.json`（version/startedAt/pid，原子、失败静默、测试写临时目录）；doctor 新增「运行实例版本」：磁盘更新而进程落后 ⇒ warn「重启后生效」；测试 build-stamp 4 用例 |
 | **C35 合同 §6-4 消费者 + 验收清单刷新（1.17.1 后）** | doctor 新增「fold 悬空（dangling）」（fromBroken⇒error / liveUnsettled⇒warn）；live-folds 汇总 dangling；合同 §6 表刷新到 2026-11-02 live 数字并补第 9–13 行。live：3 次 fold、liveUnsettled 0 |
+| **C36 handoff-check ① 语义修正（1.17.1 后）** | 空图（0 节点）⇒ ① 记 ok「不适用」，不再当成「缺 rootUserNodeIds」告警；live WARN **9 → 7**；测试 H-11 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
