@@ -265,3 +265,35 @@ tests["H-13 ⑭fold成本按最差一次判：多次 fold 里只要有一次 <30
   );
   t.eq(byName(mixed, "⑭").level, "warn", "最差一次 5% ⇒ warn（不能被另一次健康样本掩盖）");
 };
+
+tests["H-14 ⑮fold悬空：fromBroken>0 ⇒ fail；liveUnsettled>0 ⇒ warn；全 0 ⇒ ok；无字段 ⇒ 未采集"] = (t) => {
+  const broken = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, dangling: { liveUnsettled: 0, fromBroken: 2, residue: 0, candidates: 0 } }] }), {});
+  t.eq(byName(broken, "⑮").level, "fail", "指向不存在节点 ⇒ fail（图坏了）");
+  t.includes(byName(broken, "⑮").detail, "图损坏", "文案要点明数据问题");
+
+  const live = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, dangling: { liveUnsettled: 3, fromBroken: 0, residue: 0, candidates: 0 } }] }), {});
+  t.eq(byName(live, "⑮").level, "warn", "未结算边 ⇒ warn");
+  t.includes(byName(live, "⑮").detail, "未结算", "文案说明未结算");
+
+  const clean = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, dangling: { liveUnsettled: 0, fromBroken: 0, residue: 1, candidates: 0 } }] }), {});
+  t.eq(byName(clean, "⑮").level, "ok", "全 0 ⇒ ok（residue 是正常分类，不判错）");
+
+  const legacy = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1 }] }), {});
+  t.eq(byName(legacy, "⑮").level, "ok", "旧 fold 无 dangling ⇒ 不许 fail");
+  t.includes(byName(legacy, "⑮").detail, "未采集", "要写未采集");
+};
+
+tests["H-15 ⑯闭包自洽：seqStart>seqEnd 或 nodes>graphNodes ⇒ fail；一致 ⇒ ok（preGraph 会标注）"] = (t) => {
+  const reversed = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, seqStart: 900, seqEnd: 100, closure: { nodes: 5, edges: 5, graphNodes: 100, preGraph: false } }] }), {});
+  t.eq(byName(reversed, "⑯").level, "fail", "区间反了必须 fail");
+
+  const tooMany = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, seqStart: 10, seqEnd: 20, closure: { nodes: 999, edges: 5, graphNodes: 10, preGraph: false } }] }), {});
+  t.eq(byName(tooMany, "⑯").level, "fail", "nodes 超过图节点数必须 fail");
+
+  const okMark = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, seqStart: 10, seqEnd: 20, closure: { nodes: 5, edges: 6, graphNodes: 50, preGraph: true } }] }), {});
+  t.eq(byName(okMark, "⑯").level, "ok", "自洽 ⇒ ok");
+  t.includes(byName(okMark, "⑯").detail, "早于本图", "preGraph 要在文案里标注");
+
+  const legacy = checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1 }] }), {});
+  t.eq(byName(legacy, "⑯").level, "ok", "旧 fold 无 closure ⇒ 不许 fail");
+};

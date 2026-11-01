@@ -5,6 +5,25 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C79 · 交接门禁再补两项：⑮fold 悬空、⑯闭包自洽
+
+**问题**：C78 之后仍有两条指标只在全局（doctor / live-folds）可见，单会话交接时看不到：
+
+1. **fold 悬空**（C35）：`liveUnsettled > 0`（切在动作中间）/ `fromBroken > 0`（图损坏）；
+2. **闭包自洽**：`seqStart > seqEnd` 或 `closure.nodes > graphNodes` 这类数据坏了，
+   「按闭包回查」就成了空承诺 —— 之前没有任何门禁会红。
+
+**做法**：`handoff-check` 新增两项（与 doctor 同口径，但按会话判）：
+
+- **⑮fold悬空**：`fromBroken > 0` ⇒ **fail**（图损坏先查数据）；`liveUnsettled > 0` ⇒ **warn**；
+  全 0 ⇒ ok（`residue` 属正常分类，不判错）；旧 fold 无字段 ⇒ ok「未采集」；
+- **⑯闭包自洽**：区间反向或 `nodes > graphNodes` ⇒ **fail**；自洽 ⇒ ok，
+  且 `preGraph === true` 时在文案里标注「早于本图」。
+
+**live 复核（本会话）**：`⑮ ok ｜ 3 次 fold 悬空均为 0`、`⑯ ok ｜ 3 条闭包自洽`。
+
+测试：`handoff-check` 新增 **H-14**（四态含「residue 不判错」）与 **H-15**（两种不自洽 + preGraph 标注）。
+
 ### C78 · 交接门禁补 ⑭ fold 成本（C43 的指标此前只有 doctor 在看）
 
 **问题**：C43 的成本口径（遮蔽占读入 < 30% = 折太碎）只有 **doctor 全局**消费者；

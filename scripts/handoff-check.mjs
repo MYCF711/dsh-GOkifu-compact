@@ -24,6 +24,8 @@
  *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
  *   ⑬ fold 边界：切点落在工具调用中间（openAtEnd>0）= 摘要引用区间外结果 ⇒ fail（C37）
  *   ⑭ fold 成本：遮蔽占读入 < 30% ⇒ warn（折太碎/太早；C43 指标，C78 进门禁）
+ *   ⑮ fold 悬空：liveUnsettled>0 ⇒ warn；fromBroken>0 ⇒ fail（C79）
+ *   ⑯ 闭包自洽：seqStart>seqEnd 或 closure.nodes>graphNodes ⇒ fail（C79）
  *
  * 用法：
  *   node scripts/handoff-check.mjs                 # 人读
@@ -256,6 +258,59 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
           min < 0.3
             ? `最低一次遮蔽只占输入 ${(min * 100).toFixed(0)}%（折太碎/太早 —— 对照 doctor 的 ROI 看）`
             : `${withCost.length} 次 fold 的遮蔽占读入最低 ${(min * 100).toFixed(0)}%（健康）`,
+        ),
+      );
+    }
+  }
+
+  // ⑮ fold 悬空（C35 的指标，C79 补进交接门禁）：liveUnsettled > 0 = 切在动作中间（warn）；
+  //   fromBroken > 0 = 图已坏（fail）。doctor 只有全局口径，单会话交接同样需要判据。
+  {
+    const withDangling = allMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
+    if (allMarks.length === 0) {
+      out.push(check("⑮fold悬空", "ok", "本会话没有 fold 记录"));
+    } else if (withDangling.length === 0) {
+      out.push(check("⑮fold悬空", "ok", "未采集（旧版本 fold 没有 dangling —— 升级后自动出现）"));
+    } else {
+      const live = withDangling.reduce((sum, m) => sum + (m.dangling.liveUnsettled ?? 0), 0);
+      const broken = withDangling.reduce((sum, m) => sum + (m.dangling.fromBroken ?? 0), 0);
+      out.push(
+        check(
+          "⑮fold悬空",
+          broken > 0 ? "fail" : live > 0 ? "warn" : "ok",
+          broken > 0
+            ? `${broken} 条边指向不存在的节点（图损坏，先查数据）`
+            : live > 0
+              ? `${live} 条边在 fold 时未结算（可能切在动作中间 —— 结合 ⑬ 看）`
+              : `${withDangling.length} 次 fold 的悬空边均为 0（liveUnsettled=0 / fromBroken=0）`,
+        ),
+      );
+    }
+  }
+
+  // ⑯ 闭包自洽（C79）：foldMark 的 closure 必须与 seq 区间/图规模自洽 —— 这是「可回查」的前提，
+  //   数据坏了（seqStart > seqEnd、nodes 超过图节点数）会让「按闭包回查」变成空承诺。
+  {
+    const withClosure = allMarks.filter((m) => m?.closure && typeof m.closure.nodes === "number");
+    const bad = withClosure.filter((m) => {
+      const start = Number(m.seqStart);
+      const end = Number(m.seqEnd);
+      const graphNodes = Number(m.closure.graphNodes ?? NaN);
+      if (Number.isFinite(start) && Number.isFinite(end) && start > end) return true;
+      if (Number.isFinite(graphNodes) && m.closure.nodes > graphNodes) return true;
+      return false;
+    });
+    if (allMarks.length === 0) out.push(check("⑯闭包自洽", "ok", "本会话没有 fold 记录"));
+    else if (withClosure.length === 0) out.push(check("⑯闭包自洽", "ok", "未采集（旧版本 fold 没有 closure —— 升级后自动出现）"));
+    else {
+      const preGraph = withClosure.filter((m) => m.closure.preGraph === true).length;
+      out.push(
+        check(
+          "⑯闭包自洽",
+          bad.length > 0 ? "fail" : "ok",
+          bad.length > 0
+            ? `${bad.length} 条 foldMark 的闭包与区间不一致（seqStart>seqEnd 或 nodes>graphNodes）`
+            : `${withClosure.length} 条闭包自洽${preGraph > 0 ? `（其中 ${preGraph} 次区间早于本图，已在摘要里标注）` : ""}`,
         ),
       );
     }
