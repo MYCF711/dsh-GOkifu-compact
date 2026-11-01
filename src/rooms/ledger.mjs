@@ -383,7 +383,30 @@ function oneLine(text) {
 }
 
 /** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
-export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic") {
+/**
+ * 一条失败边后来被**同一 action 的成功边**解决了吗（图结构事实，不是判断）。
+ *
+ * 为什么重要（C17，来自 05 §7.2「因果配对是唯一无法重建的东西」）：失败边是永久记忆，
+ * 但「同一个命令后来跑通了」这个事实只存在于历史里 —— 不标出来，模型会以为那条路仍然堵着。
+ * 这里只陈述「后来 e34 成功了」，不写「你应该去试」。
+ */
+export function laterSuccessOf(edge, successEdges = []) {
+  const action = edge?.action;
+  if (!action) return null;
+  const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : -Infinity);
+  const failEnd = endOf(edge);
+  if (!Number.isFinite(failEnd)) return null;
+  let best = null;
+  for (const candidate of successEdges) {
+    if (candidate?.result !== "success" || candidate.action !== action) continue;
+    const end = endOf(candidate);
+    if (!(end > failEnd)) continue;
+    if (best === null || end < endOf(best)) best = candidate;
+  }
+  return best;
+}
+
+export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null) {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
   //   旧版 level ≥3 直接把 `→ 原因` 整段砍掉 ⇒ 全库实测 133 条可见失败边里只有 25 条带原因，
@@ -406,7 +429,9 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
   //   ★ 2026-11-01 二次修正（bench 实测）：全档位用 `(seq a-b)` 让 2000 边夹具从 351 涨到 453 tok（+29%）。
   //   预算紧的档位改用**短格式** `(sa-b)` —— 出处（数字）一个都没少，只省掉 3 个字符/边。
   const seqTag = seq ? ` (${level <= 1 ? "seq " : "s"}${seq})` : "";
-  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${tag}`;
+  // ★ C17：后来被同一 action 的成功边解决 —— 只给边 id（可回查），不写行动建议。
+  const later = resolvedBy ? ` ↑later-ok:${resolvedBy.id}` : "";
+  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${later}${tag}`;
 }
 
 /**
@@ -664,6 +689,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const omittedResidue = allFailures.length - failures.length;
   // ★ 2026-11-01（出处覆盖率口径修正）：按 id 查边，区分「渲染器砍了 seq」与「源数据本来就没有 evidence」。
   const failuresById = new Map(failures.map((e) => [e.id, e]));
+  // ★ C17：成功边索引（按 action）—— 标注「这条失败后来被同一命令跑通了」，只建一次。
+  const successEdges = Object.values(g.edges).filter((e) => e?.result === "success" && typeof e.action === "string" && e.action !== "");
   /** 数据缺口：这些失败边连 evidence 都没有 ⇒ 模型无法回查（不是渲染的锅，指标里单独计）。 */
   const evidenceMissing = failures.filter((e) => seqSpan(e) === "").length;
   const dangling = danglingStats(g, { now });
@@ -875,7 +902,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (per node: nodes/<id>.md) / by seq in the session log`,
         );
       }
-      for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
+      for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers, laterSuccessOf(e, successEdges)));
     }
     // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
   //   与 UNVERIFIED 同档 —— 它们是「下一步要不要接着做」的决策信息，预算紧张时先让位给失败记忆。

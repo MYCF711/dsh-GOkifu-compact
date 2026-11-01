@@ -23,6 +23,7 @@
 | **C14 手动压缩记账（本轮）** | `compactNow` 包装 + 公开 `recordFoldMark()` 测试接缝：手动 `/compact` 也写 `foldMark`（trigger="manual"）+ 保真度样本 + summaryChars，并消费 pending 摘要字段。至此 5 类压缩路径（自动/规则降级/tier-2/溢出/手动）全覆盖。engine-harness 47/47 |
 | **C15 边界机器审计（本轮）** | `scripts/boundary-audit.mjs`：只扫字符串字面量（剥注释）、两条规则（行为指导 / 工具治理）、`facts-prompt` 摘要指令在 ALLOW 里显式豁免。首跑抓到 2 条真残留并修掉（`continue or abandon` 行动许可、规则摘要标题「与下一步」）。`test/boundary-audit.test.mjs` 5 用例；接入发版验收第 5 步 |
 | **C16 重访标记（本轮）** | CURRENT PATH / WORKING 的节点标签带 `×N`（`transpositions` 的符号化，N=总到达次数）；只陈述图结构事实、零成本（无重访逐字节不变）、`# path:` 极压档不标。测试 ledger-boundary M |
+| **C17 因果配对（本轮）** | 失败边若被**同一 action 的更晚成功边**解决，行尾标 `↑later-ok:<边id>`（`laterSuccessOf()` 可单测）；只陈述事实、不写建议；live +11 tokens（4/33 命中）、bench 446 不变。测试 ledger-boundary N |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

@@ -214,9 +214,22 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - `# path:` 的 L4/L5 极度压缩形态不标（那里先保「当前位置」本身）；
 - 测试：ledger-boundary 增 M（重访 → `n2×2`；无重访无 ×；不许 ×1；不许夹带「不要/建议」字样）。
 
+### C17 · 「这条失败后来被同一命令跑通了」—— 因果配对第一次进热清单
+
+05 号调研的结论：**因果配对（「这个报错在改 X 之后消失」）是这类系统唯一无法重建的东西** ——
+文件可再读、命令可再跑，但「同一个 action 后来成功了」只存在于历史里。
+此前热清单只列失败边，模型会以为那条路仍然堵着。
+
+- `renderFailureLine` 新增可选参数 `resolvedBy`：若同一 `action` 的**成功边发生在更晚**，
+  行尾标 `↑later-ok:<边id>`（只给可回查的边 id）；
+- `renderLedger` 建一次成功边索引，逐行做一次查询（零模型调用）；`laterSuccessOf()` 导出可单测；
+- **只陈述事实**：不写「你应该去试」；成功在失败之前、或 action 不同 ⇒ 不标；
+- 成本：live 11 会话实测 **+11 tokens**（4/33 失败边命中），2000 边夹具 446 不变（夹具 action 唯一）；
+- 测试：ledger-boundary 增 N（同 action 后来成功 → 标记；成功在前 / 不同 action → 不标；不含建议字样）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**664 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**665 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

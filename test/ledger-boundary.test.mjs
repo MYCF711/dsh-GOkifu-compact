@@ -142,6 +142,40 @@ tests["M 重访过的状态在路径里标 ×N（图结构事实，不是行动�
   t.notIncludes(revisited, "建议", "路径行不许给建议");
 };
 
+tests["N 失败后来被同一 action 跑通 ⇒ 行内标 ↑later-ok:<边id>（事实，不是建议）"] = (t) => {
+  const now = Date.now();
+  const okLater = {
+    id: "e2",
+    from: "n2",
+    to: "n2",
+    intent: "再跑一次",
+    action: "bash(npm test)",
+    result: "success",
+    verify: { kind: "exit", summary: "exit 0" },
+    evidence: { start: 30, end: 31 },
+    ts: now - 500,
+  };
+  const g = mkGraph([mkEdge({ id: "e1", evidence: { start: 10, end: 12 }, action: "bash(npm test)" }), okLater]);
+  g.nodes.n2.via = "e1";
+  const text = renderLedger(g, { now, maxTokens: 2000 }).text;
+  t.includes(text, "↑later-ok:e2", "同一 action 后来成功了，必须标出来（否则模型以为路还堵着）");
+  t.notIncludes(text, "建议", "只陈述事实，不许给行动建议");
+  // 成功发生在失败之前 ⇒ 不是「后来解决」
+  const g2 = mkGraph([
+    mkEdge({ id: "e1", evidence: { start: 10, end: 12 }, action: "bash(npm test)" }),
+    { ...okLater, id: "e0", evidence: { start: 1, end: 2 } },
+  ]);
+  g2.nodes.n2.via = "e1";
+  t.notIncludes(renderLedger(g2, { now, maxTokens: 2000 }).text, "↑later-ok", "成功在失败之前不算解决");
+  // 不同 action ⇒ 不是同一件事
+  const g3 = mkGraph([
+    mkEdge({ id: "e1", evidence: { start: 10, end: 12 }, action: "bash(npm test)" }),
+    { ...okLater, action: "bash(npm lint)" },
+  ]);
+  g3.nodes.n2.via = "e1";
+  t.notIncludes(renderLedger(g3, { now, maxTokens: 2000 }).text, "↑later-ok", "不同命令不能算同一件事");
+};
+
 tests["#1 压缩无效（thrashing）状态要显示出来，但只在真的连续发生时"] = (t) => {
   const now = Date.now();
   const quiet = mkGraph([]);
