@@ -1060,6 +1060,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       result = await this.compactRegion(start, end, agent, signal);
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: tier-2 合并失败（不影响主流程）：${String(error)}`);
+      // ★ C136：失败时也必须清掉 summarize 留下的 pending 摘要 —— 否则「谁生产谁消费」被破坏：
+      //   下一次 fold（尤其规则路径不再覆盖这些字段时）会把**上一次失败尝试的摘要**当成自己的，
+      //   于是 summaryChars / quality 都是错的，而 foldMark 看起来完全正常。
+      this._lastSummaryChars = undefined;
+      this._lastSummaryText = undefined;
+      this._lastSummaryModelText = undefined;
       return null;
     } finally {
       this._chessActiveRange = null;

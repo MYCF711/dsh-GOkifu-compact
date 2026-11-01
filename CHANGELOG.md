@@ -5,6 +5,29 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C136 · tier-2 合并失败后，pending 摘要没清 —— 下一次 fold 会「吃掉」别人的摘要（**真 bug，已修**）
+
+**怎么发现的**：给 tier-2 补失败原子性测试时，先写了一版「失败后 pending 字段必须清空」——
+结果第一版**假绿**（因为前面的常规 fold 已经把字段消费掉了），改成「在 tier-2 那一次调用**内部**写入
+pending 再抛错」后立刻**红**：
+
+```
+Error: tier-2 失败后 _lastSummaryText 必须清空，实际 "STALE-SUMMARY-FROM-FAILED-TIER2"
+```
+
+**真实后果**：`#tier2IfNeededUnsafe` 的 catch 只打了一行 warn 就 `return null`，
+而 `_lastSummaryText / _lastSummaryChars / _lastSummaryModelText` 还留着**失败那次**的摘要。
+下一次 fold 若走**规则路径**（不再调 summarize 覆盖这些字段），就会把这份**别人的摘要**当成自己的：
+
+- `foldMarks[i].summaryChars` 记错长度；
+- `foldMarks[i].quality` 对错文本做召回测量（看起来「质量正常」，实则测的是上一次的产物）；
+- 机械追加段与模型文本的对应关系错位。
+
+**修复**：catch 分支里清掉这三个 pending 字段（谁生产谁消费 —— 生产失败也要把半成品收走）。
+
+**测试 C136**：注入只对 tier-2 那一次调用生效（`_chessActiveRange.tier2` 标记），
+在其内部写 pending 再抛错，断言三个字段清空、`_tier2InFlight` 复原、`_chessActiveRange` 清空。
+
 ### C135 · 手动 `/compact` 的深度记账（嵌套不许被清零，也不许假装压过）
 
 **为什么查这个**：`compactNow` 用 `_manualCompactDepth` 标记「当前是否处于手动压缩」，

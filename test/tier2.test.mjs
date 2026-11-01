@@ -274,4 +274,42 @@ tests["T2-6 A 方案收口：不递归、tier2After=0 不收、checkpoint 数量
   for (const seq of cps0) if (!session0.surface.nodes.includes(seq)) throw new Error(`tier2After=0 时 checkpoint ${seq} 不该被合并`);
 };
 
+tests["C136 tier-2 合并失败：必须清掉 summarize 留下的 pending 摘要（否则下一次 fold 会吃掉别人的摘要）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c136-tier2-fail");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c136" });
+  pushCheckpoints(session, 2);
+  pushPlain(session, 6);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
 
+  // 真实顺序：tier-2 内部的 summarize 先留下 pending 摘要，随后 compactRegion 抛错。
+  // 所以必须在**那一次调用内部**写入 pending 字段（否则会被前面的常规 fold 消费掉，测成空转）。
+  const original = engine.compactRegion.bind(engine);
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) {
+      engine._lastSummaryText = "STALE-SUMMARY-FROM-FAILED-TIER2";
+      engine._lastSummaryChars = engine._lastSummaryText.length;
+      engine._lastSummaryModelText = engine._lastSummaryText;
+      throw new Error("injected-tier2-boom");
+    }
+    return original(start, end, agent, signal);
+  };
+  let result;
+  try {
+    result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  } finally {
+    engine.compactRegion = original;
+  }
+
+  // tier-2 失败必须「不影响主流程」：不抛错（或抛了也要能继续）
+  if (result !== null && result !== undefined && typeof result !== "object") throw new Error(`返回值形态异常：${JSON.stringify(result)}`);
+  // 关键：pending 摘要必须被清掉，不许留给下一次 fold
+  if (engine._lastSummaryText !== undefined) throw new Error(`tier-2 失败后 _lastSummaryText 必须清空，实际 ${JSON.stringify(engine._lastSummaryText)}`);
+  if (engine._lastSummaryChars !== undefined) throw new Error(`tier-2 失败后 _lastSummaryChars 必须清空，实际 ${JSON.stringify(engine._lastSummaryChars)}`);
+  if (engine._lastSummaryModelText !== undefined) throw new Error(`tier-2 失败后 _lastSummaryModelText 必须清空，实际 ${JSON.stringify(engine._lastSummaryModelText)}`);
+  // 防重入与活动区间也必须复原
+  if ((engine._tier2InFlight ?? false) !== false) throw new Error("_tier2InFlight 必须复原为 false");
+  if (engine._chessActiveRange !== null && engine._chessActiveRange !== undefined) throw new Error(`_chessActiveRange 必须清空，实际 ${JSON.stringify(engine._chessActiveRange)}`);
+};
