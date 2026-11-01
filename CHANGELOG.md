@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C28 · live fold 证据一键汇总（脚本 + 证据页 + 5 用例）
+
+**问题**：`doctor` 只看最近几个数，`evidence/折叠成本-实测-*.md` 是手工抄的；每轮巡检要回答
+「fold 有没有 trigger / quality / closure、成本效率多少」，靠手工必然漂。
+
+**做法**：新增只读 `scripts/live-folds.mjs` —— 扫 `<DSH_HOME>/chess-context/sessions/*/graph.json`
+的 `foldMarks[i]`，输出 `evidence/live-folds.json` + `.md`：覆盖率（trigger/quality/closure/usage）、
+trigger 分布、质量下限、压缩比区间、幻觉探针累计、成本区间（input ÷ shadowed）、闭包空/非空计数；
+证据页写明**生成时间**与生成命令；空 home / 坏 json / 无 fold 都不抛；`--dry-run` 不落盘。
+
+**真机结果（2026-11-02T18:40Z）**：6 次 live fold / 12 个会话 —— usage 6/6、**trigger 2/6、quality 2/6**
+（4 次是 1.17 之前的老 fold，字段还没上线）；质量 c=1 / f=1、压缩比 127.07–133.76、unknownIds=0；
+成本 input/遮蔽 **1.43–1.81**；空闭包 2 次（新会话尚无节点，属正常）。
+
+测试：`test/live-folds.test.mjs` 5 用例（字段与排序 / 覆盖率与区间 / Markdown 生成时间与明细 /
+CLI 写盘与 dry-run / 空 home 不抛）。
+
 ### C27 · 「机器级层自动登记」：插件退出时自愈，下次启动接管
 
 **问题**：profile 用户层 `cordis.patch.yml` 最后应用。GUI 的 preset 快照写着 `compaction-basic`，
