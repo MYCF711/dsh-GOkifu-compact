@@ -5,6 +5,17 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C29 · 机器级层漂移观测（doctor 新检查 + 1 用例）
+
+**问题**：`home/cordis.patch.yml` 是用户层 preset 行的副本（只换 compaction 成员）。用户在会话里改了
+persona，home 层还是旧的 —— 下次启动会先看到旧 persona，直到退出时自愈才刷新。这属可自愈的中间态，
+但巡检时看不出来。
+
+**做法**：`doctor` 新增「机器级层与用户层一致（未漂移）」：用 `planHomePatch(profile, home).needed`
+判断副本是否落后；落后判 **warn**（不判 error —— 自动机制会收敛），detail 写清「退出时自动刷新，下次启动生效」。
+
+测试：`user-patch-heal` 新增 H-10（改人设 ⇒ 必须判漂移、新副本带新人设、旧人设不残留）。
+
 ### C28 · live fold 证据一键汇总（脚本 + 证据页 + 5 用例）
 
 **问题**：`doctor` 只看最近几个数，`evidence/折叠成本-实测-*.md` 是手工抄的；每轮巡检要回答

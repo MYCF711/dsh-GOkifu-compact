@@ -26,6 +26,7 @@ import { inspectProfileInstall } from "./link-path.mjs";
 //   模块级零副作用；ui.mjs 是**宿主半**（webServer 路由 + DEFAULTS），CLI 不该为一段发现逻辑拉它进来。
 import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
+import { planHomePatch } from "../src/rooms/user-patch.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -127,6 +128,34 @@ add(
       : homeHasEngine
         ? `${shadowed.join(", ")} 已被机器级层接管（home/cordis.patch.yml 有 engine 覆盖）—— 重启后生效`
         : `${shadowed.join(", ")} 在用户层写回了 @deepseek-ai/dsh-compaction-basic；插件会在退出时自动登记到机器级层，**下次启动生效**（无需命令）。急用可跑 home/.gokifu-fix-2026-11-02/apply-fix.cmd`,
+  );
+}
+
+/* ── 1.6 机器级层是否与用户层一致（漂移检测）
+   home 层是用户层 preset 行的**副本**（只换 compaction 成员）。用户改了 persona 但还没退出时，
+   home 层还是旧的 —— 下次启动会先看到旧 persona，直到退出时自愈才刷新。
+   这里只做观测：不一致 ⇒ 提示「退出时自动刷新」，不判 error（自动机制会收敛）。 */
+{
+  let drift = false;
+  let checked = false;
+  try {
+    const profileText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    const homePatch = nodePath.join(home, "cordis.patch.yml");
+    if (nodeFs.existsSync(homePatch) && findShadowedUserPresets(profileText).length > 0) {
+      checked = true;
+      drift = planHomePatch(profileText, nodeFs.readFileSync(homePatch, "utf8")).needed;
+    }
+  } catch {
+    /* 读不出按未采集处理 */
+  }
+  add(
+    "机器级层与用户层一致（未漂移）",
+    !drift ? "ok" : "warn",
+    checked === false
+      ? "没有需要复核的机器级层登记（用户层未遮蔽）"
+      : drift
+        ? "home 层副本比用户层旧（persona/配置已改）—— 插件退出时会自动刷新，下次启动生效"
+        : "home 层与用户层一致（只差 compaction 成员）",
   );
 }
 

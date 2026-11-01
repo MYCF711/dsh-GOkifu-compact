@@ -134,6 +134,17 @@ tests["H-8 用户层不存在 ⇒ 不写（不凭空造 home patch）"] = (t) =>
   }
 };
 
+tests["H-10 漂移：用户层改过人设后，plan 必须报 needed（doctor 的「未漂移」检查靠它）"] = (t) => {
+  const original = profilePatch();
+  const home = planHomePatch(original, "").next;
+  t.eq(planHomePatch(original, home).needed, false, "home 与用户层一致时不许反复写");
+  const edited = original.replace("这是主人的 persona，必须原样保留", "这是改过的人设，必须刷新到 home 层");
+  const plan = planHomePatch(edited, home);
+  t.eq(plan.needed, true, "用户层改过人设 ⇒ 必须判漂移");
+  t.includes(plan.next, "这是改过的人设", "重新生成的 home 副本必须带新人设");
+  t.eq(plan.next.includes("这是主人的 persona"), false, "旧人设不许残留");
+};
+
 tests["H-9 真实用户层样本：本仓 scripts 生成的 swap 与 preset-format 的 findShadowedUserPresets 口径一致"] = async (t) => {
   const { findShadowedUserPresets } = await import("../src/rooms/preset-format.mjs");
   const text = profilePatch();
