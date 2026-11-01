@@ -118,17 +118,33 @@ export function mentionsEdge(text, edgeId) {
  */
 export function findUnknownIds(graph, summaryText) {
   const text = String(summaryText ?? "");
+  // ★ C105：被「置换合并」吞掉的节点 id 仍然**是真实存在过的事实** —— 合并会把它从 nodes 里删掉，
+  //   只留在 survive 节点的 `superseded[]` 里。若只查 `graph.nodes`，摘要正常引用「n9 那条死路」
+  //   就会被误判成幻觉（假红）。这里把合并历史里的 id 也算作「已知」。
+  const merged = new Set();
+  for (const node of Object.values(graph?.nodes ?? {})) {
+    if (Array.isArray(node?.superseded)) {
+      for (const rec of node.superseded) {
+        if (rec && typeof rec.id === "string") merged.add(rec.id);
+      }
+    }
+  }
   const seen = new Set();
   const unknown = [];
-  for (const match of text.matchAll(/\b([en])(\d{1,4})\b/g)) {
-    const id = `${match[1]}${match[2]}`;
+  for (const match of text.matchAll(/[en][0-9]{1,4}/g)) {
+    const at = match.index ?? 0;
+    const before = at > 0 ? text[at - 1] : "";
+    const after = text[at + match[0].length] ?? "";
+    if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) continue;
+    const id = match[0];
     if (seen.has(id)) continue;
     seen.add(id);
-    const exists = match[1] === "e" ? Boolean(graph?.edges?.[id]) : Boolean(graph?.nodes?.[id]);
-    if (!exists) unknown.push(id);
+    const known = id[0] === "e" ? Boolean(graph?.edges?.[id]) : Boolean(graph?.nodes?.[id]) || merged.has(id);
+    if (!known) unknown.push(id);
   }
   return { checked: seen.size, unknown };
 }
+
 
 /**
  * ★ C104：摘要引用的 id **是否落在这次折叠的区间内**。

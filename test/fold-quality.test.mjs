@@ -183,3 +183,21 @@ tests["Q-8 越界引用（C104）：图里有、但不在本次折叠区间内�
   t.eq(findOutOfRangeIds(graph, { start: 1, end: 50 }, "e99 n99").outOfRange.length, 0, "不存在的 id 归幻觉探针，这里不重复报");
   t.eq(findOutOfRangeIds(graph, { start: 1, end: 50 }, "step3 xe1y e1").outOfRange.length, 0, "非独立 token（xe1y / step3）不许误判");
 };
+
+tests["Q-9 被置换合并吞掉的节点 id 不算幻觉（C105）"] = (t) => {
+  const graph = {
+    nodes: {
+      n1: { id: "n1", seq: 5, superseded: [{ id: "n9", seq: 9, goal: "旧目标" }] },
+      n2: { id: "n2", seq: 30 },
+    },
+    edges: {},
+  };
+  // 合并后的节点已从 nodes 里删除，只留在 n1.superseded —— 摘要引用它是**正确**的
+  const merged = findUnknownIds(graph, "n9 那条死路已经试过");
+  t.eq(merged.unknown.length, 0, `合并 id 不许报成幻觉：${JSON.stringify(merged)}`);
+  // 真编造的仍要抓到
+  const fake = findUnknownIds(graph, "n999 说明……");
+  t.eq(fake.unknown.includes("n999"), true, "不存在的 id 仍必须报");
+  // 越界探针对合并 id 也不该报（它已不在图里，归幻觉 / 合并两处，不重复）
+  t.eq(findOutOfRangeIds(graph, { start: 1, end: 10 }, "n9").outOfRange.length, 0, "合并 id 不许在越界探针里重复报");
+};
