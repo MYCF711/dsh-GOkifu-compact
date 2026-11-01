@@ -100,6 +100,13 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "fold-quality": {
+    file: "fold-quality.mjs",
+    // ★ 2026-11-01（并行会话产出，本会话补登记）：L1 保真度指标（纯函数）——
+    //   只读图的失败边与约束，不写盘、不调模型。依赖面与 ledger 同源（它本来就要用同一套判据）。
+    allowed: ["./kifu-model.mjs", "./ledger.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "touched-files": {
     file: "touched-files.mjs",
     // ★ 2026-11-01（并行会话产出，本会话补登记）：C4「折叠摘要里的最近访问文件」。
@@ -445,8 +452,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "touched-files", "verify", "world"],
-      "房间集合必须与契约 14 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 C4 新增 touched-files）",
+      ["config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "touched-files", "verify", "world"],
+      "房间集合必须与契约 15 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
