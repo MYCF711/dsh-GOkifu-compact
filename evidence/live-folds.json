@@ -1,6 +1,6 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-01T22:11:00Z",
+  "generatedAt": "2026-11-01T22:15:06Z",
   "home": "D:\\DeepSeek Harness\\home",
   "sessions": 24,
   "unreadable": 0,
@@ -29,6 +29,10 @@
       "inputPerShadowedMax": 2.11,
       "shadowedShareMin": 0.473,
       "shadowedShareMax": 0.759
+    },
+    "closureChain": {
+      "checked": 5,
+      "offenders": []
     },
     "bySession": {
       "sessionsWithFolds": 7,
@@ -72,13 +76,13 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-01T21:01:42Z",
-    "newFolds": 2,
+    "previousAt": "2026-11-01T22:11:00Z",
+    "newFolds": 0,
     "qualityChanged": false,
     "boundaryRegressed": false,
     "costShareDelta": 0,
     "prevQuality": {
-      "count": 12,
+      "count": 14,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
       "compressionRatioMin": 48.45,
@@ -86,9 +90,9 @@
       "unknownIdsTotal": 0
     },
     "prevBoundary": {
-      "count": 9,
+      "count": 11,
       "openAtEnd": 0,
-      "unsettled": 748
+      "unsettled": 1112
     }
   },
   "folds": [

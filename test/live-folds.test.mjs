@@ -12,7 +12,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { SCHEMA, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
+import { SCHEMA, closureChainOf, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -282,4 +282,26 @@ tests["L-8 默认不写盘（C65）：不传 --write 时证据文件不应被创
     nodeFs.rmSync(home, { recursive: true, force: true });
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["C103 闭包链：相邻 fold 的节点集必须单调不重叠（区间重叠是正常的）"] = (t) => {
+  const mk = (sessionId, at, first, last) => ({ sessionId, at, closure: { firstNode: first, lastNode: last } });
+  // 正常：n116 → n117（节点不重叠；即使 seq 区间重叠也不算重复折叠）
+  const ok = closureChainOf([mk("s1", 1, "n1", "n116"), mk("s1", 2, "n117", "n153")]);
+  t.eq(ok.checked, 1, "应检查 1 对相邻 fold");
+  t.eq(ok.offenders.length, 0, `节点不重叠不许报：${JSON.stringify(ok.offenders)}`);
+
+  // 真问题：第二次从 n100 开始（n100 ≤ n116）⇒ 节点被重复折叠
+  const bad = closureChainOf([mk("s1", 1, "n1", "n116"), mk("s1", 2, "n100", "n153")]);
+  t.eq(bad.offenders.length, 1, "节点级重复折叠必须报出来");
+  t.includes(bad.offenders[0], "n116→n100", "要点名前后边界");
+
+  // 缺 closure / 非字符串 firstNode 的记录被忽略；不同会话不互相比较
+  const mixed = closureChainOf([
+    mk("s1", 1, "n1", "n10"),
+    { sessionId: "s1", at: 2 },
+    { sessionId: "s2", at: 3, closure: { firstNode: "n5", lastNode: "n9" } },
+  ]);
+  t.eq(mixed.checked, 0, "只有一个带 closure 的记录 ⇒ 没有可比的相邻对");
+  t.eq(closureChainOf(null).checked, 0, "null 不许抛");
 };

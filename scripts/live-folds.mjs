@@ -136,6 +136,37 @@ export function collectLiveFolds(home) {
 }
 
 /** 汇总：覆盖率 + 质量 + 成本 + 闭包。 */
+/**
+ * ★ C103：折叠闭包的**节点级**单调性。
+ *   注意：`seqStart/seqEnd` 区间**允许重叠** —— fold 后 surface 上的 checkpoint 节点可能带着
+ *   比上一次 fold 结束更早的 seq，于是下一次 fold 的区间起点会「回落」。
+ *   真正要防的是**节点级重复折叠**：同一批节点被折两次 = 白花一次摘要成本、且摘要可能失真。
+ *   判据：同会话按时间排序后，第 N+1 次 fold 的 `closure.firstNode` 必须晚于第 N 次的 `closure.lastNode`。
+ */
+export function closureChainOf(records) {
+  const bySession = new Map();
+  for (const r of records ?? []) {
+    if (!r?.closure || typeof r.closure.firstNode !== "string") continue;
+    if (!bySession.has(r.sessionId)) bySession.set(r.sessionId, []);
+    bySession.get(r.sessionId).push(r);
+  }
+  const num = (id) => Number(String(id).replace(/^[^0-9]+/, "")) || 0;
+  let checked = 0;
+  const offenders = [];
+  for (const [sessionId, list] of bySession) {
+    list.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+    for (let i = 1; i < list.length; i += 1) {
+      checked += 1;
+      const prevLast = num(list[i - 1].closure.lastNode);
+      const nextFirst = num(list[i].closure.firstNode);
+      if (nextFirst <= prevLast) {
+        offenders.push(sessionId.slice(0, 20) + ":" + list[i - 1].closure.lastNode + "→" + list[i].closure.firstNode);
+      }
+    }
+  }
+  return { checked, offenders };
+}
+
 export function summarizeFolds(records) {
   const total = records.length;
   const countField = (field) => records.filter((r) => r[field] !== null && r[field] !== undefined).length;
@@ -175,6 +206,8 @@ export function summarizeFolds(records) {
       shadowedShareMin: costShares.length ? Math.min(...costShares) : null,
       shadowedShareMax: costShares.length ? Math.max(...costShares) : null,
     },
+    // C103：闭包节点级单调性（节点不许被折两次）
+    closureChain: closureChainOf(records),
     // C54：同一会话被折了多少次（多折 = 反复压缩，配合 foldThrash 看）
     bySession: (() => {
       const counts = new Map();
@@ -253,6 +286,12 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
     lines.push(`- 遮蔽占读入漂移（下限）：${trend.costShareDelta === null ? "—" : `${(trend.costShareDelta * 100).toFixed(1)} 个百分点`}`);
     lines.push("");
   }
+  lines.push("## 闭包链（C103）");
+  lines.push("");
+  lines.push(`- 检查 **${summary.closureChain.checked}** 对相邻 fold（同会话、按时间排序）`);
+  lines.push(`- 节点级重叠：**${summary.closureChain.offenders.length}** 处${summary.closureChain.offenders.length > 0 ? `（${summary.closureChain.offenders.join(" / ")}）` : "（节点没有被折两次）"}`);
+  lines.push("- 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。");
+  lines.push("");
   lines.push("## 会话分布（C54）");
   lines.push("");
   lines.push(`- 有 fold 的会话：**${summary.bySession.sessionsWithFolds}** 个，其中 **${summary.bySession.multiFold}** 个被折过 ≥3 次`);
@@ -316,6 +355,7 @@ export function main(argv = process.argv.slice(2)) {
     `  成本：遮蔽占读入 ${pct(summary.cost.shadowedShareMin)}–${pct(summary.cost.shadowedShareMax)}` +
       `（对照 input/shadowed ${summary.cost.inputPerShadowedMin ?? "—"}–${summary.cost.inputPerShadowedMax ?? "—"}，${summary.cost.count} 次有 usage）`,
   );
+  console.log(`  闭包链：检查 ${summary.closureChain.checked} 对相邻 fold · 节点级重叠 ${summary.closureChain.offenders.length} 处${summary.closureChain.offenders.length > 0 ? "（" + summary.closureChain.offenders.slice(0, 3).join(" / ") + "）" : ""}`);
   console.log(
     `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold · ` +
       `multi-fold(≥3) ${summary.bySession.multiFold} 个 · foldThrash ${summary.thrash.sessions} 个`,

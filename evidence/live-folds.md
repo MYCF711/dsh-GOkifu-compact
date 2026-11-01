@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T22:11:00Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T22:15:06Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs --write`（只读采集；显式 --write 才覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -35,11 +35,17 @@
 
 ## 与上次对比（C50）
 
-- 上次快照：2026-11-01T21:01:42Z
-- 新增 fold：**2** 次
+- 上次快照：2026-11-01T22:11:00Z
+- 新增 fold：**0** 次
 - 质量下限变化：无变化（上次 c=1 / f=1 · unknownIds 0）
 - 边界回归（openAtEnd 增加）：无
 - 遮蔽占读入漂移（下限）：0.0 个百分点
+
+## 闭包链（C103）
+
+- 检查 **5** 对相邻 fold（同会话、按时间排序）
+- 节点级重叠：**0** 处（节点没有被折两次）
+- 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。
 
 ## 会话分布（C54）
 
