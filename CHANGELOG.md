@@ -202,9 +202,21 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 - 测试：`test/boundary-audit.test.mjs` 5 用例（中英文指导都抓、注释不抓、工具治理、豁免粒度、真实仓库 0 条）。
 - 接入发版验收：四步 → 五步（加 `boundary-audit`）。
 
+### C16 · 路径里标出「重访过的状态」（×N）—— 循环第一次在热清单里可见
+
+调研候选 #15（`reentryCount`，来自 05 §3.2/§5.3「most-used 的符号版」）的最小落地：
+图里本来就有 `node.transpositions`（`mergeNodeInto` 记的「同一状态被另一条路径再次到达」次数），
+但热清单**从来没显示过它** —— 模型看到一长串路径节点，不知道自己在原地打转。
+
+- `renderLedger`：CURRENT PATH / WORKING 行的节点标签追加 `×N`（N = 总到达次数 = transpositions + 1）；
+- **只陈述图结构事实**：显示「这个位置被到过 N 次」，不写「你该换条路」（行动判断归模型/AGENTS）；
+- 零成本：只有真的重访过才有字符，正常会话逐字节不变（测试钉住「没有重访不许出现 ×」）；
+- `# path:` 的 L4/L5 极度压缩形态不标（那里先保「当前位置」本身）；
+- 测试：ledger-boundary 增 M（重访 → `n2×2`；无重访无 ×；不许 ×1；不许夹带「不要/建议」字样）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**663 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
+- 全量 `node test/run.mjs`（串行）：**664 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
 - doctor（live home）：0 错误 / 1 警告；该警告 `over-budget=5` 经归因为 21:51 重启后**既有行为**，非本轮回归。
 - 独立验证（`tmp/verify-round2/REPORT.md`）：全量 634/0/0（ed3e5b1 干净 worktree）、C2/C3/C4/C5 逐项 PASS、

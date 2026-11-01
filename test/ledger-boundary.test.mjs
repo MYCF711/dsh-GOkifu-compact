@@ -125,6 +125,23 @@ tests["I 出处覆盖率：失败边行必须带 (seq …)；OPTIONS/UNVERIFIED 
   );
 };
 
+tests["M 重访过的状态在路径里标 ×N（图结构事实，不是行动建议）"] = (t) => {
+  const now = Date.now();
+  const g = mkGraph([mkEdge({ id: "e1", evidence: { start: 10, end: 12 } })]);
+  // currentPath 沿 node.via 回溯 —— 夹具里 n2 必须挂到 e1 上，路径行才会渲染
+  g.nodes.n2.via = "e1";
+  const plain = renderLedger(g, { now, maxTokens: 2000 }).text;
+  t.notIncludes(plain, "×", "没有重访的会话不许出现 ×（零成本）");
+  // transpositions=1 ⇒ 该状态被另一条路径再次到达 ⇒ 一共到过 2 次
+  g.nodes.n2.transpositions = 1;
+  const revisited = renderLedger(g, { now, maxTokens: 2000 }).text;
+  t.includes(revisited, "n2×2", "重访过的状态必须标出「到过几次」");
+  t.notIncludes(revisited, "×1", "×N 的 N 是总到达次数，最小是 2（不许印 ×1）");
+  // 边界：只陈述图结构事实，不许夹带行动建议
+  t.notIncludes(revisited, "不要", "路径行不许给行动指令（那是 AGENTS/persona 的职责）");
+  t.notIncludes(revisited, "建议", "路径行不许给建议");
+};
+
 tests["#1 压缩无效（thrashing）状态要显示出来，但只在真的连续发生时"] = (t) => {
   const now = Date.now();
   const quiet = mkGraph([]);

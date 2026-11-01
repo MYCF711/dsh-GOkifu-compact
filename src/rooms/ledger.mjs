@@ -737,8 +737,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   // 「当前路径 === 工作路径」就只显示一份（旧行为，S2a 定稿：行内容打标 + 图例，省 20~40 tokens）
   const sameAsWorking =
     workingIds !== null && workingIds.length === currentIds.length && workingIds.every((id, i) => id === currentIds[i]);
-  const pathLabel = (id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}`;
-  const workingLabel = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
+  // ★ 2026-11-01（C16，调研候选 #15 的符号版）：**重访过的状态**在路径里标出来（`n41×2`）。
+  //   `transpositions` 是 mergeNodeInto 记的「同一状态被另一条路径再次到达」次数（图结构事实），
+  //   所以 ×N 只陈述「这个位置被到过 N 次」，不写「你该换条路」——行动判断仍归模型/AGENTS。
+  //   为什么值得显示：这种循环在热清单里原本完全不可见，模型只看到一长串节点，不知道自己在原地打转。
+  //   成本：只有真的重访过才有字符（正常会话 0 成本）。
+  const reentryTag = (id) => {
+    const extra = Number(g.nodes[id]?.transpositions);
+    return Number.isFinite(extra) && extra >= 1 ? `×${extra + 1}` : "";
+  };
+  const pathLabel = (id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}${reentryTag(id)}`;
+  const workingLabel = (id) => (g.nodes[id]?.kind === "user" ? "user" : `${id}${reentryTag(id)}`);
   // 两条待渲染的路径行（full 形态）；L3+ 再按剩余预算折叠（见 fitPaths）
   const { currentLine, workingLine } = foldPaths(currentIds, workingIds, sameAsWorking, pathLabel, workingLabel);
   // WORKING 尾部那条边的 id：L3+ 把 WORKING 合并进 CURRENT PATH 时用它保住「哪条边算工作」
