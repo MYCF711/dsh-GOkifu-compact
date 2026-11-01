@@ -5,6 +5,19 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C37 · handoff-check ⑬（fold 边界进交接门禁）+ ① 的 agent-only 语义
+
+**⑬ fold 边界**：C31 的 `boundary.openAtEnd` 此前只有 doctor 在**全局**看，单会话交接门禁看不到 ——
+但「摘要引用区间外的结果」正是交接时最该拦的问题。新增 ⑬：`openAtEnd > 0` ⇒ **fail**（与 doctor 的 error 同口径）；
+旧 fold 无 boundary ⇒ ok「未采集」；有记录且全 0 ⇒ ok。测试 H-13。
+
+**① agent-only 语义**：live 新出现一个 **10 个 agent 节点、0 个 user 节点**的会话（子代理/自动化会话），
+① 报「图里没有 rootUserNodeIds」——但它本来就没有根目标，不是缺陷。现在区分三态：
+空图 ⇒ ok「不适用」；**没有任何 user 节点 ⇒ ok「agent-only 会话，根目标不适用」**；
+有 user 节点却漏记 root ⇒ warn（点名 keeper 漏记）；有根但清单缺 ROOT USER ⇒ fail。测试 H-14。
+
+live 效果：`handoff-check` **WARN 8 → 7**（agent-only 会话不再误报）；⑬ 在 live 全 0 判据下为 ok。
+
 ### C36.1 · handoff-check ⑥ 误报修复：单独 `WORKING:` 行也是「当前位置」
 
 **发现**：C36 收尾跑门禁时出现 **FAIL 1**（会话 `7520721a`，⑥当前位置）——离线复现后确认是**检查器的锅**：

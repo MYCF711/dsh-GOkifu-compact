@@ -82,6 +82,33 @@ tests["H-12 只有 WORKING 行（当前路径===工作路径）也算「当前�
   t.eq(path.level, "ok", `只有 WORKING 行时必须判 ok（实际 ${path.level}：${path.detail}）`);
 };
 
+tests["H-13 ⑬fold边界：openAtEnd>0 ⇒ fail；=0 ⇒ ok；旧 fold 无 boundary ⇒ 未采集(ok)"] = (t) => {
+  const withMark = (boundary) =>
+    mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality(), ...(boundary === undefined ? {} : { boundary }) }] });
+  const bad = checkGraph(withMark({ overlapping: 5, openAtEnd: 1, unsettled: 0 }), {}).checks.find((c) => c.name.includes("⑬"));
+  t.eq(bad.level, "fail", `切在调用中间必须 fail，实际 ${bad.level}`);
+  const good = checkGraph(withMark({ overlapping: 5, openAtEnd: 0, unsettled: 1 }), {}).checks.find((c) => c.name.includes("⑬"));
+  t.eq(good.level, "ok", `openAtEnd=0 必须 ok，实际 ${good.level}`);
+  const legacy = checkGraph(withMark(undefined), {}).checks.find((c) => c.name.includes("⑬"));
+  t.eq(legacy.level, "ok", "旧 fold 没有 boundary ⇒ 未采集（不失败）");
+};
+
+tests["H-14 ①根目标：agent-only 会话不适用（ok）；有 user 节点却漏记 root 才是缺陷（warn）"] = (t) => {
+  const agentOnly = mkGraph();
+  agentOnly.nodes = { n2: agentOnly.nodes.n2 };
+  agentOnly.order = ["n2"];
+  agentOnly.rootUserNodeIds = [];
+  const r1 = checkGraph(agentOnly, {}).checks.find((c) => c.name.includes("①"));
+  t.eq(r1.level, "ok", `agent-only 会话必须 ok，实际 ${r1.level}：${r1.detail}`);
+  t.includes(r1.detail, "agent-only", "detail 要说明是 agent-only");
+
+  const missingRoot = mkGraph();
+  missingRoot.rootUserNodeIds = [];
+  const r2 = checkGraph(missingRoot, {}).checks.find((c) => c.name.includes("①"));
+  t.eq(r2.level, "warn", "有 user 节点但漏记 root ⇒ warn");
+  t.includes(r2.detail, "漏记", "detail 要点名是 keeper 漏记");
+};
+
 tests["H-11 空图 ⇒ ①根目标不适用（ok），不许当成「缺 rootUserNodeIds」告警"] = (t) => {
   const empty = {
     version: 1,

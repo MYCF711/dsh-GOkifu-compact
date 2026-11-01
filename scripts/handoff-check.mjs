@@ -22,6 +22,7 @@
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本（warn）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）
  *   ⑫ 触发原因：context-overflow 出现 = 压缩被迫自救（说明没跟上增长）
+ *   ⑬ fold 边界：切点落在工具调用中间（openAtEnd>0）= 摘要引用区间外结果 ⇒ fail（C37）
  *
  * 用法：
  *   node scripts/handoff-check.mjs                 # 人读
@@ -68,15 +69,21 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   // ① 根目标
   // ★ C36：空图（0 节点）是「本次会话没有记录任何节点」，不是「缺 rootUserNodeIds」——
   //   旧写法把两者混成同一个 warn，live 里 2 个空图长期占着告警位（没有可检查的内容）。
-  const nodeCount = Object.keys(graph?.nodes ?? {}).length;
+  const nodes = Object.values(graph?.nodes ?? {});
+  const nodeCount = nodes.length;
+  const userNodes = nodes.filter((n) => n?.kind === "user").length;
   const hasRoot = Array.isArray(graph?.rootUserNodeIds) && graph.rootUserNodeIds.length > 0;
-  const rootState = nodeCount === 0 ? "ok" : !hasRoot ? "warn" : text.includes("ROOT USER") ? "ok" : "fail";
+  // C38：agent-only 会话（没有任何 user 节点，例如子代理/自动化会话）本来就没有根目标，
+  //   这与「有 user 节点却漏记 rootUserNodeIds」是两件事 —— 前者是事实，后者才是缺陷。
+  const rootState = nodeCount === 0 || userNodes === 0 ? "ok" : !hasRoot ? "warn" : text.includes("ROOT USER") ? "ok" : "fail";
   const rootDetail =
     nodeCount === 0
       ? "空图（本次会话没有记录任何节点 ⇒ 根目标检查不适用）"
-      : hasRoot
-        ? ""
-        : "图里没有 rootUserNodeIds（可能不是从用户消息开始的会话）";
+      : userNodes === 0
+        ? "没有 user 节点（agent-only 会话）⇒ 根目标不适用"
+        : hasRoot
+          ? ""
+          : "图里有 user 节点但没有 rootUserNodeIds（keeper 漏记 —— 这是缺陷）";
   out.push(check("①根目标", rootState, rootDetail));
 
   // ② 约束
@@ -205,6 +212,28 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
       unknown.length === 0 ? (qualityMarks.length === 0 ? "没有质量样本（未采集）" : "") : `摘要提到但图里没有：${unknown.join(", ")}`,
     ),
   );
+
+  // ⑬ fold 边界（C31/C37）：切点落在工具调用中间 ⇒ 摘要引用的结果在区间外（悬空引用）。
+  //   以前只有 doctor 在全局看，单会话交接门禁看不到；这里补齐，fail 与 doctor 的 error 同口径。
+  {
+    const boundaryMarks = allMarks.filter((m) => m?.boundary && typeof m.boundary.openAtEnd === "number");
+    if (allMarks.length === 0) {
+      out.push(check("⑬fold边界", "ok", "本会话没有 fold 记录"));
+    } else if (boundaryMarks.length === 0) {
+      out.push(check("⑬fold边界", "ok", "未采集（旧版本 fold 没有 boundary —— 升级后自动出现）"));
+    } else {
+      const open = boundaryMarks.reduce((sum, m) => sum + (m.boundary.openAtEnd ?? 0), 0);
+      out.push(
+        check(
+          "⑬fold边界",
+          open > 0 ? "fail" : "ok",
+          open > 0
+            ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
+            : `${boundaryMarks.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
+        ),
+      );
+    }
+  }
 
   return { ledger, facts, checks: out };
 }

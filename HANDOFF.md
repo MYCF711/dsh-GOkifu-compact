@@ -48,6 +48,7 @@
 | **C36 handoff-check ① 语义修正（1.17.1 后）** | 空图（0 节点）⇒ ① 记 ok「不适用」，不再当成「缺 rootUserNodeIds」告警；live WARN **9 → 7**；测试 H-11 |
 | **C36.1 ⑥ 误报修复（1.17.1）** | 当前路径===工作路径时 ledger 只写 `WORKING:` 行，⑥ 旧判据不认 ⇒ 合法渲染被判 FAIL（live 7520721a 实测）；补 `/^WORKING:/m` + H-12；live handoff-check **FAIL 1→0**、WARN 7 |
 | **✅ 重启后自动转绿（03:01 重启）** | `build.json` 已落盘（v1.17.1 / 03:01）、home 层漂移自愈；doctor 只剩「fold 边界完整性」未采集（下次 fold 落 boundary 即转 ✓） |
+| **C37 ⑬fold边界门禁 + ①agent-only（1.17.1）** | handoff-check 新增 ⑬：`boundary.openAtEnd>0` ⇒ fail（与 doctor 同口径）；① 区分空图 / agent-only（ok）/ 有 user 漏记 root（warn）/ 缺 ROOT USER（fail）；测试 H-13/H-14；live WARN 8→7 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
