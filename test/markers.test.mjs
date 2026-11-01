@@ -81,7 +81,7 @@ tests["标记裸奔：只有 blocked 失败、没有成功路径时，图例必�
   if (!r.text.includes("[blocked:timeout]")) throw new Error(`ETIMEDOUT 没写成 blocked:timeout：\n${r.text}`);
   if (!r.text.includes("# markers:")) throw new Error(`标记出现了却没有图例（旧版 bug）：\n${r.text}`);
   if (!r.text.includes("blocked:permission =")) throw new Error(`图例没有解释 blocked:permission：\n${r.text}`);
-  if (!r.text.includes("retry when it changes")) throw new Error(`图例没说清什么条件变了能再试：\n${r.text}`);
+  if (!r.text.includes("the environment lacks a required permission")) throw new Error(`图例必须说清是什么被挡住了（陈述事实，不是建议）：\n${r.text}`);
 };
 
 tests["图例按用到的标记动态生成（没用到的不出现）"] = () => {
@@ -120,7 +120,7 @@ tests["dead 带重开锚点：retry-if 指向那条成功边（不是永久墓�
   const tags = failureTags(failureEdges(g).find((e) => e.id !== e0), t);
   if (!tags.some((x) => x === `dead retry-if:${e0}`)) throw new Error(`dead 没带重开锚点：${JSON.stringify(tags)}`);
   const r = renderLedger(g, { maxTokens: 500 });
-  if (!r.text.includes("retry only if retry-if breaks")) throw new Error(`图例没解释 retry-if：\n${r.text}`);
+  if (!r.text.includes("retry-if edge exists")) throw new Error(`图例没解释 retry-if：\n${r.text}`);
 };
 
 tests["TRACE：热清单指向真的三层树（不再是 v1.2.2 起就不再写的 graph.md）"] = () => {

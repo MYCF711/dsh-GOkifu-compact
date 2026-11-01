@@ -37,6 +37,14 @@ export const RULES = [
     re: /(下一步\s*[:：]|不要重试|建议你|建议先|务必先|请先执行|you should|you must|you may\b|continue or abandon|tell the user|the next action)/i,
   },
   {
+    // ★ C45：英文行动建议（"retry when…" / "take it"）与中文同类 —— 旧审计只认中文与 you should/must，
+    //   结果热清单的标记图例里长期带着 "retry when it changes / take it" 没被抓到。
+    id: "retry-advice",
+    level: "error",
+    why: "压缩产物不得给出「何时再试 / 该走哪条路」的行动建议（属于 AGENTS / persona）",
+    re: /(retry when|retry only|retry it|retry whenever|take it|or create it|should retry)/i,
+  },
+  {
     id: "tool-governance",
     level: "error",
     why: "工具契约 / 权限治理属于宿主与工具层，压缩不得自建",

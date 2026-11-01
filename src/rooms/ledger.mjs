@@ -322,16 +322,19 @@ function seqSpan(edge) {
  *
  * 键是标记前缀（`redundant:e1+2` 的键是 `redundant`）。
  */
+// ★ C45：图例只陈述**事实**，不写行动建议。旧版带 "retry when …" / "take it" —— 那是
+//   「该不该再试 / 该不该走这条路」的指导，属于 AGENTS/persona，不属于压缩（见 docs/压缩的职责边界.md）。
+//   标记本身已经说了「为什么这条路不通」；要不要再试是模型自己的判断。
 const MARKER_LEGEND = {
-  dead: "a working path avoids it — retry only if retry-if breaks",
-  "blocked:permission": "needs a permission this environment lacks — retry when it changes",
-  "blocked:missing-resource": "absent — retry when it appears, or create it",
-  "blocked:timeout": "no answer in time — retry when it recovers",
-  "blocked:unreachable": "connection refused — retry when it is up",
-  blocked: "not available right now — retry when that changes",
+  dead: "a working path avoids it (retry-if edge exists)",
+  "blocked:permission": "the environment lacks a required permission",
+  "blocked:missing-resource": "the required resource is absent",
+  "blocked:timeout": "no answer within the time limit",
+  "blocked:unreachable": "connection refused",
+  blocked: "not available in this environment",
   failed: "retryability unknown",
-  redundant: "working edge <edge> reaches the SAME position — take it",
-  longer: "working edge <edge> reaches it in fewer steps — take it",
+  redundant: "a working edge <edge> reaches the SAME position",
+  longer: "a working edge <edge> reaches it in fewer steps",
   novel: "reached positions no working path covers — new information",
 };
 

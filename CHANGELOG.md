@@ -5,6 +5,26 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C45 · 标记图例去掉行动建议 + 越界审计补英文「retry advice」规则
+
+**发现的越界（模型可见文本）**：热清单的标记图例从 1.9.x 起就带着行动指导 ——
+`retry only if retry-if breaks` / `retry when it changes` / `retry when it appears, or create it` /
+`take it`。这属于「该不该再试 / 该走哪条路」的判断（AGENTS / persona 职责），不是压缩该说的话。
+C15 只修掉了 `(continue or abandon)` 一处，**图例这 8 条一直没被抓到** —— 因为
+`boundary-audit` 的行为指导规则只认中文短语与 `you should / you must / you may`。
+
+**做法**：
+
+- `MARKER_LEGEND` 全部改成**只陈述事实**：`the environment lacks a required permission` /
+  `the required resource is absent` / `no answer within the time limit` / `connection refused` /
+  `a working edge <edge> reaches the SAME position`（不再有 retry / take it / create it）；
+- `boundary-audit` 新增规则 **`retry-advice`**（error）：`retry when|retry only|retry it|take it|or create it|should retry`
+  —— 与中文「下一步 / 不要重试」同口径，防止同类英文指导再漏进来；
+- 测试：`markers` 两条图例断言改成新的**事实口径**；`boundary-audit` 现有 B-1..B-5 全绿（新规则无新增 finding）。
+
+**效果**：模型可见文本里不再有「什么时候该再试」的建议；压缩只陈述「这条路为什么不通」，
+要不要再走由模型/AGENTS 决定。图例同时变短（约省 40% 图例字符），bench 仍 447 / L5（夹具未触达差异）。
+
 ### C44 · over-budget 归因指标：区分「渲染超预算」与「不可裁下限超预算」
 
 **背景**（接 C41/C43 同一类问题）：C41 已确认超预算是「宁可超也不丢约束/失败边」的设计内结果，
