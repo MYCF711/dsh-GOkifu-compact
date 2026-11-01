@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.15.2`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.16.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 351 tokens 的热清单」。**
 
@@ -8,7 +8,7 @@
 热清单     351 tokens       （2000 边合成夹具 · L5 降级档 · 2026-10-30/10-31 两次实测同值；旧版全量 28,800）
 失败保留   8 / 8            （历史口径 †；官方 8 段模板 4.67 / 8）
 清单开销   未复现/待测       （原载 0.2% = 历史单会话 v1.3.1 后实测；无复跑命令、无对照组；源 evidence/真实计费核对.md）
-验证       558 项单测（0 skipped） · 真实包 8/8 † · 真实进程 fold 3~6/6 †
+验证       615 项单测（0 skipped） · 真实包 8/8 † · 真实进程 fold 3~6/6 †
 ```
 
 GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不只有落子顺序，还有每一手的评语。
@@ -121,13 +121,15 @@ TRACE: <sessions>/<sid>/index.md  (per-node detail: nodes/<id>.md)
 ## 安装
 
 **一条命令，和装别的 DSH 插件一样。** 本包自带 `dsh.bundle.patch`：装进 profile 后会自动进
-`dsh.profile.bundles`，并由这一个包同时完成三件事 ——
+`dsh.profile.bundles`，并由这一个包同时完成两件事 ——
 
 1. 插入 UI 页（`/gokifu/api` + 设置页）；
-2. 把官方 `standard` preset 的压缩引擎 `compaction-basic` 换成 `dsh-gokifu-compact/engine`
-   （其余 32 条官方插件行逐字保留）；
-3. 把「新会话默认 preset」指向 gokifu 版 preset ⇒ **装上即接管**，不需要再单独装 preset bundle，
-   也不需要每次手选 preset。
+2. **按 id 整体覆盖四个官方 agent preset 的 `config`**：把每个 preset 的 compaction group 里
+   `@deepseek-ai/dsh-compaction-basic` 换成 `dsh-gokifu-compact/engine` ——
+   标准 / PTC / 极简 / 创造 四个模式都变成棋谱压缩，模式本身与选择器不变。
+
+⇒ **装上即接管，不需要选模式**：不管挑哪个内置模式，压缩都走棋谱（失败记忆逐字保留、每步热清单、
+置换检测、压缩永不裸截断）。不新增 preset、不改「新会话默认 preset」，所以也不会多出一个要学的模式。
 
 桌面版最省事的是 **插件市场 → 安装**（点一下）。命令行等价于：
 
@@ -135,25 +137,27 @@ TRACE: <sessions>/<sid>/index.md  (per-node detail: nodes/<id>.md)
 dsh plugin --profile <profile> add dsh-gokifu-compact
 ```
 
-然后**重启 DSH**（bundle 层在启动时合并）。重启后新会话默认走棋谱压缩；
-想换回别的模式，在 **设置 → Agent presets** 里把新任务默认 preset 改回去即可（会覆盖本包的默认值）。
+然后**重启 DSH**（bundle 层在启动时合并）。重启后随便选个模式发一条消息，压缩就是棋谱压缩了。
 
-> 1.15.0 之前是「插件包 + 另装一个 preset bundle」两步，还要手跑生成器、手选 preset；现在一个包就够。
-> 代价要说明白：preset 声明是**按宿主版本生成的快照**（生成时读取宿主 asar 里的官方 preset），
-> DSH 升级后需要维护者重跑 `node scripts/make-preset.mjs --bundle --write` 并发一版新插件。
-> 生成器有「插件行集合不多不少」自检：漏一行 / 多一行都会拒绝产出。
+> **怎么确认生效**：设置页「上下文压缩」能正常加载；或 `POST /gokifu/api {"action":"health"}`
+> 看 `mounted:true`；更硬的判据是看 `<DSH_HOME>/chess-context/sessions/<id>/graph.json` 有没有出现。
+
+> 代价要说明白：patch 里的 preset 清单是**按宿主版本生成的快照**（生成时读取宿主 asar 里的官方 preset），
+> DSH 升级后需要维护者重跑 `node scripts/make-presets-override.mjs --write` 并发一版新插件。
+> 生成器有「不新增 preset / 引擎行恰好 4 条 / `!!js` 表达式逐字保留」的机器判据，漏了会拒绝产出。
 
 **从源码（开发用）**
 
 ```bash
-node scripts/make-preset.mjs --bundle          # dry-run：看将从当前宿主 asar 生成什么
-node scripts/make-preset.mjs --bundle --write  # 重写仓库根的 cordis.patch.yml
-dsh plugin --profile <profile> add <本仓库路径>  # 或按下面的说明用市场/registry 安装
+node scripts/make-presets-override.mjs           # dry-run：看将从当前宿主 asar 生成什么
+node scripts/make-presets-override.mjs --write   # 重写仓库根的 cordis.patch.yml
+dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明用市场/registry 安装
 ```
 
-> ⚠ **压缩后端只能有一个**：preset 的 compaction group 里不许再出现 `compaction-basic`
-> （生成器与 `verify-install` 都有机器判据）。若之前装过旧的 `dsh-gokifu-preset` 包，
-> 必须先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
+> ⚠ **压缩后端只能有一个**：patch 覆盖后，四个 preset 的 compaction group 里都只有
+> `dsh-gokifu-compact/engine`（`bundle.test.mjs` B-2 与生成器都有机器判据）。
+> 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
+> 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
 ## 配置
 

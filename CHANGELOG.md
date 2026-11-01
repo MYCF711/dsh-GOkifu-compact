@@ -1,5 +1,74 @@
 # 更新记录
 
+## 1.16.0 — 2026-11-01
+
+> 本轮主题：**压缩方法就是替换官方压缩 —— 不再需要一个叫 gokifu 的模式。**
+> 触发：装上之后用户在 DSH 里选了内置的「标准模式」，压缩仍然是官方的 `@deepseek-ai/dsh-compaction-basic`
+> —— 本插件此前只在自己那个 `gokifu` preset 里生效，换个模式就把压缩换回去了。
+
+### 改了什么
+
+**bundle patch 按 id 整体覆盖四个官方 agent preset 的 `config`**，把每个 preset 的 compaction group 里
+`@deepseek-ai/dsh-compaction-basic` 换成 `dsh-gokifu-compact/engine`：
+
+```
+- insert:
+    - id: gokifu-ui                     # ① UI host 行（/gokifu/api + 设置页）
+      name: 'dsh-gokifu-compact'
+- id: preset-standard                   # ② 四个官方模式整体覆盖
+  config: { id, order, plugins: [...] } #    plugins 逐字保留，只换压缩引擎那一行
+- id: preset-ptc
+- id: preset-minimal
+- id: preset-cordis
+```
+
+- **不新增 preset**、**不改 `agent-preset-registry` 的默认 preset**、**不动选择器** —— 四个模式还是那四个模式，
+  只是压缩后端换成棋谱（失败记忆逐字保留、每步热清单、置换检测、压缩永不裸截断）。
+- 新增生成器 `scripts/make-presets-override.mjs`：从宿主 asar 读官方 preset 原文，
+  **文本级**改写（绝不 YAML round-trip），产出 `cordis.patch.yml`；DSH 升级后重跑再发版。
+
+### 为什么不能用「新增 preset」或「运行时接管」
+
+1. **新增 preset（1.15.0–1.15.2 的做法）**：用户得手动切模式，换了模式就换回官方压缩 —— 与「这是替换官方压缩」的产品定位相反。
+2. **运行时接管（2026-11-01 开发中方案，已否决）**：在 `apply` 里拿 `agentPresets` 注册表，改完 `definition.plugins` 再
+   `activate()` 重挂 generation。**实测事故**：应用后重启，会话里 `bash`/`read`/`write` 等 preset 内工具全部消失
+   （只剩宿主级工具）＝ preset 生成树挂载失败。假 service 单测测不出真实 `activate()` 的副作用。
+   代码已 stash 留档（`wip:R17-takeover（事故，留档）`），**不合并**。
+3. **patch 为什么只能整体覆盖**：`dsh-app-boot` 的 `applyEntryPatches()` 建 id 索引时只递归
+   `entry.group === true && Array.isArray(entry.config)` 的行；preset 行是 `@deepseek-ai/dsh-agent-preset`，
+   它的 `config` 是**对象**、`plugins` 在对象里 ⇒ patch 的 id 索引到不了 preset 内部的 compaction 行。
+   实测 `--dump-config`：顶层（dsh-base 层）有一份 `compaction-basic`，四个内置 preset 内部各有一份。
+
+### 为什么生成器是「文本级」而不是「YAML 解析 + 重新序列化」
+
+官方 preset 里有 `disabled: !!js process.platform === 'win32'` 这类表达式。一旦 `yaml.load → yaml.dump`，
+`!!js` 标签会退化成普通值，宿主不再按表达式求值 ⇒ `tool-bash`/`tool-pwsh` 的启停直接改变。
+所以生成器只做按行处理：定位 `^ {6}config:` 取 config 块（统一减 4 空格重排），只替换
+`- id: compaction-basic` 与紧邻的 `name:` 两行；自检里有一条硬断言：**`!!js` 表达式数量必须与官方四个文件之和完全一致**。
+
+### 验证（隔离实例，2026-11-01 21:4x）
+
+隔离 profile（`dsh-base` + `dsh-web-app` + 本包，独立 `DSH_HOME`，未碰 live）：
+
+1. `--dump-config`：`preset-standard` / `preset-ptc` / `preset-minimal` / `preset-cordis` 四行全部带
+   `name: dsh-gokifu-compact/engine`，预设内部 `compaction-basic` 归零（顶层 dsh-base 那份保留，属 headless 路径）。
+2. 起实例 → `POST /gokifu/api {"action":"health","profile":"bprobe"}` → `installed:true / mounted:true / notInBundles:false`。
+3. 用 DSH 自有 HTTP RPC 建会话（`agentPreset: "standard"`）+ 真实回合：
+   - **工具齐全**：模型成功调用 `pwsh` 工具并拿到输出（`hello-from-bplan`）—— 这是 1.16 方案相对运行时接管的关键回归；
+   - **GOkifu 引擎在岗**：`<home>/chess-context/sessions/<id>/graph.json` 落盘，含 user/agent 节点与带 `verify` 的边。
+4. **卸载回退**：把本包从 `dsh.profile.bundles` 与 `dependencies` 移除 → `--dump-config` 里
+   `gokifu-compact/engine` 归零、四个 preset 内部 `compaction-basic` 全部回来 ⇒ 干净回退，无残留。
+
+单测：`node test/run.mjs` = **615 passed / 0 skipped / 0 failed**（串行；改 `bundle.test.mjs` B-2 为「UI 行 + 四个 preset 覆盖」的断言）。
+
+### 已知代价与边界
+
+- preset 清单是**宿主版本快照**：DSH 升级后必须重跑 `node scripts/make-presets-override.mjs --write` 再发版。
+- 1.15.x 装过 `preset-gokifu` 的 home：升级后该 preset 消失，**已经切到 standard 的会话不受影响**；
+  若某会话 header 里 `agentPreset` 仍是 `gokifu`（1.15.0–1.15.2 期间创建且从未切换过），重建时按投影值取，
+  升级前建议扫一遍会话日志确认（脚本见 HANDOFF「升级前必查」）。
+- **未验证**：真正的 fold（45% 阈值）在 standard preset 下的行为；本次只证到引擎被挂载 + keeper 落账。
+
 ## 1.15.2 — 2026-11-01
 
 > 小版本：**新会话选择器里那个「gokifu / 暂无描述」补上描述**，并把生成器自检口径修正。
