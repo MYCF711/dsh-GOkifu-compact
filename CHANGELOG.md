@@ -5,6 +5,21 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C83 · CLI 路由测试（用户装完第一条命令不许断）
+
+**问题**：`package.json` 的 `bin` 指向 `scripts/cli.mjs`，用户从 npm 装完第一件事就是
+`npx dsh-gokifu-compact doctor` —— 而这条路径**没有任何测试**。历史上真实事故：doctor 曾放在 `test/` 下，
+`files` 白名单不含 `test/`，装出来的包一跑就 **ENOENT**（1.9.1 才迁到 `scripts/`）。
+
+**做法**：新增 `test/cli-routing.test.mjs`（静态解析 + 一次子进程）：
+
+1. cli.mjs 里每个 `nodePath.join(HERE, "X.mjs")` 的**目标必须存在**（防 test/ 事件重演）；
+2. 每个 `command === "x"` 分支必须出现在**用法文本**里（否则用户不知道怎么用）；
+3. `bin` 指向的文件存在、确实分派 `doctor`，且 `files` 白名单包含它所在目录（否则打包后 bin 不在包里）；
+4. 子进程验证：未知子命令**非 0 退出并打印用法**、`--help` 返回 0。
+
+**结果**：4 例首跑全绿（说明当前路由确实是通的 —— 现在有证据，不再靠印象）。
+
 ### C82 · `pack-check`：包内文件必须全部来自 git 跟踪（发布可复现性）
 
 **问题**：发布走 `npm pack`，而 `files` 白名单是**目录级**的（`docs`、`evidence`、`scripts`）——

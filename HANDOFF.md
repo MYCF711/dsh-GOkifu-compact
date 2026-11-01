@@ -93,6 +93,7 @@
 | **C80 合同 §6c：有意不加门禁的字段（2026-11-02）** | route/ms/summaryChars/totalAfter/foldCount 属纯诊断；fallback 属全局趋势；区间由 ⑯ 间接校验；判据「只有存在可判错边界才加门禁」写进合同 |
 | **C81 终验收尾（2026-11-02T21:13Z）** | 7 门禁 + verify-install + post-restart + 即期归因一次串行跑完并归档 `evidence/终验-2026-11-02.md`：758 passed / bench 415 无 DRIFT / handoff FAIL 0 WARN 5 / doctor 0 错 3 警 / boundary 0 / verify-install 19-19 / post-restart **fail 1**（旧进程，等重启）/ 即期 bug 0 |
 | **C82 打包可复现性检查（2026-11-02）** | `scripts/pack-check.mjs`：npm pack 文件必须全部 ⊆ `git ls-files` + 关键文件齐全；坑：`git ls-files` 默认转义中文路径（需 `-c core.quotePath=false`），否则 57 个中文文档假红；实测包内 121 文件、无出处 0；测试 3 例 |
+| **C83 CLI 路由测试（2026-11-02）** | `test/cli-routing.test.mjs`：转发目标必须存在、每个 command 必须写进用法、bin 存在且分派 doctor、files 白名单含 bin 目录；子进程验证未知命令非 0 + `--help` 为 0；4 例全绿 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
