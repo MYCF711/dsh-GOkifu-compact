@@ -13,7 +13,8 @@
 | 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1286ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
 | 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
-| 未验证 | ① GUI 插件市场点「安装」的完整点击流程（安装通道本身有 B-4 测试，且 live 的 profile 已是「bundles 含本包」状态）；② 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
+| 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add D:/主工作区/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
+| 未验证 | 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
 
 
 > 2026-11-01 · 给下一个会话
