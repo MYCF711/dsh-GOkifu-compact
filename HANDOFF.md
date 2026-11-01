@@ -65,6 +65,7 @@
 | **C52 同类失败标记汇总（1.17.1）** | L2+ 且失败边 ≥3、完整标记串完全相同时 → 一行 `# all N failures: <key>`，逐行不再重复（图例仍解释键；retry-if 指针因完整串不同而保留）；bench **446→430**；c17 三个夹具预算重定（300→270、330→280，注释写明） |
 | **C53 构建标识 buildId（1.17.1）** | `repoBuildId()` = package.json + src 所有 .mjs 内容哈希（12 hex）写入 build.json；doctor 同比较 semver 与 buildId，stale ⇒「运行实例 build X vs 磁盘 Y，重启后生效」；live 现报 `unknown vs 11f699aeab7d`；测试 S-6/S-7；rooms 允许 node:crypto |
 | **C54 会话分布 + thrash 进证据（1.17.1）** | `live-folds` 新增 `bySession`（有 fold 会话数 / multiFold≥3 / top3）与 `summary.thrash`；证据页加「会话分布」小节；live 首跑 **12 次 fold / 6 会话 / 2 个 multiFold / thrash 0**；测试 L-7 |
+| **C55 研究文档收口（2026-11-02）** | `docs/research/00` §11 重排（候选 8–26 全部归位、去重复行号）+ §11.1 状态快照（731 passed / bench 430 / handoff WARN 4 / doctor 3 警 / verify-install 19-19 / boundary 0 / folds 12-6） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 
