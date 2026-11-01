@@ -109,9 +109,10 @@ export function trendOf(prev, summary) {
 export function collectLiveFolds(home) {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   const records = [];
+  const thrash = [];
   let sessions = 0;
   let unreadable = 0;
-  if (!nodeFs.existsSync(sessionsRoot)) return { records, sessions, unreadable };
+  if (!nodeFs.existsSync(sessionsRoot)) return { records, sessions, unreadable, thrash };
   for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const graphFile = nodePath.join(sessionsRoot, entry.name, "graph.json");
@@ -126,9 +127,11 @@ export function collectLiveFolds(home) {
     }
     const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
     marks.forEach((mark, index) => records.push(foldRecord(entry.name, index, mark)));
+    // C54：压缩无效（foldThrash）与「同一会话被反复折」是同一类健康信号，证据页要能看到
+    if (typeof graph?.foldThrash === "number" && graph.foldThrash >= 2) thrash.push({ sessionId: entry.name, foldThrash: graph.foldThrash });
   }
   records.sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.sessionId.localeCompare(b.sessionId) || a.fold - b.fold);
-  return { records, sessions, unreadable };
+  return { records, sessions, unreadable, thrash };
 }
 
 /** 汇总：覆盖率 + 质量 + 成本 + 闭包。 */
@@ -171,6 +174,17 @@ export function summarizeFolds(records) {
       shadowedShareMin: costShares.length ? Math.min(...costShares) : null,
       shadowedShareMax: costShares.length ? Math.max(...costShares) : null,
     },
+    // C54：同一会话被折了多少次（多折 = 反复压缩，配合 foldThrash 看）
+    bySession: (() => {
+      const counts = new Map();
+      for (const r of records) counts.set(r.sessionId, (counts.get(r.sessionId) ?? 0) + 1);
+      const entries = [...counts.entries()].map(([sessionId, folds]) => ({ sessionId, folds })).sort((a, b) => b.folds - a.folds);
+      return {
+        sessionsWithFolds: entries.length,
+        multiFold: entries.filter((e) => e.folds >= 3).length,
+        top: entries.slice(0, 3),
+      };
+    })(),
     closure: { count: closureRecords.length, empty: emptyClosure, preGraph: closureRecords.filter((r) => r.closure.preGraph === true).length },
     boundary: {
       count: records.filter((r) => r.boundary !== null).length,
@@ -238,6 +252,12 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
     lines.push(`- 遮蔽占读入漂移（下限）：${trend.costShareDelta === null ? "—" : `${(trend.costShareDelta * 100).toFixed(1)} 个百分点`}`);
     lines.push("");
   }
+  lines.push("## 会话分布（C54）");
+  lines.push("");
+  lines.push(`- 有 fold 的会话：**${summary.bySession.sessionsWithFolds}** 个，其中 **${summary.bySession.multiFold}** 个被折过 ≥3 次`);
+  lines.push(`- 折叠最多的会话：${summary.bySession.top.map((e) => `${e.sessionId.slice(0, 22)}…（${e.folds} 次）`).join(" / ") || "（无）"}`);
+  lines.push(`- 压缩无效（foldThrash ≥2，连续两次 fold 间隔 <30 事件）：${summary.thrash && summary.thrash.sessions > 0 ? `**${summary.thrash.sessions} 个会话，最深 ${summary.thrash.max} 次**` : "0 个"}`);
+  lines.push("");
   lines.push("## 逐次明细");
   lines.push("");
   lines.push("| # | 会话 | 时间 | trigger | 遮蔽 tok | 输入 tok | 输入/遮蔽 | ms | c/f 召回 | 压缩比 | 闭包 n/e |");
@@ -265,8 +285,10 @@ export function main(argv = process.argv.slice(2)) {
   const outBase = getArg("out", nodePath.join(REPO, "evidence", "live-folds"));
   const dryRun = argv.includes("--dry-run");
   const jsonOnly = argv.includes("--json-only");
-  const { records, sessions, unreadable } = collectLiveFolds(home);
+  const { records, sessions, unreadable, thrash = [] } = collectLiveFolds(home);
   const summary = summarizeFolds(records);
+  // C54：压缩无效（连续 fold 间隔 <30 事件）—— 与「同一会话多折」一起看
+  summary.thrash = { sessions: thrash.length, max: thrash.reduce((m, t) => Math.max(m, t.foldThrash ?? 0), 0), list: thrash.slice(0, 5) };
   // C50：先读旧快照再覆盖 —— 每小时一次，最有用的是「与上次相比变了什么」。
   let previous = null;
   try {
@@ -290,6 +312,10 @@ export function main(argv = process.argv.slice(2)) {
   console.log(
     `  成本：遮蔽占读入 ${pct(summary.cost.shadowedShareMin)}–${pct(summary.cost.shadowedShareMax)}` +
       `（对照 input/shadowed ${summary.cost.inputPerShadowedMin ?? "—"}–${summary.cost.inputPerShadowedMax ?? "—"}，${summary.cost.count} 次有 usage）`,
+  );
+  console.log(
+    `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold · ` +
+      `multi-fold(≥3) ${summary.bySession.multiFold} 个 · foldThrash ${summary.thrash.sessions} 个`,
   );
   console.log(dryRun ? "（dry-run：未写文件）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
   return 0;

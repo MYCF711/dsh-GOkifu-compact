@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C54 · `live-folds` 会话分布 + 压缩无效（foldThrash）进证据页
+
+**问题**：证据页有逐次明细，但没有回答「**是不是同一个会话被反复折**」——而 `foldThrash`
+（连续两次 fold 间隔 <30 事件 = 压缩没回收足够空间）此前只有 doctor 在看，证据页看不到。
+
+**做法**：
+
+- `collectLiveFolds` 顺带收集 `foldThrash >= 2` 的会话（有界 5 条）；
+- `summarizeFolds` 新增 `bySession`：有 fold 的会话数 / **multiFold（≥3 次）** / 折叠最多的前 3；
+- `main()` 把 thrash 汇总进 `summary.thrash {sessions, max, list}`；证据页新增「## 会话分布」小节。
+
+**live 首跑**：**12 次 fold / 6 个有 fold 的会话**，其中 **2 个会话被折过 ≥3 次**，`foldThrash = 0`；
+另注意压缩比下限从此前的 113 降到 **48.45**（新 fold 折了更小的增量，仍在 1 个数量级以上）。
+
+测试：`live-folds` 新增 L-7（multiFold / top / thrash 三处）。
+
 ### C53 · 构建标识（buildId）：版本号比不出「运行实例落后」
 
 **发现（C34 的设计缺陷）**：`build.json` 只记 semver，而整轮优化里版本号一直是 **1.17.1** ——

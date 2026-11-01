@@ -245,3 +245,24 @@ tests["L-6 trendOf：新增 fold / 质量变化 / 边界回归 / 成本漂移都
   t.eq(same.newFolds, 0, "同一快照 ⇒ 0");
   t.eq(same.boundaryRegressed, false, "同一快照 ⇒ 无回归");
 };
+
+tests["L-7 会话分布：同一会话折 ≥3 次进 multiFold；foldThrash≥2 的会话单独列出（C54）"] = (t) => {
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-live-multi-"));
+  try {
+    const sessionsRoot = nodePath.join(root, "chess-context", "sessions");
+    nodeFs.mkdirSync(sessionsRoot, { recursive: true });
+    const dir = nodePath.join(sessionsRoot, "session-multi0003");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    const marks = [0, 1, 2].map((i) => ({ at: 1762200000000 + i * 60000, seqStart: 10 + i * 100, seqEnd: 100 + i * 100, trigger: "pressure", shadowedTokens: 50000 }));
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), JSON.stringify({ nodes: {}, edges: {}, foldThrash: 3, foldMarks: marks }, null, 2));
+    const { records, thrash } = collectLiveFolds(root);
+    const summary = summarizeFolds(records);
+    t.eq(summary.bySession.sessionsWithFolds, 1, "1 个会话有 fold");
+    t.eq(summary.bySession.multiFold, 1, "折过 3 次 ⇒ multiFold");
+    t.eq(summary.bySession.top[0].folds, 3, "top 会话折 3 次");
+    t.eq(thrash.length, 1, "foldThrash≥2 的会话必须列出");
+    t.eq(thrash[0].foldThrash, 3, "thrash 深度如实");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};

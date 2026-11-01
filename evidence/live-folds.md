@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T19:33:32Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T19:51:13Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -8,38 +8,44 @@
 
 | 项 | 有值的 fold / 总数 |
 |---|---:|
-| trigger | 6 / 10 |
-| quality（保真度） | 6 / 10 |
-| closure（可寻址闭包） | 6 / 10 |
-| usage（provider 真实 token） | 10 / 10 |
+| trigger | 8 / 12 |
+| quality（保真度） | 8 / 12 |
+| closure（可寻址闭包） | 8 / 12 |
+| usage（provider 真实 token） | 12 / 12 |
 
 ## 质量
 
-- 有 quality 样本：**6** 次
+- 有 quality 样本：**8** 次
 - constraintRecall min：**1** · failureRecall min：**1**
-- compressionRatio：**113.2 – 350.68**
+- compressionRatio：**48.45 – 350.68**
 - unknownIds（幻觉探针命中）：**0**
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
-- 有 usage 的 fold：**10** 次 · **遮蔽占读入 47% – 74%**（C43 口径）
+- 有 usage 的 fold：**12** 次 · **遮蔽占读入 47% – 74%**（C43 口径）
 - 对照：input/shadowed 1.36 – 2.11（含 host 工具/system 固定开销）
 - 判据：遮蔽占读入 < 30% 时 doctor 判 warn（折得太碎/太早）；比值本身不判错
 
 ## 闭包
 
-- 有 closure 的 fold：**6** 次，其中空闭包 **3** 次（新会话尚无节点时属正常）
-- **悬空（dangling）**：6 次有记录 —— residue 6 / candidates 3 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
-- **边界完整性**：3 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **204** 条
+- 有 closure 的 fold：**8** 次，其中空闭包 **3** 次（新会话尚无节点时属正常）
+- **悬空（dangling）**：8 次有记录 —— residue 7 / candidates 4 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
+- **边界完整性**：5 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **277** 条
 - 其中 **preGraph 1 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 与上次对比（C50）
 
-- 上次快照：2026-11-01T19:33:15Z
-- 新增 fold：**0** 次
+- 上次快照：2026-11-01T19:33:32Z
+- 新增 fold：**2** 次
 - 质量下限变化：无变化（上次 c=1 / f=1 · unknownIds 0）
 - 边界回归（openAtEnd 增加）：无
 - 遮蔽占读入漂移（下限）：0.0 个百分点
+
+## 会话分布（C54）
+
+- 有 fold 的会话：**6** 个，其中 **2** 个被折过 ≥3 次
+- 折叠最多的会话：session-d70b7c2f-c43e-…（3 次） / session-1e82afca-8be2-…（3 次） / session-8cc34e32-c35d-…（2 次）
+- 压缩无效（foldThrash ≥2，连续两次 fold 间隔 <30 事件）：0 个
 
 ## 逐次明细
 
@@ -55,4 +61,6 @@
 | 8 | session-d70b7c2f-c43e-… | 2026-11-01 19:11:19 | pressure | 174092 | 251359 | 1.44 | 16985 | 1/1 | 151.65 | 156/163 |
 | 9 | session-00b50089-b7a1-… | 2026-11-01 19:12:47 | pressure | 188541 | 257119 | 1.36 | 22257 | 1/1 | 251.05 | 57/61 |
 | 10 | session-8cc34e32-c35d-… | 2026-11-01 19:14:35 | pressure | 104709 | 221163 | 2.11 | 18839 | 1/1 | 113.2 | 0/0 |
+| 11 | 8fe881d1-a0ff-46f4-861… | 2026-11-01 19:41:40 | pressure | 81112 | 126368 | 1.56 | 9730 | 1/1 | 48.45 | 40/49 |
+| 12 | session-1e82afca-8be2-… | 2026-11-01 19:41:56 | pressure | 168425 | 252224 | 1.5 | 10204 | 1/1 | 176.18 | 37/39 |
 
