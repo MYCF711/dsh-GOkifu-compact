@@ -86,10 +86,13 @@ export function ledgerDigest(graph, { foldFailures = 0 } = {}) {
 export function foldFailureWarning(state) {
   if (typeof state?.foldFailures !== "number" || state.foldFailures <= 0) return "";
   const err = String(state.lastFoldError ?? "").replace(/\s+/g, " ").trim().slice(0, 150);
+  // ★ 边界（2026-11-01，见 docs/压缩的职责边界.md）：只报**压缩自身的状态**（失败了几次、错误原文、
+  //   上下文没被压小），不指导主 agent 该怎么做。旧版末尾还有一句
+  //   "Tell the user once, then continue; do not retry the failing summarizer yourself." ——
+  //   那是行为指导，属于 AGENTS / persona；「告诉用户」是宿主 UI 的职责，压缩不该借模型之口转述。
   return (
     `⚠ CONTEXT COMPRESSION IS FAILING (${state.foldFailures} consecutive folds failed${err ? `; last error: ${err}` : ""}). ` +
-    "The conversation above was NOT compacted — context keeps growing and will keep costing more. " +
-    "Tell the user once, then continue; do not retry the failing summarizer yourself."
+    "The conversation above was NOT compacted — context keeps growing and will keep costing more."
   );
 }
 

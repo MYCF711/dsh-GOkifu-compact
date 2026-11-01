@@ -941,7 +941,17 @@ function ruleSummary(g, range) {
   lines.push("## 当前节点与下一步");
   const last = agents[agents.length - 1];
   lines.push(`- 当前节点：${last ? `${last.id}（状态 ${String(last.worldHash).slice(0, 8)}/${String(last.constraintHash).slice(0, 8)}）` : "(none)"}`);
-  lines.push("- 下一步：按最近一条用户指令继续；不要重试“已探明死路”里的任何一条。");
+  // ★ 边界（2026-11-01，见 docs/压缩的职责边界.md）：这里**只陈述事实**，不写「下一步该做什么」。
+  //   旧版这行写的是「下一步：按最近一条用户指令继续；不要重试『已探明死路』里的任何一条」——
+  //   那是**行为指导**，属于 AGENTS / persona 的职责，压缩替它做决定就是越权（而且会和 AGENTS 里的
+  //   硬规则打架）。压缩能提供的是「最近一条用户指令是什么」，判断留给模型。
+  const lastUser = [...g.order].reverse().map((id) => g.nodes[id]).find((n) => n?.kind === "user");
+  const lastUserText = String(lastUser?.text ?? "").split("\n")[0].trim();
+  lines.push(
+    lastUser
+      ? `- 最近一条用户消息（seq ${lastUser.seq}）：${lastUserText.slice(0, 120)}${lastUserText.length > 120 ? "…" : ""}`
+      : "- 最近一条用户消息：(none)",
+  );
   lines.push("");
   lines.push("## 原始坐标");
   lines.push(`- 本段遮蔽 seq ${range?.start ?? "?"}-${range?.end ?? "?"}；逐字原文在 DSH 会话日志中，按 seq 回读。`);
