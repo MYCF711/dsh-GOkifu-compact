@@ -9,7 +9,7 @@
 | 门禁（串行） | 全量 **835 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 4 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** |
 | ⏳ **唯一待办** | **重启 DSH**：`post-restart-check` 仍 `fail 1`（`build.json` 无 `buildId` = 03:01 启动的旧进程）。重启后才会：① `renderErrors` / `skipReasons` / 四个归因字段**首次落盘**；② 新 fold 第一次跑上 C112/C113 的回滚/自愈路径；③ 94 个陈旧 `nodes/*.md` 在各会话下次 fold 时被清掉 |
 | 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
-| 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
+| 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理；C138：foldThrash 累计/清零）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
 | 文档判据 | 命令/子命令（C86/C125）、检查名（C97/C98）、常量锚（C100/C101）、测试数（C117）、证据数字（C118/C119/C122/C123）、可发现性（C116/C120）、调研文引用（C121）、HANDOFF 版本（C124） |
 | 最新巡检 | `evidence/巡检-第3次-2026-11-02.md`（七道门禁 + verify-install 19/19 + 重启前后差异表） |
 | 人读总览 | `evidence/持续优化-总览-2026-11-02.md`（120 条 C 轮的 2 分钟版：六条线 + 剩余待办） |

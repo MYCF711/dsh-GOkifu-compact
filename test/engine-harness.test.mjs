@@ -1930,3 +1930,44 @@ tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fol
   if (engine._lastSummaryChars !== undefined) throw new Error("手动压缩后 _lastSummaryChars 必须清空");
   if (engine._lastSummaryModelText !== undefined) throw new Error("手动压缩后 _lastSummaryModelText 必须清空");
 };
+
+tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔后必须清零"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c138-thrash");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.05 });
+  const session = makeSession({ id: "sess-c138" });
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `seed ${i}` }] });
+  await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
+  await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
+  await ctx.emitRaw("session/event", session, resultEvent("c1", ["boom", "[exit code: 1]"].join(String.fromCharCode(10)), 3));
+
+  const fold = async () => {
+    await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+    const r = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    return r;
+  };
+
+  if ((await fold()) === null) throw new Error("第 1 次 fold 应当成功（夹具不够？）");
+  const g1 = readGraph(dir, "sess-c138");
+  if ((g1.foldCount ?? 0) < 1) throw new Error("foldCount 应 >= 1");
+  if ((g1.foldThrash ?? 0) !== 0) throw new Error(`第一次 fold 不该计 thrash，实际 ${g1.foldThrash}`);
+
+  // 第二次：只推进 <30 个事件 ⇒ 必须累计 thrash
+  for (let i = 0; i < 3; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `soon ${i}` }] });
+  const second = await fold();
+  if (second !== null) {
+    const g2 = readGraph(dir, "sess-c138");
+    if ((g2.foldThrash ?? 0) < 1) throw new Error(`间隔 <30 事件的第二次 fold 必须计 thrash，实际 ${g2.foldThrash ?? 0}`);
+  }
+
+  // 第三次：推进 >=30 事件 ⇒ thrash 必须清零
+  const gap = 40;
+  for (let i = 0; i < gap; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `later ${i}` }] });
+  const third = await fold();
+  if (third !== null) {
+    const g3 = readGraph(dir, "sess-c138");
+    if ((g3.foldThrash ?? 0) !== 0) throw new Error(`间隔 >=30 事件后 thrash 必须清零，实际 ${g3.foldThrash}`);
+  }
+};

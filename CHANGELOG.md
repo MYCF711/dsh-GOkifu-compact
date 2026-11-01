@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C138 · `foldThrash` 的累计与清零（此前只有「显示」有测试）
+
+**缺口**：`foldThrash` 有 doctor / live-folds / 热清单三处**显示**测试，但 engine 里
+「间隔 < `THRASH_SEQ`(30) 事件就累计、拉开就清零」的**行为**没有测试 —— 而它决定 doctor 会不会误报「压缩在打转」。
+
+**做法**：`engine-harness` 新增 **C138**（真实 engine + 桩 meter）：
+
+1. 第一次 fold ⇒ `foldThrash = 0`（`foldCount === 0` 不计）；
+2. 只推进 **3** 个事件再 fold ⇒ `foldThrash ≥ 1`（间隔 3 < 30）；
+3. 推进 **40** 个事件再 fold ⇒ `foldThrash = 0`（间隔 40 ≥ 30，正常恢复）。
+
+**结果**：55/55 全绿。
+
+★ 实现坑（第二次踩同一个）：测试里写 `"boom\n[exit code]"` 被脚本转成**真换行**导致语法错误；
+改用 `["boom", "[exit code: 1]"].join(String.fromCharCode(10))`（与 C14 那次同一处理）。
+
 ### C137 · 手动 `/compact` 的 pending 摘要兜底清理（C136 的同源缺口）
 
 **动机**：C136 修的是「tier-2 失败后 pending 摘要没清」。同一份 pending 字段还有第三个生命周期 ——
