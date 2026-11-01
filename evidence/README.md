@@ -9,7 +9,9 @@
 
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
-| `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-01 | 2000 边夹具 L5 档 = **446 tokens**（旧版 351，+27% 来自「出处全档保留 + OPTIONS 不沉默」） |
+| `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **447 tokens**（351 → 446 来自「出处全档保留 + OPTIONS 不沉默」；446 → 447 来自失败边重试计数 `↻k`） |
+| `折叠成本-实测-2026-11-02.md` | 手工汇总 live `foldMarks[i].usage` | 2026-11-02 | 三次真实 fold：摘要 **input/shadowed = 1.43–1.63**（读整个 surface）、输出仅 362–3004 ⇒ 瓶颈在「读」 |
+| `巡检-第2次-2026-11-02.md` | 全门禁重跑 | 2026-11-02 01:0x | 668 测试 / bench 447 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警 |
 | `fold触发验证.json` / `.md` | `node test/real-fold-trigger.mjs` | 2026-11-01 | 自动 fold 触发 5/5；**C8 之后**还能验保真度真值链路（3 次 fold 的 quality 非真空） |
 | `真实模型测试.json` / `.md` | `node test/real-model.mjs --runs 3` | 2026-11-01T15:13Z | 失败边 **6.67/8 vs 官方 5.67/8**；**约束 2/2 vs 官方 0/2**；续跑 8/8；热上下文 594 prompt tokens |
 
@@ -27,6 +29,9 @@
 - `ima-摘要测试.*`、`模拟结果.*`、`三态标签AB实验.md`、`热清单标记AB实验.md`、`棋谱有效性实验.md`
 - `P0-worldhash-修复验证.md`、`P1-4-清单替换实测.md`、`收尾三件-dead锚点-树读取-回洗.md`
 - `真实端到端测试.*`、`真实计费核对.md`
+- `真实进程首次fold.md`（真实 DSH 进程里的第一次 fold 记录）
+- `重启验证.md`（重启后的验收记录）
+- `评估报告-2026-10-29-主人打分.md`（主人对 10-29 那版的主观评分，历史方法参考）
 
 ---
 

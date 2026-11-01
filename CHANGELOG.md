@@ -308,9 +308,24 @@ C12 让 doctor 看到 fold 触发原因；门禁也必须看 —— 对一个**�
 
 **没有发现新的代码回归。**
 
+### C23 · 文档索引 + 「新增文档必须登记」的机器检查
+
+调研/证据文档是这个项目的主要产出，但散在 `docs/research/`（8 份）与 `evidence/`（20 份）里 ——
+东西一多就会出现「写了但没人知道它在」的**孤儿文档**，而人肉维护索引一定会漏。
+
+- 新增 **`docs/research/README.md`**：00–07 的唯一入口（每份一句话结论 + 它贡献了哪些候选/落地项 +
+  必须先读的三份成文法）；
+- 新增 **`scripts/docs-index-check.mjs`**：两个目录各以 `README.md` 为索引，
+  **除索引外每个 .md 的 basename 都必须出现在索引里**，否则 exit 1 并点名；
+- 补 `evidence/README.md`：新增 `折叠成本-实测` 与 `巡检-第2次` 两行、把 bench 数字 446 → **447**、
+  补登记三份此前漏掉的历史证据（真实进程首次fold / 重启验证 / 评估报告）；
+- 测试 `test/docs-index-check.test.mjs` 4 用例（缺失能抓 / 目录列举口径 / 真实仓库 0 缺失 / 索引文件必须存在）；
+- 接入发版验收流程（五步 → 六步）。
+
 ### 验证
 
-- 全量 `node test/run.mjs`（串行）：**668 passed / 0 skipped / 0 failed**
+- 全量 `node test/run.mjs`（串行）：**672 passed / 0 skipped / 0 failed**
+- `docs-index-check`：27 个文件 / **0 个未索引**
 - `check-maintenance`：8 通过 / 0 警告 / **1 失败（1.17.0 无 tag，预期）**
 - `boundary-audit`：0 条；`bench-repro`：447 / 8/8 / exit 0（1.16.0 时 615；本轮与并行会话共新增 23 条）。
 - 定向：`ledger-boundary` 8/8、`touched-files` 9/9、`unverified-tier` 3/3、`engine-harness` 45/45（含新增 P7-5、C4 两条）。
