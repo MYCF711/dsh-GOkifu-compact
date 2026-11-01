@@ -308,3 +308,21 @@ tests["H-16 ⑪幻觉探针：『图里有但不在本次折叠区间』也要 w
   const clean = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality({ unknownIds: [], outOfRangeIds: [] }) }] }), {}), "⑪");
   t.eq(clean.level, "ok", "没有越界引用应 ok");
 };
+
+tests["H-17 ⑯闭包自洽必须用**当时**的 graphNodes，不能被之后的合并缩图误伤（C106）"] = (t) => {
+  const mk = (nodes, graphNodes) => ({
+    at: now,
+    foldCount: 1,
+    seqStart: 10,
+    seqEnd: 20,
+    closure: { nodes, edges: 5, firstNode: "n1", lastNode: "n2", firstEdge: "e1", lastEdge: "e5", graphNodes },
+  });
+  // 折叠时图有 50 / 40 个节点；之后合并把当前图缩到很少（mkGraph 默认更小）—— 不许因此判 fail
+  const graph = mkGraph({ foldMarks: [mk(50, 50), mk(40, 40)] });
+  const row = byName(checkGraph(graph, {}), "⑯");
+  t.eq(row.level, "ok", `历史上自洽的闭包不许被后来的缩图误判：${row.detail}`);
+
+  // 真坏数据：nodes(60) > 当时的 graphNodes(50) ⇒ 必须 fail
+  const broken = mkGraph({ foldMarks: [mk(60, 50)] });
+  t.eq(byName(checkGraph(broken, {}), "⑯").level, "fail", "nodes 超过当时图节点数必须 fail");
+};
