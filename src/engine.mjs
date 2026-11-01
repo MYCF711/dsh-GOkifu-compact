@@ -469,6 +469,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
 
     const priorFold = hasPriorCheckpoint(session);
     const range = this.#activeRange();
+    // C39：本段是否早于棋谱（重启续跑的历史没有节点可引用）—— 摘要指令据此提示「只按 seq 引用」。
+    const preGraphFold = foldClosureOf(g, range)?.preGraph === true;
     const instruction = buildChessInstruction({
       // ★ 2026-11-01（调研候选 #3）：把会话目录（相对化后）传进事实块 —— 省略行要给出「去哪查」。
       facts: renderFacts(g, {
@@ -479,6 +481,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       shadowedStart: range?.start,
       shadowedEnd: range?.end,
       priorFold,
+      preGraph: preGraphFold,
     });
 
     // ★ B1（2026-11-01）：`let` —— 下面的「摘要模型不可用 ⇒ 改走当前路由」分支要**换引用**，

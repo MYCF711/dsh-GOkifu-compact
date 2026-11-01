@@ -30,7 +30,7 @@ export function extractConstraintsBlock(facts) {
 export const CHESS_SUMMARY_OPEN = "<chess-fold>";
 export const CHESS_SUMMARY_CLOSE = "</chess-fold>";
 
-export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, priorFold = false }) {
+export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, priorFold = false, preGraph = false }) {
   const lines = [];
   lines.push(
     "You are the fold engine of a chess-record (棋谱) context system for an AI coding assistant. " +
@@ -41,6 +41,15 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("");
   lines.push(facts);
   lines.push("");
+  if (preGraph) {
+    // ★ C39：重启续跑的历史可能**早于棋谱**（C30 的 preGraph）。这段没有任何节点 id 可引用 ——
+    //   明说这一点，避免模型给不存在的 nN 编号（幻觉探针 unknownIds 会把它抓出来）。
+    lines.push(
+      "NOTE: the folded segment predates the chess record, so it has NO node ids. Cite it by seq ranges only; " +
+        "never introduce a node id that is not listed in the authoritative block above.",
+    );
+    lines.push("");
+  }
   lines.push("Rules that bind your output:");
   lines.push("- ROOT_USER_REQUEST_VERBATIM and CONSTRAINTS_VERBATIM must be preserved word-for-word. Never paraphrase a constraint: the difference between 必须 and 最好 is a different task.");
   lines.push(

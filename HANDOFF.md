@@ -50,6 +50,7 @@
 | **✅ 重启后自动转绿（03:01 重启）** | `build.json` 已落盘（v1.17.1 / 03:01）、home 层漂移自愈；doctor 只剩「fold 边界完整性」未采集（下次 fold 落 boundary 即转 ✓） |
 | **C37 ⑬fold边界门禁 + ①agent-only（1.17.1）** | handoff-check 新增 ⑬：`boundary.openAtEnd>0` ⇒ fail（与 doctor 同口径）；① 区分空图 / agent-only（ok）/ 有 user 漏记 root（warn）/ 缺 ROOT USER（fail）；测试 H-13/H-14；live WARN 8→7 |
 | **C38 真空样本告警分层（1.17.1）** | handoff-check ⑩ 真空样本改 ok（detail 标明「非缺陷」）；doctor 保真度在**全部样本真空**时 warn「保真度未被检验」。live handoff WARN **7→5**；测试 H-15 + H-4 改写 |
+| **C39 摘要指令 preGraph 提示（1.17.1）** | `buildChessInstruction({preGraph})`：本段早于棋谱时明说「没有节点 id，只按 seq 引用，不许编造 nN」；engine 用 `foldClosureOf(...).preGraph` 传参；测试 facts-prompt 3 用例 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

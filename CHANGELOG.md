@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C39 · 摘要指令如实告知「本段早于棋谱」（preGraph）
+
+**问题**：重启续跑的历史可能整段早于棋谱（C30 的 `preGraph`）—— 这一段**没有任何节点 id**。
+摘要模型却仍可能按惯例引 `nN`（例如「见 n12」），幻觉探针（`quality.unknownIds`）随后记一笔，
+而热清单/摘要里就多了一条查不到的引用。
+
+**做法**（只在摘要指令里加事实，不影响会话模型）：
+
+- `buildChessInstruction` 新增 `preGraph` 参数：为 true 时在事实块后加一行
+  「the folded segment predates the chess record, so it has NO node ids. Cite it by seq ranges only;
+  never introduce a node id that is not listed above.」
+- `engine.summarize` 用 `foldClosureOf(g, range).preGraph` 传参 —— 与 foldMark 里落盘的是同一个判定。
+
+测试：新增 `facts-prompt.test.mjs` 3 用例（事实块逐字带上 / preGraph 提示恰好出现一次且非 preGraph 不出现 /
+契约要点仍在）。摘要指令属 `facts-prompt.mjs` 的既有 ALLOW 例外（读者是摘要模型，不是会话模型）。
+
 ### C38 · 真空保真度样本：逐会话不再告警，全体真空由 doctor 兜底
 
 **问题**：`handoff-check` ⑩ 把「真空样本」（折叠区间里本来就没有约束/失败边可丢）记成 warn。
