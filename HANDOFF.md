@@ -129,6 +129,7 @@
 | **C116 docs 根索引（2026-11-02）** | 新增 `docs/README.md`（24 份文档按现状/历史分组 + 判读顺序）；`docs-index-check` 覆盖 docs 根 ⇒ 未索引 0；以后新文档不登记会红 |
 | **C117 测试数锚（2026-11-02）** | 修正现行文档两处过期测试数（743/754 → 824），统一写成「当次输出 + 时间戳」；docs-numbers 新增 C117：现行文档任何 `N passed` 必须同时带时间戳与「当次输出」提示 |
 | **C118 证据数字一致性（2026-11-02）** | `evidence-consistency`：从 `live-folds.json` 重算总数/会话数/quality 数/压缩比/成本/thrash，断言 README 与 research §11.1 出现同口径字符串；逐会话表与 bySession 一致、openAtEnd 和为 0；措辞容错、数字不饶 |
+| **C119 证据文件陈旧（2026-11-02）** | `bench-2000.json` 还写着 447（文档/基线全写 415）—— C85 改成不写盘后没人刷新；已 `--write` 刷成 415/L5；新增 C119-1（证据==基线）与 C119-2（校准 p50/p90/min/max/超预算==README 行） |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

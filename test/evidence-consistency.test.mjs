@@ -68,3 +68,25 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
   const openSum = (EVIDENCE.folds ?? []).reduce((sum, x) => sum + (x.boundary?.openAtEnd ?? 0), 0);
   t.eq(openSum, 0, `openAtEnd 总和必须为 0（实际 ${openSum}）`);
 };
+
+tests["C119-1 bench 证据文件必须等于当前基线（447 那种陈旧值会误导「成本是不是退化了」）"] = (t) => {
+  const bench = JSON.parse(nodeFs.readFileSync(nodePath.join(REPO, "evidence", "bench-2000.json"), "utf8"));
+  const src = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "bench-repro.mjs"), "utf8");
+  const expected = Number((src.match(/const EXPECTED_TOKENS = (\d+);/) ?? [])[1]);
+  t.eq(Number.isFinite(expected), true, "bench-repro 必须有 EXPECTED_TOKENS");
+  t.eq(bench.ledgerTokens, expected, `evidence/bench-2000.json（${bench.ledgerTokens}）必须等于基线 ${expected} —— 否则证据与文档互相矛盾`);
+  t.eq(bench.ledgerLevel, 5, "夹具档位必须仍是 L5");
+};
+
+tests["C119-2 校准证据的 p50/p90/min/max/超预算必须与 README 行一致"] = (t) => {
+  const calib = JSON.parse(nodeFs.readFileSync(nodePath.join(REPO, "evidence", "ledger-calibration.json"), "utf8"));
+  const s = calib.summary;
+  const readme = read("evidence/README.md");
+  const line = readme.split(String.fromCharCode(10)).find((l) => l.includes("ledger-calibration.json"));
+  t.eq(!!line, true, "README 必须有 ledger-calibration 行");
+  // README 的写法：`p50 = 419 / p90 = 521 / min 32 / max 688`（分位数带 `=`，极值不带）
+  for (const [needle, value] of [["p50 =", s.p50], ["p90 =", s.p90], ["min", s.min], ["max", s.max]]) {
+    t.includes(line, `${needle} ${value}`, `README 行必须写 ${needle} ${value}`);
+  }
+  t.includes(line, `超预算 ${s.over}/${s.n}`, `README 行必须写超预算 ${s.over}/${s.n}`);
+};
