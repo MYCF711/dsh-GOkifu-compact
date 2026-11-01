@@ -58,6 +58,11 @@
    - **GOkifu 引擎在岗**：`<home>/chess-context/sessions/<id>/graph.json` 落盘，含 user/agent 节点与带 `verify` 的边。
 4. **卸载回退**：把本包从 `dsh.profile.bundles` 与 `dependencies` 移除 → `--dump-config` 里
    `gokifu-compact/engine` 归零、四个 preset 内部 `compaction-basic` 全部回来 ⇒ 干净回退，无残留。
+5. **真实压缩（fold）**：给隔离实例的引擎行加小阈值（`thresholdRatio: 0.004 / firstFoldRatio: 0.002 /
+   retainRatio: 0.001 / minFoldTokens: 200`）后连发三条长 prompt，会话日志出现
+   `compaction/start` → `compaction/summary` → `compaction/end`，`graph.json` 的 `foldMarks` 写入
+   `{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476,
+   usage:{inputTokens:16595, outputTokens:934}}` ⇒ **压缩事件确实走 GOkifu 的棋谱摘要**，不是官方 8 段模板。
 
 单测：`node test/run.mjs` = **615 passed / 0 skipped / 0 failed**（串行；改 `bundle.test.mjs` B-2 为「UI 行 + 四个 preset 覆盖」的断言）。
 
@@ -67,7 +72,11 @@
 - 1.15.x 装过 `preset-gokifu` 的 home：升级后该 preset 消失，**已经切到 standard 的会话不受影响**；
   若某会话 header 里 `agentPreset` 仍是 `gokifu`（1.15.0–1.15.2 期间创建且从未切换过），重建时按投影值取，
   升级前建议扫一遍会话日志确认（脚本见 HANDOFF「升级前必查」）。
-- **未验证**：真正的 fold（45% 阈值）在 standard preset 下的行为；本次只证到引擎被挂载 + keeper 落账。
+- **桌面 live 已生效**（21:51 重启后）：本会话（preset 投影 = `standard`）的 `chess-context` 里
+  graph 66 节点 / 71 边 / `foldMarks` 1 条，`graph.json.delta.jsonl` 实时更新，注入消息里带 `<chess-ledger>`
+  ⇒ 标准模式确实由 GOkifu 引擎压缩。
+- **未验证**：GUI 插件市场点「安装」的完整点击流程（安装通道本身有 B-4 测试，且 live 的 profile 已是
+  「bundles 含本包」的状态）。
 
 ## 1.15.2 — 2026-11-01
 

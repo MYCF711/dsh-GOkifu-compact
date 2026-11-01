@@ -12,7 +12,8 @@
 | 隔离验证（真跑过） | ① `--dump-config` 四个 `- id: preset-*` 行都带 `dsh-gokifu-compact/engine`；② `agentPreset: "standard"` 会话里**工具齐全**（模型成功调用工具并拿到输出）；③ `<home>/chess-context/sessions/<id>/graph.json` 落盘（含 user/agent 节点与带 verify 的边）；④ 卸载后 `--dump-config` 里引擎行归零、四个 preset 内部 `compaction-basic` 全部回来 |
 | 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1286ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
-| 未验证 | ① **新 patch 生效后的真实 fold**（45%/30% 阈值触发）—— 重启后 live 尚未发生新 fold，医生里「最近 5 次 fold」都是 21:37 之前的；② GUI 插件市场点「安装」的完整点击流程（`reconcile()` 逻辑有 B-4 测试覆盖，但没真点过）；③ 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
+| 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
+| 未验证 | ① GUI 插件市场点「安装」的完整点击流程（安装通道本身有 B-4 测试，且 live 的 profile 已是「bundles 含本包」状态）；② 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
 
 
 > 2026-11-01 · 给下一个会话
