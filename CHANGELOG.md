@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C109 · 改了预算统计就必须落盘（把 C108 的思路挪到持久化这一步）
+
+**问题**：`ledger-budget.json` 是 doctor / 交接检查唯一的数据来源。C51/C52/C56/C90/C91 这几轮往里加了
+`sections` / `overBySession` / `traceDropped` / `minimalRenders` / `renderErrors` / `skipReasons`，
+每加一个都要**更新内存 + 落盘**。只更新内存的话：运行期统计是对的、**磁盘上永远缺这一项**，
+而 doctor 会安静地显示旧数 —— 与 C108 的「漏记」同类，只是发生在**持久化**这一步。
+
+**做法**：`test/ledger-budget-persist.test.mjs`（静态读 `src/engine.mjs`）：
+
+1. 凡是 `this.ledgerBudget.<字段> = …` 的赋值，其后 **15 行内**必须有 `#persistLedgerBudget()`；
+2. 只允许一种例外：**已声明节流**（注释写明「每 N 次落一次盘」）；
+3. 落盘方法必须真的交给 `persist.persistBudget`（单一写入口，方便将来换存储）；
+4. **判据自身也要被验证**（C109-3）：喂合成片段，有落盘不报 / 无落盘必须报 / 声明节流不报 ——
+   防止判据退化成永远为真。
+
+**当前代码**：2 处赋值（`renderErrors` 立即落盘、`skipReasons` 每 20 次落盘并写了注释）—— 全合规。
+
 ### C108 · 每条折叠路径都必须记 quality / trigger / closure（静态审计）
 
 **历史**：C10 → C12 → C24 → C31 连续四轮，每加一条折叠路径（常规 / 规则降级 / tier-2 / overflow / 手动
