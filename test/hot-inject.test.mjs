@@ -454,3 +454,40 @@ tests["C129 随机化不变量：任何输入都不崩，动作合法，注入�
     t.eq(ledgers.length <= 2, true, `第 ${i + 1} 组决策里 chess-context 消息不该超过 2 条（实际 ${ledgers.length}）`);
   }
 };
+
+tests["C130 历史清单清理的随机化不变量：只动旧 chess-context，别人的消息一条都不碰"] = (t) => {
+  const makeUserMessage = ({ content, source }) => ({ id: "stub", role: "user", content, source });
+  const rand = rng(778899);
+  let elidedTotal = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const session = makeSession();
+    const ledgerSeqs = [];
+    const otherSeqs = [];
+    const ledgerCount = Math.floor(rand() * 5); // 0..4 条历史清单
+    for (let k = 0; k < ledgerCount; k += 1) {
+      const long = rand() < 0.7;
+      const text = long ? "<chess-ledger>" + "x".repeat(300 + Math.floor(rand() * 400)) : LEDGER_STUB_TEXT;
+      ledgerSeqs.push(session.push({ content: [{ type: "text", text }], source: { kind: "chess-context", form: long ? "ledger" : "ledger-stub" } }));
+      // 中间夹一条普通用户消息
+      otherSeqs.push(session.push({ content: [{ type: "text", text: `普通消息 ${k}` }], source: { kind: "prompt" } }));
+    }
+    const before = [...session.surface.nodes];
+    const elided = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
+    elidedTotal += elided;
+    const after = [...session.surface.nodes];
+
+    t.eq(after.length, before.length, `第 ${i + 1} 组 surface 长度必须不变（replace 不是 append）`);
+    for (const seq of otherSeqs) t.eq(after.includes(seq), true, `第 ${i + 1} 组普通消息 ${seq} 被误动了`);
+    // 非占位清单最多保留一条
+    const nonStub = after.filter((seq) => {
+      const ev = session.eventAt(seq);
+      const text = messageText(ev?.data ?? {});
+      return ev?.data?.source?.kind === "chess-context" && text.length > 200;
+    });
+    t.eq(nonStub.length <= 1, true, `第 ${i + 1} 组还有 ${nonStub.length} 条非占位清单（应该只剩最新一条）`);
+    // 幂等：再跑一次不该再动
+    const again = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
+    t.eq(again, 0, `第 ${i + 1} 组第二次清理必须无事可做（实际 ${again}）`);
+  }
+  t.eq(elidedTotal > 0, true, "随机样本必须至少发生一次清理（否则判据空转）");
+};
