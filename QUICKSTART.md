@@ -115,6 +115,27 @@ node test/rollback.mjs
 `graph.json` 解析失败时，插件会**自动重建空图**（不崩），但会丢历史。
 想保留现场就先复制一份再重启。
 
+### 某个模式好像没走棋谱压缩
+
+本插件只覆盖**四个官方 preset**（标准 / PTC / 极简 / 创造）。第三方插件自带的 preset
+（例如 `dsh-design-studio` 的「设计模式」）可能在它自己的 bundle patch 里重新声明 `compaction-basic`
+—— 那个模式下就是原生压缩。强覆盖别人的 preset 属越权、且会被对方升级冲掉，所以本插件**只登记不覆盖**：
+`node scripts/doctor.mjs` 的「第三方 preset 的压缩后端（C94）」会点名是哪个 preset。
+
+### 装完别的插件后设置页 / 「上下文压缩」页面不见了
+
+多半是 bundle patch 的 `insert` **id 撞车**：宿主按 id 建索引，后写的替换先写的。
+`doctor` 的「insert id 唯一性（C96）」在撞到本插件 `gokifu-ui` 时会直接报 **error**；
+两个插件抢同一个 preset 则由「preset 覆盖唯一性（C95）」报 warn。
+
+### `doctor` 说「运行实例版本」不一致
+
+说明磁盘代码已更新、但进程还是旧的（本插件用 `link:` 安装）。重启 DSH 后跑一条命令核对：
+
+```bash
+node scripts/post-restart-check.mjs   # 期望全 ✓：buildId 一致 + 归因字段出现 + doctor 0 错 + boundary 0 条
+```
+
 ### fold 一直不触发
 
 三个原因，按顺序查：

@@ -60,3 +60,10 @@ tests["C97-1 README 点名的 doctor 检查必须真实存在（文档与体检�
     t.eq(doctor.includes(name), true, `doctor.mjs 必须真有「${name}」这个检查（否则文档在骗人）`);
   }
 };
+
+tests["C98-1 QUICKSTART 必须给「重启后核对」入口（link 安装最常见的一条坑）"] = (t) => {
+  const quick = nodeFs.readFileSync(nodePath.join(REPO, "QUICKSTART.md"), "utf8");
+  t.eq(quick.includes("post-restart-check.mjs"), true, "QUICKSTART 必须提到 post-restart-check（否则用户不知道一条命令就能核对）");
+  t.eq(quick.includes("第三方 preset 的压缩后端"), true, "QUICKSTART 必须解释第三方 preset 不走棋谱压缩");
+  t.eq(quick.includes("insert id 唯一性"), true, "QUICKSTART 必须给出「页面消失」的排查入口");
+};

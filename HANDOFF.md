@@ -108,6 +108,7 @@
 | **C95 preset 覆盖唯一性（2026-11-02）** | doctor 新增检查：同一 preset 被 ≥2 个 bundle 覆盖 ⇒ warn 点名（后写者整体接管、压缩后端可能被静默顶掉）；live 实测 5 个 preset 各单 owner、扫 12 个 patch；测试 C95 |
 | **C96 insert id 唯一性（2026-11-02）** | doctor 新增检查：insert 行按 id 建索引，撞到本插件 `gokifu-ui` ⇒ **error**（设置页/API 会消失），别人之间撞 ⇒ warn；live 实测 16 个 id 各单 owner、扫 12 个 patch；测试三态 |
 | **C97 README 排查入口（2026-11-02）** | 常见问题补三条（第三方 preset 不走棋谱压缩 / insert id 撞车导致页面消失 / 运行实例版本不一致需重启），并写进 doctor 检查名；C97-1 断言 README 点名的检查在 doctor.mjs 真实存在 |
+| **C98 QUICKSTART 排查补齐（2026-11-02）** | §四 补三条（第三方 preset 不走棋谱压缩 / insert id 撞车导致页面消失 / 运行实例版本不一致需重启）+ `post-restart-check` 入口；C98-1 断言新手文档必含这三处 |
 | ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
 | 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
 

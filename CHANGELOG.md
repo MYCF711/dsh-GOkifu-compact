@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C98 · QUICKSTART 补齐三条排查 + 「重启后核对」入口
+
+**问题**：C97 把三条共存解释写进了 README，但用户**先读的是 QUICKSTART**（「3 分钟上手」）。
+那里 §四「出问题怎么办」只覆盖「插件没加载 / 回滚 / 棋谱坏了 / fold 不触发」四种老情况。
+
+**做法**：QUICKSTART §四 补三条（与 README 同口径、但更短）：
+
+1. **某个模式没走棋谱压缩** → 本插件只覆盖四个官方 preset；第三方 preset 自带 `compaction-basic`，
+   `doctor` 的「第三方 preset 的压缩后端（C94）」点名；
+2. **装完别的插件后设置页 / 「上下文压缩」页面不见了** → `insert` id 撞车，
+   「insert id 唯一性（C96）」撞到 `gokifu-ui` 直接 error；preset 被抢由 C95 报 warn；
+3. **`doctor` 说「运行实例版本」不一致** → `link:` 安装 + 磁盘已更新 ⇒ 重启后一条命令核对：
+   `node scripts/post-restart-check.mjs`。
+
+**测试**：`docs-commands` 新增 **C98-1** —— QUICKSTART 必须提到 `post-restart-check` 与那两条共存检查名
+（否则「新手文档缺最关键的一步」不会被任何门禁发现）。
+
 ### C97 · README 排查入口：三种「看起来像坏了」的情况
 
 **问题**：C94/C95/C96 三条共存检查只活在 doctor 输出里 —— 用户遇到
