@@ -50,6 +50,31 @@ tests["CL-2 首尾 id 是区间内真实的第一个/最后一个，不是全图
   t.eq(closure.lastEdge, edges[3], `尾边应是 e4，实际 ${closure.lastEdge}`);
 };
 
+tests["CL-5 preGraph：区间整体早于图的首个节点 ⇒ 标 preGraph（可回查承诺为空）"] = (t) => {
+  const g = createGraph({ sessionId: "s-pre" });
+  const node = addAgentNode(g, { seq: 5, goal: "晚于区间的第一步", worldHash: "W5", constraintHash: "C" });
+  t.eq(node.id !== undefined, true, "夹具前置：节点要真的建出来");
+  const before = foldClosureOf(g, { start: 1, end: 3 });
+  t.eq(before.nodes, 0, "区间内没有节点");
+  t.eq(before.preGraph, true, "区间早于图 ⇒ preGraph=true");
+  t.eq(before.graphNodes, 1, "要记下当时图里有多少节点（1）");
+  const after = foldClosureOf(g, { start: 100, end: 200 });
+  t.eq(after.nodes, 0, "区间在图之后也没有节点");
+  t.eq(after.preGraph, false, "「图之后的空区间」不是 preGraph（语义必须分开）");
+};
+
+tests["CL-6 preGraph：完全没有节点的新图 ⇒ preGraph=true；有节点在区间内 ⇒ false"] = (t) => {
+  const empty = createGraph({ sessionId: "s-empty" });
+  const c1 = foldClosureOf(empty, { start: 1, end: 10 });
+  t.eq(c1.nodes, 0, "空图空区间");
+  t.eq(c1.preGraph, true, "空图没有任何可回查实体 ⇒ preGraph=true");
+  t.eq(c1.graphNodes, 0, "空图节点数 0");
+  const { g } = mkGraph();
+  const c2 = foldClosureOf(g, { start: 3, end: 5 });
+  t.eq(c2.preGraph, false, "区间内有节点 ⇒ 不是 preGraph");
+  t.eq(c2.graphNodes, 6, "图里共有 6 个节点");
+};
+
 tests["CL-3 空区间/非法 range ⇒ 结果为零而不是 null（fold 可能确实没覆盖实体）"] = (t) => {
   const { g } = mkGraph();
   const empty = foldClosureOf(g, { start: 1000, end: 2000 });

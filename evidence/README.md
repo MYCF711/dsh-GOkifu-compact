@@ -10,7 +10,7 @@
 | 文件 | 生成命令 | 生成时间 | 关键数字 |
 |---|---|---|---|
 | `bench-2000.json` | `node scripts/bench-repro.mjs` | 2026-11-02 | 2000 边夹具 L5 档 = **447 tokens**（351 → 446 来自「出处全档保留 + OPTIONS 不沉默」；446 → 447 来自失败边重试计数 `↻k`） |
-| `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T18:40Z | **6 次 live fold / 12 个会话**：usage 6/6、**trigger 2/6、quality 2/6**（其余 4 次是 1.17 之前的老 fold，无这些字段）；质量 c=1 / f=1、压缩比 127–133.8、幻觉探针 0；成本 input/遮蔽 **1.43–1.81**；空闭包 2 次（新会话尚无节点）。**看生成时间，不看 mtime** |
+| `live-folds.json` / `.md` | `node scripts/live-folds.mjs`（只读，自动汇总 `foldMarks`） | 2026-11-02T18:5xZ | **7 次 live fold / 15 个会话**：usage 7/7、**trigger 3/7、quality 3/7**（其余为 1.17 前老 fold）；质量 c=1 / f=1、压缩比 127.07–350.68、幻觉探针 0；成本 input/遮蔽 **1.36–1.81**；闭包 3 次（空 2 次）；**C30 起 preGraph/graphNodes 落盘**（老 fold 无该字段）。**看生成时间，不看 mtime** |
 | `折叠成本-实测-2026-11-02.md` | 手工汇总 live `foldMarks[i].usage` | 2026-11-02 | 三次真实 fold：摘要 **input/shadowed = 1.43–1.63**（读整个 surface）、输出仅 362–3004 ⇒ 瓶颈在「读」 |
 | `巡检-第2次-2026-11-02.md` | 全门禁重跑 | 2026-11-02 01:0x | 668 测试 / bench 447 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警 |
 | `最终验收-2026-11-02.md` | 六道门禁 + live 现状 + 发版待办 + 已知缺口 | 2026-11-02 01:0x | **676 测试** / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警（均已解释）|

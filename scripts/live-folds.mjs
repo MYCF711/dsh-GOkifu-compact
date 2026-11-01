@@ -57,7 +57,15 @@ export function foldRecord(sessionId, index, mark) {
         }
       : null,
     closure: closure
-      ? { nodes: closure.nodes ?? null, edges: closure.edges ?? null, firstNode: closure.firstNode ?? null, lastNode: closure.lastNode ?? null }
+      ? {
+          nodes: closure.nodes ?? null,
+          edges: closure.edges ?? null,
+          firstNode: closure.firstNode ?? null,
+          lastNode: closure.lastNode ?? null,
+          // C30 起才有：区间早于本图（重启续跑的历史没有节点可回查）
+          preGraph: typeof closure.preGraph === "boolean" ? closure.preGraph : null,
+          graphNodes: closure.graphNodes ?? null,
+        }
       : null,
     dangling: mark?.dangling ?? null,
   };
@@ -126,7 +134,7 @@ export function summarizeFolds(records) {
       inputPerShadowedMin: costRatios.length ? Math.min(...costRatios) : null,
       inputPerShadowedMax: costRatios.length ? Math.max(...costRatios) : null,
     },
-    closure: { count: closureRecords.length, empty: emptyClosure },
+    closure: { count: closureRecords.length, empty: emptyClosure, preGraph: closureRecords.filter((r) => r.closure.preGraph === true).length },
   };
 }
 
@@ -165,6 +173,7 @@ export function renderMarkdown({ home, records, summary, generatedAt }) {
   lines.push("## 闭包");
   lines.push("");
   lines.push(`- 有 closure 的 fold：**${summary.closure.count}** 次，其中空闭包 **${summary.closure.empty}** 次（新会话尚无节点时属正常）`);
+  lines.push(`- 其中 **preGraph ${summary.closure.preGraph} 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段`);
   lines.push("");
   lines.push("## 逐次明细");
   lines.push("");

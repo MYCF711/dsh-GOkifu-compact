@@ -1,36 +1,37 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-01T18:40:45Z",
+  "generatedAt": "2026-11-01T18:44:37Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 12,
+  "sessions": 15,
   "unreadable": 0,
   "summary": {
-    "total": 6,
+    "total": 7,
     "coverage": {
-      "trigger": 2,
-      "quality": 2,
-      "closure": 2,
-      "usage": 6
+      "trigger": 3,
+      "quality": 3,
+      "closure": 3,
+      "usage": 7
     },
     "triggerCounts": {
-      "pressure": 2
+      "pressure": 3
     },
     "quality": {
-      "count": 2,
+      "count": 3,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
       "compressionRatioMin": 127.07,
-      "compressionRatioMax": 133.76,
+      "compressionRatioMax": 350.68,
       "unknownIdsTotal": 0
     },
     "cost": {
-      "count": 6,
-      "inputPerShadowedMin": 1.43,
+      "count": 7,
+      "inputPerShadowedMin": 1.36,
       "inputPerShadowedMax": 1.81
     },
     "closure": {
-      "count": 2,
-      "empty": 2
+      "count": 3,
+      "empty": 2,
+      "preGraph": 0
     }
   },
   "folds": [
@@ -153,7 +154,9 @@
         "nodes": 0,
         "edges": 0,
         "firstNode": null,
-        "lastNode": null
+        "lastNode": null,
+        "preGraph": null,
+        "graphNodes": null
       },
       "dangling": {
         "residue": 0,
@@ -193,11 +196,55 @@
         "nodes": 0,
         "edges": 0,
         "firstNode": null,
-        "lastNode": null
+        "lastNode": null,
+        "preGraph": null,
+        "graphNodes": null
       },
       "dangling": {
         "residue": 3,
         "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      }
+    },
+    {
+      "sessionId": "session-1e82afca-8be2-42f9-8186-2bd274e30342",
+      "fold": 2,
+      "at": 1793558452856,
+      "trigger": "pressure",
+      "seqStart": 4876,
+      "seqEnd": 8547,
+      "summaryChars": 1953,
+      "shadowedTokens": 288608,
+      "inputTokens": 391464,
+      "outputTokens": 705,
+      "inputPerShadowed": 1.36,
+      "ms": 14671,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 350.68,
+        "expectedConstraints": 1,
+        "expectedFailures": 3,
+        "unknownIds": 0,
+        "summaryTokens": 823
+      },
+      "closure": {
+        "nodes": 116,
+        "edges": 122,
+        "firstNode": "n1",
+        "lastNode": "n116",
+        "preGraph": null,
+        "graphNodes": null
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
         "liveUnsettled": 0,
         "fromBroken": 0
       }

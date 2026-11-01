@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T18:40:45Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-01T18:44:37Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs`（只读；重跑会覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -8,26 +8,27 @@
 
 | 项 | 有值的 fold / 总数 |
 |---|---:|
-| trigger | 2 / 6 |
-| quality（保真度） | 2 / 6 |
-| closure（可寻址闭包） | 2 / 6 |
-| usage（provider 真实 token） | 6 / 6 |
+| trigger | 3 / 7 |
+| quality（保真度） | 3 / 7 |
+| closure（可寻址闭包） | 3 / 7 |
+| usage（provider 真实 token） | 7 / 7 |
 
 ## 质量
 
-- 有 quality 样本：**2** 次
+- 有 quality 样本：**3** 次
 - constraintRecall min：**1** · failureRecall min：**1**
-- compressionRatio：**127.07 – 133.76**
+- compressionRatio：**127.07 – 350.68**
 - unknownIds（幻觉探针命中）：**0**
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
-- 有 usage 的 fold：**6** 次，比值 **1.43 – 1.81**
+- 有 usage 的 fold：**7** 次，比值 **1.36 – 1.81**
 - 判据：比值 ≥ 2 时 doctor 判 warn（读得比压的多一倍以上）
 
 ## 闭包
 
-- 有 closure 的 fold：**2** 次，其中空闭包 **2** 次（新会话尚无节点时属正常）
+- 有 closure 的 fold：**3** 次，其中空闭包 **2** 次（新会话尚无节点时属正常）
+- 其中 **preGraph 0 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 逐次明细
 
@@ -39,4 +40,5 @@
 | 4 | session-d70b7c2f-c43e-… | 2026-11-01 14:40:21 | — | 193363 | 280422 | 1.45 | 22963 | — | — | — |
 | 5 | session-8cc34e32-c35d-… | 2026-11-01 18:36:14 | pressure | 163722 | 295805 | 1.81 | 34527 | 1/1 | 133.76 | 0/0 |
 | 6 | session-00b50089-b7a1-… | 2026-11-01 18:36:34 | pressure | 104709 | 163385 | 1.56 | 13935 | 1/1 | 127.07 | 0/0 |
+| 7 | session-1e82afca-8be2-… | 2026-11-01 18:40:52 | pressure | 288608 | 391464 | 1.36 | 14671 | 1/1 | 350.68 | 116/122 |
 

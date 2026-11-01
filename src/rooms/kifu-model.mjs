@@ -269,7 +269,7 @@ export function failureEdges(g) {
  *
  * @param {{nodes:object, order:string[], edges:object}} graph
  * @param {{start:number,end:number}|null} range
- * @returns {{nodes:number, edges:number, firstNode:string|null, lastNode:string|null, firstEdge:string|null, lastEdge:string|null}|null}
+ * @returns {{nodes:number, edges:number, firstNode:string|null, lastNode:string|null, firstEdge:string|null, lastEdge:string|null, preGraph:boolean, graphNodes:number}|null}
  */
 export function foldClosureOf(graph, range) {
   if (graph === null || typeof graph !== "object") return null;
@@ -291,6 +291,16 @@ export function foldClosureOf(graph, range) {
   const byId = (a, b) => Number(String(a).slice(1)) - Number(String(b).slice(1));
   nodeIds.sort(byId);
   edgeIds.sort(byId);
+  // ★ C30（2026-11-02）：区分「区间里没有实体」与「区间早于本图」。
+  //   重启后会话历史续跑时，fold 覆盖的 seq 段可能没有任何图节点（图是本次启动才建的）——
+  //   此时摘要里的 nN/eN「可回查」承诺是空的，必须如实标注，而不是让人以为 0 就是「恰好没实体」。
+  let minNodeSeq = null;
+  for (const id of graph.order ?? []) {
+    const seq = Number(graph.nodes?.[id]?.seq);
+    if (Number.isFinite(seq) && (minNodeSeq === null || seq < minNodeSeq)) minNodeSeq = seq;
+  }
+  const graphNodes = (graph.order ?? []).filter((id) => graph.nodes?.[id] !== undefined).length;
+  const preGraph = nodeIds.length === 0 && (minNodeSeq === null || range.end < minNodeSeq);
   return {
     nodes: nodeIds.length,
     edges: edgeIds.length,
@@ -298,6 +308,8 @@ export function foldClosureOf(graph, range) {
     lastNode: nodeIds.at(-1) ?? null,
     firstEdge: edgeIds[0] ?? null,
     lastEdge: edgeIds.at(-1) ?? null,
+    preGraph,
+    graphNodes,
   };
 }
 

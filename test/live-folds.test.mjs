@@ -67,7 +67,7 @@ function makeHome() {
               unknownIds: [],
               summaryTokens: 1224,
             },
-            closure: { nodes: 0, edges: 0, firstNode: null, lastNode: null },
+            closure: { nodes: 0, edges: 0, firstNode: null, lastNode: null, preGraph: true, graphNodes: 0 },
           },
           {
             at: 1762200000000,
@@ -78,7 +78,7 @@ function makeHome() {
             ms: 8000,
             usage: { inputTokens: 82000, outputTokens: 900 },
             quality: { constraintRecall: 0.8, failureRecall: 0.5, compressionRatio: 12.5, unknownIds: ["e999"], summaryTokens: 400 },
-            closure: { nodes: 3, edges: 2, firstNode: "n1", lastNode: "n3" },
+            closure: { nodes: 3, edges: 2, firstNode: "n1", lastNode: "n3", preGraph: false, graphNodes: 7 },
           },
         ],
       },
@@ -110,6 +110,9 @@ tests["L-1 collect：三个会话三条 fold，按时间升序；字段逐项取
     t.eq(modern.inputPerShadowed, 1.81, "成本比 = input / shadowed（295805/163722≈1.81）");
     t.eq(records[0].trigger, null, "老 fold 没有 trigger 记 null");
     t.eq(records[0].quality, null, "老 fold 没有 quality 记 null");
+    t.eq(modern.closure.preGraph, true, "C30 起闭包带 preGraph");
+    t.eq(records[2].closure.preGraph, false, "有节点在区间内 ⇒ preGraph=false");
+    t.eq(records[0].closure, null, "老 fold 没有 closure 记 null");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -135,6 +138,7 @@ tests["L-2 summarize：覆盖率 / trigger 分布 / 质量下限 / 成本区间 
     t.eq(s.cost.inputPerShadowedMin, 1.44, "成本比下限（130000/90000≈1.44）");
     t.eq(s.closure.count, 2, "闭包样本数");
     t.eq(s.closure.empty, 1, "空闭包一次");
+    t.eq(s.closure.preGraph, 1, "preGraph 一次（区间早于本图）");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -152,6 +156,7 @@ tests["L-3 renderMarkdown：带生成时间、覆盖率表、逐次明细"] = (t
     t.includes(md, "session-modern0002", "明细里要有会话 id");
     t.includes(md, "pressure", "明细里要有 trigger");
     t.includes(md, "133.76", "明细里要有压缩比");
+    t.includes(md, "preGraph", "证据页要解释 preGraph");
     t.eq(md.includes("undefined"), false, "不许出现 undefined");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });

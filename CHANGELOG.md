@@ -5,6 +5,23 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C30 · 闭包如实标注 preGraph（区间早于本图时，「可回查」不是承诺）
+
+**问题**：C24 的闭包只记节点/边计数 + 首尾 id。重启续跑会话时，fold 覆盖的 seq 段可能**没有任何图节点**
+（图是本次启动才建的），闭包 nodes=0 —— 但「0」看起来像「恰好没有实体」，而真相是「这段历史在图里根本不可回查」。
+live 实测就出现过：一次 fold 遮蔽 163K token，闭包 0 节点。
+
+**做法**：`foldClosureOf` 增加两个字段：
+
+- `preGraph`：区间内 0 节点，且**区间结束早于全图最早节点**（或图里还没有任何节点）⇒ true；
+- `graphNodes`：折叠发生时图里共有多少节点（区分「新图」与「有图但区间在前」）。
+
+三个消费者：`live-folds` 证据页多一行 preGraph 计数；`doctor` 的保真度 detail 在 >0 时补
+「N 次覆盖图外历史（无节点可回查）」；foldMark 自然落盘（每次 fold 都带）。
+
+测试：`fold-closure` 新增 CL-5/CL-6（区间早于图 ⇒ preGraph；区间在图之后 ≠ preGraph；空图 ⇒ true；
+有节点在区间内 ⇒ false）；`live-folds` 的 L-1/L-2/L-3 同步断言。
+
 ### C29 · 机器级层漂移观测（doctor 新检查 + 1 用例）
 
 **问题**：`home/cordis.patch.yml` 是用户层 preset 行的副本（只换 compaction 成员）。用户在会话里改了

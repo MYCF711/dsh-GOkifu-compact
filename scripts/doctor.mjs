@@ -468,6 +468,9 @@ add(
     const cMin = Math.min(...withQuality.map((m) => num(m.quality.constraintRecall)));
     const fMin = Math.min(...withQuality.map((m) => num(m.quality.failureRecall)));
     const ratios = withQuality.map((m) => m.quality.compressionRatio).filter((x) => Number.isFinite(x));
+    // C30：有几次 fold 的区间早于本图（重启续跑的历史没有节点可回查）—— 只在 >0 时写进 detail。
+    const preGraph = withQuality.filter((m) => m.closure?.preGraph === true).length;
+    const addressText = preGraph > 0 ? ` · ${preGraph} 次覆盖图外历史（无节点可回查）` : "";
     const ratioText = ratios.length > 0 ? ` · compressionRatio ${Math.min(...ratios)}–${Math.max(...ratios)}` : "";
     const latest = withQuality[0].quality;
     add(
@@ -475,7 +478,7 @@ add(
       cMin < 1 ? "error" : fMin < 1 ? "warn" : "ok",
       `constraintRecall min=${cMin} · failureRecall min=${fMin}${ratioText}` +
         `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
-        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）`,
+        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}`,
     );
     // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了
     const missingC = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingConstraints) ? m.quality.missingConstraints : [])))].slice(0, 5);
