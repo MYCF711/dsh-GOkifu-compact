@@ -628,6 +628,11 @@ tests["溢出自救：绕过阈值与增长门控"] = async () => {
   for (let i = 0; i < 5; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压");
+  // ★ 2026-11-01（C12）：为什么压要可观测 —— 溢出自救必须记成 context-overflow，
+  //   不能和正常 pressure 混在一起（overflow 出现 = 压缩没跟上增长，是健康告警）。
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const mark = (readGraph(graphDir, "sess-overflow").foldMarks ?? []).at(-1);
+  if (mark?.trigger !== "context-overflow") throw new Error(`溢出自救的 foldMark.trigger 必须是 context-overflow，实际 ${JSON.stringify(mark?.trigger)}`);
 };
 
 /**
@@ -1318,6 +1323,8 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
     throw new Error(`usage 必须带 inputTokens/outputTokens：${JSON.stringify(mark.usage)}`);
   }
   // ★ 2026-11-01（保真度 L1）：每次 fold 必须留下「约束/失败边有没有留住」的机器判据。
+  // ★ 2026-11-01（C12）：常规 fold 必须记触发原因（pressure），与溢出自救区分开
+  if (mark.trigger !== "pressure") throw new Error(`常规 fold 的 trigger 必须是 pressure，实际 ${JSON.stringify(mark.trigger)}`);
   if (!mark.quality || typeof mark.quality !== "object") throw new Error(`foldMark 必须带 quality（保真度 L1）：${JSON.stringify(mark)}`);
   if (mark.quality.constraintRecall !== 1) throw new Error(`constraintRecall 应恒为 1，实际 ${mark.quality.constraintRecall}（缺：${JSON.stringify(mark.quality.missingConstraints)}）`);
   if (!(mark.quality.failureRecall >= 0 && mark.quality.failureRecall <= 1)) {
@@ -1418,6 +1425,7 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
       fallback: null,
       ms: 42,
       usage: { inputTokens: 1200, outputTokens: 300 },
+      trigger: "pressure",
       // ★ 保真度 L1（2026-11-01）：最近一次 fold 的机器判据
       quality: {
         constraintRecall: 1,
@@ -1457,6 +1465,8 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   if (!lines[0].includes("42 ms")) throw new Error(`最新一条必须显示耗时：${lines[0]}`);
   if (!lines[0].includes("in 1200 / out 300")) throw new Error(`最新一条必须显示 usage：${lines[0]}`);
   if (!lines[0].includes("fallback —")) throw new Error(`正常 fold 的 fallback 应显示「—」：${lines[0]}`);
+  // ★ 2026-11-01（C12）：为什么压也要看得见
+  if (!lines[0].includes("触发 pressure")) throw new Error(`最近一次 fold 必须显示触发原因：${lines[0]}`);
   // 旧图那几条：route/ms/usage 都必须是「—」
   for (const line of lines.slice(1)) {
     if (!line.includes("路由 —")) throw new Error(`旧图缺 route 必须显示「—」：${line}`);
@@ -1472,6 +1482,10 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
       return JSON.parse(String(error.stdout ?? "{}"));
     }
   };
+  const triggerCheck = (parsed.checks ?? []).find((c) => c.name === "fold 触发原因");
+  if (!triggerCheck) throw new Error(`doctor 缺「fold 触发原因」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
+  if (triggerCheck.status !== "ok") throw new Error(`只有 pressure 时应 ok，实际 ${triggerCheck.status}：${triggerCheck.detail}`);
+  if (!triggerCheck.detail.includes("pressure=1")) throw new Error(`必须显示触发原因分布：${triggerCheck.detail}`);
   const fidelityOf = (p) => (p.checks ?? []).find((c) => c.name.includes("压缩保真度"));
   const okFidelity = fidelityOf(parsed);
   if (!okFidelity) throw new Error(`doctor 缺「压缩保真度」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
@@ -1481,9 +1495,14 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   if (!okFidelity.detail.includes("模型自身约束召回 0.5")) throw new Error(`必须显示模型自身召回（和最终产物区分开）：${okFidelity.detail}`);
   // 变异：约束丢一条 + 失败边丢一条 ⇒ 必须 error 并点名
   marks[0].quality = { ...marks[0].quality, constraintRecall: 0.5, failureRecall: 0.5, missingConstraints: ["不要动 prod 配置"], missingFailures: ["e12"] };
+  marks[0].trigger = "context-overflow";
   nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(graph, null, 1), "utf8");
-  const degraded = fidelityOf(runDoctor());
+  const degradedParsed = runDoctor();
+  const degraded = fidelityOf(degradedParsed);
   if (!degraded || degraded.status !== "error") throw new Error(`约束召回 <1 必须 error，实际 ${JSON.stringify(degraded)}`);
+  const overflowCheck = (degradedParsed.checks ?? []).find((c) => c.name === "fold 触发原因");
+  if (!overflowCheck || overflowCheck.status !== "warn") throw new Error(`出现 context-overflow 必须 warn，实际 ${JSON.stringify(overflowCheck)}`);
+  if (!overflowCheck.detail.includes("被迫自救")) throw new Error(`必须说明 overflow 的含义：${overflowCheck.detail}`);
   const namedC = (parsed.checks ?? []).find((c) => c.name.includes("丢失的约束"));
   const namedAfter = (degraded && (runDoctor().checks ?? []).find((c) => c.name.includes("丢失的约束"))) || namedC;
   if (!namedAfter || !namedAfter.detail.includes("prod")) throw new Error(`必须点名丢失的约束，实际 ${JSON.stringify(namedAfter)}`);

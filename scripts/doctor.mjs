@@ -345,11 +345,32 @@ add(
       const ms = fmt(m.ms);
       const fb = fmt(m.fallback);
       const kind = m.tier2 === true ? "tier-2 " : "";
-      return `${when} ${kind}#${fmt(m.foldCount)} 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+      // 2026-11-01（C12）：为什么压也要看得见 —— pressure / context-overflow（已溢出，被迫自救）/ tier2
+      const trigger = fmt(m.trigger);
+      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
     });
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+/* ★ 2026-11-01（C12）：fold 触发原因分布 —— `context-overflow` 出现 = 已经被迫自救，
+   说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。 */
+{
+  const withTrigger = recentFoldMarks.filter((m) => typeof m?.trigger === "string" && typeof m.at === "number");
+  if (withTrigger.length === 0) {
+    add("fold 触发原因", "warn", "未采集（老 foldMark 没有 trigger 字段 —— 旧版本或还没 fold 过）");
+  } else {
+    const counts = new Map();
+    for (const m of withTrigger) counts.set(m.trigger, (counts.get(m.trigger) ?? 0) + 1);
+    const overflow = counts.get("context-overflow") ?? 0;
+    add(
+      "fold 触发原因",
+      overflow > 0 ? "warn" : "ok",
+      [...counts.entries()].map(([k, v]) => `${k}=${v}`).join(" / ") +
+        (overflow > 0 ? ` —— 其中 ${overflow} 次是「上下文已溢出后被迫自救」，说明压缩没跟上增长` : ""),
+    );
+  }
+}
+
 /* ★ 2026-11-01（保真度 L1，`src/rooms/fold-quality.mjs`）：最近 fold 的「约束/失败边有没有留住」。
    判据（`docs/压缩的重注入契约.md` §6 第 6b 行）：
      · constraintRecall **必须 = 1** —— 丢一条约束 = 任务变了 ⇒ error；

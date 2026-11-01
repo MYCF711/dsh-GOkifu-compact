@@ -782,6 +782,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       at: Date.now(),
       seqStart: range.start,
       seqEnd: range.end,
+      // 2026-11-01（C12）：**为什么压**也要可观测 —— pressure（到阈值）/ context-overflow（已经溢出、被迫自救）。
+      // overflow 出现说明「压缩没跟上上下文增长」，这是压缩健康的真实告警信号（此前只存在日志里）。
+      trigger,
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
       foldCount: g.foldCount,
@@ -890,7 +893,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryModelText = undefined;
       const quality =
         summaryText === "" ? null : measureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
-      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, summaryChars, quality });
+      g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);

@@ -151,6 +151,17 @@ tier-2（合并最老两个 checkpoint）走的是自己的记账路径，`foldM
 - 测试：`tier2.test.mjs` T2-1 增「tier2 foldMark 必须带 quality / constraintRecall 是数字 / summaryChars > 0」
   （并沿用 P2-2-1 的办法先手动调一次 summarize，让 pending 文本有值）。
 
+### C12 · 「为什么压」也变成可观测：foldMark.trigger + doctor 触发原因分布
+
+此前每个 fold 只知道「压了」，不知道**是到阈值正常压（pressure）、还是上下文已经溢出后的被迫自救（context-overflow）、
+还是 checkpoint 合并（tier2）**。后者是最该早发现的健康信号：overflow 出现 = 压缩没跟上上下文增长。
+
+- `foldMarks[i].trigger`：`compactIfNeeded` 把收到的 trigger 原样记下；tier-2 合并记 `"tier2"`；
+- doctor「最近 5 次 fold」行内显示 `触发 <reason>`；新增「fold 触发原因」分布行，
+  出现 `context-overflow` ⇒ **warn** 并写明「已被迫自救，说明压缩没跟上增长」；
+- 测试：溢出自救用例断言 `trigger=context-overflow`；P2-2-1 断言常规 fold `trigger=pressure`；
+  T2-1 断言 tier-2 `trigger=tier2`；P2-2-4 断言 doctor 显示与 overflow→warn。
+
 ### 验证
 
 - 全量 `node test/run.mjs`（串行）：**654 passed / 0 skipped / 0 failed**（1.16.0 时 615；本轮与并行会话共新增 23 条）。
