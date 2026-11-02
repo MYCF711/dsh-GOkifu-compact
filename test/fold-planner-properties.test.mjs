@@ -168,3 +168,47 @@ tests["C128 尾部保留量不超界：常规折叠后未折的尾巴 ≤ retain
   }
   t.eq(checked >= 8, true, `至少要检查 8 个可折叠样本，实际 ${checked}（否则判据样本不足）`);
 };
+
+tests["C174 规划器在 1,500 节点量级：必须给出合法区间、尾部不超界、耗时受控"] = (t) => {
+  // live 最大会话约 1.4k 节点 —— 决策路径必须在这个量级上仍然「快且不越界」。
+  const N = 1500;
+  const surfaceNodes = [];
+  const pricedNodes = [];
+  const eventAt = new Map();
+  for (let i = 1; i <= N; i += 1) {
+    const isTool = i % 5 === 0;
+    const kind = isTool ? "assistant/tool-call" : i % 5 === 1 ? "user/message" : "assistant/message";
+    const ev = {
+      type: "session/event",
+      seq: i,
+      data: isTool
+        ? { call: { id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } } }
+        : { source: { kind: "prompt" }, content: [{ type: "text", text: `第 ${i} 步` }] },
+    };
+    surfaceNodes.push(i);
+    pricedNodes.push({ seq: i, tokens: isTool ? 40 : 120, kind });
+    eventAt.set(i, ev);
+  }
+  // 末尾留一段「不压」的尾部：retainTokens 越小，区间端点越靠前
+  const started = Date.now();
+  const out = planFold({
+    surfaceNodes,
+    pricedNodes,
+    eventAt: (seq) => eventAt.get(seq),
+    retainTokens: 6000,
+    minFoldTokens: 1000,
+  });
+  const ms = Date.now() - started;
+  t.eq(out.reason, "ok", `1,500 节点必须能规划出区间（reason=${out.reason}）`);
+  t.eq(ms < 2000, true, `规划耗时 ${ms}ms 异常偏慢（1,500 节点）`);
+  const { start, end } = out.range;
+  t.eq(start >= 1 && end <= N, true, `区间必须落在 [1,${N}]，实际 ${start}–${end}`);
+  t.eq(start <= end, true, `区间反向：${start}–${end}`);
+  // 尾部保留量不许超 retainTokens 太多（一个节点 + 一个工具对）
+  let tailTokens = 0;
+  for (const p of pricedNodes) if (p.seq > end) tailTokens += p.tokens;
+  t.eq(tailTokens <= 6000 + 2 * 120 + 2, true, `尾部保留 ${tailTokens} tokens 超界（retain=6000）`);
+  // overflow 模式：尾部保留为 0 ⇒ 区间必须直接吃到末尾
+  const ovf = planFold({ surfaceNodes, pricedNodes, eventAt: (seq) => eventAt.get(seq), retainTokens: 6000, minFoldTokens: 1000, overflow: true });
+  if (ovf.reason === "ok") t.eq(ovf.range.end >= N - 1, true, `overflow 区间应接近末尾，实际 end=${ovf.range.end}`);
+};
