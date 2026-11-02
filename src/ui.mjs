@@ -328,13 +328,25 @@ export function latestGraphFrom(scan) {
  * @param {{inputTokens?:number, cacheReadTokens?:number, outputTokens?:number}} usage
  * @returns {number|null} 美元；没有 usage ⇒ null（页面显示 —，不许编 0）
  */
+/**
+ * ★ C271：价目**只在这里写一次**（美元 / 每 1M tokens），并注明出处与口径。
+ * 官方有两档（高峰/低峰），这里用**低峰**（便宜的那档）⇒ 估算是**下限**，不是上限。
+ * 依据：docs/knowledge/成本模型-deepseek价格.md（`test/ui-update` C271 会比对两者的数字，漂了就红）。
+ */
+export const PRICE_USD_PER_MTOK = Object.freeze({
+  miss: 0.15, // 输入 cache miss（低峰）
+  hit: 0.003, // 输入 cache hit（低峰）—— 比 miss 便宜 50 倍
+  out: 0.6, // 输出（低峰）
+});
+
 export function estimateFoldCostUsd(usage) {
   const input = Number(usage?.inputTokens);
   if (!Number.isFinite(input) || input < 0) return null;
   const hit = Math.max(0, Math.min(input, Number(usage?.cacheReadTokens) || 0));
   const miss = input - hit;
   const output = Math.max(0, Number(usage?.outputTokens) || 0);
-  return (miss * 0.15 + hit * 0.003 + output * 0.6) / 1e6;
+  const p = PRICE_USD_PER_MTOK;
+  return (miss * p.miss + hit * p.hit + output * p.out) / 1e6;
 }
 
 export function todayAggregateFrom(scan) {

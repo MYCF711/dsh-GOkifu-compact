@@ -545,3 +545,26 @@ tests["C267 面板显示「上次摘要」：规则兜底必须一眼看出来�
   t.eq(T.summaryRouteText(null).value, "—", "没有数据 ⇒ —");
   t.eq(T.summaryRouteText({ model: "" }).value, "未知", "只有空 model ⇒ 未知（不许编）");
 };
+
+tests["C271 价目单点化：代码里的价格必须等于知识库那张表的低峰列（漂了就红）"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "ui.mjs")).href);
+  const P = uiMod.PRICE_USD_PER_MTOK;
+  t.eq(!!P && typeof P === "object", true, "必须导出 PRICE_USD_PER_MTOK");
+
+  // 从知识库条目里把那三个数字抠出来比对（表是「低峰 | 高峰」两列，取第一个数）
+  const doc = nodeFs.readFileSync(nodePath.join(HERE, "..", "docs", "knowledge", "成本模型-deepseek价格.md"), "utf8");
+  // 取该行第一个金额（= 低峰列，表里低峰在左）
+  const grabFirst = (label) => {
+    const line = doc.split("\n").find((l) => l.includes(label));
+    const m = line.match(/\$\s*([0-9]+(?:\.[0-9]+)?)/);
+    if (!m) throw new Error(`「${label}」行里没有金额`);
+    return Number(m[1]);
+  };
+  t.eq(grabFirst("cache hit"), P.hit, "cache hit 价必须与知识库低峰列一致");
+  t.eq(grabFirst("cache miss"), P.miss, "cache miss 价必须与知识库低峰列一致");
+  t.eq(grabFirst("输出"), P.out, "输出价必须与知识库低峰列一致");
+
+  // 估算是低峰口径 ⇒ 必须小于等于高峰口径（下限），别把高峰价塞进来
+  t.eq(P.hit < P.miss, true, "hit 必须比 miss 便宜（这是缓存机制的前提）");
+  t.eq(P.out > P.miss, true, "输出比输入贵——如果反了，大概是抄错了列");
+};
