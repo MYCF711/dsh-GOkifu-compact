@@ -1,5 +1,5 @@
 {
-  "total": 762,
+  "total": 764,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -81,6 +81,7 @@
     "profile-io.test.mjs": 2,
     "range.test.mjs": 0,
     "release-hardening.test.mjs": 0,
+    "release-notes-drift.test.mjs": 2,
     "release-tool.test.mjs": 2,
     "render-index-perf.test.mjs": 6,
     "robust-touched-files.test.mjs": 3,
