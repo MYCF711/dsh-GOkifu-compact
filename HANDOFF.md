@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.17.5** —— ✅ **已 npm publish（2026-11-02T05:07Z，138 files）**、本地已打 `v1.17.1`；⛔ `git push`/GitHub Release **未执行**（无共同祖先，需主人决定历史收敛方式） |
+| 版本 | **1.17.5** —— ✅ **npm latest = 1.17.5**（tarball 200；1.17.1→1.17.5 均已发布）、本地 tag `v1.17.1/2/3`；⛔ `git push` / GitHub Release **未执行**（`origin/main` 与本仓库无共同祖先，需主人决定历史收敛方式） |
 | ✅ **重启已完成** | `2026-11-02T03:37:05Z` 新进程 **pid 42544 / buildId `cdbc08e523aa`**；`after-restart` **必需项全部通过**（①buildId ②进程时间 ④节点文档 ⑤live fold）③仅剩 1 条旧版本反向 foldMark（warn） |
 | 代码 | 见 `git log --oneline`；本块写于 **C166** 之后，共 **171 条 C 轮提交** |
 | 门禁（串行） | 全量 **923 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 0**（C183 重放 delta 后，原先 5 条 warn 消失） · doctor **0 错误 / 5 警告**（重启后曾降到 3；本轮起继续提交 ⇒ 「运行实例 build 与磁盘不一致」重新出现，属预期：磁盘已前进、实例要等下次重启；另 3 条 = legacy foldMark / 第三方 preset 边界 / 预算在途） · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **26 会话 0 不自洽** |
-| ⏳ **待办（按优先级）** | ① **归档收尾验证**（C210）：照 `evidence/归档收尾-验证单-2026-11-02.md` 归档本会话后核对；② 4 个字段仍无样本（`renderErrors` / `budgetFloorOver` / `budgetIrreducible` / `overBySession`）；③ 历史 legacy foldMark 需宿主退出后 `--repair-foldmarks`；④ git 侧 tag/Release（无共同祖先，需主人决定） |
+| ⏳ **唯一待办** | **归档收尾验证（C210）** —— 照 `evidence/归档收尾-验证单-2026-11-02.md` 归档本会话后核对（`closeout` 是否写、`trigger: "archive"` 是否出现、区间是否有序）。非阻塞跟进：① 4 个字段仍无样本（`renderErrors` / `budgetFloorOver` / `budgetIrreducible` / `overBySession`）；② 历史 legacy foldMark 需宿主退出后 `--repair-foldmarks`；③ git 侧 tag/Release（无共同祖先，需主人决定） |
 | 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
 | 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理；C138：foldThrash 累计/清零）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
 | 独立审查 | 已跑**两轮**（C142/C143 第一轮；C148 第二轮复审：4 条新 P1 全在诊断层，已修）· 原第一轮：P0 一条已修、**P1 六条已全部处理**（P1-1/P1-3 在 C142，P1-2/P1-4/P1-5/P1-6 在本轮）；剩余 P2 六条已记录 |
