@@ -1215,7 +1215,13 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
         // ★ C257：写入率极低时**给出旋钮**（C248/C251 加的两个引擎配置）。
         //   只陈述"有这两个开关"，不写"建议你调" —— 要不要更实时是用户自己的判断。
         : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）` +
-          (hitRate < 0.05 ? ` · 想更实时可调 hotLedgerMinEvents / hotLedgerMinFailureDelta（见 docs/配置总表.md）` : "");
+          (hitRate < 0.05 ? ` · 想更实时可调 hotLedgerMinEvents / hotLedgerMinFailureDelta（见 docs/配置总表.md）` : "") +
+          // ★ C344：官方缓存口径（kv_cache）：缓存按**前缀单元**命中，且"请求边界"是最主要的持久化点。
+          //   清单内容没变就不重写（same-digest）不只是省 token —— 它还**保住了那一处前缀单元的稳定性**。
+          //   这里只在真的发生过 same-digest 跳过时补一句，不给每次运行加噪音。
+          (Number(stats.skipReasons?.["identical"]) > 0
+            ? ` · 其中「清单内容没变」跳过 ${stats.skipReasons["identical"]} 次（清单没变就不重写：省 token，也保住前缀缓存单元——见 docs/knowledge/上下文缓存-单元语义-deepseek.md）`
+            : "");
     add(
       "热清单预算（fallback）",
       impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
