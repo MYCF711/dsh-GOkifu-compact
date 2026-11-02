@@ -308,16 +308,8 @@ tests["C307 结论速查必须收进本会话新验的结论（数字 + 谁在�
 
 tests["C311 性能基线必须带最近一次复测（分布会变，结论会过期）"] = (t) => {
   const doc = read("docs/knowledge/性能基线.md");
-  t.includes(doc, "49 个会话", "必须写最近一次复测的会话数");
-  t.includes(doc, "115", "必须写复测的 p99（大图已到 115 ms 量级）");
-  t.includes(doc, "复测结论", "要有「结论有变」的一节，说明 A2 后半句过期");
-  t.includes(doc, "K-16", "要指向候选 K-16（大图增量渲染）");
-};
-
-tests["C311 性能基线必须带最近一次复测（分布会变，结论会过期）"] = (t) => {
-  const doc = read("docs/knowledge/性能基线.md");
-  t.includes(doc, "49 个会话", "必须写最近一次复测的会话数");
-  t.includes(doc, "115", "必须写复测的 p99（大图已到 115 ms 量级）");
+  t.includes(doc, "54 个会话", "必须写最近一次复测的会话数");
+  t.includes(doc, "143", "必须写复测的 p99（稳口径 143 ms）");
   t.includes(doc, "复测结论", "要有「结论有变」的一节，说明 A2 后半句过期");
   t.includes(doc, "K-16", "要指向候选 K-16（大图增量渲染）");
 };
