@@ -6,12 +6,12 @@
 |---|---|
 | 版本 | **1.17.1**（`package.json`；已装到本机并被机器级层接管。`npm publish` / 打 tag **待主人授权** —— `check-maintenance` 只剩这一项预期失败） |
 | 代码 | 见 `git log --oneline`；本块写于 `C123`（`e6655c9`）之后 |
-| 门禁（串行） | 全量 **862 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 5 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **25 会话 0 不自洽** |
+| 门禁（串行） | 全量 **864 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 4 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **25 会话 0 不自洽** |
 | ⏳ **唯一待办** | **重启 DSH**：`post-restart-check` 仍 `fail 1`（`build.json` 无 `buildId` = 03:01 启动的旧进程）。重启后才会：① `renderErrors` / `skipReasons` / 四个归因字段**首次落盘**；② 新 fold 第一次跑上 C112/C113 的回滚/自愈路径；③ 94 个陈旧 `nodes/*.md` 在各会话下次 fold 时被清掉 |
 | 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
 | 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理；C138：foldThrash 累计/清零）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
 | 独立审查 | 已跑一轮（C142/C143）：P0 一条已修、**P1 六条已全部处理**（P1-1/P1-3 在 C142，P1-2/P1-4/P1-5/P1-6 在本轮）；剩余 P2 六条已记录 |
-| 体检新信号 | doctor 现在 **5 警**：其中一条是真实数据问题（2 个节点缺 `nodes/<id>.md`，delta 重放后才看得见） |
+| 数据修复 | C144：`graph-audit --repair` 已补写 2 个历史缺失的 `nodes/<id>.md`（只增不删），doctor 回到 **4 警** |
  已完成一轮（C142）：抓到 **P0 一条（回滚丢未落盘变更）+ P1 六条**，P0 与 P1-1/P1-3 已修（含夹具缺陷）；待做 P1-2/P1-4（doctor/graph-audit 重放 delta）、P1-5（规则路径清 route/usage）、P1-6（C130 保留最新一条） |
 | 文档判据 | 命令/子命令（C86/C125）、检查名（C97/C98）、常量锚（C100/C101）、测试数（C117）、证据数字（C118/C119/C122/C123）、可发现性（C116/C120）、调研文引用（C121）、HANDOFF 版本（C124） |
 | 图体检 | doctor 内建「棋谱结构自洽（C140）」，另可 `node scripts/graph-audit.mjs` 手动跑（只读） |

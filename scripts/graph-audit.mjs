@@ -25,7 +25,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { applyDelta, decodeDeltaFrames, fromJSON, sha, validate } from "../src/rooms/kifu-model.mjs";
+import { applyDelta, decodeDeltaFrames, fromJSON, renderNodeMd, sha, validate } from "../src/rooms/kifu-model.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const asJson = process.argv.includes("--json");
@@ -109,6 +109,40 @@ export function loadSessionGraph(graphFile) {
   return { raw, graph, deltaFrames };
 }
 
+/**
+ * ★ C144：补写缺失的 `nodes/<id>.md`（**只增不删**）。
+ *
+ * 为什么安全：这些文件是**派生视图**（`renderNodeMd(graph, id)` 的确定性输出），
+ * 真相在 `graph.json` + `delta`。缺文件的成因是历史缺陷（如 C142 的 P0：回滚清掉了 dirty，
+ * 于是该节点的 md 永远没被写出来），补写等于重建视图，不会改变任何事实。
+ *
+ * 只写「缺的」，绝不删除/覆盖已存在的文件；返回写入的 id 列表。
+ */
+export function repairMissingDocs(sessionsDir, { dryRun = false } = {}) {
+  const written = [];
+  if (!nodeFs.existsSync(sessionsDir)) return written;
+  for (const name of nodeFs.readdirSync(sessionsDir)) {
+    const graphFile = nodePath.join(sessionsDir, name, "graph.json");
+    if (!nodeFs.existsSync(graphFile)) continue;
+    let loaded;
+    try {
+      loaded = loadSessionGraph(graphFile);
+    } catch {
+      continue;
+    }
+    const nodesDir = nodePath.join(sessionsDir, name, "nodes");
+    const have = new Set(nodeFs.existsSync(nodesDir) ? nodeFs.readdirSync(nodesDir).map((f) => f.replace(/\.md$/i, "")) : []);
+    const missing = Object.keys(loaded.graph.nodes ?? {}).filter((id) => !have.has(id));
+    if (missing.length === 0) continue;
+    if (!dryRun) nodeFs.mkdirSync(nodesDir, { recursive: true });
+    for (const id of missing) {
+      if (!dryRun) nodeFs.writeFileSync(nodePath.join(nodesDir, `${id}.md`), renderNodeMd(loaded.graph, id), "utf8");
+      written.push(`${name}/${id}`);
+    }
+  }
+  return written;
+}
+
 /** 扫一个 sessions 目录，返回每张图的问题。 */
 export function auditRoot(sessionsDir) {
   const out = [];
@@ -131,6 +165,13 @@ export function auditRoot(sessionsDir) {
 function main() {
   const home = resolveHome();
   const sessionsDir = nodePath.join(home, "chess-context", "sessions");
+  // ★ C144：`--repair` 先补写缺失的派生视图（只增不删），再体检
+  if (process.argv.includes("--repair")) {
+    const written = repairMissingDocs(sessionsDir, { dryRun: process.argv.includes("--dry-run") });
+    const suffix = process.argv.includes("--dry-run") ? "（dry-run，未写盘）" : "";
+    process.stdout.write(`补写缺失节点文档：${written.length} 个${suffix}` + String.fromCharCode(10));
+    for (const item of written.slice(0, 12)) process.stdout.write(`  + ${item}` + String.fromCharCode(10));
+  }
   const rows = auditRoot(sessionsDir);
   const bad = rows.filter((r) => r.problems.length > 0);
   if (asJson) {

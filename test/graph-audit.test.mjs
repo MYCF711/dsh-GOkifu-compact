@@ -9,7 +9,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 
-import { auditGraph, auditRawIndex, auditRoot } from "../scripts/graph-audit.mjs";
+import { auditGraph, auditRawIndex, auditRoot, repairMissingDocs } from "../scripts/graph-audit.mjs";
 import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { createFsPort, createPersistStore } from "../src/rooms/kifu-persist.mjs";
 import { addAgentNode, addEdge, addUserNode, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
@@ -136,6 +136,41 @@ tests["C143 delta 重放：只在 delta 里的节点不许被当成「不存在�
     // 反证：只用基线（不重放 delta）就会把 n2 当成「图里不存在」—— 正是审查 P1-2 的误报来源
     const baselineOnly = fromJSON(nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8"));
     t.eq(Object.keys(baselineOnly.nodes).includes("n2"), false, "基线确实看不到 n2（所以必须重放 delta）");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["C144 补写缺失节点文档：只增不删、幂等、dry-run 不写盘"] = (t) => {
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-repair-"));
+  try {
+    const g = createGoodGraphWithTwoNodes();
+    const dir = nodePath.join(root, "session-repair");
+    nodeFs.mkdirSync(nodePath.join(dir, "nodes"), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(g), "utf8");
+    // 只写 n1.md；再放一个陈旧文件，确认补写不会删它
+    nodeFs.writeFileSync(nodePath.join(dir, "nodes", "n1.md"), "n1", "utf8");
+    nodeFs.writeFileSync(nodePath.join(dir, "nodes", "n999.md"), "stale", "utf8");
+
+    // ① dry-run 不写盘
+    const dry = repairMissingDocs(root, { dryRun: true });
+    t.eq(dry.length > 0, true, `dry-run 也要报告缺哪些：${JSON.stringify(dry)}`);
+    t.eq(nodeFs.existsSync(nodePath.join(dir, "nodes", "n2.md")), false, "dry-run 不许写盘");
+
+    // ② 真跑：补齐缺失、保留陈旧
+    const written = repairMissingDocs(root);
+    t.eq(written.length, dry.length, "真跑的清单应与 dry-run 一致");
+    for (const id of Object.keys(g.nodes)) {
+      t.eq(nodeFs.existsSync(nodePath.join(dir, "nodes", `${id}.md`)), true, `${id}.md 必须被补写`);
+    }
+    t.eq(nodeFs.existsSync(nodePath.join(dir, "nodes", "n999.md")), true, "陈旧文件不许删（只增不删）");
+    // 补写的内容必须是确定性渲染（与 renderNodeMd 一致）
+    t.eq(nodeFs.readFileSync(nodePath.join(dir, "nodes", "n2.md"), "utf8").includes("n2"), true, "补写内容必须来自图");
+
+    // ③ 幂等：第二次无事可做
+    t.eq(repairMissingDocs(root).length, 0, "补齐后第二次必须无事可做");
+    // ④ 补写后体检必须干净
+    t.eq(auditRoot(root).find((r) => r.session === "session-repair").problems, [], "补写后不该再有问题");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
