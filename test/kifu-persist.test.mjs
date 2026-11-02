@@ -532,3 +532,47 @@ tests["C149 图是「重建」出来的（repaired）时，tree 落盘绝不许�
     t.eq(final.includes("n2.md"), false, `非 repaired 时必须清理不在图里的文档，实际 ${final.join(",")}`);
   });
 };
+
+tests["C173 大规模图（600 节点）在三种损坏下的自愈：不抛错、repaired 或可解析、且不误删文档"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 造 600 个节点 + 599 条边（接近真实会话的量级：live 平均 ~180、最大 ~1.4k）
+    const g = createGraph({ sessionId: "s1" });
+    let prev = addUserNodeId(g, { seq: 1, text: "起点" });
+    for (let i = 2; i <= 600; i += 1) {
+      const e = addEdge(g, { from: prev, intent: `步骤 ${i}`, action: `bash(cmd${i})`, evidence: { start: i * 2, end: i * 2 + 1 } });
+      const n = addAgentNode(g, { seq: i * 2 + 1, goal: `目标 ${i}`, worldHash: `W${i}`, constraintHash: `C${i}`, via: e }).id;
+      settleEdge(g, e, { to: n, result: i % 7 === 0 ? "failure" : "success", verify: { kind: "exit", summary: i % 7 === 0 ? "exit 1" : "exit 0" }, ...(i % 7 === 0 ? { errorSnippet: `第 ${i} 步失败` } : {}) });
+      prev = n;
+    }
+    t.eq(Object.keys(g.nodes).length, 600, "夹具前提：600 个节点");
+    const started = Date.now();
+    const first = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const msTree = Date.now() - started;
+    t.eq(first.ok, true, "首次 tree 落盘必须成功");
+    t.eq(msTree < 15000, true, `600 节点 tree 落盘耗时 ${msTree}ms，异常偏慢`);
+
+    const paths = sessionPaths(root, "s1");
+    const docsBefore = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).length;
+    t.eq(docsBefore, 600, `应写出 600 个文档，实际 ${docsBefore}`);
+
+    // 损坏 ①：delta 尾部塞半帧 ⇒ load 必须忽略坏尾，图仍可解析
+    nodeFs.appendFileSync(paths.deltaFile, "deadbeef	000000	{\"v\":1", "utf8");
+    const a = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+    t.eq(Object.keys(a.graph.nodes).length >= 600, true, `坏尾后 load 仍应有 ≥600 节点，实际 ${Object.keys(a.graph.nodes).length}`);
+
+    // 损坏 ②：graph.json 改成版本不符 ⇒ repaired=true，且**不许**因此清掉 600 个文档
+    const base = JSON.parse(nodeFs.readFileSync(paths.graphFile, "utf8"));
+    base.version = 999;
+    nodeFs.writeFileSync(paths.graphFile, JSON.stringify(base), "utf8");
+    const b = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+    t.eq(b.repaired, true, "版本不符必须 repaired");
+    const rebuilt = createGraph({ sessionId: "s1" });
+    addUserNodeId(rebuilt, { seq: 1, text: "重建后的节点" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true, repaired: true });
+    t.eq(r.ok, true, "repaired 落盘必须成功");
+    const docsAfter = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).length;
+    t.eq(docsAfter >= 600, true, `repaired 落盘不许把 600 个文档清掉，实际剩 ${docsAfter}`);
+  });
+};
