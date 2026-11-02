@@ -1275,3 +1275,34 @@ tests["C397 心跳被「无 web 服务进程」覆盖时要点名（端口/build
     nodeFs.rmSync(okHome, { recursive: true, force: true });
   }
 };
+
+tests["C401 doctor 要说清「折叠证据字段到底有没有值」（存在≠有值）"] = (t) => {
+  // ① 三个字段全空 ⇒ warn，并说明需重启/规则摘要
+  const empty = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", usage: { inputTokens: 1000 }, finishReason: null }];
+    },
+  });
+  try {
+    const row = runDoctor(empty).find("折叠证据字段");
+    t.eq(!!row, true, "必须有这一行");
+    t.eq(row.status, "warn", "三个字段都为 0 必须 warn");
+    t.includes(String(row.detail), "仪器未生效", "要点明仪器未生效");
+  } finally {
+    nodeFs.rmSync(empty, { recursive: true, force: true });
+  }
+
+  // ② 有值 ⇒ ok
+  const filled = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", measuredBefore: 123, finishReason: "stop", usage: { inputTokens: 1000, model: "deepseek-flash" } }];
+    },
+  });
+  try {
+    const row = runDoctor(filled).find("折叠证据字段");
+    t.eq(row.status, "ok", "有值应为 ok");
+    t.includes(String(row.detail), "usage.model 1", "要数出有值的条数");
+  } finally {
+    nodeFs.rmSync(filled, { recursive: true, force: true });
+  }
+};

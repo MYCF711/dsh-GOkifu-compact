@@ -878,6 +878,46 @@ add(
   }
 }
 
+/* ★ C401：**仪器到底装上了没有**。C398/C400 是"把字段写进 foldMark"的修复，
+   但一个字段"存在"和"有值"是两回事（C317–C321 连错五轮都在这上面）。
+   这里直接把最近 10 条 foldMark 的三个新字段数出来。 */
+{
+  const recent = [];
+  if (nodeFs.existsSync(nodePath.join(home, "chess-context", "sessions"))) {
+    const graphRoot3 = nodePath.join(home, "chess-context", "sessions");
+    for (const entry of nodeFs.readdirSync(graphRoot3, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot3, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadSessionGraph(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) recent.push(mark);
+    }
+  }
+  recent.sort((a, b) => Number(b?.at ?? 0) - Number(a?.at ?? 0));
+  const top = recent.slice(0, 10);
+  if (top.length === 0) {
+    add("折叠证据字段（C398/C400）", "warn", "未采集（还没有 foldMark）");
+  } else {
+    const withModel = top.filter((m) => typeof m?.usage?.model === "string" && m.usage.model !== "").length;
+    const withFinish = top.filter((m) => typeof m?.finishReason === "string").length;
+    const withMeasured = top.filter((m) => Number.isFinite(m?.measuredBefore)).length;
+    const allZero = withModel === 0 && withFinish === 0 && withMeasured === 0;
+    add(
+      "折叠证据字段（C398/C400）",
+      allZero ? "warn" : "ok",
+      `最近 ${top.length} 条 foldMark：usage.model ${withModel} · finishReason ${withFinish} · measuredBefore ${withMeasured}` +
+        (allZero
+          ? " ⇒ **三个都是 0**：仪器未生效（C398/C400 需重启，或这几次走的是规则摘要）"
+          : ""),
+    );
+  }
+}
+
 /* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
    我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
    所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。 */

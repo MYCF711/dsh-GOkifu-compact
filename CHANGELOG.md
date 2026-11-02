@@ -4,6 +4,7 @@
 |---|---|
 | C387 | 摘要「成功但空白」必须抛错（JSON Output 陷阱） |
 | C388 | 重启后检查工具端口写死 64349（改用心跳端口） |
+| C401 | doctor「折叠证据字段」+ 学了 Tool Calls |
 | C400 | 压力证据改从账本快照读（K-24 部分结案） |
 | C399 | 第三次「先清后读」：C366 的三个证据字段也是 null |
 | C398 | 真机新折叠暴露：model 为 null、finishReason 字段缺失 |
@@ -488,6 +489,16 @@
 
 真机：重启后 GUI 换到 **56319**，而 `post-restart-check --api` 还在探 64349 ⇒ 误报「面板不可达」。
 现按 **`--port` > 心跳 `ui-route.json` 里的端口 > 64349** 的顺序取。
+
+### C401 · doctor「折叠证据字段」+ 学了 Tool Calls
+
+C398/C400 修完后，还得能回答"它生效了吗"。doctor 新增一行：数最近 10 条 foldMark 的
+`usage.model` / `finishReason` / `measuredBefore` 有值条数，全为 0 即 warn（需重启或走了规则摘要）。
+
+- 守卫 `doctor-cli` C401：全空 warn 且点名，有值 ok 且数出条数；
+- 新条目 `Tool-Calls-strict模式与自定义工具-deepseek.md`：`strict`(Beta) 强制 schema、自定义 client tool 返 422、`tool_call_id` 必须回填。
+
+**教训**：字段存在≠有值≠可见 —— 写入、落盘、**展示**三层都要有探针。
 
 ### C400 · 压力证据改从账本快照读（K-24 部分结案）
 
