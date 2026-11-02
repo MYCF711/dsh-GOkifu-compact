@@ -203,3 +203,26 @@ tests["C216 没接 registry 时退化成「只 resume 不收归档状态」：�
   t.eq(report.done, 1, "仍然把账补了");
   t.eq(report.restored, 0, "没接线就没有还原动作");
 };
+
+tests["C286 欠账估算：用本会话历史 tokens/事件 折算，没有历史就不编数字"] = async (t) => {
+  const mod = await import("../src/rooms/closeout-backfill.mjs");
+
+  // 有历史：两次 fold 各 100 事件 / 10000 token ⇒ 100 tok/事件
+  const withHistory = {
+    nodes: Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`n${i}`, { seq: (i + 1) * 100 }])),
+    foldMarks: [
+      { seqStart: 0, seqEnd: 100, shadowedTokens: 10_000 },
+      { seqStart: 100, seqEnd: 200, shadowedTokens: 10_000 },
+    ],
+  };
+  const d = mod.debtOfGraph(withHistory);
+  t.eq(d.tail, 300, `尾巴 = maxSeq 500 − 上次 fold 结尾 200：${d.tail}`);
+  t.eq(Math.round(d.tokensPerEvent), 100, `比值该是 100 tok/事件：${d.tokensPerEvent}`);
+  t.eq(d.estTokens, 30_000, `估算 = 300 × 100：${d.estTokens}`);
+
+  // 没有历史 fold ⇒ 没有比值、也不许瞎估
+  const noHistory = { nodes: { n1: { seq: 10 } }, foldMarks: [] };
+  const d2 = mod.debtOfGraph(noHistory);
+  t.eq(d2.tokensPerEvent, null, "没有 fold 历史 ⇒ 比值 null");
+  t.eq(d2.estTokens, null, "没有 fold 历史 ⇒ 估算 null（不编数字）");
+};

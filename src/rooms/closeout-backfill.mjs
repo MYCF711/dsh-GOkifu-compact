@@ -51,10 +51,25 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   const closedOut = graph?.closeout !== undefined && graph?.closeout !== null;
   // 有没有一条真正由收尾触发的折叠（archive / backfill）—— 只有 closeout 记录不算折过
   const folded = marks.some((mark) => mark?.trigger === "archive" || mark?.trigger === "backfill");
+  // ★ C286：估一下这次收尾折叠**大概要花多少输入 token**。
+  //   为什么能估：每个 foldMark 都记了「折了多少事件(seqEnd-seqStart) / 遮蔽多少 token(shadowedTokens)」，
+  //   用本会话自己的比值最准；没有历史 fold 时退回 0（调用方会跳过估计，不编数字）。
+  //   用途：补账前告诉用户"这一次大概多少钱"。冷缓存 = 全额输入价（C284）。
+  const ratios = marks
+    .map((mark) => {
+      const span = Number(mark?.seqEnd) - Number(mark?.seqStart);
+      const shadowed = Number(mark?.shadowedTokens);
+      return span > 0 && Number.isFinite(shadowed) && shadowed > 0 ? shadowed / span : null;
+    })
+    .filter((x) => x !== null);
+  const tokensPerEvent = ratios.length > 0 ? ratios.reduce((a, b) => a + b, 0) / ratios.length : null;
+  const estTokens = tokensPerEvent === null ? null : Math.round(tail * tokensPerEvent);
   return {
     maxSeq,
     lastFoldSeq,
     tail,
+    tokensPerEvent,
+    estTokens,
     closedOut,
     folded,
     due: !closedOut && tail >= minEvents,

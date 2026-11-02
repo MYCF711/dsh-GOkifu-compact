@@ -591,3 +591,27 @@ tests["C285 补账前必须说明「冷缓存」：归档会话的折叠按全�
   const empty = T.backfillLines({ ok: true, dryRun: true, scanned: 44, due: 0, items: [] });
   t.eq(empty.join(" ").includes("冷缓存"), false, "没有欠账时不该提冷缓存");
 };
+
+tests["C286 补账前要给出「大概多少钱」：按每个会话的 estTokens × 冷缓存全额价"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  const lines = T.backfillLines({
+    ok: true,
+    dryRun: true,
+    scanned: 44,
+    due: 3,
+    items: [
+      { sessionId: "a", tail: 12000, estTokens: 1_000_000 },
+      { sessionId: "b", tail: 3000, estTokens: 500_000 },
+      { sessionId: "c", tail: 100, estTokens: null }, // 没有历史 fold ⇒ 估不了
+    ],
+  });
+  const joined = lines.join(" ");
+  t.includes(joined, "1.50 M tok", `要报总 token：${joined}`);
+  t.includes(joined, "$0.23", `要报折算金额（1.5M × 0.15/M = 0.225 → 0.23）：${joined}`);
+  t.includes(joined, "另 1 个没有历史 fold 估不了", "估不了的要说清有几个，不许静默");
+
+  // 全都没有估值 ⇒ 不显示金额行（不编数字）
+  const noEst = T.backfillLines({ ok: true, dryRun: true, scanned: 5, due: 1, items: [{ sessionId: "x", tail: 900 }] });
+  t.eq(noEst.join(" ").includes("M tok"), false, "没有估值时不许出现金额行");
+};
