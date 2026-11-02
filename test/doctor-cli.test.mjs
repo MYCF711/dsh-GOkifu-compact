@@ -17,6 +17,7 @@ import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge, toJSON } from "./graph-fixtures.mjs";
+import { encodeDeltaFrame, sha } from "../src/rooms/kifu-model.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -381,7 +382,8 @@ tests["C145 旧版本图（version 不符）必须 warn 而不是 error —— �
     const row = runDoctor(home).find("棋谱结构自洽");
     t.eq(row.status, "warn", `旧版本图应 warn（不是 error）：${JSON.stringify(row)}`);
     t.includes(row.detail, "旧版本图", "detail 必须点明「旧版本图，不是损坏」");
-    t.includes(row.detail, "unsupported version", "要带出原始原因，便于判断该不该迁移");
+    t.includes(row.detail, "v999", "要带出文件里的版本号（判据来自 raw.version，不是错误文案）");
+    t.includes(row.detail, "停窗", "要写清「升级/降级前先停窗备份」——引擎读到会重建空图");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -397,6 +399,51 @@ tests["C146 活跃会话里「刚建的节点还没写出 md」必须算在途�
     const row = runDoctor(home).find("节点文档与棋谱一致");
     t.eq(row.status, "ok", `活跃会话的在途文档不许报警：${JSON.stringify(row)}`);
     t.includes(row.detail, "在途", "detail 必须说明「在途」而不是假装齐全");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
+tests["C148 缺 version 的坏图必须 error（不许因为文案含 unsupported version 被降级成 warn）"] = (t) => {
+  const home = makeHome();
+  try {
+    const dir = nodePath.join(home, "chess-context", "sessions", "session-garbage");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), JSON.stringify({ nodes: {}, edges: {}, order: [] }), "utf8");
+    const structure = runDoctor(home).find("棋谱结构自洽");
+    t.eq(structure.status, "error", `缺 version 是坏图，必须 error：${JSON.stringify(structure)}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
+tests["C148 C110 不许把「被跳过的会话」说成齐全/没有图（复审 P1-1）"] = (t) => {
+  const home = makeHome();
+  try {
+    // 把默认会话改成不可读（version 缺失），并删掉它的 nodes 目录，制造「没有任何可读会话」的局面
+    const dir = nodePath.join(home, "chess-context", "sessions", "session-doctor-1");
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), JSON.stringify({ nodes: {}, edges: {}, order: [] }), "utf8");
+    nodeFs.rmSync(nodePath.join(dir, "nodes"), { recursive: true, force: true });
+    const row = runDoctor(home).find("节点文档与棋谱一致");
+    t.eq(row.status, "warn", `有会话被跳过时必须 warn：${JSON.stringify(row)}`);
+    t.eq(row.detail.includes("没有会话图"), false, `不许说「没有会话图」（真相是 1 个被跳过）：${row.detail}`);
+    t.includes(row.detail, "被跳过", "要说明有会话被跳过");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
+tests["C148 delta 帧无法回放必须报出来（不许停在部分回放还报「全部自洽」）"] = (t) => {
+  const home = makeHome();
+  try {
+    const dir = nodePath.join(home, "chess-context", "sessions", "session-doctor-1");
+    const graphText = nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8");
+    // 造一帧**格式合法但版本不认识**的 delta：解码通过、applyDelta 抛错 ⇒ 曾经被静默吞掉
+    const frame = encodeDeltaFrame(sha(graphText).slice(0, 16), { v: 2, nodes: {}, edges: {}, scalars: {} });
+    nodeFs.writeFileSync(`${nodePath.join(dir, "graph.json")}.delta.jsonl`, frame, "utf8");
+    const row = runDoctor(home).find("棋谱结构自洽");
+    t.eq(row.status === "error" || row.status === "warn", true, `坏 delta 必须报：${JSON.stringify(row)}`);
+    t.eq(/delta|回放/.test(row.detail), true, `detail 必须提到 delta/回放：${row.detail}`);
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }

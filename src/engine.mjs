@@ -770,6 +770,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryChars = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
+      // ★ C148（复审 P2-2）：与 C143 的规则路径同源 —— route/usage 也必须清，
+      //   否则下一次模型 fold 若 provider 不回 usage，会把**上一次手动压缩**的 usage 记成本次。
+      this._lastSummaryProvider = undefined;
+      this._lastSummaryModel = undefined;
+      this._lastSummaryUsage = undefined;
     }
   }
 

@@ -1043,6 +1043,11 @@ export function markNodeDeleted(g, id) {
   d.delNodes.add(id);
   d.nodes.delete(id);
   d.orderDrop.push(id);
+  // ★ C148（复审 P1-4）：**必须同时从 orderAppend 里摘掉** —— `applyDelta` 是先按 `orderDrop` 删、
+  //   再按 `orderAppend` 追加。同一个 id 两边都在时，回放会把**已删节点推回 order** ⇒ 幽灵节点。
+  //   C146 只在 `applyDirtySnapshot` 里过滤，主路径（创建即删）仍会漏。
+  const at = d.orderAppend.lastIndexOf(id);
+  if (at >= 0) d.orderAppend.splice(at, 1);
 }
 
 /**

@@ -93,6 +93,10 @@ tests["C112 每个回滚点（restore()）之后必须走 tree 落盘"] = (t) =>
 tests["C113 engine 的回滚必须用 restoreFromSnapshot（不许裸 Object.assign）"] = (t) => {
   const text = nodeFs.readFileSync(ENGINE, "utf8");
   t.eq(/restoreFromSnapshot\(g, graphSnapshot/.test(text), true, "回滚必须走 restoreFromSnapshot（连 dirty 一起处理）");
-  t.eq(/restoreFromSnapshot\(g, graphSnapshot, dirtySnapshot\)/.test(text), true, "回滚必须把**快照时刻的 dirty** 一起回填（C142 的 P0：否则未落盘节点永远写不下去）");
+  // ★ C148（复审 P2-3）：统计**出现次数** —— 只断言「存在一处」的话，新增一处 2 参调用仍会绿。
+  const withDirty = text.match(/restoreFromSnapshot\(g, graphSnapshot, dirtySnapshot\)/g) ?? [];
+  const withoutDirty = text.match(/restoreFromSnapshot\(g, graphSnapshot\)/g) ?? [];
+  t.eq(withDirty.length >= 1, true, "至少要有一处带 dirty 的快照恢复");
+  t.eq(withoutDirty.length, 0, `不许存在 2 参（不带 dirty）的调用，实际 ${withoutDirty.length} 处`);
   t.eq(/Object\.assign\(g, fromJSON\(/.test(text), false, "不许再出现裸的 Object.assign(g, fromJSON(...)) —— 它会留下陈旧的 delNodes");
 };

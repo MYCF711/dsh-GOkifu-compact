@@ -5,6 +5,29 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C148 · 第二轮独立复审：**4 条新 P1，全在诊断层**（都已修）
+
+**复审结论**：`C142`–`C146` 没有引入新 P0，但**新写的诊断层**有 4 条假绿/假判级 ——
+而重启后要验收的正是这些诊断。逐条处理：
+
+| # | 问题 | 修法 | 测试 |
+|---|---|---|---|
+| P1-1 | doctor 3.3b 对不可读会话 `catch { continue; }` ⇒ **C110 永久假绿**（`ok / 未采集`），且把「被跳过」说成「齐全」 | 统计并**点名**被跳过的会话；`scanned===0` 不再写「没有会话图」 | `C148`（C110 不许说齐全/没有图） |
+| P1-2 | 「旧版本」判据用**错误文案** `/unsupported version/` ⇒ `{}`（缺 version 的坏图）被降级成 warn；`scanned===0` 又吞掉 legacy 列表 | 改用**文件里的 `raw.version` 是否为数字**分类；`{}` ⇒ error | `C148`（缺 version 必须 error） |
+| P1-3 | `loadSessionGraph` 的 `catch {}` 连 `applyDelta` 抛错一起吞 ⇒ 图停在**部分回放**却报「全部自洽」 | 回传 `deltaError` / `badTail`；doctor 分别记 **error**（回放失败）/ **warn**（尾部残帧） | `C148`（坏 delta 必须报） |
+| P1-4 | `markNodeDeleted` 不清 `orderAppend` ⇒ `applyDelta`「先删后追加」把**已删节点推回 order**（幽灵 order，主路径，不经回滚） | 一行 filter 从 `orderAppend` 摘掉 | `C148`（回放后 0 幽灵） |
+
+**同时处理 4 条 P2**：
+
+- `auditGraph` 的 JSDoc 被顶到 `auditRawIndex` 上（上一轮 P2-1 的复刻形态）→ 各自归位；
+- **手动 `/compact` 的同类伪造 usage**：`compactNow` 的 `finally` 补清 `provider/model/usage`（C143 只修了规则路径）→ C137 增补断言；
+- `fold-mark-sites` 只断言「存在一处」→ 改为**统计次数**并禁止 2 参调用存在；
+- C145 的文案「不是损坏，需迁移」与现实不符（引擎读到版本不符就重建空图、`full` 落盘会覆盖）→
+  改为「**升级/降级前请先停窗备份**」。
+
+**复审对 C142/C145 的确认**（好消息）：三处回滚点都传了 `dirtySnapshot`、`src` 内无第四处旧签名；
+`firstWrite` 清理先全量写再删、不跨会话；C143 的 route 清理不与既有断言冲突。
+
 ### C147 · live 证据刷新：第 20 次 fold（本会话 seq 11528–13485）
 
 **新增 1 次真实 fold**：本会话 `session-00b50089`，seq **11528–13485**，`pressure` 触发，**c=1 / f=1 / openAtEnd=0**

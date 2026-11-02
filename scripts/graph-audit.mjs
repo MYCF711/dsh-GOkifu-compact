@@ -38,10 +38,6 @@ function resolveHome() {
 }
 
 /**
- * 检查一张图，返回问题列表（空数组 = 自洽）。
- * @param {object} g 由 `fromJSON` 得到的图
- */
-/**
  * ★ C142（审查 P1-3）：`stateIndex` 必须在**原始 JSON** 上查 ——
  * `fromJSON()` 会无条件重建 stateIndex，所以在规范化后的图上查永远绿（假守护）。
  * @param {any} raw `JSON.parse(graph.json)` 的结果
@@ -55,6 +51,10 @@ export function auditRawIndex(raw) {
   return problems;
 }
 
+/**
+ * 检查一张图，返回问题列表（空数组 = 自洽）。
+ * @param {any} g 由 `fromJSON` 得到的图
+ */
 export function auditGraph(g) {
   const problems = [];
   for (const p of validate(g)) problems.push(p);
@@ -94,19 +94,23 @@ export function loadSessionGraph(graphFile) {
   const raw = JSON.parse(text);
   const graph = fromJSON(text);
   let deltaFrames = 0;
+  let deltaError = null;
+  let badTail = false;
   const deltaFile = `${graphFile}.delta.jsonl`;
   if (nodeFs.existsSync(deltaFile)) {
     try {
-      const { frames } = decodeDeltaFrames(nodeFs.readFileSync(deltaFile, "utf8"), sha(text).slice(0, 16));
-      for (const frame of frames) {
+      const decoded = decodeDeltaFrames(nodeFs.readFileSync(deltaFile, "utf8"), sha(text).slice(0, 16));
+      badTail = Boolean(decoded.badTail);
+      for (const frame of decoded.frames) {
         applyDelta(graph, frame);
         deltaFrames += 1;
       }
-    } catch {
-      /* 坏帧不该让体检崩：按「无 delta」处理，问题由结构检查兜 */
+    } catch (error) {
+      // ★ C148（复审 P1-3）：**不许吞掉** —— 吞掉会让体检看到「部分回放」的图却报「全部自洽」。
+      deltaError = String(error?.message ?? error).slice(0, 160);
     }
   }
-  return { raw, graph, deltaFrames };
+  return { raw, graph, deltaFrames, deltaError, badTail };
 }
 
 /**
@@ -157,7 +161,10 @@ export function auditRoot(sessionsDir) {
       out.push({ session: name, problems: [`graph.json 无法解析：${String(error?.message ?? error).slice(0, 120)}`] });
       continue;
     }
-    out.push({ session: name, problems: [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)] });
+    const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
+    if (loaded.deltaError) problems.push(`delta 帧无法回放（图可能停在部分回放）：${loaded.deltaError}`);
+    if (loaded.badTail) problems.push("delta 尾部有残帧（写入中断留下的半帧）");
+    out.push({ session: name, problems });
   }
   return out;
 }

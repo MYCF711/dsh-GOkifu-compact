@@ -20,7 +20,7 @@ import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { fromJSON } from "../src/rooms/kifu-model.mjs";
+import { GRAPH_VERSION, fromJSON } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 // ★ W5/W-B（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
 //   不再写死「旧 home 的某个固定 preset 目录/名字」—— 新版 DSH 没有 preset-bundles，旧 home 才走它。
@@ -394,6 +394,7 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   const bad = [];
   const legacy = [];
+  const badTail = [];
   let scanned = 0;
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -404,29 +405,44 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       try {
         loaded = loadSessionGraph(graphFile);
       } catch (error) {
-        // ★ C145（审查 P2）：把「旧版本图」和「真的损坏」分开 ——
-        //   以前两者都记 error，旧版本（version !== GRAPH_VERSION）会让 doctor **永久红且没有修复出口**。
+        // ★ C145/C148：把「旧版本图」和「真的损坏」分开 ——
+        //   但**判据必须是文件里的 version 值**，不能靠错误文案：
+        //   `{}`（缺 version）也会抛 "unsupported version"，那是坏图，不是旧版本。
+        let version;
+        try {
+          version = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"))?.version;
+        } catch {
+          version = undefined;
+        }
         const message = String(error?.message ?? error);
-        if (/unsupported version/.test(message)) legacy.push(`${entry.name.slice(0, 16)}: ${message}`);
-        else bad.push(`${entry.name.slice(0, 16)}: 无法解析`);
+        if (typeof version === "number" && version !== GRAPH_VERSION) {
+          legacy.push(`${entry.name.slice(0, 16)}: v${version}（当前 v${GRAPH_VERSION}）`);
+        } else {
+          bad.push(`${entry.name.slice(0, 16)}: ${message.slice(0, 60)}`);
+        }
         continue;
       }
       scanned += 1;
       // ★ C142（审查 P1-3）：悬空 stateIndex 只能在**原始 JSON** 上查（fromJSON 会重建）
       // ★ C143（审查 P1-4）：结构检查也必须在**重放 delta 之后**的图上做
       const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
+      // ★ C148（复审 P1-3）：delta 回放失败 ⇒ 体检看到的是**部分回放**的图，必须报出来
+      if (loaded.deltaError) problems.push(`delta 帧无法回放（图可能停在部分回放）：${loaded.deltaError}`);
+      if (loaded.badTail) badTail.push(`${entry.name.slice(0, 16)}: delta 尾部残帧（写入中断）`);
       if (problems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${problems[0]}`);
     }
   }
   add(
     "棋谱结构自洽（C140）",
-    bad.length > 0 ? "error" : legacy.length > 0 ? "warn" : "ok",
+    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 ? "warn" : "ok",
     scanned === 0
-      ? "未采集（没有会话图）"
+      ? legacy.length > 0 || badTail.length > 0
+        ? `0 个可读会话（${legacy.length} 个旧版本 + ${badTail.length} 个残帧会话；不是「没有图」）：${[...legacy, ...badTail].slice(0, 3).join(" / ")}`
+        : "未采集（没有会话图）"
       : bad.length > 0
         ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
         : legacy.length > 0
-          ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（不是损坏，需迁移）：${legacy.slice(0, 3).join(" / ")}`
+          ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（引擎读到会重建空图 ⇒ 升级/降级前请先停窗备份）：${legacy.slice(0, 3).join(" / ")}`
           : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
 }
@@ -440,6 +456,8 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   let missingAll = 0;
   let inFlightAll = 0;
   let orphanAll = 0;
+  const skippedDocs = [];
+  const deltaIssues = [];
   const worst = [];
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -447,14 +465,20 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       const dir = nodePath.join(sessionsRoot, entry.name);
       const graphFile = nodePath.join(dir, "graph.json");
       if (!nodeFs.existsSync(graphFile)) continue;
-      let graph;
+      let loaded;
       try {
         // ★ C143（审查 P1-2）：必须重放 delta —— 运行时 load 会重放；只读基线会把
         //   「只在 delta 里、其实还活着」的节点当成不存在（误报陈旧）或漏报真实缺失（假绿）。
-        graph = loadSessionGraph(graphFile).graph;
-      } catch {
+        loaded = loadSessionGraph(graphFile);
+      } catch (error) {
+        // ★ C148（复审 P1-1）：**不许静默跳过** —— 否则旧版本/坏图会话完全不进这条检查，
+        //   而 detail 还写「齐全」，等于永久假绿。
+        skippedDocs.push(`${entry.name.slice(0, 16)}: ${String(error?.message ?? error).slice(0, 40)}`);
         continue;
       }
+      const graph = loaded.graph;
+      if (loaded.deltaError) deltaIssues.push(`${entry.name.slice(0, 16)}: ${loaded.deltaError.slice(0, 60)}`);
+      else if (loaded.badTail) deltaIssues.push(`${entry.name.slice(0, 16)}: delta 尾部残帧`);
       scanned += 1;
       const nodesDir = nodePath.join(dir, "nodes");
       const files = nodeFs.existsSync(nodesDir) ? nodeFs.readdirSync(nodesDir) : [];
@@ -463,23 +487,36 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       //   nodes/*.md 是**节流写出**的（pending 攒到下一次落盘才写），活跃会话里这会持续出现。
       //   所以：图在最近 2 分钟内更新过（会话仍在跑）⇒ 记为**在途**，不报警；
       //   只有「图已静止」却仍缺文档，才是真正的空指针风险。
-      const fresh = Date.now() - (Number(graph.updatedAt) || 0) < 120_000;
-      if (fresh) inFlightAll += stats.missing.length;
-      else {
-        missingAll += stats.missing.length;
-        if (stats.missing.length > 0 && worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${stats.missing.length}`);
+      // ★ C148（复审 P2-4）：在途只对**刚创建**的节点成立（按节点自己的 ts）——
+      //   只看 graph.updatedAt 会让「一直活跃的会话里永久缺失的 md」永远算在途、永不报警。
+      const now = Date.now();
+      for (const id of stats.missing) {
+        const node = graph.nodes?.[id];
+        const created = Number(node?.ts) || 0;
+        const inFlight = now - (Number(graph.updatedAt) || 0) < 120_000 && now - created < 120_000;
+        if (inFlight) inFlightAll += 1;
+        else {
+          missingAll += 1;
+          if (worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${id}`);
+        }
       }
       orphanAll += stats.orphan.length;
     }
   }
+  const notes = [];
+  if (inFlightAll > 0) notes.push(`${inFlightAll} 个在途（刚创建，md 按落盘节流延迟写出）`);
+  if (orphanAll > 0) notes.push(`${orphanAll} 个陈旧 md（节点已不在图里，仅计数）`);
+  if (deltaIssues.length > 0) notes.push(`${deltaIssues.length} 个会话的 delta 无法完整回放：${deltaIssues.slice(0, 2).join(" / ")}`);
+  if (skippedDocs.length > 0) notes.push(`${skippedDocs.length} 个会话被跳过（旧版本/坏图，无法体检）：${skippedDocs.slice(0, 2).join(" / ")}`);
+
   const verdict = missingAll > 0
-    ? { level: "warn", detail: `${missingAll} 个节点缺 nodes/<id>.md（热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}` }
+    ? { level: "warn", detail: `${missingAll} 个节点缺 nodes/<id>.md（热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}${notes.length > 0 ? ` · ${notes.join(" · ")}` : ""}` }
     : {
-        level: "ok",
+        level: skippedDocs.length > 0 || deltaIssues.length > 0 ? "warn" : "ok",
         detail:
           scanned === 0
-            ? "未采集（没有会话图）"
-            : `${scanned} 个会话的节点文档齐全${inFlightAll > 0 ? `（${inFlightAll} 个在途：会话仍在写，md 按落盘节流延迟写出）` : ""}${orphanAll > 0 ? `；${orphanAll} 个陈旧 md（节点已不在图里，仅计数）` : ""}`,
+            ? `0 个可读会话${skippedDocs.length > 0 ? `（${skippedDocs.length} 个被跳过：${skippedDocs.slice(0, 3).join(" / ")}，不是「没有图」）` : "（没有会话图）"}`
+            : `${scanned} 个会话的节点文档齐全${notes.length > 0 ? `（${notes.join(" · ")}）` : ""}`,
       };
   add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
 }

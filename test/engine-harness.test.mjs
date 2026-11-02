@@ -1924,11 +1924,19 @@ tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fol
   engine._lastSummaryText = "STALE-FROM-MANUAL";
   engine._lastSummaryChars = engine._lastSummaryText.length;
   engine._lastSummaryModelText = engine._lastSummaryText;
+  // ★ C148（复审 P2-2）：route/usage 也必须清 —— 否则下一次模型 fold 若 provider 不回 usage，
+  //   会把**上一次手动压缩**的 usage 记成本次。
+  engine._lastSummaryProvider = "p";
+  engine._lastSummaryModel = "m";
+  engine._lastSummaryUsage = { inputTokens: 9, outputTokens: 9 };
   await engine.compactNow({ session }, undefined, "cmd-1");
 
   if (engine._lastSummaryText !== undefined) throw new Error(`手动压缩后 _lastSummaryText 必须清空，实际 ${JSON.stringify(engine._lastSummaryText)}`);
   if (engine._lastSummaryChars !== undefined) throw new Error("手动压缩后 _lastSummaryChars 必须清空");
   if (engine._lastSummaryModelText !== undefined) throw new Error("手动压缩后 _lastSummaryModelText 必须清空");
+  if (engine._lastSummaryProvider !== undefined) throw new Error("手动压缩后 _lastSummaryProvider 必须清空（复审 P2-2）");
+  if (engine._lastSummaryModel !== undefined) throw new Error("手动压缩后 _lastSummaryModel 必须清空");
+  if (engine._lastSummaryUsage !== undefined) throw new Error("手动压缩后 _lastSummaryUsage 必须清空（否则下一次 fold 记假 usage）");
 };
 
 tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔后必须清零"] = async () => {

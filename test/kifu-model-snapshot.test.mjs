@@ -26,7 +26,7 @@ import {
   settleEdge,
   toJSON,
 } from "./graph-fixtures.mjs";
-import { applyDelta } from "../src/rooms/kifu-model.mjs";
+import { applyDelta, markNodeDeleted } from "../src/rooms/kifu-model.mjs";
 import { createPersistStore, createFsPort } from "../src/rooms/kifu-persist.mjs";
 import nodeFs from "node:fs";
 import nodeOs from "node:os";
@@ -169,4 +169,20 @@ tests["C146 快照里「创建后又删除」的节点不许进 orderAppend（�
   applyDelta(target, delta);
   const ghosts = target.order.filter((id) => !target.nodes[id]);
   t.eq(ghosts.length, 0, `回放后 order 不许有幽灵节点：${ghosts.join(",")}`);
+};
+
+tests["C148 创建后立刻删除：orderAppend 必须被摘掉，回放后不许有幽灵 order"] = (t) => {
+  const g = createGraph({ sessionId: "s" });
+  const temp = addUserNode(g, { seq: 1, text: "临时" }).id;
+  t.eq(peekDirty(g).orderAppend.includes(temp), true, "夹具前提：创建后进 orderAppend");
+  markNodeDeleted(g, temp);
+  t.eq(peekDirty(g).orderAppend.includes(temp), false, "markNodeDeleted 必须同时把它从 orderAppend 摘掉（复审 P1-4）");
+
+  const delta = deltaFromDirty(g, peekDirty(g));
+  t.eq((delta.orderAppend ?? []).includes(temp), false, "delta 的 orderAppend 不许含它");
+  // 回放到**空图**（delta 只对它自己的基线有效；用 build() 会撞 id，那是夹具问题不是行为）
+  const target = createGraph({ sessionId: "s-empty" });
+  applyDelta(target, delta);
+  t.eq(target.order.length, 0, `order 必须仍为空，实际 ${JSON.stringify(target.order)}`);
+  t.eq(target.order.filter((id) => !target.nodes[id]).length, 0, "回放后不许出现幽灵 order");
 };
