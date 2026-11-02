@@ -313,3 +313,41 @@ tests["C136 tier-2 合并失败：必须清掉 summarize 留下的 pending 摘�
   if ((engine._tier2InFlight ?? false) !== false) throw new Error("_tier2InFlight 必须复原为 false");
   if (engine._chessActiveRange !== null && engine._chessActiveRange !== undefined) throw new Error(`_chessActiveRange 必须清空，实际 ${JSON.stringify(engine._chessActiveRange)}`);
 };
+
+tests["C178 tier-2 合并失败也必须退避（否则每个事件都再跑一次 compactRegion）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c178-tier2-backoff");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c178" });
+  pushCheckpoints(session, 2);
+  pushPlain(session, 6);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const original = engine.compactRegion.bind(engine);
+  let tier2Attempts = 0;
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) {
+      tier2Attempts += 1;
+      throw new Error("injected-tier2-boom");
+    }
+    return original(start, end, agent, signal);
+  };
+  try {
+    // ① 第一次：应真的尝试并失败（不影响主流程）
+    const first = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (first === undefined) throw new Error("首次必须返回非 undefined");
+    if (tier2Attempts !== 1) throw new Error(`首次应尝试 tier-2 1 次，实际 ${tier2Attempts}`);
+
+    // ② 窗口内再来一次：tier-2 不许再尝试（主 fold 照常可跑）
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (tier2Attempts !== 1) throw new Error(`退避窗口内不许再尝试 tier-2（应仍为 1，实际 ${tier2Attempts}）`);
+
+    // ③ 推进事件越过窗口：允许再试
+    for (let i = 0; i < 60; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "推进" }] });
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (tier2Attempts !== 2) throw new Error(`越过窗口后应再试 tier-2（期望 2，实际 ${tier2Attempts}）`);
+  } finally {
+    engine.compactRegion = original;
+  }
+};

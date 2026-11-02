@@ -407,6 +407,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       // ★ 2026-10-29：压缩连续失败计数（热清单告警用）。成功一次清零。
       foldFailures: 0,
       lastFoldFailureSeq: 0,
+      tier2Failures: 0,
+      lastTier2FailureSeq: 0,
       lastFoldError: "",
     };
     const g = this.#graph(session);
@@ -1100,6 +1102,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const session = agent.session;
     const cps = checkpointSeqs(session);
     if (cps.length < this.chess.tier2After) return null;
+    // ★ C178：tier-2 也要退避 —— 它与 fold 共用 `compactRegion`（同样会跑一次摘要）。
+    //   合并持续失败时，旧代码每个事件都再试一次 ⇒ 与 C177 同类的成本泄漏，只是换了一条路径。
+    {
+      const st2 = this.#runtimeFor(session);
+      const failures2 = st2.tier2Failures ?? 0;
+      if (failures2 > 0) {
+        const wait2 = Math.min(FOLD_RETRY_BASE_SEQ * 2 ** Math.min(failures2 - 1, 6), FOLD_RETRY_CAP_SEQ);
+        if (session.seq - (st2.lastTier2FailureSeq ?? 0) < wait2) return null;
+      }
+    }
     const start = cps[0];
     const end = cps[1];
     if (start === undefined || end === undefined || start === end) return null;
@@ -1109,6 +1121,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       result = await this.compactRegion(start, end, agent, signal);
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: tier-2 合并失败（不影响主流程）：${String(error)}`);
+      {
+        const st2 = this.#runtimeFor(session);
+        st2.tier2Failures = (st2.tier2Failures ?? 0) + 1;
+        st2.lastTier2FailureSeq = session.seq;
+      }
       // ★ C136：失败时也必须清掉 summarize 留下的 pending 摘要 —— 否则「谁生产谁消费」被破坏：
       //   下一次 fold（尤其规则路径不再覆盖这些字段时）会把**上一次失败尝试的摘要**当成自己的，
       //   于是 summaryChars / quality 都是错的，而 foldMark 看起来完全正常。
@@ -1120,6 +1137,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._chessActiveRange = null;
     }
     if (result !== null && result !== undefined) {
+      const st2 = this.#runtimeFor(session);
+      st2.tier2Failures = 0;
+      st2.lastTier2FailureSeq = 0;
       const g = this.#graph(session);
       // 2026-11-01（C11）：tier-2 合并**也是压缩生命周期的一部分** —— 它同样会产出摘要，
       // 所以同样要记保真度（此前 tier2 foldMark 没有 quality，医生只能对它「未采集」）。
