@@ -877,3 +877,20 @@ tests["C257 写入率极低时 doctor 要点名两个节流旋钮（否则用户
     nodeFs.rmSync(normal, { recursive: true, force: true });
   }
 };
+
+tests["C266 归档收尾要按来源分桶（重启后一眼看出是不是 archive 驱动）"] = (t) => {
+  const now = Date.now();
+  const home = makeHome({
+    mutate: (g) => {
+      g.closeout = { at: now - 1000, eventsSinceLastFold: 120, folds: 1, source: "backfill" };
+      g.foldMarks = [{ at: now - 900, seqStart: 1, seqEnd: 2, trigger: "archive", shadowedTokens: 100, totalAfter: 10, foldCount: 1 }];
+    },
+  });
+  try {
+    const row = runDoctor(home).find("归档收尾");
+    t.eq(!!row, true, "必须有归档收尾这一行");
+    t.includes(String(row.detail), "来源 backfill=1", `要按 source 分桶：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

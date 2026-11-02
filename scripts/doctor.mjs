@@ -949,10 +949,21 @@ add(
   } else if (withCloseout.length === 0) {
     add("归档收尾（closeout）", "warn", "未采集（还没有会话在归档时被收尾过）");
   } else {
+    // ★ C266：**按来源分桶**。重启后最该看的一句话是：closeout 是不是由 `archive`（新挂的 domain/changed）驱动的。
+    //   若仍然只有 `disposed`，说明 GUI 归档那条路还没接管（C216 未生效）；`backfill` 则说明是补账补的。
+    const bySource = {};
+    for (const x of withCloseout) {
+      const key = typeof x.closeout?.source === "string" && x.closeout.source !== "" ? x.closeout.source : "unknown";
+      bySource[key] = (bySource[key] ?? 0) + 1;
+    }
+    const sourceText = ` · 来源 ${Object.entries(bySource)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ")}`;
     add(
       "归档收尾（closeout）",
       withArchiveFold.length > 0 ? "ok" : "warn",
-      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold —— ${recent}`,
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${sourceText} —— ${recent}`,
     );
   }
 }
