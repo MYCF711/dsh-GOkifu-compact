@@ -298,14 +298,26 @@ tests["H-15 ⑯闭包自洽：seqStart>seqEnd 或 nodes>graphNodes ⇒ fail；�
   t.eq(byName(legacy, "⑯").level, "ok", "旧 fold 无 closure ⇒ 不许 fail");
 };
 
-tests["H-16 ⑪幻觉探针：『图里有但不在本次折叠区间』也要 warn 并点名（C104）"] = (t) => {
-  const q = quality({ unknownIds: [], outOfRangeIds: ["e42", "n7"] });
+tests["H-16 ⑪幻觉探针：『图里有但不在本次折叠区间』也要 warn 并点名（C104 / C280）"] = (t) => {
+  // ★ C280：只把「引用**更晚**」算问题（与 doctor 同口径）；「引用更早」是回溯 kifu，合法。
+  const q = quality({ unknownIds: [], outOfRangeIds: ["e42"], outOfRangeEarlier: [], outOfRangeLater: ["e42"] });
   const row = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: q }] }), {}), "⑪");
-  t.eq(row.level, "warn", "越界引用必须 warn");
-  t.includes(row.detail, "不在本次折叠区间", "文案要说清是「区间外」而不是「图里没有」");
+  t.eq(row.level, "warn", "引用更晚的实体必须 warn");
+  t.includes(row.detail, "更晚", "文案要指名方向（更晚 = 折叠时还不存在）");
   t.includes(row.detail, "e42", "要点名越界 id");
 
-  const clean = byName(checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality({ unknownIds: [], outOfRangeIds: [] }) }] }), {}), "⑪");
+  // 只有「更早」的引用 ⇒ 不算问题，但要说一句（不静默）
+  const earlierOnly = byName(
+    checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality({ unknownIds: [], outOfRangeIds: ["n7"], outOfRangeEarlier: ["n7"], outOfRangeLater: [] }) }] }), {}),
+    "⑪",
+  );
+  t.eq(earlierOnly.level, "ok", "只有更早的引用不该 warn");
+  t.includes(earlierOnly.detail, "更早", "要在 ok 文案里说明有回溯引用");
+
+  const clean = byName(
+    checkGraph(mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality({ unknownIds: [], outOfRangeIds: [], outOfRangeEarlier: [], outOfRangeLater: [] }) }] }), {}),
+    "⑪",
+  );
   t.eq(clean.level, "ok", "没有越界引用应 ok");
 };
 

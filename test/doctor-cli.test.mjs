@@ -765,7 +765,8 @@ tests["C206 tier-2 合并的摘要引用「区间外 id」不算问题（合并�
   const earlier = makeHome({
     mutate: (g) => {
       g.foldMarks = [
-        { at: Date.now(), seqStart: 10, seqEnd: 20, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n2"] } },
+        // ★ C280：现在要连方向一起给（只有合并数组的旧记录，doctor 会明确说"没采集方向"）
+        { at: Date.now(), seqStart: 10, seqEnd: 20, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n2"], outOfRangeEarlier: ["n2"], outOfRangeLater: [] } },
       ];
       g.foldCount = 1;
     },
@@ -911,5 +912,51 @@ tests["C276 悬空边报 error 时必须给出**能执行的命令**（只说「
     t.includes(String(row.detail), "--apply", "要说明确认后怎么真正执行");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
+tests["C280 doctor 不许假装知道越界方向：没采集方向就说没采集"] = (t) => {
+  // ① 老数据：只有合并数组（C280 前采集）⇒ 必须 warn 说「没有采集方向」
+  const legacy = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 100, totalAfter: 10, foldCount: 1, quality: { outOfRangeIds: ["n9"] } }];
+    },
+  });
+  try {
+    const row = runDoctor(legacy).find("压缩摘要的越界 id");
+    t.eq(!!row, true, "必须有越界这一行");
+    t.eq(row.status, "warn", "没有方向信息时不许报 ok（那是在撒谎）");
+    t.includes(String(row.detail), "没有采集方向", "要说清是没采集，而不是「全部更早」");
+  } finally {
+    nodeFs.rmSync(legacy, { recursive: true, force: true });
+  }
+
+  // ② 新数据：有方向且全是更早 ⇒ ok（回溯 kifu 合法）
+  const fresh = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 100, totalAfter: 10, foldCount: 1, quality: { outOfRangeIds: ["n9"], outOfRangeEarlier: ["n9"], outOfRangeLater: [] } }];
+    },
+  });
+  try {
+    const row = runDoctor(fresh).find("压缩摘要的越界 id");
+    t.eq(row.status, "ok", "有方向且全是更早 ⇒ ok");
+    t.includes(String(row.detail), "更早", "要说明是更早的引用");
+  } finally {
+    nodeFs.rmSync(fresh, { recursive: true, force: true });
+  }
+
+  // ③ 新数据：有更晚的引用 ⇒ warn（这是真问题，老代码永远看不到）
+  const bad = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 100, totalAfter: 10, foldCount: 1, quality: { outOfRangeIds: ["n200"], outOfRangeEarlier: [], outOfRangeLater: ["n200"] } }];
+    },
+  });
+  try {
+    const row = runDoctor(bad).find("压缩摘要的越界 id");
+    t.eq(row.status, "warn", "引用更晚必须是 warn");
+    t.includes(String(row.detail), "更晚", "要指名是更晚的引用");
+    t.includes(String(row.detail), "n200", "要点名具体 id");
+  } finally {
+    nodeFs.rmSync(bad, { recursive: true, force: true });
   }
 };

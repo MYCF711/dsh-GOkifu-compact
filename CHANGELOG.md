@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C280 | 越界引用必须分方向存下来（doctor 一直在撒谎，handoff 一直在误报） |
 | C279 | 修掉那条「永远红一条」的 legacy foldMark：FAIL 1 → 0 |
 | C278 | `migrate-dangling` dry-run 列出「会改哪些会话」 |
 | C277 | 文档里教的 CLI 子命令必须真实存在 |
@@ -358,6 +359,20 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C280 · 越界引用必须分方向存下来（doctor 一直在撒谎，handoff 一直在误报）
+
+C212 把越界分成 earlier（回溯 kifu，合法）/ later（折叠时还不存在，编造），但
+`measureFoldQuality` **只存合并数组**，两个分数组被丢掉。于是两个消费者各错一个方向：
+
+- `doctor` 读 `quality.outOfRangeLater`（**字段不存在**）⇒ 永远空 ⇒ 一律报「全部是引用更早的，正常」；
+- `handoff-check` 吃合并数组 ⇒ 把合法回溯也报成 warn。
+
+修法：① 存三段（合并 / earlier / later，合并向后兼容）；② handoff 改用 later（与 doctor 同口径），
+earlier 只作说明；③ doctor **没方向就说"没采集"**，不许断言"全部更早"。
+
+真机：handoff-check WARN **18 → 11**（那 7 条是被误报的合法回溯）。
+测试：`fold-quality` C280、`doctor-cli` C280（三态）、`handoff-check` H-16 改新口径。
 
 ### C279 · 修掉那条「永远红一条」的 legacy foldMark：FAIL 1 → 0
 

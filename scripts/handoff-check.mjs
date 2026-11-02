@@ -222,11 +222,15 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   //   非空 = 模型编造了节点/边编号（`docs/research/01…` 的「8 类语义错误」里的 hallucinated 类）。
   const unknown = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
   // ★ C104：除了「图里根本没有」，还有「图里有、但不在本次折叠区间」—— 后者幻觉探针沉默，却同样是错引用。
-  const outOfRange = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : [])))].slice(0, 10);
+  // ★ C280：只把「引用**更晚**的实体」算问题（与 doctor 同口径）——「引用更早」是回溯历史 kifu，合法。
+  //   旧版直接吃合并后的 `outOfRangeIds` ⇒ 把正常回溯也报成 warn（噪声）；C212 的分判据没被这条消费。
+  const outOfRange = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.outOfRangeLater) ? m.quality.outOfRangeLater : [])))].slice(0, 10);
+  const earlierRefs = [...new Set(qualityMarks.flatMap((m) => (Array.isArray(m.quality.outOfRangeEarlier) ? m.quality.outOfRangeEarlier : [])))].length;
   const probeDetail = (() => {
     const parts = [];
     if (unknown.length > 0) parts.push(`摘要提到但图里没有：${unknown.join(", ")}`);
-    if (outOfRange.length > 0) parts.push(`摘要提到但不在本次折叠区间：${outOfRange.join(", ")}`);
+    if (outOfRange.length > 0) parts.push(`摘要引用了**更晚**的实体（折叠时还不存在）：${outOfRange.join(", ")}`);
+    if (earlierRefs > 0 && outOfRange.length === 0) parts.push(`另有 ${earlierRefs} 个引用更早的实体（回溯 kifu，正常）`);
     if (parts.length > 0) return parts.join("；");
     return qualityMarks.length === 0 ? "没有质量样本（未采集）" : "";
   })();

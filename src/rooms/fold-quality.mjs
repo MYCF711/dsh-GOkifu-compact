@@ -240,7 +240,18 @@ export function measureFoldQuality({
     // ★ 2026-11-01：幻觉探针 —— 摘要里提到的 eN/nN 必须都在图里（见 findUnknownIds）。
     unknownIds: findUnknownIds(graph, summaryText || modelText).unknown,
     // C104：引用存在但**不在本次折叠区间内**的 id（幻觉探针抓不到的那一类）
-    outOfRangeIds: findOutOfRangeIds(graph, range, summaryText || modelText).outOfRange,
+    // ★ C280：C212 早就把越界分成了 earlier / later，但**只存了合并后的数组**，
+    //   结果 doctor 去读 `outOfRangeLater`（不存在）⇒ 永远读到空 ⇒ 一律报「全部是引用更早的，正常」。
+    //   那是**仪器在撒谎**：真正"引用更晚（折叠时还不存在的实体）"的问题永远看不见。
+    //   这里把三段都存下来：合并 / 更早（回溯 kifu，合法）/ 更晚（真问题）。
+    ...((() => {
+      const probe = findOutOfRangeIds(graph, range, summaryText || modelText);
+      return {
+        outOfRangeIds: probe.outOfRange,
+        outOfRangeEarlier: probe.earlier,
+        outOfRangeLater: probe.later,
+      };
+    })()),
     modelConstraintRecall,
   };
 }

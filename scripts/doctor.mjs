@@ -1058,8 +1058,21 @@ add(
     if (laterIds.length > 0) {
       add("压缩摘要的越界 id（C104/C212）", "warn", `摘要引用了**更晚**的实体（折叠时还不存在）：${laterIds.join(", ")}`);
     } else if (outOfRangeIds.length > 0) {
-      // 只有「更早」的引用 ⇒ 回溯历史 kifu，正常，不再占一行警告
-      add("压缩摘要的越界 id（C104/C212）", "ok", `越界 ${outOfRangeIds.length} 个，全部是引用更早的实体（回溯历史 kifu）—— 正常`);
+      // ★ C280：旧版读 `outOfRangeLater`（那时根本没这个字段）⇒ 永远读到空 ⇒ 一律断言
+      //   「全部是引用更早的，正常」。那是**仪器在撒谎**：真正引用更晚的问题永远看不见。
+      //   现在先确认「有没有采集过方向信息」，再决定敢不敢下"正常"这个结论。
+      const directionKnown = outOfRangeSource.some((m) => Array.isArray(m.quality.outOfRangeLater) || Array.isArray(m.quality.outOfRangeEarlier));
+      if (directionKnown) {
+        // 只有「更早」的引用 ⇒ 回溯历史 kifu，正常，不再占一行警告
+        add("压缩摘要的越界 id（C104/C212）", "ok", `越界 ${outOfRangeIds.length} 个，全部是引用更早的实体（回溯历史 kifu）—— 正常`);
+      } else {
+        add(
+          "压缩摘要的越界 id（C104/C212）",
+          "warn",
+          `越界 ${outOfRangeIds.length} 个，但**没有采集方向**（C280 之前的 fold 只存了合并数组）—— ` +
+            "无法区分「回溯更早（正常）」与「引用更晚（编造）」；升级后新的 fold 会自动带上方向",
+        );
+      }
     }
   }
 }

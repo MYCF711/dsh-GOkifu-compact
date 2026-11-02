@@ -11,6 +11,7 @@
 import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
 import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
 import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
+import { pathToFileURL } from "node:url";
 
 export const tests = {};
 
@@ -222,4 +223,32 @@ tests["C194 反向区间传进 foldClosureOf / foldBoundaryOf 也必须算对（
   const bReversed = foldBoundaryOf(g, { start: 121, end: 100 });
   t.eq(bReversed.overlapping, bForward.overlapping, `反向区间的重叠边数必须一致（${bReversed.overlapping} vs ${bForward.overlapping}）`);
   t.eq(bReversed.openAtEnd, bForward.openAtEnd, "openAtEnd 也必须一致");
+};
+
+tests["C280 越界必须分方向存下来（earlier=回溯合法 / later=编造）—— 只存合并数组等于丢判据"] = async (t) => {
+  const mod = { measureFoldQuality };
+  const { createGraph, addUserNode, addEdge, addAgentNode, settleEdge } = await import("./graph-fixtures.mjs");
+
+  const g = createGraph({ sessionId: "sess-c280" });
+  addUserNode(g, { seq: 1, text: "做点事" });
+  const n100 = addAgentNode(g, { seq: 100 });
+  const n200 = addAgentNode(g, { seq: 200 });
+  // 让它俩都成为「图里存在」的节点，summary 引用它们
+  addEdge(g, { from: n100, action: "a", intent: "i", seq: 101 });
+  addEdge(g, { from: n200, action: "b", intent: "j", seq: 201 });
+
+  const q = mod.measureFoldQuality({
+    graph: g,
+    range: { start: 150, end: 175 }, // 两个节点都在区间外，但方向不同
+    summaryText: `之前走过 ${n100.id}，后来才到 ${n200.id}`,
+  });
+  t.eq(Array.isArray(q.outOfRangeEarlier), true, "必须存 outOfRangeEarlier");
+  t.eq(Array.isArray(q.outOfRangeLater), true, "必须存 outOfRangeLater（doctor 就是读这个字段）");
+  t.eq(q.outOfRangeEarlier.includes(n100.id), true, `更早的引用要进 earlier：${JSON.stringify(q.outOfRangeEarlier)}`);
+  t.eq(q.outOfRangeLater.includes(n200.id), true, `更晚的引用要进 later：${JSON.stringify(q.outOfRangeLater)}`);
+  t.eq(
+    q.outOfRangeIds.length,
+    q.outOfRangeEarlier.length + q.outOfRangeLater.length,
+    "合并数组 = earlier + later（向后兼容老消费者）",
+  );
 };
