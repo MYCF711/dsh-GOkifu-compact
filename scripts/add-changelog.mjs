@@ -15,6 +15,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -72,7 +73,18 @@ export function main(argv = process.argv.slice(2)) {
     return 0;
   }
   nodeFs.writeFileSync(FILE, next, "utf8");
-  console.log(`✓ 已插入 C${c} · ${title}`);
+  // ★ C404：**连索引一起刷**。上一轮插完条目我还得手动跑一次 `changelog-index.mjs --write`，
+  //   忘了就让 `C169` 红 —— 又一个"可以自动却靠人记得"的环节。这里直接接上。
+  // ★ C404：连**索引**一起刷。上一轮插完条目我还得手动跑一次 `changelog-index.mjs --write`，
+  //   忘了就让 `C169` 红 —— 又一个"可以自动却靠人记得"的环节。这里直接调那个脚本。
+  let indexed = true;
+  try {
+    const r = spawnSync(process.execPath, [nodePath.join(HERE, "changelog-index.mjs"), "--write"], { encoding: "utf8" });
+    indexed = r.status === 0;
+  } catch {
+    indexed = false;
+  }
+  console.log(`✓ 已插入 C${c} · ${title}${indexed ? "" : "（索引没刷成 —— 请跑 node scripts/changelog-index.mjs --write）"}`);
   return 0;
 }
 

@@ -53,3 +53,14 @@ tests["C403 非法输入要让错误可读；maxNumber 取最大编号"] = (t) =
   }
   t.eq(err2 !== null, true, "没有条目锚点时必须报错");
 };
+
+tests["C404 add-changelog 必须顺带刷新 CHANGELOG 索引（否则 C169 会红）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "add-changelog.mjs"), "utf8");
+  t.includes(src, "changelog-index.mjs", "必须在插入后调用索引脚本（C404）");
+  t.includes(src, "spawnSync", "用同步子进程调用，别引入异步复杂度");
+  t.includes(src, "索引没刷成", "刷失败时要提示人（不许静默）");
+};

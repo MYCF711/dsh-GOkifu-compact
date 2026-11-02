@@ -1,7 +1,7 @@
 {
-  "total": 804,
+  "total": 805,
   "files": {
-    "add-changelog.test.mjs": 3,
+    "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
     "backfill-plan.test.mjs": 9,
