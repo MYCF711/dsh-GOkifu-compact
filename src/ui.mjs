@@ -57,7 +57,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 // ★ A2-1（2026-10-30）：preset 块格式的唯一定义在 R13 的 preset-format 子房间（src/rooms/）。
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
-import { countResolvedFailures } from "./rooms/kifu-model.mjs";
+import { countResolvedFailures, isTruncatedFinish } from "./rooms/kifu-model.mjs";
 import { readProfileBundles, readTextOrNull } from "./rooms/profile-io.mjs";
 import { repoVersion, repoBuildId } from "./rooms/build-stamp.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
@@ -383,6 +383,7 @@ export function todayAggregateFrom(scan) {
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
+  let truncated = 0;
   for (const file of scan.files) {
     totalSessions += 1;
     const summary = graphSummary(file).summary;
@@ -401,9 +402,14 @@ export function todayAggregateFrom(scan) {
       }
     }
     totalFailures += summary.failures;
+    // ★ C390：今日**被截断**的折叠数（finishReason = max-tokens/length 类）。
+    //   C317–C321 把这个字段装好了，但面板一直没用它 ⇒ 用户看不到"摘要被截断"这件事。
+    for (const mark of marks) {
+      if (isTruncatedFinish(mark?.finishReason)) truncated += 1;
+    }
   }
   // ★ C239：`costUsd` 是**估算**（官方价目 × 真实 usage）；`costKnown` 是有 usage 的 fold 数，供页面标注覆盖率。
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown };
+  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown, truncated };
 }
 
 /** 一次扫描 + 清缓存，给同一个请求里的两个聚合用。 */

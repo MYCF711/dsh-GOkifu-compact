@@ -420,9 +420,21 @@ tests["P4 · state.latest / state.today 与旧实现逐字段（含字段顺序�
     const wantLatest = JSON.stringify(refLatestGraph(home));
     const gotLatest = JSON.stringify(res.json.latest);
     if (gotLatest !== wantLatest) throw new Error(`latest 与旧实现不同：\n  旧: ${wantLatest}\n  新: ${gotLatest}`);
-    const wantToday = JSON.stringify(refTodayAggregate(home));
-    const gotToday = JSON.stringify(res.json.today);
-    if (gotToday !== wantToday) throw new Error(`today 与旧实现不同：\n  旧: ${wantToday}\n  新: ${gotToday}`);
+    // ★ C390：允许**追加**字段（如 truncated），但旧字段必须逐个且顺序一致。
+    const refToday = refTodayAggregate(home);
+    const gotToday = res.json.today;
+    const refKeys = Object.keys(refToday);
+    const gotKeys = Object.keys(gotToday);
+    for (const [i, key] of refKeys.entries()) {
+      if (gotKeys[i] !== key) throw new Error(`today 字段顺序变了：第 ${i} 个应为 ${key}，实际 ${gotKeys[i]}`);
+      if (JSON.stringify(gotToday[key]) !== JSON.stringify(refToday[key])) {
+        throw new Error(`today.${key} 与旧实现不同：旧 ${JSON.stringify(refToday[key])} / 新 ${JSON.stringify(gotToday[key])}`);
+      }
+    }
+    // 追加字段必须是数字（防止把未完成的东西潜进接口）
+    for (const key of gotKeys.slice(refKeys.length)) {
+      if (!Number.isFinite(gotToday[key])) throw new Error(`追加字段 today.${key} 应为数字，实际 ${JSON.stringify(gotToday[key])}`);
+    }
     // 连续两次（第二次全热）必须字节一致
     const again = await call(handler);
     if (again.raw !== res.raw) throw new Error("热路径输出与冷路径不逐字一致");
