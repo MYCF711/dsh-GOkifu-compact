@@ -4,6 +4,7 @@
 |---|---|
 | C387 | 摘要「成功但空白」必须抛错（JSON Output 陷阱） |
 | C388 | 重启后检查工具端口写死 64349（改用心跳端口） |
+| C399 | 第三次「先清后读」：C366 的三个证据字段也是 null |
 | C398 | 真机新折叠暴露：model 为 null、finishReason 字段缺失 |
 | C397 | doctor 点名「心跳被无服务进程覆盖」 |
 | C396 | 字段级探针 + 无服务进程不再覆盖心跳（C395+C396） |
@@ -486,6 +487,16 @@
 
 真机：重启后 GUI 换到 **56319**，而 `post-restart-check --api` 还在探 64349 ⇒ 误报「面板不可达」。
 现按 **`--port` > 心跳 `ui-route.json` 里的端口 > 64349** 的顺序取。
+
+### C399 · 第三次「先清后读」：C366 的三个证据字段也是 null
+
+真机新折叠里 `measuredBefore/thresholdTokens/windowTokens` 全 null —— `_foldDiag` 在 1773 行设、1851 行清，foldMark 在 1928 行才读。
+
+- 修：取 `const foldDiag = this._foldDiag ?? null;`（在清之前），foldMark 一律读局部变量；
+- 守卫 `engine-harness` C399 钉**结构**（必须先取；构造里不许出现 `this._foldDiag?.`）；
+- 立 **K-24**：把这类临时状态彻底从实例字段改为**参数传递**。
+
+**教训**：同一个错犯三次 —— 问题不在“人不小心”，而在**这个模式本身**。
 
 ### C398 · 真机新折叠暴露：model 为 null、finishReason 字段缺失
 

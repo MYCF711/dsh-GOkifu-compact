@@ -2874,3 +2874,17 @@ tests["C398 自动折叠必须记 model 与 finishReason（真机实测两者都
   t.includes(block, "model: summaryModel", "usage 里必须写 summaryModel（不是再读字段）");
   t.eq(/provider: this\._lastSummaryProvider \?\? null,\s*\n\s*model: this\._lastSummaryModel/.test(block), false, "不许在构造里再读已被清空的字段");
 };
+
+tests["C399 C366 的三个证据字段必须真的落进 foldMark（此前第三次「先清后读」）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "const foldDiag = this._foldDiag ?? null;", "必须先取成局部变量（C399）");
+  // 清理必须发生在「取值」之后（同一方法内）
+  const takeAt = src.indexOf("const foldDiag = this._foldDiag ?? null;");
+  const clearAt = src.indexOf("this._foldDiag = undefined;", takeAt);
+  t.ok(takeAt >= 0 && clearAt > takeAt, "取值的后面必须紧跟清理（先取后清）");
+  // foldMark 里只能读局部变量，不许再读实例字段
+  const pushAt = src.indexOf("g.foldMarks.push({");
+  const block = src.slice(pushAt, src.indexOf("});", pushAt));
+  t.eq(/this\._foldDiag\?\./.test(block), false, "foldMark 构造里不许再读 this._foldDiag（会被清空）");
+  t.includes(block, "measuredBefore: foldDiag?.measuredBefore", "必须读局部变量");
+};

@@ -1848,6 +1848,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     st.lastFoldFailureSeq = 0;
     st.lastFoldError = "";
     st.lastFoldErrorKind = null;
+    // ★ C399：**先取后清**。真机（2026-11-03 20:24）实测：C366 的三个字段在新折叠里仍然全是 null，
+    //   因为这一行在**构造 foldMark 之前**就把 `_foldDiag` 清了（第三次犯同一个错）。
+    //   现在取成局部变量，由它一路传到 foldMark；实例字段只在此处清。
+    const foldDiag = this._foldDiag ?? null;
     this._foldDiag = undefined;
     st.lastFoldFailureAt = 0;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
@@ -1925,9 +1929,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
-      measuredBefore: this._foldDiag?.measuredBefore ?? null,
-      thresholdTokens: this._foldDiag?.thresholdTokens ?? null,
-      windowTokens: this._foldDiag?.windowTokens ?? null,
+      measuredBefore: foldDiag?.measuredBefore ?? null,
+      thresholdTokens: foldDiag?.thresholdTokens ?? null,
+      windowTokens: foldDiag?.windowTokens ?? null,
       foldCount: g.foldCount,
       // ★ C398：截断仪器（C317–C321）之前只装在 recordFoldMark 那条路上；自动折叠这里也要记。
       finishReason: summaryFinishReason,
