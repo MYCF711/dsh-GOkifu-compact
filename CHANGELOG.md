@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C170 | 重启的两条前提在磁盘上核对过了（否则重启也白重启） |
 | C169 | CHANGELOG 的 C 轮索引（170 条靠一行一行的表格导航） |
 | C168 | 两条未落地候选的待决表（止损：别凭手感挑一条就动） |
 | C167 | 调研文也该有判据（C166 暴露的盲区） |
@@ -179,6 +180,22 @@
 
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
+
+### C170 · 重启的两条前提在磁盘上核对过了（否则重启也白重启）
+
+**为什么先查**：重启能不能加载**当前代码**、引擎会不会**又被 basic 盖住** —— 这两条不成立的话，
+重启后的验收全部是空转。两条都查了，都有结论：
+
+| 前提 | 证据 | 结论 |
+|---|---|---|
+| ① profile 里是链接还是副本 | `lstatSync(...).isSymbolicLink() === true`，指向 `…\repos\dsh-GOkifu-compact`，`package.json` 版本 **1.17.1** | **链接** ⇒ 重启加载仓库当前代码 |
+| ② `compaction-basic` 会不会盖住引擎 | 机器级层 `D:/DeepSeek Harness/home/cordis.patch.yml` 重新声明 `preset-standard`，`compaction` 组成员为 **`gokifu-compact`（`dsh-gokifu-compact/engine`）** + `tool-result-pruner` | `basic` **不在有效成员里** ⇒ 引擎被接管 |
+
+**两个易误读点**（写给下一次的我）：
+
+- 用户层 `cordis.patch.yml` 第 217 行的 `compaction-basic` **仍在文件里** —— 它属于用户层原始成员表，
+  被机器级层「同 id 重新声明」覆盖；判据要看**机器级层那份**的成员列表。
+- 第 46 行的 `group/gokifu-compact` 是 **magpie 的 model id**，不是引擎。
 
 ### C169 · CHANGELOG 的 C 轮索引（170 条靠一行一行的表格导航）
 
