@@ -1449,6 +1449,13 @@ function applyInner(ctx) {
             limit,
             loadGraph: (id) => store.load({ id, cwd: "" }).graph,
           });
+          // ★ C408：**可以指定要补哪几个**。原来只能"按 tail 降序取前 N 个"，
+          //   想先试一个小会话验证通道都做不到（只能先碰最大的那个）。
+          const wantedIds = Array.isArray(body.sessionIds) ? body.sessionIds.map(String).filter((x) => x !== "") : null;
+          const picked = wantedIds === null ? listed.items : listed.items.filter((it) => wantedIds.includes(String(it.sessionId)));
+          if (wantedIds !== null && picked.length === 0) {
+            return sendJson(res, 400, { ok: false, error: "指定的 sessionIds 都不在待补清单里（先用 dryRun 看清单）", due: listed.due });
+          }
           if (dryRun) {
             // ★ C392：干跑要**提前告诉你哪几个会超时**。
             //   真机 p90 19s × 6 段 = 114s > `closeoutTimeoutMs`（90s）—— 点下去才发现白跑，
@@ -1484,7 +1491,7 @@ function applyInner(ctx) {
                 return [];
               }
             })();
-            return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: listed.items, warnings });
+            return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: picked, warnings });
           }
           const controller = ctx.get("sessionController");
           const resolveAgent =
@@ -1498,7 +1505,7 @@ function applyInner(ctx) {
               error: "宿主没有 sessionController —— 没法把归档会话 resume 成 live agent",
               scanned: listed.scanned,
               due: listed.due,
-              items: listed.items,
+              items: picked,
             });
           }
           if (BACKFILL_GATE.inFlight) {
@@ -1513,7 +1520,7 @@ function applyInner(ctx) {
           BACKFILL_GATE.inFlight = true;
           try {
           const report = await backfillArchivedSessions({
-            items: listed.items,
+            items: picked,
             registry: ctx.get("workspaceRegistry"),
             ...(perItemMs === undefined ? {} : { perItemMs }),
             resolveAgent,

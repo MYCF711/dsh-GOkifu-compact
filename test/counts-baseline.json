@@ -1,5 +1,5 @@
 {
-  "total": 808,
+  "total": 809,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -100,7 +100,7 @@
     "tier2.test.mjs": 10,
     "touched-files.test.mjs": 9,
     "trace-relative.test.mjs": 0,
-    "ui-backfill.test.mjs": 8,
+    "ui-backfill.test.mjs": 9,
     "ui-config.test.mjs": 13,
     "ui-health.test.mjs": 0,
     "ui-layout.test.mjs": 2,

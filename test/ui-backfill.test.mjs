@@ -311,3 +311,16 @@ tests["C392 补账干跑要提前给出「会超时」的会话（否则点下�
   // 失败要降级，不许把干跑本身搞挂
   t.includes(src, "return [];", "算不出来时要返回空数组（降级）");
 };
+
+tests["C408 补账可指定 sessionIds（否则只能先碰最大的那个）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "body.sessionIds", "必须读取 body.sessionIds（C408）");
+  t.includes(src, "items: picked", "dryRun 与真补都必须使用筛选后的清单");
+  t.includes(src, "都不在待补清单里", "指定了但没命中时要明确报错（不许静默跑全部）");
+  // rankDebts 是 tail 降序 ⇒ 默认先补最大的；这条注释必须留着解释为什么需要 sessionIds
+  t.includes(src, "按 tail 降序取前 N 个", "要写清默认排序，解释 sessionIds 的动机");
+};
