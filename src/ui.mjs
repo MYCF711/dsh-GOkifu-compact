@@ -255,6 +255,12 @@ export function countResolvedFailures(g) {
   }
 }
 
+/**
+ * ★ C260：补账的**在途闸门**（模块级）。同一进程同一时刻只允许一次真补账。
+ * 用对象包一层，测试可以读/重置，不需要额外导出整套状态。
+ */
+export const BACKFILL_GATE = { inFlight: false };
+
 /** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
 function graphSummary(entry) {
   const cached = GRAPH_CACHE.get(entry.file);
@@ -1279,6 +1285,12 @@ export function apply(ctx) {
           return sendJson(res, 200, await checkUpdate({ profile: profileName, refresh }));
         }
         if (action === "backfill") {
+          // ★ C260：**同一时刻只允许一次真补账**。
+          //   两个标签页（或手抖双击）同时点"开始补账"，会对同一批归档会话**各 resume 一次**
+          //   ⇒ 两次收尾折叠、归档状态来回切（`unarchive → resume → archive` 交叠）。
+          //   面板按钮只能防单页双击，防不了多页/curl。这里是唯一的集中闸门。
+          //   dryRun 不进闸门（它不 resume、不调模型，随便打）。
+          const backfillDryRun = body.dryRun === true;
           // ★ C216「补做收尾」：归档那一刻**没压完**的会话，账是欠着的（宿主的压缩只对 idle agent 有效，
           //   归档会话没有 agent）。这条路把它补齐：取消归档 → resume → 收尾折叠 → 原样归档回去。
           //   dryRun:true 只报清单（不 resume、不调模型），面板上先看一眼再动手。
@@ -1334,6 +1346,17 @@ export function apply(ctx) {
               items: listed.items,
             });
           }
+          if (BACKFILL_GATE.inFlight) {
+            return sendJson(res, 200, {
+              ok: false,
+              code: "backfill-busy",
+              error: "已经有一次补账在跑 —— 等它结束（面板会显示剩余多少），别同时开第二次",
+              scanned: listed.scanned,
+              due: listed.due,
+            });
+          }
+          BACKFILL_GATE.inFlight = true;
+          try {
           const report = await backfillArchivedSessions({
             items: listed.items,
             registry: ctx.get("workspaceRegistry"),
@@ -1341,6 +1364,9 @@ export function apply(ctx) {
             closeout: (agent) => bridge.closeoutNow(agent, { source: "backfill" }),
           });
           return sendJson(res, 200, { ok: true, scanned: listed.scanned, due: listed.due, ...report });
+          } finally {
+            BACKFILL_GATE.inFlight = false; // 无论成败都释放，否则一次异常会把闸门永久焊死
+          }
         }
         if (action === "models") {
           // ★ U1：单独的 models 动作（页面切换/刷新下拉时用）。永不失败：失败路径都是空目录。

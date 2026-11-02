@@ -252,3 +252,27 @@ tests["C234 客户端补账文案：dryRun 报清单、真跑报结果、失败�
   t.includes(src, "dryRun: true", "「检查欠账」必须走 dryRun（不 resume、不调模型）");
   t.includes(src, "补账", "卡片标题");
 };
+
+/* ─────────────── ★ C260：并发闸门（两个标签页不能同时补） ─────────────── */
+
+tests["C260 补账在途闸门：并发真跑必须被拒，且失败后闸门要释放"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "ui.mjs")).href);
+  const gate = uiMod.BACKFILL_GATE;
+  t.eq(!!gate && typeof gate === "object", true, "必须导出 BACKFILL_GATE（可读可重置）");
+  t.eq(gate.inFlight, false, "初始必须是空闲");
+
+  // 闸门语义：占住 ⇒ 第二次真跑被拒；释放 ⇒ 又能跑
+  gate.inFlight = true;
+  t.eq(gate.inFlight, true, "占住之后必须是 inFlight");
+  gate.inFlight = false;
+  t.eq(gate.inFlight, false, "释放之后必须回到空闲");
+
+  // 源码接线守卫：真跑前后必须成对（else 一次异常会把闸门永久焊死）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "if (BACKFILL_GATE.inFlight)", "真跑前必须先检查闸门");
+  t.includes(src, "code: \"backfill-busy\"", "被拒时必须给可辨识的 code");
+  t.includes(src, "} finally {", "释放必须在 finally 里（异常也要放）");
+  // dryRun 不该被闸门挡住（它不 resume、不调模型）
+  const dryLine = src.slice(src.indexOf('const backfillDryRun'), src.indexOf('if (BACKFILL_GATE.inFlight)'));
+  t.includes(dryLine, "backfillDryRun", "dryRun 的判断要在闸门之前");
+};
