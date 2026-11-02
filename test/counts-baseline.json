@@ -1,10 +1,10 @@
 {
-  "total": 811,
+  "total": 812,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
-    "backfill-plan.test.mjs": 9,
+    "backfill-plan.test.mjs": 10,
     "bench-cli.test.mjs": 3,
     "boundary-audit.test.mjs": 8,
     "build-stamp.test.mjs": 7,

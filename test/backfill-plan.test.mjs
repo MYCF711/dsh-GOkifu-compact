@@ -198,3 +198,14 @@ tests["C370 K-23 接线：p90 从图上 foldMark 现算（不再依赖从未赋�
   t.eq(src.includes("this._foldP90Ms"), false, "不许再依赖 _foldP90Ms（K-23）");
   t.includes(src, "recentFoldP90(", "引擎必须调用 recentFoldP90");
 };
+
+tests["C414 计划里也要列出「最小的三个」（验证通道要先从便宜的一端试）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "backfill-plan.mjs"), "utf8");
+  t.includes(src, "最小的 ${smallest.length} 个", "必须打印最小三个（C414）");
+  t.includes(src, "适合先验证通道", "要说明它们的用途");
+  t.includes(src, "a.tail ?? 0) - (b.tail ?? 0)", "必须按 tail 升序（与默认降序相反）");
+};

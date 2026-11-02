@@ -245,6 +245,15 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段`);
   }
   if (rows.length > 12) console.log(`  · …另 ${rows.length - 12} 个`);
+  // ★ C414：也把**最小的三个**列出来。默认排序是 tail 降序（先补最大的），
+  //   但"先拿一个小会话验证通道"恰恰需要看另一头。
+  const smallest = [...rows].sort((a, b) => (a.tail ?? 0) - (b.tail ?? 0)).slice(0, 3);
+  if (smallest.length > 0) {
+    console.log(
+      `  最小的 ${smallest.length} 个（适合先验证通道）：` +
+        smallest.map((r) => `${r.sessionId}（tail ${r.tail}${Number.isFinite(r.estTokens) ? `，约 ${Math.round(r.estTokens / 1000)}k tok` : ""}）`).join(" / "),
+    );
+  }
   const rounds = planRounds(rows);
   console.log(`
 —— 建议批次（每轮最多 6 段）——`);
