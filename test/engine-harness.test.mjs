@@ -2540,3 +2540,38 @@ tests["C288 收尾折叠预检：尾巴估值超过上限时不许去打那个�
   if (skip.includes(".closeout =")) throw new Error("预检路径不许写 g.closeout");
   if (!src.includes("归档收尾跳过")) throw new Error("跳过时必须写日志说明原因");
 };
+
+tests["C289 分段收尾：过大的尾巴要切成首尾相接、每段不超上限的若干块"] = async () => {
+  const { mod } = await load();
+  if (typeof mod.planCloseoutChunks !== "function") throw new Error("必须导出 planCloseoutChunks");
+
+  // 1000 tok/事件、单段上限 150k ⇒ 每段 150 事件；尾巴 13785 事件 ⇒ 6 段封顶（36 万事件以内都够）
+  const chunks = mod.planCloseoutChunks({ fromSeq: 1000, tail: 13_785, tokensPerEvent: 1000 });
+  if (chunks.length === 0) throw new Error("必须切出段");
+  if (chunks.length > 6) throw new Error(`段数必须有上限（默认 6），实际 ${chunks.length}`);
+  // 首尾相接 + 不越界
+  let cursor = 1000;
+  for (const c of chunks) {
+    if (c.start !== cursor) throw new Error(`段必须首尾相接：期望 ${cursor}，实际 ${c.start}`);
+    if (c.end <= c.start) throw new Error("段的 end 必须大于 start");
+    if (c.estTokens > mod.CLOSEOUT_MAX_FOLD_TOKENS) throw new Error(`单段估值超上限：${c.estTokens}`);
+    cursor = c.end;
+  }
+  if (cursor > 1000 + 13_785) throw new Error("不许折到尾巴之外");
+
+  // 尾巴小 ⇒ 一段就够
+  const one = mod.planCloseoutChunks({ fromSeq: 0, tail: 50, tokensPerEvent: 100 });
+  if (one.length !== 1) throw new Error(`小尾巴应一段：${JSON.stringify(one)}`);
+  if (one[0].end !== 50) throw new Error("一段要覆盖整个尾巴");
+
+  // 缺 tokensPerEvent（估不出来）⇒ 不切（不许瞎猜）
+  if (mod.planCloseoutChunks({ fromSeq: 0, tail: 1000, tokensPerEvent: null }).length !== 0) {
+    throw new Error("没有估值时不许切段");
+  }
+  if (mod.planCloseoutChunks({ fromSeq: 0, tail: 0, tokensPerEvent: 100 }).length !== 0) throw new Error("尾巴 0 ⇒ 不切");
+
+  // 接线：超限路径必须真的走分段，而不是直接跳过
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  if (!src.includes("归档收尾分段折叠")) throw new Error("超限时必须走分段折叠并写日志");
+  if (!src.includes("await this.compactRegion(chunk.start, chunk.end")) throw new Error("每段必须真的调 compactRegion");
+};

@@ -74,6 +74,41 @@ const THRASH_SEQ = 30;
  * @param {number} [maxTokens]
  * @returns {{est:number, tail:number}|null} null = 没问题（或估不出来）
  */
+/**
+ * ★ C289（K-15 第二步）：把**过大的尾巴**切成若干段，每段都在一次性折叠上限之内。
+ * 纯函数：给定起点、尾巴事件数、以及"每个事件大概多少 token"，算出要折几段、每段的绝对区间。
+ * 保守策略：
+ *   · 每段事件数 = floor(maxTokens / tokensPerEvent)，至少 1；
+ *   · 段数上限 maxChunks（默认 6）—— 宁可这次少折点，也不许无限循环；
+ *   · 每段区间**首尾相接**（下一段的 start = 上一段的 end），保证不漏事件。
+ * @param {{fromSeq?:number, tail:number, tokensPerEvent:number|null, maxTokens?:number, maxChunks?:number}} options
+ * @returns {Array<{start:number, end:number, estTokens:number}>}
+ */
+export function planCloseoutChunks({
+  fromSeq = 0,
+  tail = 0,
+  tokensPerEvent = null,
+  maxTokens = CLOSEOUT_MAX_FOLD_TOKENS,
+  maxChunks = 6,
+} = {}) {
+  const start0 = Number(fromSeq);
+  const total = Number(tail);
+  const per = Number(tokensPerEvent);
+  if (!Number.isFinite(start0) || start0 < 0) return [];
+  if (!Number.isFinite(total) || total <= 0) return [];
+  if (!Number.isFinite(per) || per <= 0) return [];
+  const chunkEvents = Math.max(1, Math.floor(maxTokens / per));
+  const chunks = [];
+  let cursor = start0;
+  const end0 = start0 + total;
+  while (cursor < end0 && chunks.length < Math.max(1, maxChunks)) {
+    const end = Math.min(end0, cursor + chunkEvents);
+    chunks.push({ start: cursor, end, estTokens: Math.round((end - cursor) * per) });
+    cursor = end;
+  }
+  return chunks;
+}
+
 export function closeoutExceedsLimit(graph, maxTokens = CLOSEOUT_MAX_FOLD_TOKENS) {
   if (graph === null || typeof graph !== "object") return null;
   let debt;
@@ -1305,11 +1340,51 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const id = target?.session?.id ?? target?.id;
       const tooBig = this.#closeoutTooBig(typeof id === "string" ? this.graphs.get(id) : undefined);
       if (tooBig !== null) {
-        this.ctx.logger?.warn?.(
-          `chess-context: 归档收尾跳过（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，超过一次性折叠上限 ${Math.round(CLOSEOUT_MAX_FOLD_TOKENS / 1000)}k）` +
-            ` —— 需要分段折叠（K-15）；账会留着，等实现后补`,
+        // ★ C289：不再"跳过"，改成**分段折叠**（K-15 第二步）。
+        const graph = typeof id === "string" ? this.graphs.get(id) : undefined;
+        const debt = (() => {
+          try {
+            return debtOfGraph(graph);
+          } catch {
+            return null;
+          }
+        })();
+        const chunks = planCloseoutChunks({
+          fromSeq: Number(debt?.lastFoldSeq ?? 0),
+          tail: tooBig.tail,
+          tokensPerEvent: debt?.tokensPerEvent ?? null,
+        });
+        if (chunks.length === 0) {
+          this.ctx.logger?.warn?.(
+            `chess-context: 归档收尾跳过（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，超过一次性折叠上限，且切不出可折叠的分段）`,
+          );
+          return null;
+        }
+        this.ctx.logger?.info?.(
+          `chess-context: 归档收尾分段折叠 ${chunks.length} 段（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，单段上限 ${Math.round(CLOSEOUT_MAX_FOLD_TOKENS / 1000)}k）`,
         );
-        return null;
+        let folded = 0;
+        for (const chunk of chunks) {
+          try {
+            await this.compactRegion(chunk.start, chunk.end, this.#asAgent(target), undefined);
+            folded += 1;
+          } catch (error) {
+            this.ctx.logger?.warn?.(
+              `chess-context: 分段收尾在第 ${folded + 1}/${chunks.length} 段失败（不影响归档）：${String(error)}`,
+            );
+            break;
+          }
+        }
+        // 说清"这次折到哪儿、还剩多少" —— 大到 6 段装不下的尾巴需要**再调一次**才能折完
+        const covered = chunks[chunks.length - 1]?.end ?? 0;
+        const totalEnd = (Number(debt?.lastFoldSeq ?? 0) || 0) + chunks.reduce((sum, c) => sum + (c.end - c.start), 0);
+        const remaining = Math.max(0, (tooBig.tail ?? 0) - chunks.reduce((sum, c) => sum + (c.end - c.start), 0));
+        this.ctx.logger?.info?.(
+          `chess-context: 分段收尾完成 ${folded}/${chunks.length} 段（覆盖到 seq ${covered} / 尾巴 ${tooBig.tail} 事件，` +
+            `还剩约 ${remaining} 事件 —— 装不下就再收一次）`,
+        );
+        void totalEnd;
+        return { tier: "chunked", folded, chunks: chunks.length };
       }
     }
     const work = (async () => {
