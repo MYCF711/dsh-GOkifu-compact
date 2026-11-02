@@ -1,3 +1,4 @@
+import { evidenceSpan } from "./kifu-model.mjs";
 /**
  * touched-files.mjs —— 折叠摘要里的「最近访问的文件」（C4，2026-11-01）
  *
@@ -79,14 +80,6 @@ export function parseTouchedFileAction(action) {
 }
 
 /** 边的 evidence 区间；支持数字与 `{start,end}`（旧图/测试夹具两种形态都出现过）。 */
-function evidenceSpanOf(edge) {
-  const e = edge?.evidence;
-  if (typeof e === "number" && Number.isFinite(e)) return { start: e, end: e };
-  if (e !== null && typeof e === "object" && Number.isFinite(e.start)) {
-    return { start: e.start, end: Number.isFinite(e.end) ? e.end : e.start };
-  }
-  return null;
-}
 
 /**
  * 折叠区间内「最近访问的文件」。
@@ -111,7 +104,7 @@ export function extractTouchedFiles(graph, { range = null, limit = 5 } = {}) {
   const rows = [];
   for (let index = 0; index < edges.length; index += 1) {
     const edge = edges[index];
-    const span = evidenceSpanOf(edge);
+    const span = evidenceSpan(edge);
     if (span === null) continue;
     if (lo !== null && hi !== null && !(span.end >= lo && span.start <= hi)) continue;
     const path = parseTouchedFileAction(edge.action);

@@ -287,11 +287,31 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
  * @param {number} [fallback] 读不出来时的返回值（默认 NaN；比较场景传 -Infinity 更方便）
  * @returns {number}
  */
+/**
+ * ★ C303：把边的证据读成 `{start,end}`（读不出来返回 null）。
+ *
+ * 这个函数在 `rooms/fold-quality.mjs`（叫 `evidenceSpan`）和 `rooms/touched-files.mjs`
+ * （叫 `evidenceSpanOf`）里**一模一样地写了两遍** —— 连名字都不一样，所以肉眼看不出重复。
+ * 现在只留这一份：`evidenceEndSeq` / `evidenceStartSeq` 也都从它派生。
+ *
+ * @param {object} edge
+ * @returns {{start:number,end:number}|null}
+ */
+export function evidenceSpan(edge) {
+  const evidence = edge?.evidence;
+  if (typeof evidence === "number" && Number.isFinite(evidence)) return { start: evidence, end: evidence };
+  if (evidence !== null && typeof evidence === "object" && Number.isFinite(evidence.start)) {
+    return { start: evidence.start, end: Number.isFinite(evidence.end) ? evidence.end : evidence.start };
+  }
+  return null;
+}
+
 export function evidenceEndSeq(edge, fallback = Number.NaN) {
   const evidence = edge?.evidence;
   if (typeof evidence === "number" && Number.isFinite(evidence)) return evidence;
   if (Number.isFinite(evidence?.end)) return evidence.end;
-  return fallback;
+  const span = evidenceSpan(edge);
+  return span === null ? fallback : span.end;
 }
 
 /** ★ C302：证据的起始 seq（没有 start 时退回 end —— 与历史口径一致）。 */

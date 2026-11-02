@@ -72,6 +72,16 @@ export const GATES = Object.freeze([
     expect: /字段审计/,
   },
   {
+    id: "duplicates",
+    name: "重复函数体扫描（同一段代码写了两遍）—— 仅供参考",
+    script: "audit-duplicates.mjs",
+    // ★ C303：一个函数改了、另一份没改，是最安静的一类 bug。
+    //   只列出候选，不判分（有些重复是合理的，要人看一眼）。
+    advisory: true,
+    ignoreExit: true,
+    expect: /重复函数体扫描/,
+  },
+  {
     id: "restart",
     name: "重启后核对（运行实例 vs 磁盘代码）—— 仅供参考",
     script: "post-restart-check.mjs",

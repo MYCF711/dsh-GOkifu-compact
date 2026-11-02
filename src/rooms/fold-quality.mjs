@@ -20,18 +20,10 @@
  *   想单独看模型自己的保真度，用 `measureFoldQuality({ modelText })` 的 `modelConstraintRecall`。
  */
 
-import { failureEdges } from "./kifu-model.mjs";
+import { failureEdges, evidenceSpan } from "./kifu-model.mjs";
 import { collectConstraints, estimateTokens, isDanglingResidue } from "./ledger.mjs";
 
 /** 边的 evidence 区间；数字与 `{start,end}` 两种形态都吃（老图/夹具）。 */
-function evidenceSpan(edge) {
-  const e = edge?.evidence;
-  if (typeof e === "number" && Number.isFinite(e)) return { start: e, end: e };
-  if (e !== null && typeof e === "object" && Number.isFinite(e.start)) {
-    return { start: e.start, end: Number.isFinite(e.end) ? e.end : e.start };
-  }
-  return null;
-}
 
 /**
  * 本次 fold 区间内的失败边（与 `renderFacts` 的过滤口径一致）：
