@@ -279,3 +279,23 @@ tests["C345 折叠成本必须按**实际模型**计价：pro 比 flash 贵 3.3�
   // 两张表都要有出处
   t.eq(MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"].miss, 0.66, "pro miss 0.66");
 };
+
+tests["C346 成本聚合必须按每个 fold 自己的模型计价（usage 里带了 model 才可能）"] = async (t) => {
+  const { estimateFoldCostUsd } = await import("../src/ui.mjs");
+  // 同一个 usage，除了 model 之外完全相同 —— 两条价格必须不同
+  const base = { inputTokens: 1_000_000, cacheReadTokens: 0, outputTokens: 0 };
+  const flash = estimateFoldCostUsd({ ...base, model: "deepseek-flash" });
+  const pro = estimateFoldCostUsd({ ...base, model: "deepseek-v4-pro" });
+  t.eq(Math.abs(flash - 0.15) < 1e-9, true, `flash miss 1M = 0.15，实际 ${flash}`);
+  t.eq(Math.abs(pro - 0.66) < 1e-9, true, `pro miss 1M = 0.66，实际 ${pro}`);
+  t.eq(pro > flash * 4, true, "pro 至少是 flash 的 4 倍（低报 4 倍就是这么来的）");
+
+  // 引擎必须把模型写进 usage（否则估价永远回落 flash）
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const engine = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
+  t.includes(engine, "model: this._lastSummaryModel ?? null", "usage 里必须写 model（C346）");
+  t.includes(engine, "provider: this._lastSummaryProvider ?? null", "usage 里也要写 provider");
+};

@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C346 | 把模型名写进 usage（否则 C345 永远回落 flash） |
 | C345 | 折叠成本按**实际模型**计价（官方是 flash / v4-pro 两种价） |
 | C344 | 学了「前缀缓存单元」：清单不重写本身就是缓存友好的 |
 | C343 | 给「一次补不完」的会话推荐 `closeoutMaxFoldTokens` 值 |
@@ -421,6 +422,17 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C346 · 把模型名写进 usage（否则 C345 永远回落 flash）
+
+真机 `foldMark.usage` 实测只有 `inputTokens/outputTokens/totalTokens/cacheReadTokens` —— **没有 model**。
+所以 C345 的"按实际模型计价"在真实数据上永远走回落分支，**改了对一半等于没改**。
+
+- 引擎把 `provider / model` 写进 `usage`（值本来就在 `_lastSummaryProvider/_Model` 里，只是没落进 usage 对象）；
+- 面板聚合 `estimateFoldCostUsd(mark?.usage)` 因此能按每条 fold 自己的模型算；
+- 测试 C346：同 usage 只换 model ⇒ 1M miss **0.15 vs 0.66**；外加接线断言（源码里必须出现 `model: this._lastSummaryModel`）。
+
+**教训**（与 C321 同源）：**"字段存在" ≠ "字段落到了被读的那一层"**。C345 改计算、C346 补输入，缺一个就静默。
 
 ### C345 · 折叠成本按**实际模型**计价（官方是 flash / v4-pro 两种价）
 
