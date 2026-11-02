@@ -401,6 +401,7 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   const bad = [];
   const legacy = [];
   const badTail = [];
+  const legacyFoldMarks = [];
   let scanned = 0;
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -435,12 +436,19 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       // ★ C148（复审 P1-3）：delta 回放失败 ⇒ 体检看到的是**部分回放**的图，必须报出来
       if (loaded.deltaError) problems.push(`delta 帧无法回放（图可能停在部分回放）：${loaded.deltaError}`);
       if (loaded.badTail) badTail.push(`${entry.name.slice(0, 16)}: delta 尾部残帧（写入中断）`);
-      if (problems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${problems[0]}`);
+      // ★ C187：`foldMarks[i] seqStart>seqEnd` 是**旧版本**（<C187）tier-2 合并写下的历史记录 ——
+      //   surface 顺序不保证按 seq 递增，旧代码直接取 cps[0]/cps[1] 得到反向区间。
+      //   新代码（C187 起）按 seq 排序后取最老两条，不会再产生。这类记录**不在新数据里出现**，
+      //   因此降为 warn（`graph-audit --repair-foldmarks` 可清理，原值保留在 legacyRange）。
+      const legacyRangeProblems = problems.filter((x) => /^foldMarks\[\d+\] seqStart>seqEnd$/.test(x));
+      const realProblems = problems.filter((x) => !legacyRangeProblems.includes(x));
+      if (legacyRangeProblems.length > 0) legacyFoldMarks.push(`${entry.name.slice(0, 16)}: ${legacyRangeProblems[0]}`);
+      if (realProblems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${realProblems[0]}`);
     }
   }
   add(
     "棋谱结构自洽（C140）",
-    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 ? "warn" : "ok",
+    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 || legacyFoldMarks.length > 0 ? "warn" : "ok",
     scanned === 0
       ? legacy.length > 0 || badTail.length > 0
         ? `0 个可读会话（${legacy.length} 个旧版本 + ${badTail.length} 个残帧会话；不是「没有图」）：${[...legacy, ...badTail].slice(0, 3).join(" / ")}`
@@ -449,7 +457,9 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
         ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
         : legacy.length > 0
           ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（引擎读到会重建空图 ⇒ 升级/降级前请先停窗备份）：${legacy.slice(0, 3).join(" / ")}`
-          : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
+          : legacyFoldMarks.length > 0
+            ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
+            : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
 }
 

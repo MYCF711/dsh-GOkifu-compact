@@ -2,6 +2,9 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C188 | 我自己在 live 上踩了一个坑：改写 `graph.json` 会让 delta 失效 |
+| C186 | 重启验收收敛成**一条命令**（`scripts/after-restart.mjs`） |
 | C185 | 四个诊断工具对同一份 live 数据给出一致数字（同 loader 的实证） |
 | C184 | 「只读基线」的最后三个残留（静态守卫钉死） |
 | C183 | 门禁自己在读「过期的图」：handoff-check 的 5 条 warn 是假的 |
@@ -195,6 +198,88 @@
 
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
+
+### C187 · live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`）
+
+**怎么发现的**：C186 的 `after-restart.mjs` 一跑，doctor 立刻报
+
+```
+✗ 棋谱结构自洽（C140） — 1/27 个会话不自洽：session-00b50089: foldMarks[9] seqStart>seqEnd
+```
+
+核对那份 foldMark：`seqStart=17596 / seqEnd=7629`，`trigger=tier2` —— 是**本会话第 9 条 foldMark**。
+
+**根因**：`checkpointSeqs(session)` 返回的是 **surface 顺序**，而 surface 顺序在 fold/replace 之后
+**不保证按 seq 递增**（这次就是这样）。旧代码直接取 `cps[0] / cps[1]`：
+
+```js
+const start = cps[0];   // 可能是 17596
+const end = cps[1];     // 可能是 7629  ⇒ 区间反了
+```
+
+**修法**：按 seq 排序后取**最老的两条**（语义仍是「合并最老的两个 checkpoint」），`start < end` 恒成立。
+
+**测试 C187**：造「surface 顺序 ≠ seq 顺序」（两条 checkpoint 建好后把 surface 顺序倒过来），
+断言 ① 合并区间 `start < end`；② 取的是**最老两条**（`1002–1004` 而不是表面上的前两条）。
+
+★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
+
+
+### C188 · 我自己在 live 上踩了一个坑：改写 `graph.json` 会让 delta 失效
+
+**起因**：C187 修完后，那份历史 foldMark 仍在磁盘上（旧版本写的），doctor 会一直报。
+我加了一个 `graph-audit --repair-foldmarks`（把反向区间归一并把原值存 `legacyRange`），
+然后在 live 上**直接跑了一次**。
+
+**后果（一分钟内发现并恢复）**：改写基线后，`graph.json.delta.jsonl` 的 **base 哈希失配**，
+整份增量**再也回放不了** —— doctor 立刻从「节点文档齐全 ✓」变成
+
+```
+! 节点文档与棋谱一致（C110） — … 1 个会话的 delta 无法完整回放：session-00b50089: delta 尾部残帧
+```
+
+**恢复**：备份就在同目录（`graph.json.bak-1793590040806`），`cp` 回去后 doctor 立刻回到
+「节点文档齐全 ✓ / 0 错误」，只留那条**历史** foldMark 的 warn。
+
+**修法（把踩的坑写进工具）**：`repairFoldMarkRanges` 现在**拒绝**在任何存在非空 delta 的会话上改写基线，
+输出里明说
+
+```
+反向 foldMark：1 个会话 / 1 条；1 个会话因存在 delta 被跳过（改写基线会让 delta 失效，请宿主退出后再跑）
+```
+
+**测试 C188**：① 有 delta ⇒ `blockedByDelta=1`、**不产生备份**、基线**一字不改**；
+② 无 delta ⇒ 正常改写、备份一份、原值进 `legacyRange`。
+
+★ 教训（写给自己）：**「能改数据」的工具，第一版就要先问「谁还在引用它」**。
+基线不是唯一真相 —— delta 的 base 哈希也是引用。
+
+### C186 · 重启验收收敛成**一条命令**（`scripts/after-restart.mjs`）
+
+**为什么**：`evidence/重启验收清单` 是六步人工流程（跑 4 个脚本 + 看两个文件）。重启那一刻最容易
+「少跑一步」「看错数字」。本轮把它收成一次调用，**只读、进程内、几秒出结论**：
+
+```bash
+DSH_HOME="D:\DeepSeek Harness\home" node scripts/after-restart.mjs
+# 或 --json
+```
+
+| 检查 | 判据 |
+|---|---|
+| ① buildId | `build.json` 有 `buildId` 且 ≠ unknown（新进程标志） |
+| ② 进程时间 | `startedAt` 晚于旧基线 `2026-11-01T19:01:03.335Z` |
+| ③ 结构自洽 | `auditRoot()` 无 problems |
+| ④ 节点文档 | `nodeDocStats` 无缺失（2 分钟内的「在途」不算缺） |
+| ⑤ live fold | 总数 ≥ **证据文件里的基线**（从 `evidence/live-folds.json` 读，不硬编码） |
+| ⑥ 新观测字段 | `renderErrors` / `skipReasons` / 归因三键 —— **参考项**（没出现只说明还没 fold） |
+
+**当前实跑（未重启）**：①② ✗（旧进程）、③④✓、⑤ **23 次 / 7 会话**（超过基线 22）、⑥ 0/5。
+
+**测试 C186**：有 buildId ⇒ exit 0 且 `ok=true`；无 buildId ⇒ exit 1。
+
+★ 顺带确认了一件事：**live fold 已经从 20 涨到 22**（`13488–15572` pressure 与 `5080–5773` **tier-2 合并**，
+两次都是 `c=1 / f=1 / openAtEnd=0`）—— 第一次在 live 上看到 tier-2 路径产出三字段齐全的记录。
+四处文档已同步到 22/18/18/18（evidence README、research、发布就绪、总览、巡检、逐会话快照）。
 
 ### C185 · 四个诊断工具对同一份 live 数据给出一致数字（同 loader 的实证）
 

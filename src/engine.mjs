@@ -854,11 +854,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     let measurement = meter.measure(session);
 
     // ★ C177：连续失败后的退避 —— 不给「坏掉的摘要路径」每个事件都再付一次模型调用。
-    //   `context-overflow` 是自救路径，不设退避（宁可再试，也不能让上下文真的溢出）。
-    if (trigger !== "context-overflow") {
+    // ★ C179：`context-overflow` 也不再无限重试 —— 前 3 次仍然「宁可不惜代价自救」，
+    //   从第 4 次起同样进退避窗口。理由：已连续失败 3 次的摘要路径，再试一次的成功率极低，
+    //   而每一步都跑一次模型 = 溢出场景下最贵的死循环。
+    {
       const stBackoff = this.#runtimeFor(session);
       const failures = stBackoff.foldFailures ?? 0;
-      if (failures > 0) {
+      const overflow = trigger === "context-overflow";
+      if (failures > 0 && (!overflow || failures >= 3)) {
         const wait = Math.min(FOLD_RETRY_BASE_SEQ * 2 ** Math.min(failures - 1, 6), FOLD_RETRY_CAP_SEQ);
         const since = session.seq - (stBackoff.lastFoldFailureSeq ?? 0);
         if (since < wait) return null;
@@ -1112,8 +1115,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         if (session.seq - (st2.lastTier2FailureSeq ?? 0) < wait2) return null;
       }
     }
-    const start = cps[0];
-    const end = cps[1];
+    // ★ C187（live 实测抓到的真缺陷）：`checkpointSeqs` 返回的是 **surface 顺序**，
+    //   而 surface 顺序在 fold/replace 之后**不保证按 seq 递增**。live 上就出现过
+    //   `foldMarks[9] seqStart=17596 > seqEnd=7629` —— 合并出来的区间是反的，
+    //   doctor「棋谱结构自洽」随即报红。
+    //   修法：按 seq 排序后取**最老的两条**（语义仍是「合并最老的两个 checkpoint」），
+    //   这样 start < end 恒成立。
+    const ordered = cps.slice().sort((a, b) => a - b);
+    const start = ordered[0];
+    const end = ordered[1];
     if (start === undefined || end === undefined || start === end) return null;
     this._chessActiveRange = { start, end, tier2: true };
     let result;

@@ -11,8 +11,9 @@
  * 只读：临时目录在 os.tmpdir()，跑完删除；不碰 DSH_HOME。
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import nodeFs from "node:fs";
+import os from "node:os";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
@@ -481,5 +482,44 @@ tests["C180 活跃会话里「index 落后 graph」不算陈旧（C146 同族假
     t.eq(row.status, "warn", `静止会话的陈旧 index 必须报：${JSON.stringify(row)}`);
   } finally {
     nodeFs.rmSync(idle, { recursive: true, force: true });
+  }
+};
+
+tests["C186 重启后一条命令验收：有 buildId 通过、无 buildId 失败（且基线从证据文件读）"] = (t) => {
+  const mkHome = (buildId) => {
+    const home = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-after-"));
+    nodeFs.mkdirSync(nodePath.join(home, "chess-context", "sessions"), { recursive: true });
+    const stamp = { schema: "gokifu/build-stamp/v1", version: "1.17.1", startedAt: Date.now(), pid: 1234 };
+    if (buildId !== null) stamp.buildId = buildId;
+    nodeFs.writeFileSync(nodePath.join(home, "chess-context", "build.json"), JSON.stringify(stamp), "utf8");
+    return home;
+  };
+  const run = (home) =>
+    spawnSync(process.execPath, [nodePath.join(HERE, "..", "scripts", "after-restart.mjs"), "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, DSH_HOME: home },
+    });
+
+  const good = mkHome("c5a95ee3e4b8");
+  try {
+    const r = run(good);
+    t.eq(r.status, 0, `新进程应通过：${String(r.stderr).slice(0, 200)}`);
+    const payload = JSON.parse(r.stdout);
+    t.eq(payload.ok, true, "ok=true");
+    const buildRow = payload.rows.find((x) => x.id.includes("buildId"));
+    t.eq(buildRow.level, "ok", "buildId 检查应为 ok");
+    t.includes(buildRow.detail, "c5a95ee3e4b8", "detail 里要有 buildId");
+  } finally {
+    nodeFs.rmSync(good, { recursive: true, force: true });
+  }
+
+  const bad = mkHome(null);
+  try {
+    const r = run(bad);
+    t.eq(r.status, 1, "无 buildId 必须 exit 1");
+    const payload = JSON.parse(r.stdout);
+    t.eq(payload.ok, false, "ok=false");
+  } finally {
+    nodeFs.rmSync(bad, { recursive: true, force: true });
   }
 };

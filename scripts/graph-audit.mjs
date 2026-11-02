@@ -84,6 +84,80 @@ export function auditGraph(g) {
 }
 
 /**
+ * ★ C187：清理**旧版本**写入的反向 foldMark 区间（`seqStart > seqEnd`）。
+ *
+ * 成因：C187 之前的 tier-2 合并直接取 `checkpointSeqs()` 的前两个（surface 顺序，不保证按 seq 递增），
+ * 于是记录出反向区间。新代码按 seq 排序后取最老两条，不会再产生。
+ *
+ * 处理方式（**不篡改历史**）：把原区间移进 `legacyRange`，并把 `seqStart/seqEnd` 归一为 [min,max]，
+ * 同时打 `repairedAt`。改写前把 `graph.json` 备份成 `graph.json.bak-<时间戳>`。
+ *
+ * ★★ C188（本函数自己踩出来的坑）：**有非空 `graph.json.delta.jsonl` 时禁止改写**。
+ *   改写基线会让 delta 帧的 base 哈希失效 ⇒ 整份增量**再也回放不了**（实测：一次 repair 让
+ *   本会话的 delta 变成「尾部残帧」，`节点文档与棋谱一致` 立刻从 ✓ 变 warn）。
+ *   正确做法：**宿主退出后**让新版本做一次 full 落盘（或先合并日志再删 delta），再跑本命令。
+ *
+ * @param {string} sessionsDir
+ * @param {{dryRun?: boolean}} [options]
+ * @returns {{sessions: number, marks: number, backups: string[]}}
+ */
+export function repairFoldMarkRanges(sessionsDir, { dryRun = false } = {}) {
+  const out = { sessions: 0, marks: 0, backups: [], deltaOnlySessions: 0, deltaOnlyMarks: 0, blockedByDelta: 0 };
+  if (!nodeFs.existsSync(sessionsDir)) return out;
+  for (const name of nodeFs.readdirSync(sessionsDir)) {
+    const graphFile = nodePath.join(sessionsDir, name, "graph.json");
+    if (!nodeFs.existsSync(graphFile)) continue;
+    let raw;
+    try {
+      raw = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+    } catch {
+      continue;
+    }
+    const marks = Array.isArray(raw.foldMarks) ? raw.foldMarks : [];
+    const bad = marks.filter((m) => Number(m?.seqStart) > Number(m?.seqEnd));
+    if (bad.length === 0) {
+      // 基线上没有，但**重放后**有 ⇒ 这些记录在 delta 层，改基线改不到它们。
+      // 需要在宿主退出后做一次「日志合并」才能清；这里如实计数，不假装成功。
+      try {
+        const replayed = loadSessionGraph(graphFile).graph;
+        const inDelta = (replayed.foldMarks ?? []).filter((m) => Number(m?.seqStart) > Number(m?.seqEnd));
+        if (inDelta.length > 0) {
+          out.deltaOnlySessions += 1;
+          out.deltaOnlyMarks += inDelta.length;
+        }
+      } catch {
+        /* 坏图由结构检查报 */
+      }
+      continue;
+    }
+    out.sessions += 1;
+    out.marks += bad.length;
+    for (const m of bad) {
+      m.legacyRange = { start: m.seqStart, end: m.seqEnd, note: "C187 前的 tier-2 反向区间（原值）" };
+      const a = Number(m.seqStart);
+      const b = Number(m.seqEnd);
+      m.seqStart = Math.min(a, b);
+      m.seqEnd = Math.max(a, b);
+      m.repairedAt = Date.now();
+    }
+    if (!dryRun) {
+      // ★ C188：delta 存在时**拒绝改写**（改写基线会让 delta 的 base 哈希失效）
+      const deltaFile = `${graphFile}.delta.jsonl`;
+      const hasDelta = nodeFs.existsSync(deltaFile) && nodeFs.statSync(deltaFile).size > 0;
+      if (hasDelta) {
+        out.blockedByDelta += 1;
+        continue;
+      }
+      const backup = `${graphFile}.bak-${Date.now()}`;
+      nodeFs.copyFileSync(graphFile, backup);
+      out.backups.push(backup);
+      nodeFs.writeFileSync(graphFile, JSON.stringify(raw), "utf8");
+    }
+  }
+  return out;
+}
+
+/**
  * ★ C143（审查 P1-2 / P1-4）：读图必须**重放 delta** —— 运行时 `kifu-persist.load()` 就是这么干的。
  * 只读 `graph.json` 会得到一份「过期基线」：既会把只在 delta 里的节点当成不存在（误报陈旧 md）、
  * 也会漏掉 delta 里带 `delNodes` 的坏图（假绿）。
@@ -194,6 +268,18 @@ function main() {
   const home = resolveHome();
   const sessionsDir = nodePath.join(home, "chess-context", "sessions");
   // ★ C144：`--repair` 先补写缺失的派生视图（只增不删），再体检
+  // ★ C187：清理旧版本的反向 foldMark 区间（可先 --dry-run）
+  if (process.argv.includes("--repair-foldmarks")) {
+    const out = repairFoldMarkRanges(sessionsDir, { dryRun: process.argv.includes("--dry-run") });
+    process.stdout.write(
+      `${process.argv.includes("--dry-run") ? "[dry-run] " : ""}反向 foldMark：${out.sessions} 个会话 / ${out.marks} 条` +
+        (out.backups.length > 0 ? `（已备份 ${out.backups.length} 份）` : "") +
+        (out.deltaOnlyMarks > 0 ? `；另有 ${out.deltaOnlySessions} 个会话的记录在 delta 层（${out.deltaOnlyMarks} 条）—— 需宿主退出后做日志合并才能清` : "") +
+        (out.blockedByDelta > 0 ? `；**${out.blockedByDelta} 个会话因存在 delta 被跳过**（改写基线会让 delta 失效，请宿主退出后再跑）` : "") +
+        String.fromCharCode(10),
+    );
+    process.exit(0);
+  }
   if (process.argv.includes("--repair")) {
     const written = repairMissingDocs(sessionsDir, { dryRun: process.argv.includes("--dry-run") });
     const suffix = process.argv.includes("--dry-run") ? "（dry-run，未写盘）" : "";

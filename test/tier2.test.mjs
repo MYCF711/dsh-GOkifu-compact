@@ -351,3 +351,47 @@ tests["C178 tier-2 合并失败也必须退避（否则每个事件都再跑一�
     engine.compactRegion = original;
   }
 };
+
+tests["C187 surface 顺序不等于 seq 顺序时，tier-2 合并区间必须仍是 start<end（live 抓到 seqStart>seqEnd）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c187-tier2-order");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c187" });
+  // 制造「surface 顺序 ≠ seq 顺序」：两条 checkpoint 都建好，然后把 surface 顺序倒过来
+  // （真实成因：fold/replace 之后 surface 顺序不保证按 seq 递增 —— live 就是这么出现的）
+  // 注意：seq 由 append 内部分配，必须用它返回的 event.seq
+  const older = session.append("user/message", { source: { kind: "compaction-checkpoint" }, content: [{ type: "text", text: "更老的 checkpoint" }] }).seq;
+  const newer = session.append("user/message", { source: { kind: "compaction-checkpoint" }, content: [{ type: "text", text: "较新的 checkpoint" }] }).seq;
+  // 倒序：较新的排在前面
+  const idxOlder = session.surface.nodes.indexOf(older);
+  const idxNewer = session.surface.nodes.indexOf(newer);
+  session.surface.nodes[idxOlder] = newer;
+  session.surface.nodes[idxNewer] = older;
+  pushPlain(session, 4);
+  if (newer <= older) throw new Error(`夹具前提不成立：newer=${newer} older=${older}`);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const ranges = [];
+  const original = engine.compactRegion.bind(engine);
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) ranges.push({ start, end });
+    return original(start, end, agent, signal);
+  };
+  try {
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (ranges.length === 0) throw new Error("tier-2 应该被触发并记录区间");
+    const { start, end } = ranges[0];
+    if (!(start < end)) throw new Error(`tier-2 区间必须是 start<end，实际 ${start}–${end}（surface 顺序 ${newer} 在前、${older} 在后）`);
+    if (start !== older || end !== newer) throw new Error(`应合并最老两条：期望 ${older}–${newer}，实际 ${start}–${end}`);
+  } finally {
+    engine.compactRegion = original;
+  }
+
+  // 落盘的 foldMark 也必须有序（doctor「棋谱结构自洽」就是查这个）
+  const graph = engine.loadGraphForTest?.(session) ?? null;
+  const marks = (graph?.foldMarks ?? []).filter((m) => m.tier2);
+  for (const m of marks) {
+    if (!(m.seqStart <= m.seqEnd)) throw new Error(`foldMark 区间反了：${m.seqStart}–${m.seqEnd}`);
+  }
+};

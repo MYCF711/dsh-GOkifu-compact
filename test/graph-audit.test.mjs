@@ -9,10 +9,10 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 
-import { auditGraph, auditIndexText, auditRawIndex, auditRoot, repairMissingDocs } from "../scripts/graph-audit.mjs";
-import { fromJSON } from "../src/rooms/kifu-model.mjs";
+import { auditGraph, auditIndexText, auditRawIndex, auditRoot, repairFoldMarkRanges, repairMissingDocs } from "../scripts/graph-audit.mjs";
+import { encodeDeltaFrame, fromJSON, sha } from "../src/rooms/kifu-model.mjs";
 import { createFsPort, createPersistStore } from "../src/rooms/kifu-persist.mjs";
-import { addAgentNode, addEdge, addUserNode, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
+import { addAgentNode, addEdge, addUserNode, addUserNodeId, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
 
 export const tests = {};
 
@@ -199,5 +199,48 @@ tests["C151 index.md 引用不存在的节点必须被点名（C142 P0 的表征
     t.eq(row.problems.some((p) => p.includes("n999")), true, `auditRoot 必须把 index.md 一起查：${JSON.stringify(row.problems)}`);
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["C188 repair-foldmarks 在存在 delta 时必须拒绝改写基线（否则 delta 的 base 哈希失效）"] = (t) => {
+  const mk = (withDelta) => {
+    const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-fm-"));
+    const dir = nodePath.join(root, "session-x");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    const graph = createGraph({ sessionId: "s-x" });
+    addUserNodeId(graph, { seq: 1, text: "目标" });
+    graph.foldMarks = [{ at: 1, seqStart: 900, seqEnd: 100, trigger: "tier2" }];
+    const base = JSON.stringify(graph);
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), base, "utf8");
+    if (withDelta) {
+      const frame = encodeDeltaFrame(graph, { seqStart: 1, seqEnd: 1 }, { baseHash: sha(base).slice(0, 16) });
+      nodeFs.writeFileSync(nodePath.join(dir, "graph.json.delta.jsonl"), frame, "utf8");
+    }
+    return { root, dir, base };
+  };
+
+  // ① 有 delta：拒绝改写，基线不变，且给出计数
+  const a = mk(true);
+  try {
+    const out = repairFoldMarkRanges(a.root, {});
+    t.eq(out.blockedByDelta, 1, `有 delta 时必须 blockedByDelta=1，实际 ${JSON.stringify(out)}`);
+    t.eq(out.backups.length, 0, "不许产生备份（因为没写）");
+    t.eq(nodeFs.readFileSync(nodePath.join(a.dir, "graph.json"), "utf8"), a.base, "基线必须一字不改");
+  } finally {
+    nodeFs.rmSync(a.root, { recursive: true, force: true });
+  }
+
+  // ② 无 delta：允许改写，并把原区间保留在 legacyRange
+  const b = mk(false);
+  try {
+    const out = repairFoldMarkRanges(b.root, {});
+    t.eq(out.marks, 1, "应修 1 条");
+    t.eq(out.backups.length, 1, "必须备份一份");
+    const after = JSON.parse(nodeFs.readFileSync(nodePath.join(b.dir, "graph.json"), "utf8"));
+    const m = after.foldMarks[0];
+    t.eq([m.seqStart, m.seqEnd], [100, 900], "区间必须归一为 [min,max]");
+    t.eq(m.legacyRange, { start: 900, end: 100, note: "C187 前的 tier-2 反向区间（原值）" }, "原值必须保留在 legacyRange");
+  } finally {
+    nodeFs.rmSync(b.root, { recursive: true, force: true });
   }
 };
