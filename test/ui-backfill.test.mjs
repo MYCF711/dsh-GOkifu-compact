@@ -290,5 +290,9 @@ tests["C261 补账的硬超时默认 3 分钟——客户端必须限量并传�
 
   const client = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
   t.includes(client, "limit: 3", "客户端每次最多 3 个");
-  t.includes(client, "perItemMs: 90_000", "客户端要传 90 秒（与引擎收尾超时一致）");
+  t.includes(client, "perItemMs: 120_000", "客户端要传 120 秒");
+  // ★ C262：外层超时必须**大于**内层（引擎 closeoutTimeoutMs 默认 90s），否则外层先开枪、原因丢失
+  const schemaMod = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "rooms", "config-schema.mjs")).href);
+  const inner = Number(schemaMod.configDefaults().closeoutTimeoutMs);
+  t.eq(120_000 > inner, true, `外层 120s 必须大于内层 ${inner}ms，否则用户只看到笼统 timeout`);
 };
