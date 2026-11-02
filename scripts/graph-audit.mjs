@@ -147,6 +147,25 @@ export function repairMissingDocs(sessionsDir, { dryRun = false } = {}) {
   return written;
 }
 
+/**
+ * ★ C151：`index.md`（人读索引）与图的一致性。
+ *
+ * 为什么单独查：C142 那个 P0 的表征就是「`index.md` 里有它、`graph.json` 里没有」——
+ * 当时没有任何检查能发现这种「视图说存在、真相说没有」。节点文档有 C110/C144 兜，索引没有。
+ *
+ * 判据：索引里出现的 `n<数字>` 引用必须都能在图的节点表里找到。
+ * @param {any} graph 重放 delta 之后的图
+ * @param {string} text  index.md 的全文
+ */
+export function auditIndexText(graph, text) {
+  const problems = [];
+  const ids = new Set(Object.keys(graph?.nodes ?? {}));
+  const refs = new Set([...String(text ?? "").matchAll(/(^|[^A-Za-z0-9_])n([0-9]+)/g)].map((m) => `n${m[2]}`));
+  const missing = [...refs].filter((id) => !ids.has(id));
+  if (missing.length > 0) problems.push(`index.md 引用了不存在的节点：${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` …共 ${missing.length} 个` : ""}`);
+  return problems;
+}
+
 /** 扫一个 sessions 目录，返回每张图的问题。 */
 export function auditRoot(sessionsDir) {
   const out = [];
@@ -162,6 +181,8 @@ export function auditRoot(sessionsDir) {
       continue;
     }
     const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
+    const indexFile = nodePath.join(sessionsDir, name, "index.md");
+    if (nodeFs.existsSync(indexFile)) problems.push(...auditIndexText(loaded.graph, nodeFs.readFileSync(indexFile, "utf8")));
     if (loaded.deltaError) problems.push(`delta 帧无法回放（图可能停在部分回放）：${loaded.deltaError}`);
     if (loaded.badTail) problems.push("delta 尾部有残帧（写入中断留下的半帧）");
     out.push({ session: name, problems });

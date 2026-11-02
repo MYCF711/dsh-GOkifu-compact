@@ -9,7 +9,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 
-import { auditGraph, auditRawIndex, auditRoot, repairMissingDocs } from "../scripts/graph-audit.mjs";
+import { auditGraph, auditIndexText, auditRawIndex, auditRoot, repairMissingDocs } from "../scripts/graph-audit.mjs";
 import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { createFsPort, createPersistStore } from "../src/rooms/kifu-persist.mjs";
 import { addAgentNode, addEdge, addUserNode, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
@@ -171,6 +171,32 @@ tests["C144 补写缺失节点文档：只增不删、幂等、dry-run 不写盘
     t.eq(repairMissingDocs(root).length, 0, "补齐后第二次必须无事可做");
     // ④ 补写后体检必须干净
     t.eq(auditRoot(root).find((r) => r.session === "session-repair").problems, [], "补写后不该再有问题");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["C151 index.md 引用不存在的节点必须被点名（C142 P0 的表征：视图说存在、真相说没有）"] = (t) => {
+  const NL = String.fromCharCode(10);
+  const g = goodGraph();
+  const ids = Object.keys(g.nodes);
+  // 正常索引：只引用真实节点 ⇒ 0 问题
+  t.eq(auditIndexText(g, [`- ${ids[0]} 目标做 A`, `- ${ids[1]} 目标做 B`].join(NL)), [], "只引用真实节点时不该有问题");
+  // 坏索引：引用一个图里没有的节点
+  const problems = auditIndexText(g, [`- ${ids[0]} ok`, "- n999 幽灵"].join(NL));
+  t.eq(problems.length, 1, `必须点名 1 条：${JSON.stringify(problems)}`);
+  t.includes(problems[0], "n999", "要带出具体 id");
+  t.includes(problems[0], "index.md", "要说明是哪个文件");
+
+  // 反向确认：auditRoot 会把 index.md 一起查
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-index-"));
+  try {
+    const dir = nodePath.join(root, "session-idx");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(g), "utf8");
+    nodeFs.writeFileSync(nodePath.join(dir, "index.md"), "- n999 幽灵" + NL, "utf8");
+    const row = auditRoot(root).find((r) => r.session === "session-idx");
+    t.eq(row.problems.some((p) => p.includes("n999")), true, `auditRoot 必须把 index.md 一起查：${JSON.stringify(row.problems)}`);
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
