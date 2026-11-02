@@ -205,7 +205,7 @@ tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启�
   for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
     t.includes(doc, needle, `清单必须覆盖 ${needle}`);
   }
-  t.includes(doc, "1028 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.includes(doc, "1029 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
   t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
 };
 
@@ -272,5 +272,5 @@ tests["C295 重启验收清单必须带「现状快照」+ 能力探针（否则
   t.includes(doc, "backfill", "能力探针要包含 backfill");
   t.includes(doc, "不可信", "要提醒启动时间戳不可信（C293）");
   // 快照里必须写当前测试数（改数字要同步）
-  t.includes(doc, "1028 passed", "快照里的全量测试数必须写当前值");
+  t.includes(doc, "1029 passed", "快照里的全量测试数必须写当前值");
 };

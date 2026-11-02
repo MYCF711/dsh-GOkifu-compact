@@ -254,3 +254,14 @@ tests["C297 补账要能接受「分段收尾」的返回形状（{tier:'chunked
   t.eq(result.failed ?? 0, 0, `分段收尾不该被当成失败：${JSON.stringify(result)}`);
   t.eq(result.restored, 1, "收尾后必须归档回去");
 };
+
+tests["C299 「折过了」要认分段收尾（closeout.chunkedFolded），否则与 doctor 口径分裂"] = async (t) => {
+  const mod = await import("../src/rooms/closeout-backfill.mjs");
+  const base = {
+    nodes: { n1: { seq: 100 } },
+    foldMarks: [{ seqStart: 0, seqEnd: 50, shadowedTokens: 1000, trigger: "pressure" }],
+    closeout: { at: 1, chunkedFolded: 3 },
+  };
+  t.eq(mod.debtOfGraph(base).folded, true, "只有 closeout.chunkedFolded 也必须算折过");
+  t.eq(mod.debtOfGraph({ ...base, closeout: { at: 1 } }).folded, false, "没有分段数、也没有 archive foldMark ⇒ 不算折过");
+};
