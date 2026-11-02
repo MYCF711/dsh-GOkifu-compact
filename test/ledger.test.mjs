@@ -433,3 +433,25 @@ tests["C302 证据位置只读一处：evidence 数字 / {start,end} / 缺失 �
   const ledgerSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "ledger.mjs"), "utf8");
   t.eq(ledgerSrc.includes('typeof e?.evidence === "number" ? e.evidence :'), false, "ledger 不许再有第四份实现");
 };
+
+tests["C313 分项计时仪器：给出 total + parts，且各段之和不超过 total 的数倍（不许瞎报）"] = async (t) => {
+  const { measureLedgerTimings } = await import("../src/rooms/ledger.mjs");
+  t.eq(typeof measureLedgerTimings, "function", "必须导出 measureLedgerTimings");
+
+  const g = createGraph({ sessionId: "sess-c313" });
+  addUserNodeId(g, { seq: 1, text: "做点事" });
+  const a = addAgentNode(g, { seq: 2 });
+  addEdge(g, { from: a, action: "run tests", intent: "跑测试", seq: 3 });
+
+  const r = measureLedgerTimings(g, { reps: 3 });
+  t.eq(typeof r.total, "number", "total 必须是数字");
+  t.eq(r.total >= 0, true, "total 不许为负");
+  t.eq(typeof r.parts, "object", "parts 必须是对象");
+  for (const key of ["failureEdges", "successScan", "danglingStats", "options", "paths", "tewari"]) {
+    t.eq(typeof r.parts[key], "number", `parts.${key} 必须是数字`);
+    t.eq(r.parts[key] >= 0, true, `parts.${key} 不许为负`);
+  }
+  const sum = Object.values(r.parts).reduce((x, y) => x + y, 0);
+  t.eq(sum <= r.total * 20 + 50, true, `各段之和 ${sum.toFixed(1)}ms 明显超过 total ${r.total.toFixed(1)}ms —— 仪器在瞎报`);
+  t.eq(typeof r.split, "string", "要给一句可归因说明");
+};

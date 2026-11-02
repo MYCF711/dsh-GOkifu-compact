@@ -686,6 +686,51 @@ export function measureLedgerSections(text) {
   return sizes;
 }
 
+/**
+ * ★ C313：热清单渲染的**分项计时**（K-16 的前置仪器）。
+ *
+ * 为什么要有它：C312 踩过 `measureLedgerSections(text)` 的坑 —— 那是**按文本算字符数**，
+ * 不是计时。想回答"哪一段最贵"，必须真的把各段重跑一遍并计时。
+ *
+ * 做法：把 `renderLedger` 内部要做的几件大活（建索引、筛悬空、算 options、算路径）**各自重跑一次**。
+ * 这些都是幂等的纯查询，重跑不影响任何状态；数值是**近似**（真实渲染里还会叠加字符串拼接），
+ * 但足以定位"哪一段最贵"。
+ *
+ * @param {object} g
+ * @param {{reps?:number, now?:number}} [options]
+ * @returns {{total:number, parts:Record<string, number>, split:string}}
+ */
+export function measureLedgerTimings(g, { reps = 10, now = Date.now() } = {}) {
+  const once = (fn) => {
+    try {
+      fn();
+    } catch {
+      /* 某一段抛错不影响其它段 */
+    }
+  };
+  const time = (fn) => {
+    once(fn); // 预热
+    const started = process.hrtime.bigint();
+    for (let i = 0; i < reps; i += 1) once(fn);
+    return Number(process.hrtime.bigint() - started) / 1e6 / reps;
+  };
+  const parts = {
+    failureEdges: time(() => failureEdges(g)),
+    successScan: time(() => Object.values(g.edges ?? {}).filter((e) => e?.result === "success" && typeof e.action === "string" && e.action !== "")),
+    danglingStats: time(() => danglingStats(g, { now })),
+    options: time(() => Object.values(g.edges ?? {}).filter((e) => isDanglingOption(e, { graph: g, now }))),
+    paths: time(() => {
+      currentPath(g);
+      latestAgentNode(g);
+    }),
+    tewari: time(() => tewariAnalysis(g)),
+  };
+  const total = time(() => renderLedger(g, { now }));
+  const sum = Object.values(parts).reduce((a, b) => a + b, 0);
+  const split = sum > 0 ? `${((sum / total) * 100).toFixed(0)}% 可归因` : "无法归因";
+  return { total, parts, split };
+}
+
 export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
   // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
   //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
