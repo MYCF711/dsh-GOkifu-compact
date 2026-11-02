@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C279 | 修掉那条「永远红一条」的 legacy foldMark：FAIL 1 → 0 |
 | C278 | `migrate-dangling` dry-run 列出「会改哪些会话」 |
 | C277 | 文档里教的 CLI 子命令必须真实存在 |
 | C276 | 悬空边报 error 时必须给出**能执行的命令** |
@@ -357,6 +358,19 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C279 · 修掉那条「永远红一条」的 legacy foldMark：FAIL 1 → 0
+
+`handoff-check FAIL 1` / `graph-audit 不自洽 1` 长期挂在同一处：`session-00b50089` 的
+`foldMarks[9] seqStart=17596 > seqEnd=7629`（tier2 合并区间反）。生成侧 C187 已修，但旧记录还在磁盘上。
+
+一个判据天天红、原因永远一样 ⇒ 被训练成噪声，真回归时没人看。
+
+- 新增 `scripts/repair-foldmarks.mjs`：默认 dry-run；`--apply` 才写（备份 + tmp/rename 原子替换 + 写后重读校验）；
+- **只换 `seqStart/seqEnd`**，别的字段一个不碰；幂等；
+- 真机结果：`graph-audit 不自洽 0`、`handoff-check **FAIL 0** / WARN 18`；
+- WARN 反而 +1：换回升序后「幻觉探针」终于有合法区间可查，报出该旧 fold 有 4 个引用落在区间外；
+- **门禁收紧**：`handoff` 从「≤1 条已知遗留」改为**必须 0**，再红就是真回归。
 
 ### C278 · `migrate-dangling` dry-run 列出「会改哪些会话」
 

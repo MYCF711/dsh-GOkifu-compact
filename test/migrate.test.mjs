@@ -15,7 +15,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
@@ -819,4 +819,34 @@ tests["C278 dry-run 必须说清「会改哪些会话」——只报 affected N 
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["C279 repair-foldmarks：只换反掉的区间，别的字段一个不碰（且幂等）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(HERE, "..", "scripts", "repair-foldmarks.mjs")).href);
+  t.eq(typeof mod.findSwappedMarks, "function", "必须导出 findSwappedMarks");
+  t.eq(typeof mod.swapRanges, "function", "必须导出 swapRanges");
+
+  const graph = {
+    foldMarks: [
+      { at: 1, seqStart: 10, seqEnd: 20, trigger: "pressure", summaryChars: 99 },
+      { at: 2, seqStart: 17596, seqEnd: 7629, trigger: "tier2", closure: { nodes: 0 }, summaryChars: 2999 },
+      { at: 3, seqStart: 5, seqEnd: 5, trigger: "pressure" },
+      { at: 4, seqStart: "x", seqEnd: 7 },
+    ],
+  };
+  const bad = mod.findSwappedMarks(graph);
+  t.eq(bad.length, 1, `只该认出 1 条（相等/坏值都不算）：${JSON.stringify(bad)}`);
+  t.eq(bad[0].index, 1, "指的是第 2 条（index 1）");
+
+  const fixed = mod.swapRanges(graph);
+  t.eq(fixed, 1, "换回 1 条");
+  t.eq(graph.foldMarks[1].seqStart, 7629, "start 变成原来的 end");
+  t.eq(graph.foldMarks[1].seqEnd, 17596, "end 变成原来的 start");
+  // 别的字段必须原样（换的是区间顺序，不是重写记录）
+  t.eq(graph.foldMarks[1].summaryChars, 2999, "summaryChars 不许动");
+  t.eq(graph.foldMarks[1].trigger, "tier2", "trigger 不许动");
+  t.eq(graph.foldMarks[0].seqStart, 10, "没坏的记录不许动");
+  // 幂等：再跑一次不该再改
+  t.eq(mod.swapRanges(graph), 0, "第二次必须是 0（幂等）");
+  t.eq(mod.findSwappedMarks(graph).length, 0, "修完之后不该再有反序");
 };

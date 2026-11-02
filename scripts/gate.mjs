@@ -39,12 +39,13 @@ export const GATES = Object.freeze([
     name: "交接文档无新的 FAIL",
     script: "handoff-check.mjs",
     ignoreExit: true,
-    // 已知遗留 1 条（legacy foldMark，见 HANDOFF 的「已知遗留」）—— 超过 1 才算回归
+    // ★ C279：legacy foldMark 已由 repair-foldmarks 修掉（FAIL 1 → 0）⇒ 现在要求**必须 0**，
+    //   以后再出现 FAIL 就是真回归，不再是"已知遗留"。
     expect: (out) => {
       const m = out.match(/FAIL\s+(\d+)/);
       if (m === null) return { ok: false, note: "输出里没有 FAIL 计数（判据消失？）" };
       const n = Number(m[1]);
-      return { ok: n <= 1, note: n === 1 ? "1 条已知遗留（legacy foldMark）" : `FAIL=${n}` };
+      return { ok: n === 0, note: n === 0 ? "0 条（legacy 已修）" : `FAIL=${n}（真回归）` };
     },
   },
   // 从仓库根跑：部分测试按 CWD 解析路径（在 test/ 下跑会 ENOENT）
