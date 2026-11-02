@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C329 | 把「宿主到底发不发 `domain/changed`」查死（asar 原文） |
 | C328 | 归档信号解析与差分抽成纯函数并测住（唯一被真机证伪过的设计点） |
 | C327 | 发布说明补齐（1.17.6 还停在 C234，落后 90 条） |
 | C326 | 文档里的脚本**参数**也要真实存在 |
@@ -405,6 +406,21 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C329 · 把「宿主到底发不发 `domain/changed`」查死（asar 原文）
+
+C328 测住了解析侧；这轮核实发送侧。asar 里三段原文给出结论：
+
+```js
+this.emitChanged({ domain: this.name, table: "", key: "", operation: "put", value })
+// 宿主自己的 follower：if (change.domain !== "workspace") return; if (change.table === "") { if (change.operation !== "put") return; … }
+```
+
+⇒ 我们的过滤条件与宿主自己的口径**逐字同构**；且 **一次写入发一次、落盘后发**、**监听器抛错被吞**。
+
+- 新知识库条目 `宿主归档信号-domain.changed.md`（证据 + 已核实/待核实）；
+- 结论速查新增 **A22**；
+- 仍待核实：运行时 `workspace` 域是否送到插件 ctx —— 只能重启后看 `graph.closeout`。
 
 ### C328 · 归档信号解析与差分抽成纯函数并测住（唯一被真机证伪过的设计点）
 
