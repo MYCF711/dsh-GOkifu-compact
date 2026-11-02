@@ -342,3 +342,30 @@ tests["C372 路由自愈：ensureUiRoute 存在、无 webServer 时安全返回 
   t.includes(uiSrc, "let uiRouteRegistered = false", "必须有模块级幂等开关");
   t.includes(uiSrc, "uiRouteRegistered = false;", "dispose 后必须重置开关（否则再也装不回来）");
 };
+
+tests["C380 初始化失败必须留一条兜底路由（面板要能回答「我为什么坏了」）"] = async (t) => {
+  const ui = await import("../src/ui.mjs");
+  t.eq(typeof ui.registerFallbackRoute, "function", "必须导出 registerFallbackRoute");
+
+  let registered = null;
+  const ctx = {
+    webServer: { register: (route) => { registered = route; return () => {}; } },
+    effect: (fn) => { fn(); },
+  };
+  t.eq(ui.registerFallbackRoute(ctx, new Error("boom")), true, "应当注册成功");
+  t.eq(!!registered, true, "必须真的调用了 register");
+  t.eq(registered.path, "/gokifu/api", "路径必须是面板的 /gokifu/api");
+  t.eq(registered.kind, "prefix", "用 prefix 匹配");
+
+  // 兜底路由的响应：500 + 错误摘要（人能看懂）
+  let code = null;
+  let body = "";
+  const res = { writeHead: (c) => { code = c; }, end: (b) => { body = b; } };
+  await registered.handler({ method: "POST" }, res);
+  t.eq(code, 500, "必须回 500（而不是 404/405）");
+  t.includes(body, "面板初始化失败", "要说明是初始化失败");
+  t.includes(body, "boom", "要带出原始错误摘要");
+
+  // 没有 webServer 的进程：安全返回 false
+  t.eq(ui.registerFallbackRoute({}, new Error("x")), false, "没有 webServer 不抛，返回 false");
+};

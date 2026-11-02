@@ -1249,7 +1249,46 @@ export function ensureUiRoute(ctx) {
   return true;
 }
 
+/**
+ * ★ C380：**apply 不允许「半死」**。真机事故：插件在 GUI 进程里初始化失败后，
+ * `/gokifu/api` 变成 404/405 —— **面板连「我为什么坏了」都说不出来**。
+ * 现在：初始化抛错时，先装一条**兜底路由**，让面板回 500 + 错误摘要（人一看就知道）。
+ */
 export function apply(ctx) {
+  try {
+    return applyInner(ctx);
+  } catch (error) {
+    try {
+      registerFallbackRoute(ctx, error);
+    } catch {
+      /* 兜底都装不上，只能任它去 */
+    }
+    throw error;
+  }
+}
+
+/**
+ * ★ C380：初始化失败时的兜底路由。纯注册动作，不依赖初始化的任何状态。
+ * @param {object} ctx
+ * @param {unknown} error
+ */
+export function registerFallbackRoute(ctx, error) {
+  if (!ctx?.webServer || typeof ctx.webServer.register !== "function") return false;
+  const detail = String(error?.message ?? error ?? "").slice(0, 300);
+  const route = {
+    kind: "prefix",
+    path: "/gokifu/api",
+    handler: async (req, res) => {
+      const body = JSON.stringify({ ok: false, error: "面板初始化失败", detail }, null, 2);
+      res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+      res.end(body);
+    },
+  };
+  ctx.effect(() => ctx.webServer.register(route), "gokifu-ui(兜底): /gokifu/api");
+  return true;
+}
+
+function applyInner(ctx) {
   scheduleHomePatchHeal(ctx);
   // 绑定 0.0.0.0 = 本机之外也能访问。**这不构成放行理由**（task-34）：
   // 非回环 Host 仍然必须出现在 DSH_GOKIFU_ALLOWED_HOSTS 里，否则一律按不可信拒绝（fail closed）。
