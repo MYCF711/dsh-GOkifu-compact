@@ -658,3 +658,39 @@ tests["C197 doctor 必须报「fold 压力（token/阈值）」：有快照显�
     nodeFs.rmSync(without, { recursive: true, force: true });
   }
 };
+
+tests["C206 tier-2 合并的摘要引用「区间外 id」不算问题（合并语义），常规 fold 才算"] = (t) => {
+  // ① 只有 tier2 的越界 id ⇒ 不许出现「越界 id」这一行
+  const tier2Only = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now(), seqStart: 1, seqEnd: 2, tier2: true, trigger: "tier2", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n9"] } },
+      ];
+      g.foldCount = 1;
+    },
+  });
+  try {
+    const rows = runDoctor(tier2Only);
+    const row = rows.find("压缩摘要的越界");
+    t.eq(row === undefined || row === null, true, `tier-2 的越界 id 不许报（这是合并语义）：${JSON.stringify(row)}`);
+  } finally {
+    nodeFs.rmSync(tier2Only, { recursive: true, force: true });
+  }
+
+  // ② 常规 fold 的越界 id ⇒ 必须报（真偏差）
+  const pressure = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now(), seqStart: 1, seqEnd: 4, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n2125"] } },
+      ];
+      g.foldCount = 1;
+    },
+  });
+  try {
+    const row = runDoctor(pressure).find("压缩摘要的越界");
+    if (row === undefined || row === null) throw new Error("常规 fold 的越界 id 必须报出来");
+    t.includes(row.detail, "n2125", "必须点名具体 id");
+  } finally {
+    nodeFs.rmSync(pressure, { recursive: true, force: true });
+  }
+};

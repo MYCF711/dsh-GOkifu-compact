@@ -1,24 +1,24 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-02T04:11:35Z",
+  "generatedAt": "2026-11-02T04:27:25Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 30,
+  "sessions": 33,
   "unreadable": 0,
   "summary": {
-    "total": 26,
+    "total": 28,
     "external": null,
     "coverage": {
-      "trigger": 21,
-      "quality": 21,
-      "closure": 21,
-      "usage": 24
+      "trigger": 23,
+      "quality": 23,
+      "closure": 23,
+      "usage": 25
     },
     "triggerCounts": {
-      "pressure": 19,
-      "tier2": 2
+      "pressure": 20,
+      "tier2": 3
     },
     "quality": {
-      "count": 21,
+      "count": 23,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
       "compressionRatioMin": 48.45,
@@ -26,15 +26,17 @@
       "unknownIdsTotal": 0
     },
     "cost": {
-      "count": 24,
+      "count": 25,
       "inputPerShadowedMin": 1.32,
       "inputPerShadowedMax": 2.11,
       "shadowedShareMin": 0.473,
       "shadowedShareMax": 0.759
     },
     "closureChain": {
-      "checked": 10,
-      "offenders": []
+      "checked": 12,
+      "offenders": [
+        "session-00b50089-b7a:n1820→n520"
+      ]
     },
     "bySession": {
       "sessionsWithFolds": 7,
@@ -42,7 +44,7 @@
       "top": [
         {
           "sessionId": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
-          "folds": 10
+          "folds": 12
         },
         {
           "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
@@ -55,19 +57,19 @@
       ]
     },
     "closure": {
-      "count": 21,
+      "count": 23,
       "empty": 5,
       "preGraph": 1
     },
     "boundary": {
-      "count": 18,
+      "count": 20,
       "openAtEnd": 0,
-      "unsettled": 2184
+      "unsettled": 2700
     },
     "dangling": {
-      "count": 19,
-      "residue": 25,
-      "candidates": 10,
+      "count": 20,
+      "residue": 28,
+      "candidates": 11,
       "liveUnsettled": 0,
       "fromBroken": 0
     },
@@ -78,8 +80,8 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-02T03:37:58Z",
-    "newFolds": 1,
+    "previousAt": "2026-11-02T04:11:35Z",
+    "newFolds": 2,
     "qualityChanged": false,
     "boundaryRegressed": false,
     "costShareDelta": 0,
@@ -1196,6 +1198,94 @@
         "overlapping": 97,
         "openAtEnd": 0,
         "unsettled": 97
+      }
+    },
+    {
+      "sessionId": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
+      "fold": 11,
+      "at": 1793593586786,
+      "trigger": "pressure",
+      "seqStart": 17550,
+      "seqEnd": 19790,
+      "summaryChars": 2367,
+      "shadowedTokens": 141330,
+      "inputTokens": 242078,
+      "outputTokens": 979,
+      "inputPerShadowed": 1.71,
+      "shadowedShare": 0.584,
+      "ms": 11729,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 142.76,
+        "expectedConstraints": 0,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 990
+      },
+      "closure": {
+        "nodes": 290,
+        "edges": 300,
+        "firstNode": "n1531",
+        "lastNode": "n1820",
+        "preGraph": false,
+        "graphNodes": 2125
+      },
+      "dangling": {
+        "residue": 3,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 300,
+        "openAtEnd": 0,
+        "unsettled": 292
+      }
+    },
+    {
+      "sessionId": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
+      "fold": 12,
+      "at": 1793593612882,
+      "trigger": "tier2",
+      "seqStart": 9636,
+      "seqEnd": 11443,
+      "summaryChars": 3071,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": null,
+      "route": null,
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 1256
+      },
+      "closure": {
+        "nodes": 229,
+        "edges": 240,
+        "firstNode": "n520",
+        "lastNode": "n748",
+        "preGraph": false,
+        "graphNodes": 2125
+      },
+      "dangling": null,
+      "boundary": {
+        "overlapping": 240,
+        "openAtEnd": 0,
+        "unsettled": 224
       }
     }
   ]
