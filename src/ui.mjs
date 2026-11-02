@@ -59,6 +59,7 @@ import { fileURLToPath } from "node:url";
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
 import { countResolvedFailures } from "./rooms/kifu-model.mjs";
 import { readProfileBundles, readTextOrNull } from "./rooms/profile-io.mjs";
+import { repoVersion, repoBuildId } from "./rooms/build-stamp.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
@@ -1418,11 +1419,24 @@ export function apply(ctx) {
     const p = ctx?.webServer?.port ?? ctx?.webServer?.server?.address?.()?.port;
     return Number.isFinite(Number(p)) ? Number(p) : null;
   };
-  mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx) });
+  // ★ C333：心跳要能回答「**跑的是哪一版**」。真机教训：两个 DSH 进程同时存在时，
+  //   光有 pid 分不清谁是谁；带上 version + buildId 就能与磁盘比，判断面板是不是旧实例。
+  const stampOf = () => {
+    try {
+      return { version: repoVersion(), buildId: repoBuildId() };
+    } catch {
+      return { version: null, buildId: null };
+    }
+  };
+  // ★ C334：`hasWebServer` —— 真机上见过「插件被加载进一个**没有 web 服务**的进程」：
+  //   心跳写着 open、buildId 也对，但那个 pid 根本没监听端口，面板自然不可达。
+  //   不记这一位，doctor 会把"注册了"读成"能访问"。
+  const hasWebServer = Boolean(ctx?.webServer && typeof ctx.webServer.register === "function");
+  mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
   ctx.effect(() => {
     const dispose = ctx.webServer.register(route);
     return () => {
-      mark({ state: "closed", at: Date.now(), pid: process.pid, port: portOf(ctx) });
+      mark({ state: "closed", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
       if (typeof dispose === "function") dispose();
     };
   }, "gokifu-ui: /gokifu/api");

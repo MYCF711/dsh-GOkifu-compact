@@ -1114,3 +1114,38 @@ tests["C332 面板路由心跳：closed 必须警告「被卸载，重启恢复�
     nodeFs.rmSync(bare, { recursive: true, force: true });
   }
 };
+
+tests["C333/C334 心跳要比构建、要看有没有 web 服务（多进程环境下说清面板跑在哪）"] = async (t) => {
+  const { repoBuildId } = await import("../src/rooms/build-stamp.mjs");
+  const disk = repoBuildId();
+
+  // ① 构建一致 + 有 web 服务 ⇒ ok
+  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, port: 64349, hasWebServer: true, buildId: disk } });
+  try {
+    const row = runDoctor(okHome).find("面板路由心跳");
+    t.eq(row.status, "ok", `一致时应 ok：${JSON.stringify(row)}`);
+    t.includes(String(row.detail), "一致", "要说与磁盘一致");
+  } finally {
+    nodeFs.rmSync(okHome, { recursive: true, force: true });
+  }
+
+  // ② 旧构建 ⇒ warn「重启恢复」
+  const staleHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, hasWebServer: true, buildId: "deadbeef0000" } });
+  try {
+    const row = runDoctor(staleHome).find("面板路由心跳");
+    t.eq(row.status, "warn", "旧构建必须 warn");
+    t.includes(String(row.detail), "旧构建", "要点明是旧构建");
+  } finally {
+    nodeFs.rmSync(staleHome, { recursive: true, force: true });
+  }
+
+  // ③ 没有 web 服务（真机：pid 50688 注册了却没有监听端口）⇒ warn
+  const noWeb = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, hasWebServer: false, buildId: disk } });
+  try {
+    const row = runDoctor(noWeb).find("面板路由心跳");
+    t.eq(row.status, "warn", "没有 web 服务必须 warn");
+    t.includes(String(row.detail), "没有 web 服务", "要说清是加载进了非 UI 进程");
+  } finally {
+    nodeFs.rmSync(noWeb, { recursive: true, force: true });
+  }
+};

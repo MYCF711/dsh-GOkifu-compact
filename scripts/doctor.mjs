@@ -1405,7 +1405,29 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
           `⚠ 面板在 ${at} **被卸载**（热重载或退出）—— \`/gokifu/api\` 现在大概率不可达，**重启才能恢复**`,
         );
       } else {
-        add("面板路由心跳", "ok", `面板路由已注册（${at}${minutes === null ? "" : `，${minutes} 分钟前`}，pid ${hb.pid ?? "?"}）`);
+        // ★ C333：带上 buildId 与磁盘比 —— 多进程环境下这是唯一能说清"面板跑的是哪一版"的证据
+        let diskBuild = null;
+        try {
+          diskBuild = repoBuildId();
+        } catch {
+          diskBuild = null;
+        }
+        const hbBuild = typeof hb.buildId === "string" ? hb.buildId : null;
+        // ★ C334：注册进"没有 web 服务"的进程 ⇒ 面板不可达（真机见过）
+        const noWeb = hb.hasWebServer === false;
+        const stale = hbBuild !== null && diskBuild !== null && hbBuild !== diskBuild;
+        add(
+          "面板路由心跳",
+          stale || noWeb ? "warn" : "ok",
+          `面板路由已注册（${at}${minutes === null ? "" : `，${minutes} 分钟前`}，pid ${hb.pid ?? "?"}，端口 ${hb.port ?? "?"}）` +
+            (noWeb
+              ? ` —— ⚠ 该实例**没有 web 服务**（插件被加载进了非 UI 进程）⇒ 面板访问不到，重启恢复`
+              : stale
+                ? ` —— 但**面板跑的是旧构建**（面板 ${String(hbBuild).slice(0, 12)} ≠ 磁盘 ${String(diskBuild).slice(0, 12)}）⇒ 重启恢复`
+                : hbBuild === null
+                  ? " · 该心跳没带 buildId（C333 之前的实例）"
+                  : " · 与磁盘构建一致"),
+        );
       }
     }
   }
