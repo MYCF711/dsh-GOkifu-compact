@@ -37,13 +37,23 @@ export const OUTPUT_PER_MTOK = 0.6;
  * @returns {{total:number, estimable:number, unknown:number, tokens:number, chunks:number,
  *            rounds:number, costUsd:number, rows: Array<object>}}
  */
-export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INPUT_PER_MTOK } = {}) {
+export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INPUT_PER_MTOK, roughPerEvent = null } = {}) {
   let tokens = 0;
   let chunks = 0;
   let estimable = 0;
   let unknown = 0;
+  let rough = 0;
   for (const row of rows ?? []) {
+    // ★ C340：估不出的（没有历史折可采样）用**全局均值**粗估，并单独记数 ——
+    //   真机上 46 个欠账里 33 个是这种"零 fold 会话"；不粗估，用户看到的就是"大部分算不出钱"。
     if (!Number.isFinite(row?.estTokens)) {
+      if (Number.isFinite(roughPerEvent) && Number.isFinite(row?.tail) && row.tail > 0) {
+        const est = Math.round(row.tail * roughPerEvent);
+        rough += 1;
+        tokens += est;
+        chunks += 1;
+        continue;
+      }
       unknown += 1;
       continue;
     }
@@ -57,6 +67,7 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
   return {
     total: (rows ?? []).length,
     estimable,
+    rough,
     unknown,
     tokens,
     chunks,
@@ -71,6 +82,18 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
  * @param {string} home
  * @param {{maxTokens?: number}} [options]
  */
+/**
+ * ★ C340：从**有折的会话**里算 tokens/事件 的全局均值（用于给"零 fold 会话"粗估）。
+ * 真机实测（46 个欠账里 33 个零 fold）：均值约 143.7 tok/事件。
+ * @param {Array<{tokensPerEvent: number|null}>} samples
+ * @returns {number|null}
+ */
+export function averageTokensPerEvent(samples) {
+  const values = (samples ?? []).map((x) => Number(x?.tokensPerEvent)).filter((x) => Number.isFinite(x) && x > 0);
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
 export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } = {}) {
   const { loadSessionGraph } = await import("./graph-audit.mjs");
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
@@ -93,6 +116,7 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
       sessionId: entry.name.slice(0, 18),
       tail: debt.tail,
       estTokens: Number.isFinite(debt.estTokens) ? debt.estTokens : null,
+      tokensPerEvent: Number.isFinite(debt.tokensPerEvent) ? debt.tokensPerEvent : null,
       chunks: planned?.chunks?.length ?? 1,
     });
   }
@@ -111,12 +135,16 @@ export async function main(argv = process.argv.slice(2)) {
     return 2;
   }
   const rows = await buildPlan(home);
-  const plan = summarizePlan(rows);
+  const roughPerEvent = averageTokensPerEvent(rows);
+  const plan = summarizePlan(rows, { roughPerEvent });
   if (argv.includes("--json")) {
     console.log(JSON.stringify(plan, null, 2));
     return 0;
   }
-  console.log(`== 补账计划 ==  ${plan.total} 个欠账 · 可估 ${plan.estimable} · 估不出 ${plan.unknown}`);
+  console.log(
+    `== 补账计划 ==  ${plan.total} 个欠账 · 精确可估 ${plan.estimable} · ` +
+      `粗略可估 ${plan.rough}（按全局 ${roughPerEvent === null ? "?" : roughPerEvent.toFixed(0)} tok/事件）· 估不出 ${plan.unknown}`,
+  );
   for (const row of rows.slice(0, 12)) {
     const est = row.estTokens === null ? "?" : `${Math.round(row.estTokens / 1000)}k tok`;
     console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段`);

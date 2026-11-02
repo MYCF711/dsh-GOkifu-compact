@@ -34,3 +34,27 @@ tests["C339 轮次按 6 段一轮向上取整；空计划是 0 轮 0 元"] = (t)
   const full = summarizePlan([{ estTokens: 1_000_000, chunks: 0 }]);
   t.eq(cheap.costUsd < full.costUsd, true, "单价减半 ⇒ 估价更低");
 };
+
+tests["C340 零 fold 的会话用全局均值粗估，且必须与精确估计分开点名"] = async (t) => {
+  const { summarizePlan, averageTokensPerEvent } = await import("../scripts/backfill-plan.mjs");
+  t.eq(typeof averageTokensPerEvent, "function", "必须导出 averageTokensPerEvent");
+
+  // 均值只统计"有值且为正"的样本
+  t.eq(averageTokensPerEvent([{ tokensPerEvent: 100 }, { tokensPerEvent: 200 }, { tokensPerEvent: null }]), 150, "忽略空样本");
+  t.eq(averageTokensPerEvent([]), null, "没有样本 ⇒ null（不许瞎编）");
+
+  const rows = [
+    { sessionId: "a", tail: 1000, estTokens: 500_000, chunks: 3 },
+    { sessionId: "b", tail: 2000, estTokens: null, chunks: 1 }, // 零 fold，靠粗估
+  ];
+  const plan = summarizePlan(rows, { roughPerEvent: 150 });
+  t.eq(plan.estimable, 1, "精确可估 1 个");
+  t.eq(plan.rough, 1, "粗略可估 1 个");
+  t.eq(plan.unknown, 0, "不要再算成估不出");
+  t.eq(plan.tokens, 500_000 + 2000 * 150, "粗估要计入总量（2000×150）");
+
+  // 没给均值 ⇒ 退回"估不出"（不许静默按 0 算）
+  const noRough = summarizePlan(rows);
+  t.eq(noRough.unknown, 1, "没有均值时必须老实说估不出");
+  t.eq(noRough.rough, 0, "不许凭空粗估");
+};
