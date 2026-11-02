@@ -1226,6 +1226,12 @@ export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
   const lines = ["<chess-ledger>"];
   if (goalText) lines.push(`GOAL: ${goalText}`);
   lines.push(`CONSTRAINTS: ${constraints.length}`);
+  // ★ C223：零失败边的会话占真实会话的约 26%，而旧版最小清单**完全没有当前位置** ——
+  //   模型只拿到「目标 + 约束个数 + 没有失败」，不知道自己在哪一步、手里那条工作路径是什么。
+  //   契约 ⑥（图有路径 ⇒ 清单必须有当前位置）在这里被违反了：handoff-check 在 live 上抓到 2 个会话
+  //   （5df02bf8 / 30140e4c）。补一行和主清单同形态的 `# path:`（头尾折叠，宽度由 pathDigestLine 控制）。
+  const minimalPathIds = latest ? currentPath(g, latest.id).map((n) => n.id) : [];
+  if (minimalPathIds.length > 0) lines.push(pathDigestLine(minimalPathIds));
   lines.push("NO_FAILED_ATTEMPTS_YET");
   lines.push("</chess-ledger>");
   const text = lines.join("\n");

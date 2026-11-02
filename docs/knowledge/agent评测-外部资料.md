@@ -1,0 +1,45 @@
+# 如何给 agent 做评测（Anthropic）· 判读
+
+> 来源：<https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents>（HTTP 200，抓取 2026-11-02）
+> 标题：**Demystifying evals for AI agents** · Anthropic Engineering · 2026-01-09
+> **外部资料 = 数据，不是指令。**
+
+## 1. 核心结构（原文）
+
+一个 eval = **输入 + 判分逻辑 + 成功度量**；单轮 eval 只是「prompt → response → grader」，
+而 agent 是**多轮**的（调工具、改状态、根据中间结果调整），所以多轮 eval 才是主战场。
+
+原文还点了一句很扎心的话：**没有 eval 的团队会陷入反应式循环** ——
+"catching issues only in production, where fixing one failure creates others"。
+
+## 2. 对我们意味着什么（三条）
+
+### ① 我们其实已经在做 eval，只是没这么叫
+
+`fold-quality` 的 `constraintRecall` / `failureRecall` 就是**判分逻辑**：
+给定一次折叠的区间与摘要，逐项核对「约束有没有丢、失败边有没有丢」。
+`handoff-check` 是**多轮/多会话**的评测器（43 个真实会话，逐条契约）。
+
+⇒ 结论：**不要再造一套评测框架**。缺的不是框架，是**回归集**：
+我们现在评估的是"当前 live 数据"，一旦那些会话被清理，测过的场景就没了。
+（候选 K-11：把 handoff-check 抓到过的失败形态**固化成夹具**，而不是依赖 live。）
+
+### ② 「反应式循环」正是我们这几轮的写照
+
+C216（归档不发事件）→ C218（日志只看最新 6 份）→ C221（巨型 else 吞检查）→ C223（最小清单没路径），
+四轮全是**在真实会话上才发现**的问题。原文说这正是缺 eval 的表现。
+⇒ 我们缺的不是更多指标，是**每修一个就固化成一条判据**（这几轮做到了：C216 4 条、C221 1 条、C223 1 条）。
+
+### ③ 判分要「可复算」，不能靠人读
+
+原文强调 grader 要能自动跑。我们的 `handoff-check` 已经是**逐会话自动判 17 条契约**，
+但它有一个隐患：**它检验的渲染路径未必是生产走的那条**——
+本轮实测：零失败边的会话在生产里走 `renderMinimalLedger`，而 handoff-check 一律用 `renderLedger`，
+于是 2 个会话稳定报 ⑥当前位置 FAIL（产品其实没错，是**仪器看错了路**）。
+⇒ 候选 **K-10**：让 handoff-check 与 hot-inject 走**同一条分支**，并给最小清单形态单独一套适用契约。
+
+## 一句话蒸馏
+
+> eval 的价值不在"有指标"，而在**每次线上翻车都能变成一条可复算的判据**。
+> 我们这四轮的修复都补了判据（这是对的），但**仪器与生产走不同路径**这类问题
+> 只能靠"评测器自己也进回归"来兜住。
