@@ -140,3 +140,12 @@ tests["C143-2 现行文档里的「N 警告」（doctor 警告数）也必须带
   }
   t.eq(seen > 0, true, "至少要有一处现行文档记录 doctor 警告数（否则判据形同虚设）");
 };
+
+tests["C152 根目录计划表必须带「已停止更新」横幅（别让它被当成现值）"] = (t) => {
+  const text = read("计划表.md");
+  const head = text.slice(0, 1200);
+  t.includes(head, "已停止更新", "顶部必须有「已停止更新」字样");
+  t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(head), true, "横幅必须带日期（否则无法判断过期程度）");
+  t.includes(head, "HANDOFF.md", "必须指向当前状态的真实出处");
+  t.includes(head, "CHANGELOG.md", "必须指向逐条改动记录");
+};
