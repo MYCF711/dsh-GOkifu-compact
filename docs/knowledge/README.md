@@ -20,6 +20,7 @@
 | 长上下文退化（context rot） | [`长上下文退化-context-rot.md`](./长上下文退化-context-rot.md) | Chroma 2025 技术报告：18 个模型、输入越长越不稳；干扰项与结构的影响 ⇒ 热清单为什么要短且分节 |
 | 上下文缓存（DeepSeek） | [`上下文缓存-deepseek.md`](./上下文缓存-deepseek.md) | 前缀单元匹配规则；我们的 `append` vs `replace` 注入哪个在破坏缓存 |
 | **成本真相：缓存命中** | [`成本真相-缓存命中实测.md`](./成本真相-缓存命中实测.md) | 实测 97% 输入走缓存（1.24B vs 39M）；断点 2.6% ⇒ 别拿「省几百 token」当优化 |
+| 为 agent 写工具（官方） | [`为agent写工具-外部资料.md`](./为agent写工具-外部资料.md) | 工具返回值三件事：限量（Claude Code 25k tok）、截断要带指引、别只给隐晦 id |
 | 本机实测基线 | [`性能基线.md`](./性能基线.md) | `renderLedger` / `loadSessionGraph` / 图规模的实测数字（改性能前先看这个） |
 
 ## 纪律（写给未来的自己）

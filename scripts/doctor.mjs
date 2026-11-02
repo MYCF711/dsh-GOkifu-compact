@@ -1057,7 +1057,6 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
    engine 每次 renderLedger 后会把 {none, over-budget, impossible, maxOverBudgetBy} 落到
    `<DSH_HOME>/chess-context/ledger-budget.json`。没有这个文件 = 从未采集（旧版本或还没跑过）
    —— 必须明确写「未采集」，不能假装健康。 */
-{
   const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
   let stats = null;
   let parseError = "";
@@ -1100,6 +1099,54 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       !hasSkipStats || hitRate === null
         ? " · 清单写入=未采集（旧版本没有 skipReasons）"
         : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）`;
+    add(
+      "热清单预算（fallback）",
+      impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
+      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
+        (Number(stats.budgetFloorOver) > 0
+          ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
+          : "") +
+        (Number(stats.renderErrors) > 0 ? ` · **注入渲染失败 ${stats.renderErrors} 次**（本轮注入被跳过，查日志）` : "") +
+        (stats.skipReasons && Object.keys(stats.skipReasons).length > 0
+          ? ` · 跳过分布 ${Object.entries(stats.skipReasons)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(" / ")}`
+          : "") +
+        (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
+        (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
+        (Number(stats.budgetIrreducible) > 0
+          ? ` · ${stats.budgetIrreducible} 次已列全失败边仍超（再省只能丢失败记忆 —— 设计内，见 C49）`
+          : "") +
+        (stats.overBySession && typeof stats.overBySession === "object" && Object.keys(stats.overBySession).length > 0
+          ? ` · 主要来源：${Object.entries(stats.overBySession)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 2)
+              .map(([sid, n]) => `${sid.slice(0, 16)}… ${n} 次`)
+              .join(" / ")}`
+          : "") +
+        `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
+    );
+    // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。
+    //   没有这个消费者，sections 就是个只算不用的指标（第 2 轮的教训）。
+    {
+      const avg = stats.sectionsAvg;
+      const samples = Number(stats.samples ?? 0);
+      const totalChars = avg && typeof avg === "object" ? Number(avg.total ?? 0) : 0;
+      if (totalChars > 0 && samples > 0) {
+        const pct = (key) => Math.round((100 * Number(avg[key] ?? 0)) / totalChars);
+        add(
+          "热清单分项占用（平均）",
+          "ok",
+          `根目标 ${pct("root")}% · 约束 ${pct("constraints")}% · 失败边 ${pct("failures")}% · ` +
+            `未验证 ${pct("unverified")}% · OPTIONS ${pct("options")}% · 路径 ${pct("path")}% · 其它 ${pct("other")}%` +
+            `（共 ${samples} 次渲染，合计 ${Math.round(totalChars)} 字符）`,
+        );
+      }
+    }
+  }
+
 /* ★ C198：宿主直接调用 compactRegion 的折叠（我们的 compactIfNeeded 之外）—— 以前完全不留账。 */
 {
   const ext = stats && typeof stats === "object" ? Number(stats.externalFolds ?? 0) : 0;
@@ -1158,56 +1205,6 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     );
   }
 }
-
-    add(
-      "热清单预算（fallback）",
-      impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
-      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
-        (Number(stats.budgetFloorOver) > 0
-          ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
-          : "") +
-        (Number(stats.renderErrors) > 0 ? ` · **注入渲染失败 ${stats.renderErrors} 次**（本轮注入被跳过，查日志）` : "") +
-        (stats.skipReasons && Object.keys(stats.skipReasons).length > 0
-          ? ` · 跳过分布 ${Object.entries(stats.skipReasons)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 3)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(" / ")}`
-          : "") +
-        (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
-        (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
-        (Number(stats.budgetIrreducible) > 0
-          ? ` · ${stats.budgetIrreducible} 次已列全失败边仍超（再省只能丢失败记忆 —— 设计内，见 C49）`
-          : "") +
-        (stats.overBySession && typeof stats.overBySession === "object" && Object.keys(stats.overBySession).length > 0
-          ? ` · 主要来源：${Object.entries(stats.overBySession)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 2)
-              .map(([sid, n]) => `${sid.slice(0, 16)}… ${n} 次`)
-              .join(" / ")}`
-          : "") +
-        `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
-    );
-    // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。
-    //   没有这个消费者，sections 就是个只算不用的指标（第 2 轮的教训）。
-    {
-      const avg = stats.sectionsAvg;
-      const samples = Number(stats.samples ?? 0);
-      const totalChars = avg && typeof avg === "object" ? Number(avg.total ?? 0) : 0;
-      if (totalChars > 0 && samples > 0) {
-        const pct = (key) => Math.round((100 * Number(avg[key] ?? 0)) / totalChars);
-        add(
-          "热清单分项占用（平均）",
-          "ok",
-          `根目标 ${pct("root")}% · 约束 ${pct("constraints")}% · 失败边 ${pct("failures")}% · ` +
-            `未验证 ${pct("unverified")}% · OPTIONS ${pct("options")}% · 路径 ${pct("path")}% · 其它 ${pct("other")}%` +
-            `（共 ${samples} 次渲染，合计 ${Math.round(totalChars)} 字符）`,
-        );
-      }
-    }
-  }
-}
-
 /* ── 输出 ── */
 const bad = checks.filter((c) => c.status === "error").length;
 const warn = checks.filter((c) => c.status === "warn").length;

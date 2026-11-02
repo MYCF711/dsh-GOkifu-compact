@@ -77,6 +77,23 @@ function runDoctor(home) {
   };
 }
 
+tests["C221 没有 ledger-budget.json 时，依赖它的检查也必须现身（不许整族静默消失）"] = (t) => {
+  // 事故：这些检查曾整段写在「热清单预算」的 else 分支里 —— 旧版本用户/全新安装根本看不到它们，
+  // doctor 少报 4 项却不告诉任何人（仪器静默降级，与 C-18 同族）。
+  const home = makeHome({});
+  try {
+    const r = runDoctor(home);
+    for (const name of ["外部折叠", "热清单注入动作", "fold 压力", "上下文缓存命中"]) {
+      const row = r.find(name);
+      t.eq(!!row, true, `缺 ledger-budget.json 时「${name}」仍必须出现`);
+      t.eq(row.status, "warn", `「${name}」未采集必须是 warn 而不是消失/ok`);
+      t.eq(String(row.detail).includes("未采集"), true, `「${name}」文案要写未采集：${row.detail}`);
+    }
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
 tests["C220 上下文缓存命中：没有会话日志 ⇒ 未采集（warn），不许报 ok"] = (t) => {
   const home = makeHome({});
   try {
