@@ -199,6 +199,9 @@ function formatScalar(value) {
 export const KEY_COMMENTS = {
   auto: "自动压缩（between-step 压力触发）",
   thresholdRatio: "压力闸：min(窗口×该值, 窗口−输出预留−余量)",
+  // ★ C254：模板里有 `firstFoldRatio` 却漏了这条注释 ⇒ UI 保存后那一行会**丢掉解释**。
+  //   这里补齐，并加守卫测试：模板里每个键都必须有注释。
+  firstFoldRatio: "首折阈值：只作用于本会话第一次 fold（0 = 关闭）",
   headroomTokens: "路由输出预留之外的额外余量",
   retainRatio: "逐字保留的近期尾部",
   growthFloorTokens: "增长闸：距上次 fold 增至该值才再次 fold",

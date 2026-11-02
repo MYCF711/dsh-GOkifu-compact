@@ -527,3 +527,25 @@ export const tests = {
 
 // pathToFileURL 在上面动态 import 用例里用到
 import { pathToFileURL } from "node:url";
+tests["C254 两套 preset 渲染器不许漂：模板里每个键都要有注释，注释表里不许有死键"] = async (t) => {
+  const room = await import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href);
+  const schema = await import(pathToFileURL(nodePath.join(SRC, "rooms", "config-schema.mjs")).href);
+  const templateKeys = Object.keys(room.parseEngineBlock(room.engineBlock().join(String.fromCharCode(10))).config);
+  const commentKeys = Object.keys(room.KEY_COMMENTS);
+  const schemaKeys = schema.SCHEMA.map((f) => f.key);
+
+  // ① 安装器模板里的每个键都要有注释 —— 否则 UI 保存（renderEngineBlock）会丢掉那行的解释
+  for (const key of templateKeys) {
+    t.eq(typeof room.KEY_COMMENTS[key], "string", `模板键 ${key} 缺 KEY_COMMENTS（UI 保存后这一行没有解释）`);
+  }
+  // ② 注释表里不许有 SCHEMA 里不存在的键（死注释会误导人）
+  for (const key of commentKeys) {
+    t.eq(schemaKeys.includes(key), true, `KEY_COMMENTS 里的 ${key} 不在 SCHEMA（死注释）`);
+  }
+  // ③ 两套渲染器对同一个键必须给出同样的解释（这里是逐键比对**是否存在**，文案可以不同）
+  const rendered = room.renderEngineBlock(Object.fromEntries(templateKeys.map((k) => [k, 1])));
+  for (const key of templateKeys) {
+    t.includes(rendered, `# `, `renderEngineBlock 输出的 ${key} 行必须带注释`);
+    t.eq(rendered.includes(`${key}: 1 # `) || rendered.includes(`${key}: 1 `), true, `${key} 行格式异常`);
+  }
+};

@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C254 | 两套 preset 渲染器漂了一处：`firstFoldRatio` 没有注释 |
 | C253 | 三个「没人读」的配置键其实是宿主在读（别当死键删） |
 | C252 | 修掉自己埋的不一致：UI 标签表里多了一个引擎键 |
 | C251 | 失败增量门槛可配（`hotLedgerMinFailureDelta`） |
@@ -333,6 +334,19 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C254 · 两套 preset 渲染器漂了一处：`firstFoldRatio` 没有注释
+
+`preset-format` 有两个生成器：`engineBlock()`（安装器，固定模板）与 `renderEngineBlock(config)`（UI 保存，按值渲染）。
+后者的注释来自 `KEY_COMMENTS` —— 而模板里有 `firstFoldRatio`、`KEY_COMMENTS` 里没有它。
+⇒ **用 UI 保存一次，那一行的解释就丢了**（`# 首折阈值：…` 消失）。
+
+- 补上 `firstFoldRatio` 的注释；
+- 守卫 `rooms` C254：模板里每个键都必须在 `KEY_COMMENTS` 里；`KEY_COMMENTS` 不许有 SCHEMA 里不存在的死键；
+  `renderEngineBlock` 对模板键的输出必须真的带注释。
+
+**根因**：一个概念（preset 块）有两个生产者。测试只能保证两边都不缺东西；
+彻底根治要让安装器也走 `renderEngineBlock`，但那会改变安装产出的字节，是另一个决定。
 
 ### C253 · 三个「没人读」的配置键其实是宿主在读（别当死键删）
 
