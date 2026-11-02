@@ -471,3 +471,15 @@ tests["C320 截断判定要吃掉三种拼法（max-tokens / max_tokens / length
   t.eq(isTruncatedFinish(null), false, "null 不算截断");
   t.eq(isTruncatedFinish(undefined), false, "undefined 不算截断");
 };
+
+tests["C351 token 估算的偏差必须被写死（改常量就得回来改这条，防悄悄漂移）"] = async (t) => {
+  const { estimateTokens } = await import("../src/rooms/ledger.mjs");
+  // 官方（token_usage 文档）：英文 0.3 token/字、中文 0.6 token/字。
+  // 我们故意不用官方比例：CJK 1.0/字（高估 67%，中文场景更安全）、ASCII 0.25/字（低估 17%）。
+  // ⇒ 这条测试钉的是"**我们的偏差本身**"：谁改了常量，这里必须一起改，且要来说明理由。
+  const cjk = estimateTokens("汉字汉字汉字汉字"); // 8 字
+  const ascii = estimateTokens("abcdefgh"); // 8 字
+  t.eq(cjk, 8, `CJK 8 字应估 8 token（= 官方 0.6 的 1.67 倍），实际 ${cjk}`);
+  t.eq(ascii, 2, `ASCII 8 字应估 2 token（= 官方 0.3 的 0.83 倍），实际 ${ascii}`);
+  t.eq(cjk > ascii * 3, true, "CJK 必须明显比 ASCII 贵（这是分档设计的前提）");
+};
