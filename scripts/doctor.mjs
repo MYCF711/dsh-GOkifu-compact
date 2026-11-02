@@ -956,6 +956,22 @@ add(
       const key = typeof x.closeout?.source === "string" && x.closeout.source !== "" ? x.closeout.source : "unknown";
       bySource[key] = (bySource[key] ?? 0) + 1;
     }
+    // ★ C292：C289 之后「超大尾巴」改走**分段折叠**（逐段 compactRegion）——
+    //   那条路记的是 `ledger-budget.externalFolds`，**不进 graph.foldMarks**。
+    //   所以只按 `trigger==="archive"` 数 foldMark 会漏掉分段折的那些，把"已经折过"报成"未补折"。
+    //   这里把外部折叠次数一并说出来（它包含分段收尾），让判读有据。
+    const externalFolds = (() => {
+      // 直接读账本文件（doctor 其它地方也是这么读的）：分段折叠记在 `externalFolds` 上。
+      try {
+        const file = nodePath.join(home, "chess-context", "ledger-budget.json");
+        if (!nodeFs.existsSync(file)) return 0;
+        const parsed = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+        return Number.isFinite(Number(parsed?.externalFolds)) ? Number(parsed.externalFolds) : 0;
+      } catch {
+        return 0;
+      }
+    })();
+    const externalText = externalFolds > 0 ? ` · 另有 ${externalFolds} 次外部/分段折叠（不入 foldMarks，见 C289/C292）` : "";
     const sourceText = ` · 来源 ${Object.entries(bySource)
       .sort((a, b) => b[1] - a[1])
       .map(([k, n]) => `${k}=${n}`)
@@ -963,7 +979,7 @@ add(
     add(
       "归档收尾（closeout）",
       withArchiveFold.length > 0 ? "ok" : "warn",
-      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${sourceText} —— ${recent}`,
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${externalText}${sourceText} —— ${recent}`,
     );
   }
 }

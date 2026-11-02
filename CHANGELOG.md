@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C292 | 分段折叠不入 foldMarks：doctor 要说清「另有 N 次外部/分段折叠」 |
 | C291 | 修自己引入的缺陷：分段折叠绕开了 `closeoutTimeoutMs` |
 | C290 | 文案跟上行为：超大尾巴是「自动分段折」，不再写「会失败」 |
 | C289 | K-15 第二步：真的分段折（把大尾巴切开，每段 ≤150k tok） |
@@ -370,6 +371,16 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C292 · 分段折叠不入 foldMarks：doctor 要说清「另有 N 次外部/分段折叠」
+
+C289 的分段折叠走 `compactRegion` → 记在 `ledger-budget.externalFolds`，**不进 `graph.foldMarks`**。
+doctor 只按 `trigger==="archive"` 数 foldMark，会把这些已折过的会话报成「未补折」。
+
+- 「归档收尾」行额外报 `另有 N 次外部/分段折叠（不入 foldMarks，见 C289/C292）`；
+- 顺带记下本轮的**意外发现**：宿主在 12:30:05Z 有一次启动（pid 37616，v1.17.6），
+  但 `buildId` 仍与磁盘不同、面板仍不认识 `backfill`、无 `injectActions`
+  ⇒ 它加载的代码比磁盘旧，且比预期更旧；下一轮先查「宿主到底从哪个文件加载 ui.mjs」。
 
 ### C291 · 修自己引入的缺陷：分段折叠绕开了 `closeoutTimeoutMs`
 
