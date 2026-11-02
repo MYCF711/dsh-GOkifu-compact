@@ -340,3 +340,14 @@ tests["C381 结论速查必须收进本会话新验的结论（A23–A27：缓�
     t.includes(doc, needle, `${tag} 必须提到 ${needle}`);
   }
 };
+
+tests["C384 图片盲区必须写清「不是 10 倍差的原因」（防把一个巧合写成因果）"] = (t) => {
+  const doc = read("docs/knowledge/Files API-图片与成本盲区-deepseek.md");
+  t.includes(doc, "**0**", "要给出 0 图会话的实测数字");
+  t.includes(doc, "152,273", "要有 0 图会话的差（−152,273）");
+  t.includes(doc, "269,205", "要有另一个 0 图会话的差");
+  t.includes(doc, "106", "要有含图最多的会话（106 个）");
+  t.includes(doc, "不是", "必须明确说：图片不是那个差的原因");
+  const cost = read("docs/knowledge/成本模型-deepseek价格.md");
+  t.includes(cost, "已排除一种解释", "成本模型里要记下这条排除");
+};
