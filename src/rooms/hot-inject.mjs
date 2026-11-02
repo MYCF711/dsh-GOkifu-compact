@@ -266,6 +266,13 @@ export function decideInjection({
       source: { kind: "chess-context", form: "ledger", digest },
     });
 
+    // ★ C268（依据 DeepSeek KV 缓存文档，2026-11-02 抓取）：
+    //   缓存命中要求**完整匹配某个已落盘的「缓存前缀单元」**，单元产生于「用户输入结束处」等位置
+    //   （另有公共前缀检测、固定 token 间隔两种）。所以：
+    //   · **改动点越靠后，作废的单元越少** —— 就地替换末尾这条清单，前缀单元照常命中；
+    //   · 反过来，若在开头插一条新消息，等于把后面所有单元全部作废。
+    //   这也是 C220 实测「断点只占 2.6%」的原因：我们改的是尾部。
+    //   文档：docs/knowledge/上下文缓存-单元语义-deepseek.md
     if (existing && config.hotLedgerReplace) {
       try {
         session.append("user/message", message, {
