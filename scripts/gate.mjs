@@ -62,6 +62,16 @@ export const GATES = Object.freeze([
     expect: /通过 \d+/,
   },
   {
+    id: "field-reads",
+    name: "自有结构字段审计（读了但没人写）—— 仅供参考",
+    script: "audit-field-reads.mjs",
+    // ★ C281：C280 那种「读了不存在的字段却永远报正常」的错，靠人眼发现不了 —— 每次门禁顺带扫一遍。
+    //   不做判分门：它扫的是"疑似"，需要人看一眼再决定，红了不该挡住交付。
+    advisory: true,
+    ignoreExit: true,
+    expect: /字段审计/,
+  },
+  {
     id: "restart",
     name: "重启后核对（运行实例 vs 磁盘代码）—— 仅供参考",
     script: "post-restart-check.mjs",
