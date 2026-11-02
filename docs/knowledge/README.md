@@ -39,6 +39,7 @@
 | **思考模式（默认开启）** | [`思考模式-默认开启-deepseek.md`](./思考模式-默认开启-deepseek.md) | 官方：思考模式**默认 enabled、默认 effort=high**，`reasoning.effort=none` 才关；宿主 usage 有 `reasoningTokens`。真机 58 条 fold **没有** reasoningTokens ⇒ 本机未上报，成本暂无低估 |
 | **Token 计量官方比例** | [`token计量官方比例-deepseek.md`](./token计量官方比例-deepseek.md) | 官方：英文 0.3 token/字、中文 0.6 token/字；我们 CJK 算 **1.0**（高估 67%）、ASCII 算 **0.25**（低估 17%）。改成官方比例会让 17 条测试红（阈值全要重推）⇒ 记候选 K-20 |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
+| **宿主会话文件格式（zstd 多帧）** | [`宿主会话文件格式-zstd多帧.md`](./宿主会话文件格式-zstd多帧.md) | 实测：`session.v4.jsonl.zstd` 是 **9,193 帧拼接**；`zstdDecompressSync` 只解第一帧（232 字节）且**不报错**，流式解码器报 `Unknown frame descriptor` ⇒ **离线 grep 不到会话内容** |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |
