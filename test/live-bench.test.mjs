@@ -1,0 +1,44 @@
+/**
+ * live-bench.test.mjs —— 「真机基准」文档必须可机器复算（C376）
+ *
+ * 由来：这些数字以前是手抄的，一路过期（1072 passed / $0.83 / 40 分钟…），
+ * 最后连 HANDOFF 都在说旧事实。现在改成生成物，这里守住它的形状。
+ */
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { renderBenchDoc } from "../scripts/live-bench.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const DOC = nodePath.join(HERE, "..", "docs", "真机基准-自动生成.md");
+
+export const tests = {};
+
+tests["C376 基准文档由数据渲染：四节都在，且数字来自入参（不是写死）"] = (t) => {
+  const doc = renderBenchDoc({
+    files: 7,
+    cache: { requests: 1234, miss: 11, hit: 99, output: 5, hitRate: 0.9 },
+    folds: { n: 3, median: 11000, p90: 19000, max: 30000 },
+    debt: { due: 4, tokens: 2_500_000, chunks: 9, estCost: 1.23, recommendedMaxTokens: 218348, totalCost: 9.87, top5Share: 0.56 },
+  });
+  for (const section of ["## 一、缓存与花费", "## 二、花费分布", "## 三、折叠耗时", "## 四、欠账"]) {
+    t.includes(doc, section, `缺小节：${section}`);
+  }
+  // 数字来自入参
+  t.includes(doc, "1,234", "请求数要来自入参（带千分位）");
+  t.includes(doc, "90.0%", "命中率要按入参算");
+  t.includes(doc, "11.0s", "中位耗时按毫秒换算");
+  t.includes(doc, "$9.87", "全量花费来自入参");
+  t.includes(doc, "218348", "建议单段上限来自入参");
+  // 不许出现"手工维护"的痕迹
+  t.eq(doc.includes("TODO"), false, "生成物里不许留 TODO");
+};
+
+tests["C376 仓库里的基准文档存在，且开头声明「自动生成」"] = (t) => {
+  t.eq(nodeFs.existsSync(DOC), true, "docs/真机基准-自动生成.md 必须存在（缺了就跑 node scripts/live-bench.mjs --write）");
+  if (!nodeFs.existsSync(DOC)) return;
+  const text = nodeFs.readFileSync(DOC, "utf8");
+  t.includes(text, "自动生成，勿手改", "必须声明是生成物");
+  t.includes(text, "live-bench.mjs", "必须写明生成命令");
+  t.includes(text, "命中率", "至少要有命中率这一节");
+};

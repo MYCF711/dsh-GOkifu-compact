@@ -1,5 +1,5 @@
 {
-  "total": 783,
+  "total": 785,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -59,6 +59,7 @@
     "ledger-properties.test.mjs": 2,
     "ledger-scale.test.mjs": 4,
     "ledger.test.mjs": 25,
+    "live-bench.test.mjs": 2,
     "live-folds.test.mjs": 11,
     "log-window.test.mjs": 4,
     "make-preset.test.mjs": 0,
