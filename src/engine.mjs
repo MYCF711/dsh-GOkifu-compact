@@ -84,6 +84,35 @@ const THRASH_SEQ = 30;
  * @param {{fromSeq?:number, tail:number, tokensPerEvent:number|null, maxTokens?:number, maxChunks?:number}} options
  * @returns {Array<{start:number, end:number, estTokens:number}>}
  */
+/**
+ * ★ C296：把"逐段折 + 超时预算"抽成一个**可测**的函数。
+ *
+ * 为什么抽：C291 修好了超时，但当时只有"源码里有这几行"的断言 —— **行为没被测过**。
+ * 这里把循环换成注入式（`fold(start, end)` 由调用方给），测试就能用假的 fold 驱动：
+ * 全部成功 / 中途抛错 / 时间用完，三种结局各验一次。
+ *
+ * @param {object} options
+ * @param {Array<{start:number, end:number}>} options.chunks
+ * @param {number} options.deadline 绝对时间戳（Date.now() 口径）
+ * @param {(start:number, end:number, remaining:number) => Promise<unknown>} options.fold
+ * @param {() => number} [options.now]
+ * @returns {Promise<{folded:number, stopped:"done"|"deadline"|"error", error:unknown}>}
+ */
+export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now = Date.now } = {}) {
+  let folded = 0;
+  for (const chunk of chunks) {
+    const remaining = deadline - now();
+    if (remaining <= 0) return { folded, stopped: "deadline", error: null };
+    try {
+      await fold(chunk.start, chunk.end, remaining);
+      folded += 1;
+    } catch (error) {
+      return { folded, stopped: "error", error };
+    }
+  }
+  return { folded, stopped: chunks.length === 0 ? "done" : "done", error: null };
+}
+
 export function planCloseoutChunks({
   fromSeq = 0,
   tail = 0,
@@ -1366,38 +1395,30 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         // ★ C291：分段路径**必须**受同一个 `closeoutTimeoutMs` 约束 ——
         //   C289 把它写在了超时包装之外，6 段大折叠能跑两三分钟，等于把归档回调卡死。
         //   现在：整体 deadline + 每段各自的剩余时间 race，到点就停（已折的段保留）。
-        const deadline = Date.now() + limitMs;
-        let folded = 0;
-        let stopped = "done";
-        for (const chunk of chunks) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) {
-            stopped = "deadline";
-            break;
-          }
-          try {
+        const outcome = await runChunkedCloseout({
+          chunks,
+          deadline: Date.now() + limitMs,
+          fold: async (start, end, remaining) => {
             let timer = null;
             const timeout = new Promise((resolve) => {
               timer = setTimeout(() => resolve("timeout"), remaining);
               if (typeof timer?.unref === "function") timer.unref();
             });
-            const out = await Promise.race([
-              this.compactRegion(chunk.start, chunk.end, this.#asAgent(target), undefined),
-              timeout,
-            ]);
-            if (timer !== null) clearTimeout(timer);
-            if (out === "timeout") {
-              stopped = "deadline";
-              break;
+            try {
+              const out = await Promise.race([this.compactRegion(start, end, this.#asAgent(target), undefined), timeout]);
+              if (out === "timeout") throw Object.assign(new Error("chunk timeout"), { code: "CHUNK_TIMEOUT" });
+              return out;
+            } finally {
+              if (timer !== null) clearTimeout(timer);
             }
-            folded += 1;
-          } catch (error) {
-            stopped = "error";
-            this.ctx.logger?.warn?.(
-              `chess-context: 分段收尾在第 ${folded + 1}/${chunks.length} 段失败（不影响归档）：${String(error)}`,
-            );
-            break;
-          }
+          },
+        });
+        const folded = outcome.folded;
+        const stopped = outcome.stopped;
+        if (outcome.error !== null && outcome.error !== undefined) {
+          this.ctx.logger?.warn?.(
+            `chess-context: 分段收尾在第 ${folded + 1}/${chunks.length} 段失败（不影响归档）：${String(outcome.error)}`,
+          );
         }
         // 说清"这次折到哪儿、还剩多少" —— 大到 6 段装不下的尾巴需要**再调一次**才能折完
         const covered = chunks[chunks.length - 1]?.end ?? 0;

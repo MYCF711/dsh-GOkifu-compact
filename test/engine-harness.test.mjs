@@ -2573,18 +2573,67 @@ tests["C289 分段收尾：过大的尾巴要切成首尾相接、每段不超�
   // 接线：超限路径必须真的走分段，而不是直接跳过
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("归档收尾分段折叠")) throw new Error("超限时必须走分段折叠并写日志");
-  if (!src.includes("this.compactRegion(chunk.start, chunk.end")) throw new Error("每段必须真的调 compactRegion");
+  if (!src.includes("this.compactRegion(start, end, this.#asAgent(target)")) throw new Error("每段必须真的调 compactRegion");
 };
 
 tests["C291 分段收尾必须受同一个超时预算（不能绕开 closeoutTimeoutMs）"] = () => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
-  const start = src.indexOf("const deadline = Date.now() + limitMs");
-  if (start <= 0) throw new Error("分段循环前必须有 deadline");
-  const loop = src.slice(start, src.indexOf("覆盖到 seq", start));
-  if (!loop.includes("remaining <= 0")) throw new Error("每段前要检查剩余时间");
-  if (!loop.includes("Promise.race")) throw new Error("每段要用剩余时间 race");
-  if (!loop.includes('stopped = "deadline"')) throw new Error("到点要记录结束原因是 deadline");
-  const log = src.slice(src.indexOf("分段收尾完成"), src.indexOf("分段收尾完成") + 400);
-  if (!log.includes("结束原因")) throw new Error("日志要写结束原因");
+  if (!src.includes("deadline: Date.now() + limitMs")) throw new Error("分段循环必须用同一个 limitMs 算 deadline");
+  if (!src.includes("runChunkedCloseout")) throw new Error("分段循环必须走可测的 runChunkedCloseout");
+  const log = src.slice(src.indexOf("结束原因"), src.indexOf("结束原因") + 400);
   if (!log.includes("预算")) throw new Error("到点时要说明用满了预算");
+};
+
+
+tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中途抛错 / 时间用完）"] = async () => {
+  const { mod } = await load();
+  if (typeof mod.runChunkedCloseout !== "function") throw new Error("必须导出 runChunkedCloseout");
+  const chunks = [
+    { start: 0, end: 10 },
+    { start: 10, end: 20 },
+    { start: 20, end: 30 },
+  ];
+
+  // ① 全部成功
+  const okCalls = [];
+  const okOut = await mod.runChunkedCloseout({
+    chunks,
+    deadline: Date.now() + 60_000,
+    fold: async (start, end) => {
+      okCalls.push([start, end]);
+    },
+  });
+  if (okOut.folded !== 3 || okOut.stopped !== "done") throw new Error(`全部成功应 folded=3/done：${JSON.stringify(okOut)}`);
+  if (JSON.stringify(okCalls) !== JSON.stringify([[0, 10], [10, 20], [20, 30]])) {
+    throw new Error(`每段都要被调、且顺序正确：${JSON.stringify(okCalls)}`);
+  }
+
+  // ② 第二段抛错：第一段的成果必须保留，且 stop 记为 error
+  const errOut = await mod.runChunkedCloseout({
+    chunks,
+    deadline: Date.now() + 60_000,
+    fold: async (start) => {
+      if (start === 10) throw new Error("boom");
+    },
+  });
+  if (errOut.folded !== 1) throw new Error(`出错前的段必须保留：folded=${errOut.folded}`);
+  if (errOut.stopped !== "error") throw new Error(`应记 error：${errOut.stopped}`);
+  if (!(errOut.error instanceof Error)) throw new Error("要把错误带出来（日志要用）");
+
+  // ③ 时间用完：第一段跑完后 deadline 已过 ⇒ 不再继续
+  let t = 0;
+  const timeOut = await mod.runChunkedCloseout({
+    chunks,
+    deadline: 100,
+    now: () => t,
+    fold: async () => {
+      t = 200; // 这一段"花掉了"超过预算的时间
+    },
+  });
+  if (timeOut.folded !== 1) throw new Error(`只用了一段：folded=${timeOut.folded}`);
+  if (timeOut.stopped !== "deadline") throw new Error(`应记 deadline：${timeOut.stopped}`);
+
+  // ④ 空清单：不调 fold，直接 done
+  const emptyOut = await mod.runChunkedCloseout({ chunks: [], deadline: Date.now() + 1000, fold: async () => {} });
+  if (emptyOut.folded !== 0 || emptyOut.stopped !== "done") throw new Error(`空清单应 0/done：${JSON.stringify(emptyOut)}`);
 };
