@@ -576,3 +576,51 @@ tests["C173 大规模图（600 节点）在三种损坏下的自愈：不抛错�
     t.eq(docsAfter >= 600, true, `repaired 落盘不许把 600 个文档清掉，实际剩 ${docsAfter}`);
   });
 };
+
+tests["C176 规模 × 失败：300 节点图上任意写序点失败，读回只可能是「旧图」或「新图」"] = (t) => {
+  const N = 300;
+  const buildBig = () => {
+    const g = createGraph({ sessionId: "s1" });
+    let prev = addUserNodeId(g, { seq: 1, text: "起点" });
+    for (let i = 2; i <= N; i += 1) {
+      const e = addEdge(g, { from: prev, intent: `步骤 ${i}`, action: `bash(cmd${i})`, evidence: { start: i * 2, end: i * 2 + 1 } });
+      const n = addAgentNode(g, { seq: i * 2 + 1, goal: `目标 ${i}`, worldHash: `W${i}`, constraintHash: `C${i}`, via: e }).id;
+      settleEdge(g, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+      prev = n;
+    }
+    return g;
+  };
+
+  for (const failAt of [1, 120, 420]) {
+    withTmp((root) => {
+      // 基线：完整落一版（先写盘，之后才是「增量失败」的场景）
+      const okStore = createPersistStore({ port: makePort().port, root });
+      const base = buildBig();
+      const first = okStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+      t.eq(first.ok, true, `failAt=${failAt} 基线落盘必须成功`);
+      const beforeIds = Object.keys(base.nodes).sort();
+
+      // 再加一个节点，然后在**第 failAt 次** fs 操作上失败
+      let ops = 0;
+      const badPort = makePort({ failWhen: () => { ops += 1; return ops === failAt; } });
+      const badStore = createPersistStore({ port: badPort.port, root });
+      const extra = addUserNodeId(base, { seq: 9000, text: "增量节点" });
+      const afterIds = Object.keys(base.nodes).sort();
+      const bad = badStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+
+      const loaded = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+      const gotIds = Object.keys(loaded.graph.nodes).sort();
+      const asBefore = JSON.stringify(gotIds) === JSON.stringify(beforeIds);
+      const asAfter = JSON.stringify(gotIds) === JSON.stringify(afterIds);
+      t.eq(asBefore || asAfter, true, `failAt=${failAt}（ok=${bad.ok}）读回 ${gotIds.length} 个节点，既不是旧图(${beforeIds.length})也不是新图(${afterIds.length})`);
+      if (!bad.ok) {
+        t.eq(peekDirty(base).empty, false, `failAt=${failAt} 失败后 dirty 必须保留`);
+        // 失败后必须还能重试成功
+        const retry = createPersistStore({ port: makePort().port, root }).flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+        t.eq(retry.ok, true, `failAt=${failAt} 重试落盘必须成功`);
+        const again = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+        t.eq(Object.keys(again.graph.nodes).includes(extra), true, `failAt=${failAt} 重试后增量节点必须落盘`);
+      }
+    });
+  }
+};
