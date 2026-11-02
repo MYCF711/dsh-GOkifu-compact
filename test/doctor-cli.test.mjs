@@ -448,3 +448,38 @@ tests["C148 delta 帧无法回放必须报出来（不许停在部分回放还�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C180 活跃会话里「index 落后 graph」不算陈旧（C146 同族假警报）；静止会话才算"] = (t) => {
+  // ① 活跃：graph 刚更新、index 很旧 ⇒ 必须 ok（还没到 fold，index 本来就不重写）
+  const active = makeHome({
+    mutate: (g) => {
+      g.updatedAt = Date.now();
+    },
+  });
+  try {
+    const dir = nodePath.join(active, "chess-context", "sessions", "session-doctor-1");
+    nodeFs.writeFileSync(nodePath.join(dir, "index.md"), "- 旧索引" + String.fromCharCode(10), "utf8");
+    const old = Date.now() - 3_600_000;
+    nodeFs.utimesSync(nodePath.join(dir, "index.md"), old / 1000, old / 1000);
+    const row = runDoctor(active).find("树新鲜度");
+    t.eq(row.status, "ok", `活跃会话不该报陈旧：${JSON.stringify(row)}`);
+    t.includes(row.detail, "0 个", "计数应为 0");
+  } finally {
+    nodeFs.rmSync(active, { recursive: true, force: true });
+  }
+
+  // ② 静止：graph 与 index 都老，且 index 更老 ⇒ 才算陈旧
+  const idle = makeHome();
+  try {
+    const dir = nodePath.join(idle, "chess-context", "sessions", "session-doctor-1");
+    nodeFs.writeFileSync(nodePath.join(dir, "index.md"), "- 旧索引" + String.fromCharCode(10), "utf8");
+    const t1 = (Date.now() - 3_600_000) / 1000;
+    const t2 = (Date.now() - 7_200_000) / 1000;
+    nodeFs.utimesSync(nodePath.join(dir, "graph.json"), t1, t1);
+    nodeFs.utimesSync(nodePath.join(dir, "index.md"), t2, t2);
+    const row = runDoctor(idle).find("树新鲜度");
+    t.eq(row.status, "warn", `静止会话的陈旧 index 必须报：${JSON.stringify(row)}`);
+  } finally {
+    nodeFs.rmSync(idle, { recursive: true, force: true });
+  }
+};

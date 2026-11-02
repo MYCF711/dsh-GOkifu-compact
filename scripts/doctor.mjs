@@ -381,7 +381,12 @@ if (nodeFs.existsSync(chessRoot)) {
     }
     const indexPath = nodePath.join(chessRoot, d.name, "index.md");
     const indexMtime = nodeFs.existsSync(indexPath) ? nodeFs.statSync(indexPath).mtimeMs : 0;
-    if (indexMtime === 0 || mtime - indexMtime > 5 * 60 * 1000) indexStale += 1;
+    // ★ C180（C146 同族）：**活跃会话里 index.md 落后是常态** —— graph.json 每 ~1.2s 追加一帧，
+    //   index.md 只在 tree 落盘（fold）时重写。只看「index 比 graph 旧 5 分钟」会把**所有**
+    //   正在跑、还没 fold 的会话都算成陈旧（本轮 live 立刻出现 1 个）。
+    //   判据改成：**图自己也不再更新**（静止 > 5 分钟）却仍比 index 新 5 分钟 ⇒ 才是真陈旧。
+    const graphIdle = Date.now() - mtime > 5 * 60 * 1000;
+    if (indexMtime === 0 ? graphIdle : graphIdle && mtime - indexMtime > 5 * 60 * 1000) indexStale += 1;
   }
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
