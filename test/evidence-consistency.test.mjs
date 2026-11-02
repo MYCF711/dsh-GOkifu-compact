@@ -205,6 +205,27 @@ tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启�
   for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
     t.includes(doc, needle, `清单必须覆盖 ${needle}`);
   }
-  t.includes(doc, "883 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.includes(doc, "884 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
   t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
+};
+
+tests["C167 调研文里的 live 数字与测试数必须跟 HANDOFF / live-folds.json 一致"] = (t) => {
+  const doc = read("docs/research/00-蒸馏-对本插件的可执行结论.md");
+  const handoff = read("HANDOFF.md");
+
+  // ① 测试数：调研文与 HANDOFF 必须同源（HANDOFF 的测试数由 C117 管时间戳）
+  const docPassed = doc.match(/最近实测 \*\*(\d+) passed/);
+  const handoffPassed = handoff.match(/全量 \*\*(\d+) passed/);
+  t.eq(!!docPassed, true, "调研文必须写测试数（并标「最近实测」）");
+  t.eq(!!handoffPassed, true, "HANDOFF 必须写测试数");
+  t.eq(docPassed[1], handoffPassed[1], `调研文 ${docPassed[1]} vs HANDOFF ${handoffPassed[1]} 不一致`);
+
+  // ② live fold 数量/会话数：与证据 JSON 同源
+  const json = JSON.parse(read("evidence/live-folds.json"));
+  const total = json.summary.total;
+  const sessions = json.summary.bySession.sessionsWithFolds;
+  const docLive = doc.match(/live fold \| \*\*(\d+) 次 \/ (\d+) 会话\*\*/);
+  t.eq(!!docLive, true, "调研文必须写 live fold 次数与会话数");
+  t.eq(Number(docLive[1]), total, `调研文的 fold 次数 ${docLive[1]} 与证据 ${total} 不一致`);
+  t.eq(Number(docLive[2]), sessions, `调研文的会话数 ${docLive[2]} 与证据 ${sessions} 不一致`);
 };
