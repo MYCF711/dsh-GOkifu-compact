@@ -276,9 +276,35 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
  * @param {object} g
  * @returns {number}
  */
+/**
+ * ★ C302：**边的证据位置只在这里读**。
+ *
+ * `evidence` 有两种历史形态：早先是数字（= 截止 seq），后来是 `{start,end}`。
+ * 这个"两种形态都认"的读法在仓库里出现过 **四份**（kifu-model / ledger ×3），
+ * 且默认值不一致（`NaN` vs `-Infinity`）—— 一模一样不等于永远一样，迟早分叉。
+ *
+ * @param {object} edge
+ * @param {number} [fallback] 读不出来时的返回值（默认 NaN；比较场景传 -Infinity 更方便）
+ * @returns {number}
+ */
+export function evidenceEndSeq(edge, fallback = Number.NaN) {
+  const evidence = edge?.evidence;
+  if (typeof evidence === "number" && Number.isFinite(evidence)) return evidence;
+  if (Number.isFinite(evidence?.end)) return evidence.end;
+  return fallback;
+}
+
+/** ★ C302：证据的起始 seq（没有 start 时退回 end —— 与历史口径一致）。 */
+export function evidenceStartSeq(edge, fallback = Number.NaN) {
+  const evidence = edge?.evidence;
+  if (Number.isFinite(evidence?.start)) return evidence.start;
+  const end = evidenceEndSeq(edge, fallback);
+  return Number.isFinite(end) ? end : fallback;
+}
+
 export function countResolvedFailures(g) {
   const edges = Object.values(g?.edges ?? {});
-  const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+  const endOf = (e) => evidenceEndSeq(e);
   const okAt = new Map();
   for (const e of edges) {
     if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;

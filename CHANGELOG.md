@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C302 | 证据位置只读一处（`evidence` 数字 / `{start,end}` 两种形态的读法统一） |
 | C301 | 测试跑完清掉 `src/` 里的三份引擎副本 |
 | C300 | 「已修正的失败」只定义一次（doctor 与面板共用模型层实现） |
 | C299 | 「折过了」统一口径 + HANDOFF 顶部摘要按实测重写 |
@@ -380,6 +381,18 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C302 · 证据位置只读一处（`evidence` 数字 / `{start,end}` 两种形态的读法统一）
+
+`evidence` 有历史两形态，「两种都认」的读法在仓库里抄了**四份**（kifu-model 1 份、ledger 3 份），
+而且读不出来时的默认值不一致（`NaN` vs `-Infinity`）—— 说明它们不是同一段代码，是四段长得像的代码。
+
+- `kifu-model` 新增 `evidenceEndSeq(edge, fallback=NaN)` / `evidenceStartSeq(edge, fallback=NaN)`；
+- ledger 三处改调用（比较场景传 `-Infinity`，**行为不变**）；kifu-model 自家实现也改用 helper；
+- 测试 `ledger` C302：三形态（数字/对象/缺失或坏值）+ 自定义 fallback + 接线断言
+  （ledger 里不许再有手写的 `typeof e?.evidence === "number" ?`）。
+
+全量 1032 passed（ledger 65 条全绿），行为零变化。
 
 ### C301 · 测试跑完清掉 `src/` 里的三份引擎副本
 

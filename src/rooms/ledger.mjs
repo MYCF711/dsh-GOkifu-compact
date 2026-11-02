@@ -17,7 +17,7 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./kifu-model.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass, evidenceEndSeq, evidenceStartSeq } from "./kifu-model.mjs";
 import { weakKindOf } from "./verify.mjs";
 
 /* ───────────────── P6-A：悬空边（to=null）的分类与排除 ───────────────── */
@@ -397,7 +397,7 @@ function oneLine(text) {
 export function laterSuccessOf(edge, successEdges = []) {
   const action = edge?.action;
   if (!action) return null;
-  const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : -Infinity);
+  const endOf = (e) => evidenceEndSeq(e, -Infinity);
   const failEnd = endOf(edge);
   if (!Number.isFinite(failEnd)) return null;
   let best = null;
@@ -705,7 +705,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     failureActionCounts.set(e.action, (failureActionCounts.get(e.action) ?? 0) + 1);
   }
   // 只在同 action 组里**最近的那条**上标 ↻k（每条都标会白烧 token：计数是同一个数字）。
-  const endSeqOf = (edge) => (typeof edge?.evidence === "number" ? edge.evidence : Number.isFinite(edge?.evidence?.end) ? edge.evidence.end : -Infinity);
+  const endSeqOf = (edge) => evidenceEndSeq(edge, -Infinity);
   const latestFailureByAction = new Map();
   for (const e of failures) {
     if (typeof e?.action !== "string" || e.action === "") continue;

@@ -1,5 +1,10 @@
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "./graph-fixtures.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, _internal } from "../src/rooms/ledger.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 const { traceRecentSegment } = _internal;
 
@@ -404,4 +409,27 @@ tests["S3-2 降级提示行在各档位都在，且预算口径成立（500 预�
   const r500 = renderLedger(normal, { maxTokens: 500 });
   if (r500.tokens > 500) throw new Error(`500 预算下 ${r500.tokens} tokens（L${r500.level}）`);
   if (!r500.text.includes("⚠ 上次摘要是规则生成")) throw new Error("500 预算下提示行不该被裁掉");
+};
+
+tests["C302 证据位置只读一处：evidence 数字 / {start,end} / 缺失 三种形态口径一致"] = async (t) => {
+  const mod = await import("../src/rooms/kifu-model.mjs");
+  t.eq(typeof mod.evidenceEndSeq, "function", "必须导出 evidenceEndSeq");
+  t.eq(typeof mod.evidenceStartSeq, "function", "必须导出 evidenceStartSeq");
+
+  // ① 老形态：evidence 是数字
+  t.eq(mod.evidenceEndSeq({ evidence: 42 }), 42, "数字形态的 end = 数字本身");
+  t.eq(mod.evidenceStartSeq({ evidence: 42 }), 42, "数字形态没有 start ⇒ 退回 end");
+
+  // ② 新形态：{start,end}
+  t.eq(mod.evidenceEndSeq({ evidence: { start: 10, end: 20 } }), 20, "对象形态取 end");
+  t.eq(mod.evidenceStartSeq({ evidence: { start: 10, end: 20 } }), 10, "对象形态取 start");
+
+  // ③ 缺失 / 坏值：默认 NaN，比较场景可以传 -Infinity
+  t.eq(Number.isNaN(mod.evidenceEndSeq({})), true, "没有 evidence ⇒ NaN");
+  t.eq(mod.evidenceEndSeq({}, -Infinity), -Infinity, "可以指定 fallback");
+  t.eq(Number.isNaN(mod.evidenceEndSeq({ evidence: { end: "x" } })), true, "坏 end ⇒ NaN（不许当 0）");
+
+  // ④ 接线：ledger 不许再自己拼一遍
+  const ledgerSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "ledger.mjs"), "utf8");
+  t.eq(ledgerSrc.includes('typeof e?.evidence === "number" ? e.evidence :'), false, "ledger 不许再有第四份实现");
 };
