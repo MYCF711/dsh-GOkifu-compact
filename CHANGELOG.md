@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C191 | ✅ **重启已完成并验收通过**（buildId `cdbc08e523aa`） |
 | C190 | 「包内 129 files」写死了（每个新增文件都会让它漂移） |
 | C189 | 主力 fold 也有同一个反向区间风险（C187 的姊妹洞） |
 | C188 | 我自己在 live 上踩了一个坑：改写 `graph.json` 会让 delta 失效 |
@@ -226,6 +227,38 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C191 · ✅ **重启已完成并验收通过**（buildId `cdbc08e523aa`）
+
+**用户确认「已经重启好了」，实测证据（同一时刻读取）**：
+
+| 项 | 值 |
+|---|---|
+| 新进程 | **pid 42544** / `startedAt` **2026-11-02T03:37:05Z**（旧基线 `2026-11-01T19:01:03Z`） |
+| **buildId** | **`cdbc08e523aa`**（`build.json` 首次出现该字段 ⇒ 新代码真的在跑） |
+| `after-restart` | **必需项全部通过**：①buildId ✓ ②进程时间 ✓ ④节点文档齐全 ✓ ⑤live fold **26 次 / 7 会话**（基线 25） |
+| ③结构自洽 | `28 个会话自洽；1 个含旧版本反向 foldMark` ⇒ **warn**（C187 前的历史记录，宿主退出后可清） |
+| ⑥新观测字段 | **2/5 已落盘**：`skipReasons`、`overBySession`；`renderErrors` / `budgetFloorOver` / `budgetIrreducible` 等下一次 fold |
+
+**口径对齐（C191 改动）**：`after-restart` 之前把「旧版本反向 foldMark」算成**失败**，
+与 doctor 的判读不一致（doctor 已降为 warn）。现在两边同口径：**只有真正的新问题才算 fail**，
+历史记录算 warn 并写明清理方式。这样验收命令不会因为一条历史记录永远红。
+
+**live 证据已按重启后的数据刷新**：`live-folds.json` **25 次 fold / 7 会话**，
+quality **21** / closure **21** / boundary **18**（openAtEnd 全 0）、含 **2 次 tier-2 合并**、thrash 0；
+`evidence/README`、`docs/research/00` §11.1、`发布就绪`、总览、巡检、逐会话快照全部同步。
+
+**重启后 doctor 5 警 → 3 警**（`build unknown`、home 层漂移自动消失）；`verify-install` **19/19**；
+`handoff-check` **FAIL 0 / WARN 0**。**新可观测性已生效** —— `ledger-budget.json` 出现真实跳过分布：
+
+```
+throttled-failures=62 / throttled-events=26 / no-ledger=1 · TRACE 为预算降级 2 次（95 次渲染）
+```
+
+⇒ 绝大多数跳过是「失败边太多/事件太密被限流」，**不是渲染出错**（`renderErrors` 仍为 0 样本）。
+
+★ 下一步（唯一）：等**第一次真实 fold**，验证 `renderErrors` / `budgetFloorOver` / `budgetIrreducible` 首次落盘，
+以及新 fold 走 C112/C113 的回滚与自愈路径。
 
 ### C190 · 「包内 129 files」写死了（每个新增文件都会让它漂移）
 

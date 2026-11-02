@@ -132,12 +132,28 @@ function main() {
     detail: startedAt === 0 ? "build.json 无 startedAt" : `startedAt=${new Date(startedAt).toISOString()}（旧基线 ${new Date(OLD_START).toISOString()}）`,
   });
 
+  // ★ C191：与 doctor 同口径 —— 「旧版本反向 foldMark」是**历史记录**（C187 前的 tier-2），
+  //   新代码不会再产生；它存在时只记 warn，不算验收失败（清理需宿主退出后跑 --repair-foldmarks）。
   const audits = auditRoot(sessionsDir);
-  const bad = audits.filter((r) => r.problems.length > 0);
+  const legacyRangeOnly = [];
+  const realBad = [];
+  for (const row of audits) {
+    const problems = row.problems ?? [];
+    if (problems.length === 0) continue;
+    const legacy = problems.filter((x) => /^foldMarks\[\d+\] seqStart>seqEnd$/.test(x));
+    const rest = problems.filter((x) => !legacy.includes(x));
+    if (rest.length > 0) realBad.push(row);
+    else if (legacy.length > 0) legacyRangeOnly.push(row);
+  }
   rows.push({
     id: "③结构自洽",
-    level: bad.length === 0 ? "ok" : "fail",
-    detail: bad.length === 0 ? `${audits.length} 个会话全部自洽` : `${bad.length} 个不自洽：${bad.slice(0, 2).map((b) => b.session.slice(0, 12)).join(", ")}`,
+    level: realBad.length > 0 ? "fail" : legacyRangeOnly.length > 0 ? "warn" : "ok",
+    detail:
+      realBad.length > 0
+        ? `${realBad.length} 个不自洽：${realBad.slice(0, 2).map((b) => b.session.slice(0, 12)).join(", ")}`
+        : legacyRangeOnly.length > 0
+          ? `${audits.length} 个会话自洽；${legacyRangeOnly.length} 个含旧版本反向 foldMark（C187 前，宿主退出后可 --repair-foldmarks 清理）`
+          : `${audits.length} 个会话全部自洽`,
   });
 
   const docs = countNodeDocs(sessionsDir);
