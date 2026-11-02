@@ -226,6 +226,35 @@ function collectGraphFiles(home = resolveHome()) {
   return { root, files };
 }
 
+/**
+ * ★ C232：数出「已修正的失败」—— 同一条 `action` 后来又跑通的失败边。
+ * 与 `scripts/doctor.mjs` 的「热清单抗干扰」同一条判据（那边数全部会话，这里数单个会话）。
+ * 没有任何副作用；坏图返回 0（面板不许因为一张坏图整页坏掉）。
+ */
+export function countResolvedFailures(g) {
+  try {
+    const edges = Object.values(g?.edges ?? {});
+    const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+    const okAt = new Map();
+    for (const e of edges) {
+      if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+      const at = endOf(e);
+      if (!Number.isFinite(at)) continue;
+      const prev = okAt.get(e.action);
+      if (prev === undefined || at > prev) okAt.set(e.action, at);
+    }
+    let resolved = 0;
+    for (const e of edges) {
+      if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
+      const at = okAt.get(e.action);
+      if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolved += 1;
+    }
+    return resolved;
+  } catch {
+    return 0;
+  }
+}
+
 /** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
 function graphSummary(entry) {
   const cached = GRAPH_CACHE.get(entry.file);
@@ -240,6 +269,9 @@ function graphSummary(entry) {
       checkpointSeq: g.checkpointSeq ?? null,
       lastFoldUsage: g.lastFoldUsage ?? null,
       failures: Object.values(g.edges ?? {}).filter((edge) => edge?.result === "failure").length,
+      // ★ C232：**已修正的失败**（同一条 action 后来又跑通了）—— 与 doctor 的「抗干扰度」同口径。
+      //   面板上直接可见，用户不用跑 doctor 就知道 LEARNED 里有多少行是"自己已经修好"的。
+      resolvedFailures: countResolvedFailures(g),
       nodes: Object.keys(g.nodes ?? {}).length,
       edges: Object.keys(g.edges ?? {}).length,
     };
@@ -276,6 +308,7 @@ export function latestGraphFrom(scan) {
     lastFold: summary.foldMarks.length > 0 ? summary.foldMarks[summary.foldMarks.length - 1] : null,
     lastUsage: summary.lastFoldUsage,
     failures: summary.failures,
+    resolvedFailures: summary.resolvedFailures ?? 0,
     nodes: summary.nodes,
     edges: summary.edges,
   };

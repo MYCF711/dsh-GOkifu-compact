@@ -143,6 +143,23 @@ function refLatestGraph(home) {
     const g = JSON.parse(nodeFs.readFileSync(best.file, "utf8"));
     const marks = g.foldMarks ?? [];
     const failures = Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
+    // ★ C232：已修正的失败（同一条 action 后来又跑通）—— 与 src/ui.mjs 的 countResolvedFailures 同口径
+    const edgeList = Object.values(g.edges ?? {});
+    const okAt = new Map();
+    const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+    for (const e of edgeList) {
+      if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+      const at = endOf(e);
+      if (!Number.isFinite(at)) continue;
+      const prev = okAt.get(e.action);
+      if (prev === undefined || at > prev) okAt.set(e.action, at);
+    }
+    let resolvedFailures = 0;
+    for (const e of edgeList) {
+      if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
+      const at = okAt.get(e.action);
+      if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolvedFailures += 1;
+    }
     return {
       session: best.dir,
       updatedAt: best.mtime,
@@ -152,6 +169,7 @@ function refLatestGraph(home) {
       lastFold: marks.length > 0 ? marks[marks.length - 1] : null,
       lastUsage: g.lastFoldUsage ?? null,
       failures,
+      resolvedFailures,
       nodes: Object.keys(g.nodes ?? {}).length,
       edges: Object.keys(g.edges ?? {}).length,
     };

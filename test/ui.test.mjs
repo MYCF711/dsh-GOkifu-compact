@@ -200,3 +200,24 @@ tests["host 路由：POST /gokifu/api 返回 state（含 config/health/today）"
     else process.env.DSH_HOME = prevHome;
   }
 };
+
+tests["C232 面板的「已修正失败」与 doctor 同口径（同 action 后来跑通才算）"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+  const now = Date.now();
+  const edge = (over) => ({
+    id: "e1", from: "n1", to: "n2", intent: "x", action: "bash(npm test)", result: "failure",
+    evidence: { start: 1, end: 2 }, ts: now, ...over,
+  });
+  const g = {
+    nodes: { n1: {}, n2: {} },
+    edges: {
+      a: edge({ id: "a", action: "bash(npm test)", result: "failure", evidence: { start: 1, end: 2 } }),
+      b: edge({ id: "b", action: "bash(npm test)", result: "success", evidence: { start: 5, end: 6 } }),   // 后来跑通 ⇒ a 算已修正
+      c: edge({ id: "c", action: "bash(npm run lint)", result: "failure", evidence: { start: 7, end: 8 } }), // 没有后续 success ⇒ 不算
+      d: edge({ id: "d", action: "bash(npm test)", result: "success", evidence: { start: 3, end: 4 } }),   // 在 a 之前 ⇒ 不救 a
+    },
+  };
+  t.eq(uiMod.countResolvedFailures(g), 1, "只有 a 被后来的成功救回");
+  t.eq(uiMod.countResolvedFailures(null), 0, "坏输入不许抛，返回 0");
+  t.eq(uiMod.countResolvedFailures({ edges: {} }), 0, "空图返回 0");
+};
