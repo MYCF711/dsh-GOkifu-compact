@@ -566,7 +566,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
         : legacy.length > 0
           ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（引擎读到会重建空图 ⇒ 升级/降级前请先停窗备份）：${legacy.slice(0, 3).join(" / ")}`
           : legacyFoldMarks.length > 0
-            ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
+            ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理，但**必须先退出 DSH** —— 运行实例手里有内存态，重启后会把它写回来）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
             : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
 }
