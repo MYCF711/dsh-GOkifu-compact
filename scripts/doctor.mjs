@@ -1039,6 +1039,14 @@ add(
         `${x.archiveFold ? "已补折" : Number(x.closeout?.chunkedFolded) > 0 ? `分段折了 ${x.closeout.chunkedFolded} 段` : "未补折"}`,
     )
     .join(" · ");
+  // ★ C379：把「补账该怎么做」指到一条命令（金额 / 点击次数 / 超时风险都在那里算）。
+  //   doctor 不自己重算（那会让健康检查变慢且重复），但必须**可发现**。
+  add(
+    "补账规模（离线）",
+    "ok",
+    `跑 \`node scripts/backfill-plan.mjs\` 看完整口径：欠账个数 / token / 冷缓存估价 / **点击次数** / **哪几个会超单会话超时**（C368）` +
+      `；要一次折完大尾巴，可按它给的建议调 \`closeoutMaxFoldTokens\`（C343）`,
+  );
   if (missingCloseout.length > 0) {
     add(
       "归档收尾（closeout）",

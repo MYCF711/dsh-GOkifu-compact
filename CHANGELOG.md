@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C379 | doctor 指向 backfill-plan（补账要可发现） |
 | C378 | 学了 Anthropic 兼容接口：`cache_control` 被忽略 |
 | C377 | HANDOFF 指向生成物 + 守卫钉住数字一致 |
 | C376 | 真机基准改成生成物（live-bench） |
@@ -454,6 +455,16 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C379 · doctor 指向 backfill-plan（补账要可发现）
+
+新工具只在终端历史里 = 人找不到。doctor 新增一行：
+`跑 node scripts/backfill-plan.mjs 看欠账个数/token/冷缓存估价/点击次数/哪几个会超时；要一次折完可调 closeoutMaxFoldTokens`。
+
+- doctor **不重复计算**（不把欠账/分段/建议值全算一遍），只指路；
+- 守卫 `doctor-cli` C379：行必须存在、带可执行命令、带 `closeoutMaxFoldTokens` 与“超时”。
+
+**教训**：不可发现的工具等于没有工具 —— 做完就挂到人每天都会看的地方。
 
 ### C378 · 学了 Anthropic 兼容接口：`cache_control` 被忽略
 

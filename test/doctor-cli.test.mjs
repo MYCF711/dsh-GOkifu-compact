@@ -1238,3 +1238,16 @@ tests["C371 心跳失败态必须点名（不许把「注册失败」读成「�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C379 补账要「可发现」：doctor 必须指向 backfill-plan（金额/点击/超时风险都在那）"] = (t) => {
+  const home = makeHome({});
+  try {
+    const row = runDoctor(home).find("补账规模");
+    t.eq(!!row, true, "必须有「补账规模（离线）」这一行");
+    t.includes(String(row.detail), "backfill-plan.mjs", "要给出可执行的命令");
+    t.includes(String(row.detail), "closeoutMaxFoldTokens", "要把旋钮名字写出来（C343）");
+    t.includes(String(row.detail), "超时", "要提示有超时风险这件事（C368）");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
