@@ -260,3 +260,23 @@ tests["C301 测试跑完不许在 src/ 留下变异副本（engine-under-test）
   const gi = nodeFs.readFileSync(nodePath.join(HERE, "..", ".gitignore"), "utf8");
   t.includes(gi, ".engine-under-test", ".gitignore 必须覆盖变异副本");
 };
+
+tests["C308 新增的房间与知识库文档必须在打包白名单里（否则发了包但用户拿不到）"] = (t) => {
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(HERE, "..", "package.json"), "utf8"));
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  t.eq(files.includes("src"), true, "files 必须包含 src（房间都在这里）");
+  t.eq(files.includes("docs"), true, "files 必须包含 docs（知识库在这里）");
+  // 排除规则不许误伤这两个目录（.engine-under-test* 那种排除是合理的，但别把目录整个排掉）
+  const excludes = files.filter((f) => f.startsWith("!"));
+  for (const bad of ["!src", "!src/rooms", "!docs", "!docs/knowledge"]) {
+    t.eq(excludes.includes(bad), false, `排除规则不许整目录排除：${bad}`);
+  }
+  // 逐文件过一遍：房间数与知识库文档数都不许为 0（防"目录改名后这条永远绿"）
+  const rooms = nodeFs.readdirSync(nodePath.join(HERE, "..", "src", "rooms")).filter((n) => n.endsWith(".mjs"));
+  const kb = nodeFs.readdirSync(nodePath.join(HERE, "..", "docs", "knowledge")).filter((n) => n.endsWith(".md"));
+  t.eq(rooms.length >= 19, true, `src/rooms 至少 19 个房间（现在 ${rooms.length}）`);
+  t.eq(kb.length >= 10, true, `docs/knowledge 至少 10 篇（现在 ${kb.length}）`);
+  // 关键新文件必须在（C306 的 profile-io、C304 的知识库条目）
+  t.eq(rooms.includes("profile-io.mjs"), true, "profile-io.mjs 必须存在（C306）");
+  t.eq(kb.some((n) => n.includes("思考模式")), true, "思考模式那条知识库必须在（C304）");
+};
