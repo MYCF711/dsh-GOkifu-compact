@@ -141,6 +141,22 @@ function makeT() {
   return t;
 }
 
+// ★ C301：测试会把 engine.mjs 的**变异副本**写进 src/（`.engine-under-test*.mjs`，供 stub 版导入）。
+//   跑完必须清掉 —— 否则它们会一直躺在源码目录里：grep 命中三份同名 engine、编辑器索引变脏、
+//   下一个人搜"这个函数在哪定义"会搜到三份过期副本。
+{
+  try {
+    const srcDir = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src");
+    for (const name of nodeFs.readdirSync(srcDir)) {
+      if (name.startsWith(".engine-under-test") && name.endsWith(".mjs")) {
+        nodeFs.rmSync(nodePath.join(srcDir, name), { force: true });
+      }
+    }
+  } catch {
+    /* 清理失败不影响测试结论 */
+  }
+}
+
 console.log(`\n== ${pass} passed, ${skipped} skipped, ${fail} failed ==`);
 if (zeroAssertions > 0) console.log(`   （其中 ${zeroAssertions} 条是零断言假绿，已计入 failed）`);
 if (fail > 0) {

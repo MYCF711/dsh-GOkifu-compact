@@ -247,3 +247,16 @@ tests["C228 打包后 doctor 必须可达：doctor 在 scripts/、files 含 scri
   const cli = nodeFs.readFileSync(nodePath.join(repo, "scripts", "cli.mjs"), "utf8");
   t.includes(cli, 'nodePath.join(HERE, "doctor.mjs")', "scripts/cli.mjs 必须从同目录解析 doctor.mjs");
 };
+
+tests["C301 测试跑完不许在 src/ 留下变异副本（engine-under-test）"] = (t) => {
+  // 注意：**不能**在这里直接断言"src/ 里没有副本" —— 全量跑时 engine-harness 可能在本条之后执行，
+  // 那一刻副本正当存在（顺序依赖的假红）。所以只验**机制**：清理逻辑真的挂在跑完之后。
+  const runner = nodeFs.readFileSync(nodePath.join(HERE, "run.mjs"), "utf8");
+  t.includes(runner, ".engine-under-test", "run.mjs 必须有清理逻辑");
+  t.includes(runner, "rmSync", "要用 rmSync 真删");
+  t.includes(runner, '"src"', "清理目标必须是 src/");
+
+  // 双保险：副本在 .gitignore 里（万一清理失败也不会被提交/打包）
+  const gi = nodeFs.readFileSync(nodePath.join(HERE, "..", ".gitignore"), "utf8");
+  t.includes(gi, ".engine-under-test", ".gitignore 必须覆盖变异副本");
+};
