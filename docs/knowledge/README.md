@@ -41,6 +41,7 @@
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | **宿主会话文件格式（zstd 多帧）** | [`宿主会话文件格式-zstd多帧.md`](./宿主会话文件格式-zstd多帧.md) | 实测：`session.v4.jsonl.zstd` 是 **9,193 帧拼接**；`zstdDecompressSync` 只解第一帧（232 字节）且**不报错**，流式解码器报 `Unknown frame descriptor` ⇒ **离线 grep 不到会话内容** |
 | **前缀补全（不适用）** | [`前缀补全-不适用说明-deepseek.md`](./前缀补全-不适用说明-deepseek.md) | 官方 Chat Prefix Completion：末条 assistant + `prefix:true` + `/beta` base_url；**我们走宿主 ctx.llm，用不了**，且它不省 token 只控输出形式 |
+| **Anthropic 兼容接口的参数支持面** | [`Anthropic兼容接口-参数支持面-deepseek.md`](./Anthropic兼容接口-参数支持面-deepseek.md) | 官方：`cache_control` **Ignored**（缓存自动生效）、`anthropic-beta`/`anthropic-version` 被忽略、`tool_choice:any` 降级为 auto；`max_tokens` 上限随思考模式/effort 变化 |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |

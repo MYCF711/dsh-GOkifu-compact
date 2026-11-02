@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C378 | 学了 Anthropic 兼容接口：`cache_control` 被忽略 |
 | C377 | HANDOFF 指向生成物 + 守卫钉住数字一致 |
 | C376 | 真机基准改成生成物（live-bench） |
 | C375 | `totalAfter` 不是常量（矛盾保留）+ 对齐工具化 |
@@ -453,6 +454,15 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C378 · 学了 Anthropic 兼容接口：`cache_control` 被忽略
+
+官方 `guides/anthropic_api`：`cache_control` **Ignored**（前缀缓存自动）；`anthropic-beta`/`anthropic-version` 对 `/messages` 均被忽略；`tool_choice:any` 降级为 `auto`；`max_tokens` 上限随思考模式与 effort 变化。
+
+- 新条目 `Anthropic兼容接口-参数支持面-deepseek.md`（含待核实：宿主用哪种格式、usage 口径是否一致）；
+- 结论：**「加缓存断点」这条路可以永久放弃** —— 97.4% 命中是自动前缀缓存的结果。
+
+**教训**：先查「这个参数算不算数」，再花时间优化它。
 
 ### C377 · HANDOFF 指向生成物 + 守卫钉住数字一致
 
