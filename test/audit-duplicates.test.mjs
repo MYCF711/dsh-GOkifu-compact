@@ -33,3 +33,25 @@ tests["C303 白名单必须写明理由（否则会变成「把重复藏起来�
   }
 };
 
+
+tests["C323 foldMark 字段读写一致性：写进别的文件而读 foldMarks 必须被抓到"] = async (t) => {
+  const { auditMarkFieldWrites } = await import("../scripts/audit-field-reads.mjs");
+  t.eq(typeof auditMarkFieldWrites, "function", "必须导出 auditMarkFieldWrites");
+
+  const engine = "g.foldMarks.push({\n      at: 1,\n      seqStart: 1,\n      summaryChars: 3,\n    });";
+  // 读一个构造里没有的字段 ⇒ 必须报（C321 的 bug 形态）
+  const bad = auditMarkFieldWrites(engine, [["scripts/doctor.mjs", "const v = mark?.finishReason;"]]);
+  t.eq(bad.length, 1, `必须抓到：${JSON.stringify(bad)}`);
+  t.includes(bad[0], "finishReason", "要点名字段");
+
+  // 构造里有 ⇒ 不报
+  const engine2 = "g.foldMarks.push({\n      finishReason: null,\n    });";
+  t.eq(auditMarkFieldWrites(engine2, [["scripts/doctor.mjs", "const v = mark?.finishReason;"]]), [], "有写入就不该报");
+
+  // 白名单（宿主透传）不报
+  t.eq(auditMarkFieldWrites(engine, [["a.mjs", "const u = mark?.usage;"]]), [], "usage 是宿主字段");
+  // 注释里的示例不算读取
+  t.eq(auditMarkFieldWrites(engine, [["a.mjs", "// 例如 foldMark.whatever\nconst x = 1;"]]), [], "注释不算读取");
+  // 找不到构造点 ⇒ 检查器自己要报（防永远绿）
+  t.eq(auditMarkFieldWrites("const q = 1;", []).length, 1, "找不到 anchor 必须报");
+};

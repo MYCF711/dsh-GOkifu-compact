@@ -31,6 +31,66 @@ export const HOST_PASSTHROUGH = Object.freeze({
 /** 只审计这些"自己造"的对象根。 */
 export const OWNED_ROOTS = Object.freeze(["quality", "closeout", "dangling", "boundary", "closure", "usage"]);
 
+/**
+ * ★ C323（K-18）：**doctor 读的 foldMark 字段，必须在 foldMark 的构造里真的有写入**。
+ *
+ * 由来：C317→C321 连错五轮，最后一错是「`finishReason` 写进了 `ledger-budget.lastExternalFold`，
+ * 而 doctor 读的是 `foldMarks[]`」—— 字段**确实有人写**，所以 C281 那套「读了但没人写」放过它，
+ * 但 doctor 永远读到 null，仪器继续静默。
+ *
+ * 做法：从 `src/engine.mjs` 的 `const mark = {…}` 取出真实键集合，
+ * 再去各处找 `mark?.X` / `mark.X` / `foldMark.X` 这类读取，不在集合里、也不在白名单 ⇒ 违规。
+ *
+ * @param {string} engineText src/engine.mjs 全文
+ * @param {Array<[string, string]>} files 要检查的读取方
+ * @returns {string[]}
+ */
+export function auditMarkFieldWrites(engineText, files) {
+  // foldMark 有**多个构造点**（recordFoldMark / 自动 fold / tier2），必须取并集 ——
+  // 只看一个会误报（实测：`ms`/`route` 只在自动 fold 那处写）。
+  const written = new Set();
+  let cursor = 0;
+  while (cursor >= 0) {
+    const at = engineText.indexOf("foldMarks.push(", cursor);
+    if (at < 0) break;
+    const block = engineText.slice(at, at + 2500);
+    for (const line of block.split("\n")) {
+      const key = line.trim().split(":")[0].split(",")[0].trim();
+      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) written.add(key);
+    }
+    cursor = at + 1;
+  }
+  // 也收 recordFoldMark 那条（const mark = {…} 后再 push）
+  const markStart = engineText.indexOf("const mark = {");
+  if (markStart >= 0) {
+    const markEnd = engineText.indexOf("\n    };", markStart);
+    const body = markEnd > markStart ? engineText.slice(markStart, markEnd) : engineText.slice(markStart, markStart + 4000);
+    for (const line of body.split("\n")) {
+      const key = line.trim().split(":")[0].split(",")[0].trim();
+      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) written.add(key);
+    }
+  }
+  if (written.size === 0) return ["找不到任何 foldMark 构造点 —— 检查器本身失效，先修它"];
+
+  // 宿主/历史字段：没有写入者但有明确出处，允许读
+  const allowed = new Set(["usage", "at", "seqStart", "seqEnd", "trigger", "shadowedTokens", "closure", "boundary"]);
+
+  const problems = [];
+  for (const [rel, text] of files) {
+    // 注释里的示例不算读取（否则本检查器会把自己和文档注释判成 bug）
+    const code = String(text ?? "")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^[ \t]*\/\/.*$/gm, " ");
+    const pieces = code.match(/(?:mark|foldMark)\s*\??\.\s*[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
+    for (const piece of pieces) {
+      const field = piece.split(".").pop().trim();
+      if (allowed.has(field) || written.has(field)) continue;
+      problems.push(`${rel} 读了 foldMark.${field}，但 foldMark 构造里没有这个键（C323）`);
+    }
+  }
+  return [...new Set(problems)];
+}
+
 function listSources() {
   const out = [];
   const walk = (rel) => {
@@ -94,6 +154,19 @@ export function main(argv = process.argv.slice(2)) {
     return 0;
   }
   console.log(`== 自有结构字段审计 ==  源 ${sources.length} 个 / 字段 ${reads.length} 个（${OWNED_ROOTS.join(" / ")}）`);
+  // ★ C323：第二条检查 —— foldMark 的读写一致性（C321 那类"写进别的文件"就靠这条抓）
+  const engineText = nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
+  // 不审自己：本文件里的正则/注释天然包含 `foldMark.X` 这样的字面量
+  const markProblems = auditMarkFieldWrites(
+    engineText,
+    files.filter(([rel]) => rel.split(nodePath.sep).join("/") !== "scripts/audit-field-reads.mjs"),
+  );
+  if (markProblems.length > 0) {
+    console.log(`⚠ foldMark 字段读写不一致 ${markProblems.length} 条：`);
+    for (const p of markProblems) console.log(`  · ${p}`);
+  } else {
+    console.log("✅ foldMark 字段读写一致（读到的一定在构造里写过）");
+  }
   if (ghosts.length === 0) {
     console.log("✅ 没有「读了但没人写」的字段");
     return 0;

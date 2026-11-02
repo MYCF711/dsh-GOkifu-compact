@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C323 | foldMark 字段读写一致性守卫（K-18 结案，全程用 `edit`） |
 | C321 | 第五次：字段写对了，写错了地方（`ledger-budget` vs `foldMarks`） |
 | C320 | 截断判定吃掉三种拼法（`max-tokens` / `max_tokens` / `length`） |
 | C319 | 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读 |
@@ -399,6 +400,20 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C323 · foldMark 字段读写一致性守卫（K-18 结案，全程用 `edit`）
+
+C322 用 python heredoc 摔三次回滚；这轮**全程 `edit` 原文替换**，一次通过。
+
+- `audit-field-reads.mjs` 新增 `auditMarkFieldWrites(engineText, files)`：从 engine 的**所有** foldMark 构造点
+  （`recordFoldMark` 的 `const mark = {…}` + 三处 `g.foldMarks.push({…})`）取键集合并集，
+  扫各处 `mark?.X`，不在集合也不在白名单就报；
+- 过程中被它自己抓到三件事：只认一个构造点会误报 `ms`/`route`（改为取并集）、注释里的示例被当读取（先剥注释）、
+  检查器审自己（排除自身 + 路径按平台归一化）；
+- 接入 gate 的自有字段审计：现在是 `✅ foldMark 字段读写一致`；
+- 测试 `audit-duplicates` C323：无写入⇒报 / 有写入⇒不报 / 白名单不报 / 注释不算 / 找不到 anchor 必须报。
+
+**教训**：`edit` 一次过、heredoc 摔三次 —— **工具选择本身就是效率**。
 
 ### C322（已回滚）· foldMark 字段一致性守卫：设计对了，实现被转义绊倒
 
