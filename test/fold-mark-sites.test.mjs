@@ -10,6 +10,7 @@
  * 以后新增路径若漏了字段，这里先红，不用等 live 数据。
  */
 
+import { planRelease } from "../scripts/release-plan.mjs";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,4 +140,23 @@ tests["C203 handoff-check 必须内建「证据↔磁盘一致」核对（否则
   t.includes(text, "consistency-check.mjs", "必须 import consistency-check");
   t.includes(text, "⑳证据与磁盘一致", "必须把这个检查挂进门禁");
   t.eq(/level = mismatch\.length > 0 \? "fail"/.test(text), true, "不一致必须是 fail（不是 softly warn）");
+};
+
+tests["C204 发布计划：脏树/已存在 tag/版本不一致必须拦住；干净时给出可执行命令且绝不执行发布"] = (t) => {
+  const okFacts = { dirty: false, version: "1.17.1", tagName: "v1.17.1", tagExists: false, handoffVersion: "1.17.1", versionMismatch: false, testCount: "912", registryVersion: "1.16.0" };
+  const ok = planRelease(okFacts);
+  t.eq(ok.ok, true, `干净前置应通过：${JSON.stringify(ok.problems)}`);
+  t.eq(ok.commands.some((c) => c.includes("npm publish")), true, "必须给出 npm publish");
+  t.eq(ok.commands.some((c) => c.includes("git tag -a v1.17.1")), true, "必须给出 tag 命令");
+  t.eq(ok.commands.some((c) => c.includes("git push")), true, "push 只在命令清单里出现（由主人执行）");
+
+  const dirty = planRelease({ ...okFacts, dirty: true });
+  t.eq(dirty.ok, false, "脏树必须拦");
+  t.eq(dirty.problems.some((x) => x.includes("工作树不干净")), true, "必须说明原因");
+
+  const tagged = planRelease({ ...okFacts, tagExists: true });
+  t.eq(tagged.ok, false, "tag 已存在必须拦");
+
+  const mismatch = planRelease({ ...okFacts, version: "1.17.2", handoffVersion: "1.17.1", versionMismatch: true });
+  t.eq(mismatch.ok, false, "版本不一致必须拦");
 };

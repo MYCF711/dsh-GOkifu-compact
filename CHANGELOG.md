@@ -4,6 +4,7 @@
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
+| C204 | `release-plan.mjs`：发布前只读体检 + 打印确切命令（**脚本永不发布**） |
 | C203 | 把 C200 的三方核对接进 handoff-check（一条命令容易忘跑） |
 | C202 | `docs/读图口径-唯一真相.md`：把五条事故沉淀成一条规则 |
 | C201 | 训练有素地怀疑「上一次运行留下的垃圾」（一次假失败的自证） |
@@ -269,6 +270,32 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 **测试 C200**：造一个 1 条 foldMark 的 home ⇒ 磁盘必须数到 1；证据不等于 1 时 `ok=false`
 且问题描述里必须出现可执行提示（`--write` / 不一致 / ≠）。
 
+
+### C204 · `release-plan.mjs`：发布前只读体检 + 打印确切命令（**脚本永不发布**）
+
+**问题**：发布步骤散在 `evidence/发布核对-*.md` 里，靠人照着敲。漏一步（工作树还脏 / tag 已存在 /
+版本没对齐）就要回滚。**发布是最不该靠记性的动作**。
+
+**做法**：`scripts/release-plan.mjs` —— **只读**，回答三件事：
+
+1. **现在能不能发**：工作树干净、`package.json` 版本与 HANDOFF 一致、tag 不存在；
+2. **要发的话逐条命令**：全量测试 → bench → handoff → doctor → boundary → `git tag` → `npm publish` →（授权的）`git push`；
+3. **发出去是什么**：版本、本地 `buildId`、registry 当前版本、HANDOFF 记的全量测试数。
+
+**实测（当次）**：
+
+```
+发布计划：1.17.1（tag v1.17.1）
+  registry 当前：1.16.0 · 本地 buildId：3595b3d9d719 · 全量测试：912
+  ✗ 工作树不干净（有未提交改动）—— 先提交或 stash
+```
+
+⇒ 它**当场抓住了我自己**：起草这轮改动时工作树确实脏，脚本拒绝「可发布」。
+
+**边界（写死在文档与代码里）**：脚本**永不**执行 `git tag` / `npm publish` / `git push` ——
+那是主人的动作；它只负责把「该做什么、现在能不能做」摆清楚。
+
+**测试 C204**：干净前置 ⇒ `ok=true` 且命令清单含 tag/publish/push；脏树 / tag 已存在 / 版本不一致 ⇒ 分别 `ok=false` 并给出原因。
 
 ### C203 · 把 C200 的三方核对接进 handoff-check（一条命令容易忘跑）
 
