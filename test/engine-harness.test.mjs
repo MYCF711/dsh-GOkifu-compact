@@ -2796,3 +2796,16 @@ tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基�
     if (d.base !== 30 || d.cap !== 480) throw new Error(`${kind} 不该改变默认退避：${JSON.stringify(d)}`);
   }
 };
+
+tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / thresholdTokens / windowTokens"] = () => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  // foldMark 里三个字段都要写
+  for (const field of ["measuredBefore", "thresholdTokens", "windowTokens"]) {
+    if (!src.includes(field + ": ")) throw new Error(`foldMark 必须记 ${field}（C366）`);
+  }
+  // 三要素要在折叠判定处取到（否则永远 null）
+  if (!src.includes("this._foldDiag = { measuredBefore")) throw new Error("必须在判定处取 measuredBefore（C366）");
+  if (!src.includes("spec.contextWindow = info.context.contextWindow")) throw new Error("必须把窗口值带进 spec（C366）");
+  // 成功后要清（否则下一次 fold 会记上一次的数）
+  if (!src.includes("this._foldDiag = undefined;")) throw new Error("成功后必须清掉诊断（C366）");
+};

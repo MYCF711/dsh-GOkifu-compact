@@ -1714,7 +1714,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const reserved = session.requestHeader()?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
       // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
       spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
+      spec.contextWindow = info.context.contextWindow;
       // ★ C197：无论是否触发，都记一次「压力快照」（节流在方法内），让 doctor 能回答「还差多少」
+      // ★ C366：把「为什么这一刻才折」的三个数留下（进 foldMark）：
+      //   实测发现 prompt 峰值到了 799,847，而配置阈值按 1M×0.45 应该是 450k ——
+      //   两者对不上，就得有证据才能定位（K-22）。
+      this._foldDiag = { measuredBefore: measurement.totalTokens, thresholdTokens: spec.thresholdTokens, windowTokens: spec.contextWindow ?? null };
       this.#recordPressure(session, measurement.totalTokens, spec.thresholdTokens, trigger);
       if (!forced && measurement.totalTokens < spec.thresholdTokens) return null;
       const prune = this.ctx.get("toolResultPruner");
@@ -1792,6 +1797,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     st.lastFoldFailureSeq = 0;
     st.lastFoldError = "";
     st.lastFoldErrorKind = null;
+    this._foldDiag = undefined;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
     //   隔得太近说明上一次回收的空间立刻又满了（典型原因：压完没缩小、或会话本身在灌数据）。
@@ -1858,6 +1864,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       trigger,
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
+      // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
+      measuredBefore: this._foldDiag?.measuredBefore ?? null,
+      thresholdTokens: this._foldDiag?.thresholdTokens ?? null,
+      windowTokens: this._foldDiag?.windowTokens ?? null,
       foldCount: g.foldCount,
       route: summaryRoute,
       fallback: summaryMode === "rules" ? "rules" : null,
