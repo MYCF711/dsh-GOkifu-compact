@@ -50,24 +50,42 @@ export function decodeMultiFrameZstd(buf) {
 }
 
 /**
- * ★ C358：统计一份会话文本里的**清单消息**。纯函数。
+ * ★ C359：统计**真清单消息**。
+ *
+ * 关键修正：C358 的版本按"整行含 `<chess-ledger>`"来数 —— 实测**几乎全是假阳性**：
+ * 模型在推理/回答里讨论清单格式时也会出现这个字面量（一条 assistant 消息里出现 5 次的那种）。
+ * 真清单的身份是 `data.source.kind === "chess-context"`（我们注入的那条 user 消息）。
+ *
  * @param {string} text
- * @returns {{ledgers:number, placeholderLike:number, maxChars:number, medianChars:number, totalChars:number}}
+ * @returns {{ledgers:number, placeholderLike:number, maxChars:number, medianChars:number,
+ *            totalChars:number, mentions:number, unparsable:number}}
  */
 export function ledgerStats(text) {
   const sizes = [];
   let placeholderLike = 0;
+  let mentions = 0;
+  let unparsable = 0;
   for (const line of String(text ?? "").split("\n")) {
     if (!line.includes("<chess-ledger>")) continue;
-    let content = line;
+    mentions += 1;
+    let msg = null;
     try {
-      const msg = JSON.parse(line);
-      content = typeof msg?.content === "string" ? msg.content : JSON.stringify(msg);
+      msg = JSON.parse(line);
     } catch {
-      /* 非 JSON 行：按原样算 */
+      unparsable += 1;
+      continue;
     }
-    if (/已省略|elided|legacy elided|占位/.test(content)) placeholderLike += 1;
-    sizes.push(content.length);
+    const kind = msg?.data?.source?.kind ?? msg?.data?.message?.source?.kind ?? msg?.source?.kind ?? null;
+    if (kind !== "chess-context") continue; // 不是我们注入的：只是"提到"了清单
+    // 真身：`data.content` 是 block 数组（实测），也兼容 `data.message.content` / 顶层 content
+    const raw = msg?.data?.content ?? msg?.data?.message?.content ?? msg?.content ?? "";
+    const s2 = Array.isArray(raw)
+      ? raw.map((b) => (typeof b?.text === "string" ? b.text : "")).join("")
+      : typeof raw === "string"
+        ? raw
+        : JSON.stringify(raw);
+    if (/已省略|elided|legacy elided|占位/.test(s2)) placeholderLike += 1;
+    sizes.push(s2.length);
   }
   sizes.sort((a, b) => b - a);
   const total = sizes.reduce((a, b) => a + b, 0);
@@ -77,6 +95,8 @@ export function ledgerStats(text) {
     maxChars: sizes[0] ?? 0,
     medianChars: sizes.length === 0 ? 0 : sizes[Math.floor(sizes.length / 2)],
     totalChars: total,
+    mentions,
+    unparsable,
   };
 }
 
