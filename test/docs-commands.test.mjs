@@ -117,3 +117,30 @@ tests["C310 文档里写的 `node test|scripts/xxx.mjs` 必须真的存在（路
   // 防"永远绿"：当前文档里本来就该有若干条这样的命令
   t.eq(checked >= 5, true, `只扫到 ${checked} 条 node 命令 —— 正则大概失配了`);
 };
+
+tests["C326 文档里写的脚本**参数**都必须真实存在（换了 flag 忘了改文档=照抄就报错）"] = (t) => {
+  const docs = ["README.md", "QUICKSTART.md", "HANDOFF.md", "docs/README.md"];
+  const docsDir = nodePath.join(ROOT, "docs");
+  for (const n of nodeFs.readdirSync(docsDir)) if (n.endsWith(".md")) docs.push(`docs/${n}`);
+  const kbDir = nodePath.join(docsDir, "knowledge");
+  if (nodeFs.existsSync(kbDir)) for (const n of nodeFs.readdirSync(kbDir)) if (n.endsWith(".md")) docs.push(`docs/knowledge/${n}`);
+
+  const stale = [];
+  let checked = 0;
+  for (const rel of docs) {
+    const full = nodePath.join(ROOT, rel);
+    if (!nodeFs.existsSync(full)) continue;
+    const text = nodeFs.readFileSync(full, "utf8");
+    for (const m of text.matchAll(/node\s+(scripts\/[\w.-]+\.mjs)([^\n`]*)/g)) {
+      const script = m[1];
+      if (!nodeFs.existsSync(nodePath.join(ROOT, script))) continue; // 文件本身缺失由 C310 负责
+      const src = nodeFs.readFileSync(nodePath.join(ROOT, script), "utf8");
+      for (const f of (m[2] ?? "").matchAll(/(--[a-z][a-z-]*)/g)) {
+        checked += 1;
+        if (!src.includes(f[1])) stale.push(`${rel} → ${script} ${f[1]}`);
+      }
+    }
+  }
+  t.eq(stale, [], `文档里引用了脚本不认识的参数：${stale.join("; ")}`);
+  t.eq(checked >= 3, true, `只检查到 ${checked} 个参数 —— 正则大概失配了（防永远绿）`);
+};

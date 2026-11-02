@@ -1,5 +1,5 @@
 {
-  "total": 736,
+  "total": 737,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -18,7 +18,7 @@
     "core.test.mjs": 8,
     "dangling-exclusion.test.mjs": 0,
     "docs-cli-commands.test.mjs": 2,
-    "docs-commands.test.mjs": 7,
+    "docs-commands.test.mjs": 8,
     "docs-index-check.test.mjs": 4,
     "docs-numbers.test.mjs": 12,
     "doctor-cli.test.mjs": 37,
