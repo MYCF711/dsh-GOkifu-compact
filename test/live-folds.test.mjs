@@ -13,6 +13,8 @@ import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA, closureChainOf, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
+import { encodeDeltaFrame, sha } from "../src/rooms/kifu-model.mjs";
+import { createGraph } from "./graph-fixtures.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -304,4 +306,37 @@ tests["C103 闭包链：相邻 fold 的节点集必须单调不重叠（区间�
   ]);
   t.eq(mixed.checked, 0, "只有一个带 closure 的记录 ⇒ 没有可比的相邻对");
   t.eq(closureChainOf(null).checked, 0, "null 不许抛");
+};
+
+tests["C199 live-folds 必须重放 delta（foldMark 只在 delta 里也要数到）+ 报宿主外部折叠"] = (t) => {
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-lf199-"));
+  try {
+    const dir = nodePath.join(root, "chess-context", "sessions", "session-lf199");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    const g = createGraph({ sessionId: "s" });
+    g.foldMarks = [];
+    const raw = JSON.stringify(g);
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), raw, "utf8");
+    // 只把 foldMark 放进**增量帧**（基线里没有）
+    const mark = { at: Date.now(), seqStart: 10, seqEnd: 20, trigger: "host", closure: { nodes: 1, edges: 1 }, boundary: { openAtEnd: 0 }, quality: { constraintRecall: 1, failureRecall: 1 } };
+    const frame = encodeDeltaFrame(sha(raw).slice(0, 16), { v: 1, nodes: {}, edges: {}, delNodes: [], delEdges: [], orderAppend: [], orderDrop: [], scalars: { foldMarks: [mark] } });
+    nodeFs.writeFileSync(`${nodePath.join(dir, "graph.json")}.delta.jsonl`, frame, "utf8");
+
+    // 宿主外部折叠记在 ledger-budget.json
+    nodeFs.writeFileSync(
+      nodePath.join(root, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 1, none: 1, externalFolds: 3, lastExternalFold: { at: Date.now(), seqStart: 30, seqEnd: 40 } }),
+      "utf8",
+    );
+
+    const collected = collectLiveFolds(root);
+    t.eq(collected.records.length, 1, `delta 里的 foldMark 必须被数到（实际 ${collected.records.length}）`);
+    t.eq(collected.records[0].trigger, "host", "trigger 必须保留");
+    t.eq(collected.external.folds, 3, "必须从 ledger-budget 读到 externalFolds");
+    const summary = summarizeFolds(collected.records, collected.external);
+    t.eq(summary.total, 1, "汇总总数必须含 delta 里的那条");
+    t.eq(summary.external.folds, 3, "汇总必须透传 external");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
 };

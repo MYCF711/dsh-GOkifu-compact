@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C199 | `live-folds` 也在读基线（第五次同族），并把宿主外部折叠并入证据 |
 | C198 | 宿主直接调 `compactRegion` 的折叠**完全不记账**（C196 谜团的答案找到了） |
 | C197 | 把「token 压力 vs 阈值」记进账本（C196 那个疑问从此有数字可查） |
 | C196 | doctor 报「fold 新鲜度」—— 顺带发现一个**需要下一轮查清**的怪现象 |
@@ -234,6 +235,27 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C199 · `live-folds` 也在读基线（第五次同族），并把宿主外部折叠并入证据
+
+**发现**：`collectLiveFolds` 用的是 `JSON.parse(readFileSync(graph.json))` —— **不重放 delta**。
+所以证据说 **25 次 fold**，而 `after-restart` 用 `loadSessionGraph` 数出 **26 次**：差的正是
+「fold 之后才写进 delta 的那一条 foldMark」。
+
+这是同一族问题的**第五次**（C143 doctor / C151 索引 / C173 夹具 / C182 verify-graphs / C183 handoff-check）。
+
+**修法**：
+
+1. 改用 `loadSessionGraph`（重放 delta）；老图/不完整图（`version` 不符会被拒绝）**回退**为裸基线，
+   否则历史证据会整段消失 —— 回退失败才算 `unreadable`；
+2. 把 **C198 的宿主外部折叠**并入证据：从 `ledger-budget.json` 读 `externalFolds` / `lastExternalFold`，
+   放进 `summary.external` 并在 `--write` 的 JSON 里落盘；终端输出加一行「外部折叠（宿主直调）」。
+
+**live 复核**：证据从 **25 → 26 次**（与 after-restart 一致），覆盖率 `quality 21/26`、`closure 21/26`，
+`trigger` 分布 `pressure=19 / tier2=2`；逐会话表已按新数据重算（`1286ce28` 由 1 变 2）。
+
+**测试 C199**：只把 foldMark 放进 delta 帧（基线为空）⇒ `collectLiveFolds` 必须数到 1 条；
+`ledger-budget.json` 里 `externalFolds=3` ⇒ `summary.external.folds === 3`。
 
 ### C198 · 宿主直接调 `compactRegion` 的折叠**完全不记账**（C196 谜团的答案找到了）
 

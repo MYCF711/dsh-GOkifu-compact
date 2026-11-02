@@ -19,6 +19,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadSessionGraph } from "./graph-audit.mjs";
 
 const REPO = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -121,10 +122,18 @@ export function collectLiveFolds(home) {
     sessions += 1;
     let graph;
     try {
-      graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+      // ★ C199：必须**重放 delta** —— 与运行时 load / doctor / graph-audit / handoff-check 同口径。
+      //   只读基线会漏掉「fold 之后才写进 delta 的那条 foldMark」（live 实测：证据 25 次 vs 实际 26 次）。
+      graph = loadSessionGraph(graphFile).graph;
     } catch {
-      unreadable += 1;
-      continue;
+      // 回退：老图/不完整图（loadSessionGraph 会因 version 不符直接拒绝）仍按裸基线读，
+      // 否则「历史证据」会整段消失。真正的坏图仍计入 unreadable。
+      try {
+        graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+      } catch {
+        unreadable += 1;
+        continue;
+      }
     }
     const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
     marks.forEach((mark, index) => records.push(foldRecord(entry.name, index, mark)));
@@ -132,7 +141,19 @@ export function collectLiveFolds(home) {
     if (typeof graph?.foldThrash === "number" && graph.foldThrash >= 2) thrash.push({ sessionId: entry.name, foldThrash: graph.foldThrash });
   }
   records.sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.sessionId.localeCompare(b.sessionId) || a.fold - b.fold);
-  return { records, sessions, unreadable, thrash };
+  // ★ C198/C199：宿主直调 `compactRegion` 的折叠记在 `ledger-budget.json`（图的 foldMarks 里没有），
+  //   证据页必须一并报出来，否则「压了多少次」永远偏低。
+  let external = null;
+  const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
+  if (nodeFs.existsSync(budgetFile)) {
+    try {
+      const budget = JSON.parse(nodeFs.readFileSync(budgetFile, "utf8"));
+      external = { folds: Number(budget.externalFolds ?? 0), last: budget.lastExternalFold ?? null };
+    } catch {
+      external = { folds: 0, last: null, error: "ledger-budget.json 读不出" };
+    }
+  }
+  return { records, sessions, unreadable, thrash, external };
 }
 
 /** 汇总：覆盖率 + 质量 + 成本 + 闭包。 */
@@ -167,7 +188,7 @@ export function closureChainOf(records) {
   return { checked, offenders };
 }
 
-export function summarizeFolds(records) {
+export function summarizeFolds(records, external = null) {
   const total = records.length;
   const countField = (field) => records.filter((r) => r[field] !== null && r[field] !== undefined).length;
   const triggerCounts = {};
@@ -184,6 +205,9 @@ export function summarizeFolds(records) {
   const emptyClosure = closureRecords.filter((r) => (r.closure.nodes ?? 0) === 0 && (r.closure.edges ?? 0) === 0).length;
   return {
     total,
+    // ★ C199：宿主直调 compactRegion 的折叠（C198 记账）。它们不在图的 foldMarks 里，
+    //   但对「这台机器到底压了多少次」是必须的。
+    external,
     coverage: {
       trigger: countField("trigger"),
       quality: qualityRecords.length,
@@ -360,6 +384,13 @@ export function main(argv = process.argv.slice(2)) {
     `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold · ` +
       `multi-fold(≥3) ${summary.bySession.multiFold} 个 · foldThrash ${summary.thrash.sessions} 个`,
   );
+  if (summary.external && Number(summary.external.folds) > 0) {
+    const last = summary.external.last;
+    console.log(
+      `  外部折叠（宿主直调 compactRegion，C198）：${summary.external.folds} 次` +
+        (last ? ` · 最近 ${last.seqStart}-${last.seqEnd}（${new Date(last.at).toISOString()}）` : ""),
+    );
+  }
   console.log(dryRun ? "（dry-run：未写文件；要落盘请加 --write）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
   return 0;
 }

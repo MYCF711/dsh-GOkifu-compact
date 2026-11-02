@@ -1,16 +1,17 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-02T03:37:58Z",
+  "generatedAt": "2026-11-02T04:11:35Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 28,
+  "sessions": 30,
   "unreadable": 0,
   "summary": {
-    "total": 25,
+    "total": 26,
+    "external": null,
     "coverage": {
       "trigger": 21,
       "quality": 21,
       "closure": 21,
-      "usage": 23
+      "usage": 24
     },
     "triggerCounts": {
       "pressure": 19,
@@ -25,7 +26,7 @@
       "unknownIdsTotal": 0
     },
     "cost": {
-      "count": 23,
+      "count": 24,
       "inputPerShadowedMin": 1.32,
       "inputPerShadowedMax": 2.11,
       "shadowedShareMin": 0.473,
@@ -77,13 +78,13 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-02T03:19:35Z",
-    "newFolds": 3,
+    "previousAt": "2026-11-02T03:37:58Z",
+    "newFolds": 1,
     "qualityChanged": false,
     "boundaryRegressed": false,
     "costShareDelta": 0,
     "prevQuality": {
-      "count": 18,
+      "count": 21,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
       "compressionRatioMin": 48.45,
@@ -91,9 +92,9 @@
       "unknownIdsTotal": 0
     },
     "prevBoundary": {
-      "count": 15,
+      "count": 18,
       "openAtEnd": 0,
-      "unsettled": 1827
+      "unsettled": 2184
     }
   },
   "folds": [
@@ -159,6 +160,30 @@
       "inputPerShadowed": 1.43,
       "shadowedShare": 0.698,
       "ms": 4954,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": null,
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-1286ce28-dba8-448b-9827-e6ccacdf9806",
+      "fold": 2,
+      "at": 1793544008503,
+      "trigger": null,
+      "seqStart": 646,
+      "seqEnd": 1890,
+      "summaryChars": null,
+      "shadowedTokens": 130514,
+      "inputTokens": 223595,
+      "outputTokens": 3828,
+      "inputPerShadowed": 1.71,
+      "shadowedShare": 0.584,
+      "ms": 25144,
       "route": {
         "provider": "magpie",
         "model": "group/deepseek-v4.1-flash1017"
