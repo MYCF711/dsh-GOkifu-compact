@@ -14,6 +14,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA, closureChainOf, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
 import { encodeDeltaFrame, sha } from "../src/rooms/kifu-model.mjs";
+import { check as consistencyCheck } from "../scripts/consistency-check.mjs";
 import { createGraph } from "./graph-fixtures.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -336,6 +337,35 @@ tests["C199 live-folds 必须重放 delta（foldMark 只在 delta 里也要数�
     const summary = summarizeFolds(collected.records, collected.external);
     t.eq(summary.total, 1, "汇总总数必须含 delta 里的那条");
     t.eq(summary.external.folds, 3, "汇总必须透传 external");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["C200 一致性核对：证据与磁盘 foldMark 数必须相等（不等就指明「跑 --write」还是真问题）"] = (t) => {
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-cc200-"));
+  try {
+    const dir = nodePath.join(root, "chess-context", "sessions", "session-cc200");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    const g = createGraph({ sessionId: "s" });
+    g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 10, trigger: "pressure" }];
+    nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), JSON.stringify(g), "utf8");
+    nodeFs.writeFileSync(
+      nodePath.join(root, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 1, externalFolds: 0 }),
+      "utf8",
+    );
+
+    // 证据文件是仓库级的：这里直接比对「磁盘 1 条」与「仓库证据的 total」是否一致，
+    // 只要仓库证据不巧好是 1（几乎不可能），就应该报不一致并给出 --write 提示。
+    const result = consistencyCheck({ home: root });
+    t.eq(result.disk.foldMarks, 1, "磁盘 foldMark 必须数到 1");
+    t.eq(typeof result.ok, "boolean", "必须给出 ok");
+    if (result.evidence.evidenceTotal !== 1) {
+      t.eq(result.ok, false, "证据与磁盘不一致时必须 ok=false");
+      t.eq(result.problems.length > 0, true, "必须给出原因");
+      t.eq(/--write|不一致|≠/.test(result.problems.join(" / ")), true, `必须给可执行提示：${result.problems.join(" / ")}`);
+    }
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }

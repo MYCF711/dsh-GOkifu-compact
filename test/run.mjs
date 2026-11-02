@@ -28,6 +28,18 @@ let fail = 0;
 let zeroAssertions = 0;
 const failures = [];
 
+// ★ C201：**每次都从干净的临时目录开始**。上一次运行若被中断（Ctrl-C / 超时 / 崩溃），
+//   `.harness/graphs` 里的 graph.json 会留在磁盘上；下一轮某些用例（尤其数 foldMark 条数的）
+//   会把上一轮的状态当历史加载 ⇒ 偶发「应为 1 条实际 2 条」的假失败。
+if (!dirArg) {
+  const harness = nodePath.join(HERE, ".harness");
+  try {
+    nodeFs.rmSync(harness, { recursive: true, force: true });
+  } catch {
+    /* 清不掉就继续：用例自己也会兜底 */
+  }
+}
+
 const files = nodeFs
   .readdirSync(HERE)
   .filter((f) => f.endsWith(".test.mjs"))

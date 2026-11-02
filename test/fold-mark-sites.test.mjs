@@ -127,3 +127,9 @@ tests["C183 脚本侧读图必须走 loadSessionGraph（不许再出现 fromJSON
   }
   t.eq(offenders.length, 0, `这些脚本还在直读 graph.json 基线（应改用 loadSessionGraph）：${offenders.join(", ")}`);
 };
+
+tests["C201 测试运行器必须在开跑前清掉 .harness 临时目录（中断后残留会造成偶发假失败）"] = (t) => {
+  const runner = nodeFs.readFileSync(nodePath.join(HERE, "..", "test", "run.mjs"), "utf8");
+  t.includes(runner, '.harness', "run.mjs 必须提到 .harness");
+  t.eq(/rmSync\(\s*harness/.test(runner), true, "run.mjs 必须在开跑前 rmSync(.harness)");
+};
