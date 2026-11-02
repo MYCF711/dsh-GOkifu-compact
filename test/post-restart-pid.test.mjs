@@ -79,3 +79,35 @@ tests["C338 端口属主与心跳 pid 对不上时要说清楚（多进程环境
   // 只认 LISTENING（ESTABLISHED 那行不许算）
   t.eq(mod.listeningPidOf("  TCP    127.0.0.1:9999  0.0.0.0:0  ESTABLISHED  777", 9999), null, "非 LISTENING 不算");
 };
+
+tests["C353 验收脚本不许把 buildOk 写死 true（旧代码是最常见的情形）"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
+  t.eq(src.includes("buildOk: true"), false, "不许写死 buildOk: true（C353）");
+  t.includes(src, "repoBuildId", "必须真的去比构建");
+
+  // 判定：构建不一致 ⇒ stale，且理由里提到 buildId
+  const stale = mod.verdictOf({
+    caps: { level: "ok", known: ["update"], unknown: [] },
+    backfill: { reachable: true, due: 0, error: null },
+    closeout: { seen: true, sessions: 1 },
+    truncation: { collected: 3, truncated: 0 },
+    buildOk: false,
+  });
+  t.eq(stale.verdict, "stale", "构建不一致必须 stale");
+  t.eq(stale.todo.some((x) => x.includes("buildId")), true, "要说清是 buildId 不一致");
+
+  // 未知（拿不到心跳/磁盘）不许当成"不一致"硬判 stale
+  const unknown = mod.verdictOf({
+    caps: { level: "ok", known: ["update"], unknown: [] },
+    backfill: { reachable: true, due: 0, error: null },
+    closeout: { seen: true, sessions: 1 },
+    truncation: { collected: 3, truncated: 0 },
+    buildOk: null,
+  });
+  t.eq(unknown.verdict, "ready", "构建未知时不该硬判 stale");
+};

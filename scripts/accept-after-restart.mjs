@@ -17,6 +17,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { checkPanelCapabilities } from "./post-restart-check.mjs";
+import { repoBuildId } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -183,7 +184,26 @@ export async function main(argv = process.argv.slice(2)) {
   const sessionsRoot = home === "" ? "" : nodePath.join(home, "chess-context", "sessions");
   const evidence = sessionsRoot === "" ? { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0 } } : scanEvidence(sessionsRoot);
 
-  const result = verdictOf({ caps, backfill, ...evidence, buildOk: true });
+  // ★ C353：`buildOk` 不许写死 true —— 真机上"跑的是旧代码"是最常见的情形，
+  //   验收脚本自己撒谎就等于没有验收。这里用心跳里的 buildId 与磁盘比。
+  const build = (() => {
+    let disk = null;
+    try {
+      disk = repoBuildId();
+    } catch {
+      disk = null;
+    }
+    let heartbeat = null;
+    try {
+      const file = nodePath.join(home, "chess-context", "ui-route.json");
+      if (nodeFs.existsSync(file)) heartbeat = JSON.parse(nodeFs.readFileSync(file, "utf8"))?.buildId ?? null;
+    } catch {
+      heartbeat = null;
+    }
+    if (disk === null || heartbeat === null) return { ok: null, disk, heartbeat };
+    return { ok: String(disk) === String(heartbeat), disk, heartbeat };
+  })();
+  const result = verdictOf({ caps, backfill, ...evidence, buildOk: build.ok });
   const ownerNote =
     ownerPid === null || heartbeatPid === null
       ? ""
