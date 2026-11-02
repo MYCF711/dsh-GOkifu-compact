@@ -1430,7 +1430,43 @@ function applyInner(ctx) {
             limit,
             loadGraph: (id) => store.load({ id, cwd: "" }).graph,
           });
-          if (dryRun) return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: listed.items });
+          if (dryRun) {
+            // ★ C392：干跑要**提前告诉你哪几个会超时**。
+            //   真机 p90 19s × 6 段 = 114s > `closeoutTimeoutMs`（90s）—— 点下去才发现白跑，
+            //   代价是一次模型调用。所以在 dryRun 里把风险名单一并返回。
+            const warnings = (() => {
+              try {
+                const perItemMs = Number(body.perItemMs);
+                const timeoutMs = Number.isFinite(perItemMs) && perItemMs > 0 ? Math.max(10_000, Math.min(180_000, perItemMs)) : 90_000;
+                const p90 = (() => {
+                  const all = [];
+                  for (const id of listed.items.map((x) => x.sessionId)) {
+                    try {
+                      const graph = store.load({ id, cwd: "" }).graph;
+                      for (const m of graph?.foldMarks ?? []) if (Number.isFinite(m?.ms) && m.ms > 0) all.push(m.ms);
+                    } catch {
+                      /* 单会话读失败不影响整体 */
+                    }
+                  }
+                  return recentFoldP90(all.map((ms) => ({ ms })));
+                })();
+                const risky = [];
+                for (const item of listed.items) {
+                  const est = Number(item.estTokens);
+                  const planned = Number.isFinite(est) ? Math.max(1, Math.ceil(est / 150_000)) : 1;
+                  const advice = closeoutTimeoutAdvice(planned, timeoutMs, p90);
+                  if (!advice.ok) risky.push({ sessionId: item.sessionId, chunks: planned, worstMs: advice.worstMs });
+                }
+                if (risky.length === 0) return [];
+                return [
+                  `${risky.length} 个会话按 p90 估算会超过 ${Math.round(timeoutMs / 1000)}s 单会话超时（建议调大 closeoutTimeoutMs 或 closeoutMaxFoldTokens）`,
+                ];
+              } catch {
+                return [];
+              }
+            })();
+            return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: listed.items, warnings });
+          }
           const controller = ctx.get("sessionController");
           const resolveAgent =
             controller && controller.agents && typeof controller.agents.resolveAgent === "function"

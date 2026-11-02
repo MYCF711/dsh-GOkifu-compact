@@ -296,3 +296,18 @@ tests["C261 补账的硬超时默认 3 分钟——客户端必须限量并传�
   const inner = Number(schemaMod.configDefaults().closeoutTimeoutMs);
   t.eq(120_000 > inner, true, `外层 120s 必须大于内层 ${inner}ms，否则用户只看到笼统 timeout`);
 };
+
+tests["C392 补账干跑要提前给出「会超时」的会话（否则点下去才发现白跑）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+
+  // 接线：干跑分支必须复用 closeout-plan 的两个纯函数，不许自己再算一套
+  t.includes(src, "closeoutTimeoutAdvice(", "必须复用 closeoutTimeoutAdvice（C392）");
+  t.includes(src, "recentFoldP90(", "必须用真机 p90（recentFoldP90）");
+  t.includes(src, "warnings", "干跑响应必须带 warnings 字段");
+  // 失败要降级，不许把干跑本身搞挂
+  t.includes(src, "return [];", "算不出来时要返回空数组（降级）");
+};
