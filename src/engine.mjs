@@ -22,7 +22,7 @@ import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import { toolPairingBalancedBefore, toolPairingBalancedAfter } from "@deepseek-ai/dsh-compaction";
 import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-import { restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
+import { peekDirty, restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
 import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
@@ -866,11 +866,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // P1-10：backfillState 会改哈希、合并节点 —— 如果后面 compactRegion 失败/返回 null，
     //   旧版会留下一个「被改写但 foldCount 没变」的图。这里先快照，任何未完成路径都恢复。
     const graphSnapshot = toJSON(g);
+    // ★ C142：快照必须连**当时的 dirty** 一起拍。此时本轮用户节点刚进 keeper、还没落盘
+    //   （flush 是 1.2s debounce）；只回图不清 dirty 会让下一次 delta 重删恢复的节点（C113），
+    //   而只回图 + 清 dirty 会让这个还没落盘的节点永远写不下去（C142 的 P0）。
+    const dirtySnapshot = peekDirty(g);
     const restore = () => {
       try {
-        // ★ C113：必须连 dirty 一起清 —— 否则失败尝试期间的 `delNodes` 会随下一个 delta 帧落盘，
-        //   下次 load 回放时把已恢复的节点再删一遍（重启后节点消失）。
-        restoreFromSnapshot(g, graphSnapshot);
+        restoreFromSnapshot(g, graphSnapshot, dirtySnapshot);
       } catch {
         /* 快照本身坏了就放弃恢复（不掩盖原始错误） */
       }

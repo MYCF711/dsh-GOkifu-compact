@@ -216,7 +216,11 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
         // ★ C111：`tree` 落盘时顺手**自愈**陈旧文档 —— 节点被回滚/合并删除后，它的 md 会一直留在盘上
         //   （live 实测 94 个：id 全部紧邻 maxNode，是「写了又回滚」的残骸）。
         //   只删 `n<数字>.md` 且当前图里没有这个 id 的文件；其它文件一律不碰。
-        if (tree) {
+        // ★ C142（审查 P1-1）：内存图**不可信**时绝不清 ——
+        //   graph.json 读不出来时 engine 会静默建空图（只 warn），此时按「不在图里」删除
+        //   会把整个 nodes/ 清空（实测 3 个文档全删，而磁盘上的 graph.json 仍有它们）。
+        //   判据：节点表非空 **且** order 非空（正常图两者都非空）。
+        if (tree && Object.keys(graph.nodes ?? {}).length > 0 && (graph.order ?? []).length > 0) {
           try {
             for (const name of port.readdirSync(p.nodesDir)) {
               if (!/^n[0-9]+\.md$/.test(name)) continue;

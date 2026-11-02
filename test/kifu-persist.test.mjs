@@ -441,3 +441,27 @@ tests["C133 任意写序点失败：磁盘上的图必须仍可解析，且节�
   }
   t.eq(checked >= 4, true, `至少要有 4 个注入点真的失败（否则判据空转），实际 ${checked}`);
 };
+
+tests["C142-3 内存图为空（graph.json 读不出时的兜底）绝不许清 nodes/"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 先正常写出一版（3 个文档）：
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    const e1 = addEdge(g, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n1 = addAgentNode(g, { seq: 4, goal: "g1", worldHash: "W1", constraintHash: "C", via: e1 }).id;
+    settleEdge(g, e1, { to: n1, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    const before = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(before.length, 2, `基线应写出 2 个节点文档，实际 ${before.join(",")}`);
+
+    // 模拟「graph.json 读不出 ⇒ engine 建空图」：用空图做 tree 落盘
+    const empty = createGraph({ sessionId: "s1" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, empty, { tree: true });
+    t.eq(r.ok, true, "空图落盘本身不应失败");
+    const after = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(after.join(","), before.join(","), `空图不许清 nodes/（C142 审查 P1-1）：${before.join(",")} → ${after.join(",")}`);
+  });
+};

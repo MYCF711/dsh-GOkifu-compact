@@ -92,6 +92,7 @@ tests["C112 每个回滚点（restore()）之后必须走 tree 落盘"] = (t) =>
 
 tests["C113 engine 的回滚必须用 restoreFromSnapshot（不许裸 Object.assign）"] = (t) => {
   const text = nodeFs.readFileSync(ENGINE, "utf8");
-  t.includes(text, "restoreFromSnapshot(g, graphSnapshot)", "回滚必须走 restoreFromSnapshot（连 dirty 一起清）");
+  t.eq(/restoreFromSnapshot\(g, graphSnapshot/.test(text), true, "回滚必须走 restoreFromSnapshot（连 dirty 一起处理）");
+  t.eq(/restoreFromSnapshot\(g, graphSnapshot, dirtySnapshot\)/.test(text), true, "回滚必须把**快照时刻的 dirty** 一起回填（C142 的 P0：否则未落盘节点永远写不下去）");
   t.eq(/Object\.assign\(g, fromJSON\(/.test(text), false, "不许再出现裸的 Object.assign(g, fromJSON(...)) —— 它会留下陈旧的 delNodes");
 };

@@ -9,7 +9,8 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 
-import { auditGraph, auditRoot } from "../scripts/graph-audit.mjs";
+import { auditGraph, auditRawIndex, auditRoot } from "../scripts/graph-audit.mjs";
+import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { addAgentNode, addEdge, addUserNode, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
 
 export const tests = {};
@@ -73,4 +74,20 @@ tests["C139-3 auditRoot：坏文件（无法解析）也要被点名，而不是
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["C142-4 悬空 stateIndex 必须在**原始 JSON** 上查（fromJSON 会重建 ⇒ 规范化后永远绿）"] = (t) => {
+  const good = goodGraph();
+  const raw = JSON.parse(toJSON(good));
+  // 正常文件：原始 stateIndex 的 value 都指向真实节点
+  t.eq(auditRawIndex(raw), [], "正常文件的原始索引不该有问题");
+
+  // 坏文件：原始 JSON 里塞一个悬空索引（fromJSON 会把它重建掉，所以只能在 raw 上抓）
+  raw.stateIndex = { ...(raw.stateIndex ?? {}), "W9/C9": "n999" };
+  const problems = auditRawIndex(raw);
+  t.eq(problems.some((p) => p.includes("不存在的节点 n999")), true, `原始悬空索引必须报：${JSON.stringify(problems)}`);
+
+  // 反向确认：规范化之后的图看不到它（这正是「假守护」的成因）
+  const rebuilt = fromJSON(JSON.stringify(raw));
+  t.eq(Object.entries(rebuilt.stateIndex ?? {}).some(([, id]) => id === "n999"), false, "fromJSON 重建后悬空索引消失（所以必须在 raw 上查）");
 };

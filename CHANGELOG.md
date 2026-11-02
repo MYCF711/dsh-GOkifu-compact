@@ -5,6 +5,49 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C142 · 独立审查抓到的 P0：**C113 把「还没落盘的变更」一起清掉了**（已修）
+
+**审查结论**（独立子代理，只读，未改文件）：**不能进「等重启验证」**，必须先修这条 P0。
+
+**P0 机理**：`compactIfNeeded` 在**入口**拍图快照（`engine.mjs`），此时本轮用户节点刚进 keeper、
+**还没落盘**（flush 是 1.2 s debounce）⇒ dirty 非空。C113 的 `restoreFromSnapshot` 只做
+`Object.assign + clearDirty` ⇒ 回滚后图内容回来了，但 **dirty 被清零**：
+
+- 下一次 `tree` 落盘因 `dirty.empty` **不写 delta**、也**不写 `nodes/<id>.md`**；
+- 但 `index.md` 是**全量渲染**，里面**有这个节点**；
+- ⇒ 重启后 `load`（graph.json + delta）**没有它**：节点凭空消失，索引却指向它。
+
+审查者还用真实 store 复现了：`wroteDelta:false`、delta **0 字节**、`nodes/` 只有基线那个，
+`load` 后 `n2 还在? false`。**测试为什么没抓到**：`kifu-model-snapshot` 的 `build()` 里先
+`clearDirty`，C114 也在**干净图**上拍快照 —— 永远走不到「快照时 dirty 非空」。
+
+**修复**：快照**连 dirty 一起拍**（`peekDirty(g)`），回滚后**回填**：
+
+- `restoreFromSnapshot(g, snapshot, snapshotDirty)`：图 + 清 dirty + 回填快照时刻的 dirty；
+- `applyDirtySnapshot(g, dirty)`（新导出，纯 dirty 集操作）；
+- engine 的三处 `restore()` 传 `dirtySnapshot`。
+
+语义现在是「**图 + dirty 一起回到快照那一刻**」：失败尝试期间的 `delNodes` 被丢弃（C113 的目标），
+而快照时刻**本来就待写**的变更被保留（C142 的修复）。
+
+**顺带修掉审查指出的两条 P1**：
+
+- **P1-1（会删文件）**：C111 的清理在「内存图不可信」时会清空整个 `nodes/`（`graph.json` 读不出 ⇒
+  engine 静默建空图）。现在判据加「节点表非空 **且** order 非空」才清；测试 `C142-3` 用空图落盘验证文档不丢。
+- **P1-3（假守护）**：`graph-audit` 的 `stateIndex` 检查在 `fromJSON` 之后查，而 `fromJSON` **无条件重建**
+  ⇒ 生产永远绿。改为在**原始 JSON** 上查（`auditRawIndex`），doctor 同步接入；测试 `C142-4` 证明
+  「原始有悬空、规范化后消失」。
+
+**测试**：`C142-1`（快照时刻的 pending 节点回滚后仍在 dirty、delta 带上它；并**反证**旧形态会丢）、
+`C142-2`（端到端：pending → 快照 → 回滚 → 落盘 → `load` 后节点仍在）、`C142-3`、`C142-4`。
+
+★ 另修掉一处**夹具缺陷**：`kifu-model-snapshot` 的 `build()` 直接把 `addUserNode()` 的**返回对象**
+当成 `from` 传进 `addEdge` ⇒ 边里存的是 `[object Object]`。之前那些用例只数节点数，所以没暴露；
+现在取 `.id`。**这类「夹具本身坏了、测试却绿」的问题，比被测代码的 bug 更危险。**
+
+**待办（审查 P1-2/P1-4/P1-5/P1-6，下一轮做）**：doctor/graph-audit 不重放 delta（口径与运行时不同源）、
+规则降级路径不清 `route/usage`、C130 未断言「最新一条必须保留」。
+
 ### C141 · 变更审查包（C110–C140）—— 把 31 条提交交给独立视角挑错
 
 **为什么**：这批改动里有 **会删文件**（C111）、**会改回滚代价**（C112）、**会清跨路径共享字段**（C136/C137）——

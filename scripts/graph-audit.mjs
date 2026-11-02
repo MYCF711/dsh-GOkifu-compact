@@ -41,6 +41,20 @@ function resolveHome() {
  * 检查一张图，返回问题列表（空数组 = 自洽）。
  * @param {object} g 由 `fromJSON` 得到的图
  */
+/**
+ * ★ C142（审查 P1-3）：`stateIndex` 必须在**原始 JSON** 上查 ——
+ * `fromJSON()` 会无条件重建 stateIndex，所以在规范化后的图上查永远绿（假守护）。
+ * @param {any} raw `JSON.parse(graph.json)` 的结果
+ */
+export function auditRawIndex(raw) {
+  const problems = [];
+  const nodes = raw?.nodes ?? {};
+  for (const [key, id] of Object.entries(raw?.stateIndex ?? {})) {
+    if (!nodes[id]) problems.push(`stateIndex["${key}"] → 不存在的节点 ${id}（原始文件）`);
+  }
+  return problems;
+}
+
 export function auditGraph(g) {
   const problems = [];
   for (const p of validate(g)) problems.push(p);
@@ -76,14 +90,17 @@ export function auditRoot(sessionsDir) {
   for (const name of nodeFs.readdirSync(sessionsDir)) {
     const file = nodePath.join(sessionsDir, name, "graph.json");
     if (!nodeFs.existsSync(file)) continue;
+    const text = nodeFs.readFileSync(file, "utf8");
+    let raw;
     let g;
     try {
-      g = fromJSON(nodeFs.readFileSync(file, "utf8"));
+      raw = JSON.parse(text);
+      g = fromJSON(text);
     } catch (error) {
       out.push({ session: name, problems: [`graph.json 无法解析：${String(error?.message ?? error).slice(0, 120)}`] });
       continue;
     }
-    out.push({ session: name, problems: auditGraph(g) });
+    out.push({ session: name, problems: [...auditRawIndex(raw), ...auditGraph(g)] });
   }
   return out;
 }

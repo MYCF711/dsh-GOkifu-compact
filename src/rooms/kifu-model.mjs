@@ -1034,23 +1034,9 @@ export function markNodeDirty(g, id) {
 export function markEdgeDirty(g, id) {
   if (id) dirtyOf(g).edges.add(id);
 }
-/** 标记节点被删（order 里也要去掉）。 */
 /**
- * ★ C113：从快照恢复图。**必须同时清 dirty**。
- *
- * 为什么单独做成函数：`Object.assign(g, fromJSON(snapshot))` 只覆盖图数据，
- * 而 dirty 记账（`delNodes` / `orderDrop` …）不在快照的可枚举字段里 ⇒ 回滚后它**还留着**
- * 失败尝试期间的删除记录。下一次非 full 落盘会把这个 delta 帧写进 `delta.jsonl`，
- * 之后 `load` 回放时**把已经恢复的节点再删一遍** —— 下次重启后节点凭空消失。
- *
- * 快照本身是在干净状态下拍的，所以恢复后清 dirty 是语义上正确的。
+ * 标记节点被删（order 里也要去掉）。
  */
-export function restoreFromSnapshot(g, snapshot) {
-  Object.assign(g, fromJSON(snapshot));
-  clearDirty(g);
-  return g;
-}
-
 export function markNodeDeleted(g, id) {
   if (!id) return;
   const d = dirtyOf(g);
@@ -1058,6 +1044,44 @@ export function markNodeDeleted(g, id) {
   d.nodes.delete(id);
   d.orderDrop.push(id);
 }
+
+/**
+ * ★ C113 / C142：从快照恢复图。**必须处理 dirty**，而且不能简单清空。
+ *
+ * 两件事要同时成立：
+ *   ① 失败尝试期间的 dirty（`delNodes` / `orderDrop` …）**必须丢弃** ——
+ *      否则下一次非 full 落盘会把它写进 `delta.jsonl`，`load` 回放时把已恢复的节点再删一遍（C113）。
+ *   ② 快照时刻**本来就还没落盘**的 dirty **必须保留** ——
+ *      快照是在 `compactIfNeeded` 入口拍的，此时刚进 keeper 的用户节点还在 pending
+ *      （flush 是 1.2s debounce）。清空它 = 这个节点永远不落盘，但 `index.md` 里却有它
+ *      ⇒ 重启后节点凭空消失（C142 修的 P0）。
+ *
+ * 所以语义是：**图 + dirty 一起回到快照那一刻**。调用方应把 `snapshotDirty` 传进来；不传则按
+ * 「快照是干净的」处理（仅旧调用方兼容）。
+ */
+export function restoreFromSnapshot(g, snapshot, snapshotDirty = null) {
+  Object.assign(g, fromJSON(snapshot));
+  clearDirty(g);
+  if (snapshotDirty) applyDirtySnapshot(g, snapshotDirty);
+  return g;
+}
+
+/**
+ * ★ C142：把一份 `peekDirty()` 快照回填到图上（用于回滚后恢复「快照时刻仍未落盘」的变更）。
+ * 只读写 dirty 集，不动图内容。
+ */
+export function applyDirtySnapshot(g, snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return g;
+  const d = dirtyOf(g);
+  for (const id of snapshot.nodes ?? []) d.nodes.add(id);
+  for (const id of snapshot.edges ?? []) d.edges.add(id);
+  for (const id of snapshot.delNodes ?? []) d.delNodes.add(id);
+  for (const id of snapshot.delEdges ?? []) d.delEdges.add(id);
+  for (const id of snapshot.orderAppend ?? []) d.orderAppend.push(id);
+  for (const id of snapshot.orderDrop ?? []) d.orderDrop.push(id);
+  return g;
+}
+
 /** 标记 order 新增（节点创建时调用）。 */
 export function markOrderAppend(g, id) {
   if (id) dirtyOf(g).orderAppend.push(id);
