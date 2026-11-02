@@ -1,5 +1,5 @@
 {
-  "total": 770,
+  "total": 772,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -9,6 +9,7 @@
     "build-stamp.test.mjs": 7,
     "bundle.test.mjs": 0,
     "c17-path-at-every-level.test.mjs": 16,
+    "cache-rate.test.mjs": 2,
     "cache-usage.test.mjs": 4,
     "check-maintenance.test.mjs": 6,
     "cli-routing.test.mjs": 4,
