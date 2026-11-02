@@ -323,3 +323,18 @@ tests["C329 「宿主归档信号」必须留成知识库条目，且结论速�
   const quick = read("docs/knowledge/结论速查.md");
   t.includes(quick, "A22", "结论速查要有 A22 这条");
 };
+
+tests["C381 结论速查必须收进本会话新验的结论（A23–A27：缓存断点无效/usage 口径/10 倍差/基准复算/面板可解释）"] = (t) => {
+  const doc = read("docs/knowledge/结论速查.md");
+  const need = [
+    ["A23", "cache_control", "缓存断点这条路不存在"],
+    ["A24", "inputTokens", "usage 口径（未命中）"],
+    ["A25", "totalAfter", "tokenMeter 与真实请求差 10 倍"],
+    ["A26", "live-bench", "基准可复算"],
+    ["A27", "兜底", "面板失败要可解释"],
+  ];
+  for (const [tag, needle, why] of need) {
+    t.includes(doc, `| ${tag} |`, `缺少结论 ${tag}（${why}）`);
+    t.includes(doc, needle, `${tag} 必须提到 ${needle}`);
+  }
+};
