@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C297 | 验证：补账流程吃得下「分段收尾」的返回形状 |
 | C296 | 把「只有源码断言」的分段收尾变成真的跑过 |
 | C295 | 重启验收清单加「现状快照」+ 能力探针命令 |
 | C294 | 能力探针：直接问面板「你会什么」，而不是看时间戳 |
@@ -375,6 +376,17 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C297 · 验证：补账流程吃得下「分段收尾」的返回形状
+
+C289 让收尾折叠可能返回 `{tier:"chunked", folded, chunks}`，而 `backfillArchivedSessions` 只见过普通结果 ——
+它会不会把新形状当成失败？
+
+- 用假 registry + 假 closeout 跑真实流程，断言调用顺序 `unarchive → resolve → closeout → archive`、
+  `done=1 / failed=0 / restored=1`；
+- 顺带对齐认知：真实 API 是 `registry.unarchiveSession / archiveSession + archivedSessionIds`，
+  **没有** `resume` 方法（resume 由 `resolveAgent(id)` 自己做）—— 第一版测试按错误 API 写，一次都没调起来；
+- 确认 `g.closeout.folds` 记的是 `foldMarks.length`，与折叠返回形状无关。
 
 ### C296 · 把「只有源码断言」的分段收尾变成真的跑过
 

@@ -226,3 +226,31 @@ tests["C286 欠账估算：用本会话历史 tokens/事件 折算，没有历�
   t.eq(d2.tokensPerEvent, null, "没有 fold 历史 ⇒ 比值 null");
   t.eq(d2.estTokens, null, "没有 fold 历史 ⇒ 估算 null（不编数字）");
 };
+
+tests["C297 补账要能接受「分段收尾」的返回形状（{tier:'chunked', folded}）而不崩"] = async (t) => {
+  const mod = await import("../src/rooms/closeout-backfill.mjs");
+  const calls = [];
+  const registry = {
+    archivedSessionIds: ["s1"],
+    unarchiveSession: async (id) => calls.push(["unarchive", id]),
+    archiveSession: async (id) => calls.push(["archive", id]),
+  };
+  // C289 之后，大尾巴走分段：closeout 可能返回 {tier:"chunked", folded, chunks}
+  const result = await mod.backfillArchivedSessions({
+    items: [{ sessionId: "s1", tail: 20000 }],
+    registry,
+    resolveAgent: async (id) => {
+      calls.push(["resolve", id]);
+      return { session: { id } };
+    },
+    closeout: async () => {
+      calls.push(["closeout"]);
+      return { tier: "chunked", folded: 3, chunks: 6 };
+    },
+    dryRun: false,
+  });
+  t.eq(calls.map((c) => c[0]), ["unarchive", "resolve", "closeout", "archive"], `顺序必须是 取消归档 → resume → 收尾 → 归档回去：${JSON.stringify(calls)}`);
+  t.eq(result.done, 1, `应当完成 1 个：${JSON.stringify(result)}`);
+  t.eq(result.failed ?? 0, 0, `分段收尾不该被当成失败：${JSON.stringify(result)}`);
+  t.eq(result.restored, 1, "收尾后必须归档回去");
+};
