@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C411 | 官方 usage 字段定义核实：inputTokens = prompt_cache_miss_tokens |
 | C410 | 验收命令自带端口发现 + 参数级探针（C409+C410） |
 | C408 | 补账可指定 sessionIds（先拿小会话验证通道） |
 | C407 | 重启验收清单补「第二轮现状快照」 |
@@ -484,6 +485,28 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C411 · 官方 usage 字段定义核实：inputTokens = prompt_cache_miss_tokens
+
+C361 从真机样本反推出「宿主 `inputTokens` 是未命中」，但那是**推断**。这一轮去官方 API 参考里找到了**定义**：
+
+> `prompt_tokens` … **It equals `prompt_cache_hit_tokens` + `prompt_cache_miss_tokens`。**
+
+于是三件事一次说清：
+
+| 官方 | 宿主 | 我们 |
+|---|---|---|
+| `prompt_cache_miss_tokens` | `inputTokens` | 按 miss 价计 |
+| `prompt_cache_hit_tokens` | `cacheReadTokens` | 按 hit 价计 |
+| `prompt_tokens + completion_tokens` | `totalTokens` | 用来自证口径 |
+
+- 这把 C361 的**推断**升级成了**有来源的结论**（样本 2158+19584+257=21999 与官方定义互相自洽）；
+- 同时排除掉一种误读：官方 `prompt_tokens` 是**总量**，别拿它当"未命中"用；
+- 也再次说明：**K-22 的 10 倍差与 usage 无关**，它是宿主 `tokenMeter` 与实际发出 prompt 之间的事。
+
+结论速查新增 **A30**，守卫 C381 同步扩展。
+
+**教训**：**反推出来的结论要去找一次官方定义对齐** —— 对上了是双保险，对不上就是发现了一条更深的坑。
 
 ### C410 · 验收命令自带端口发现 + 参数级探针（C409+C410）
 

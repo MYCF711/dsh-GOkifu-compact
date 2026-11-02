@@ -249,3 +249,25 @@
 | 2026-04-24 | V4（Pro/Flash）上线 |
 
 与我们相关的只有一条：**视觉能力在 Flash 上**（`deepseek-v4-flash-vision-exp`），与价目表里"旧名退役但请求仍按 Flash 计价"一致。
+
+## ★ 官方 usage 字段定义（**已核实**，C411）
+
+> 来源：<https://api-docs.deepseek.com/api/create-chat-completion>（HTTP 200，抓取 2026-11-03）
+
+| 字段 | 官方定义 |
+|---|---|
+| `completion_tokens` | 生成的 token 数 |
+| **`prompt_tokens`** | prompt 里的 token 数；**等于 `prompt_cache_hit_tokens` + `prompt_cache_miss_tokens`** |
+| `prompt_cache_hit_tokens` | 命中缓存的 prompt token 数 |
+| `prompt_cache_miss_tokens` | 未命中缓存的 prompt token 数 |
+| `prompt_tokens_details.cached_tokens` | 与 `prompt_cache_hit_tokens` **同值** |
+
+⇒ 官方口径里 `prompt_tokens` **是总量**（hit + miss）。
+
+**与宿主 usage 的对应（已核实，互相自洽）**：
+宿主的 `inputTokens` **不是** `prompt_tokens`，而是 **`prompt_cache_miss_tokens`**；
+`cacheReadTokens` = `prompt_cache_hit_tokens`；
+`totalTokens` = `prompt_tokens` + `completion_tokens`。
+这正好解释了 C361 里那条真机样本为何 `2158 + 19584 + 257 = 21999`。
+
+**但这也说明 K-22 的 10 倍差与 usage 无关** —— 它是宿主 `tokenMeter.measure()` 与"实际发出的 prompt"之间的事。

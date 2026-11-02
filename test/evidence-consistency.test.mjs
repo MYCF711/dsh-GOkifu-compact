@@ -334,6 +334,7 @@ tests["C381 结论速查必须收进本会话新验的结论（A23–A27：缓�
     ["A27", "兜底", "面板失败要可解释"],
     ["A28", "truncation", "超窗 400 不是永久错误"],
     ["A29", "图片", "token 估算的图片盲区"],
+    ["A30", "prompt_cache_miss_tokens", "官方 usage 字段定义（inputTokens = miss）"],
   ];
   for (const [tag, needle, why] of need) {
     t.includes(doc, `| ${tag} |`, `缺少结论 ${tag}（${why}）`);
