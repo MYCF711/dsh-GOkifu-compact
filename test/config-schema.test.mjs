@@ -34,7 +34,7 @@ const GOLDEN_BASE_KEYS = ["thresholdRatio", "headroomTokens", "retainRatio", "re
 
 const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000 };
 
-const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerMinEvents: "清单刷新间隔（事件）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
+const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
 
 const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200 };
 
@@ -177,4 +177,23 @@ export const tests = {
       return undefined;
     });
   },
+};
+tests["C252 UI 的 label 表必须是「可编辑键」的子集（有标签没值 = 面板残项）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href);
+  const labels = Object.keys(mod.fieldLabels());
+  const editable = Object.keys(mod.configDefaults());
+  for (const key of labels) {
+    t.eq(editable.includes(key), true, `fieldLabels 里的 ${key} 不在 configDefaults（面板会出现"有标签没值"）`);
+  }
+  // 反向不要求相等：有的键可编辑但刻意不给中文名（目前没有，但留口子）
+  t.eq(labels.length > 0, true, "label 表不许空");
+  // 引擎作用域的两个节流键**不该**出现在 UI 标签表里（它们写在 preset 的 config: 块里生效）
+  for (const engineKey of ["hotLedgerMinEvents", "hotLedgerMinFailureDelta"]) {
+    t.eq(labels.includes(engineKey), false, `${engineKey} 是引擎作用域，不该进 UI 标签表`);
+    t.eq(
+      mod.SCHEMA.some((f) => f.key === engineKey),
+      true,
+      `${engineKey} 必须仍在 SCHEMA 里（用户要能写进 preset 的 config: 块）`,
+    );
+  }
 };

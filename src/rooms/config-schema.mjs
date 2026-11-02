@@ -173,7 +173,10 @@ const LABEL_ORDER = Object.freeze([
   "maxTokens",
   "hotLedger",
   "hotLedgerMaxTokens",
-  "hotLedgerMinEvents",
+  // ★ C252：**这里只放 preset 可编辑键**（= PRESET_KEYS）。引擎作用域的
+  //   `hotLedgerMinEvents` / `hotLedgerMinFailureDelta` 曾经被顺手塞进来一条，
+  //   于是 UI 的 label 表里有它、`configDefaults()` 里却没有 ⇒ 面板可能出现"有标签没值"的残项。
+  //   两个引擎键都能写在 preset 的 `config:` 块里，但**不在这张 UI 表里**。
   "hotLedgerReplace",
   "hotLedgerMarkers",
   "transposition",

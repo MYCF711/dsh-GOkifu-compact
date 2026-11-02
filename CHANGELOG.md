@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C252 | 修掉自己埋的不一致：UI 标签表里多了一个引擎键 |
 | C251 | 失败增量门槛可配（`hotLedgerMinFailureDelta`） |
 | C250 | `dsh-gokifu-compact config` 子命令（装好包也能看配置总表） |
 | C249 | 「配置总表」由代码生成（手写文档必漂） |
@@ -331,6 +332,22 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C252 · 修掉自己埋的不一致：UI 标签表里多了一个引擎键
+
+C248/C251 用批量替换把节流键加进「三个键清单」时，**其中一个其实是 UI 的 `LABEL_ORDER`**：
+
+```
+fieldLabels()    → 含 hotLedgerMinEvents
+configDefaults() → 不含
+```
+
+⇒ 面板可能出现「有标签、没值」的残项；而与它并列的 `hotLedgerMinFailureDelta` 反倒没进去。
+
+**修法**：`LABEL_ORDER` 的口径写死为「只能是 preset 可编辑键（= `PRESET_KEYS`）」，两个引擎键都移出；
+它们仍在 `SCHEMA` 里（写在 preset 的 `config:` 块里生效）。
+
+**防复发**：测试 C252 —— label 表的每个键必须在 defaults 里；两个引擎键不许进 label 表、但必须仍在 SCHEMA 里。
 
 ### C251 · 失败增量门槛可配（`hotLedgerMinFailureDelta`）
 
