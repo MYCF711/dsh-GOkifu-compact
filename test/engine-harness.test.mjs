@@ -2476,3 +2476,23 @@ tests["C242 永久性错误（400/401/402）不值得重试：判别式 + 顶到
     throw new Error("summarize 必须消费 forceRulesNext（消费后清标记）");
   }
 };
+
+tests["C244 over-budget 必须按档位归因（落在 L5 = 设计内，落在 L0–L3 = 还有空间）"] = async () => {
+  const { mod } = await load();
+  const acc = mod.accumulateLedgerBudget;
+  if (typeof acc !== "function") throw new Error("accumulateLedgerBudget 必须导出");
+  let stats = {};
+  // 两次 L4 超预算 + 一次 L5 超预算 + 一次正常（不记）
+  stats = acc(stats, { fallback: "over-budget", level: 4, overBudgetBy: 30, provenanceCoverage: 1 }, 1);
+  stats = acc(stats, { fallback: "over-budget", level: 4, overBudgetBy: 20, provenanceCoverage: 1 }, 2);
+  stats = acc(stats, { fallback: "over-budget", level: 5, overBudgetBy: 90, provenanceCoverage: 1 }, 3);
+  stats = acc(stats, { fallback: "none", level: 1, overBudgetBy: 0, provenanceCoverage: 1 }, 4);
+  const by = stats.overByLevel;
+  if (!by || typeof by !== "object") throw new Error("必须落 overByLevel 字段");
+  if (by.L4 !== 2) throw new Error(`L4 应为 2，实际 ${by.L4}`);
+  if (by.L5 !== 1) throw new Error(`L5 应为 1，实际 ${by.L5}`);
+  if (by.L1 !== undefined) throw new Error("预算内的渲染不该进 overByLevel");
+  // 档位越界要夹紧（不许写出 L9 这种键）
+  const clamped = acc({}, { fallback: "over-budget", level: 9, overBudgetBy: 1, provenanceCoverage: 1 }, 5);
+  if (!clamped.overByLevel.L5) throw new Error("level 必须夹紧到 0..5");
+};

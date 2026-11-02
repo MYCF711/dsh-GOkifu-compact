@@ -230,6 +230,15 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
     target.traceDropped = (Number.isFinite(target.traceDropped) ? target.traceDropped : 0) + 1;
   }
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
+  // ★ C244：**over-budget 按档位归因**。此前 1005 次超预算里只有 174 次有归因（floorOver 86 + irreducible 88），
+  //   剩下 831 次「不知道为什么超」—— 而档位能直接回答：落在 L5（已是最省一份）就是设计内，
+  //   落在 L0–L3 就说明还有压缩空间。一个字段把 831 次从"未知"变成"已知"。
+  if (metrics.fallback === "over-budget" && Number.isFinite(metrics.level)) {
+    const by = target.overByLevel && typeof target.overByLevel === "object" ? { ...target.overByLevel } : {};
+    const key = `L${Math.max(0, Math.min(5, Math.trunc(metrics.level)))}`;
+    by[key] = (Number.isFinite(by[key]) ? by[key] : 0) + 1;
+    target.overByLevel = by;
+  }
   // ★ C44：over-budget 里有多少次是「约束+根目标下限」本身就超预算（不可裁 ⇒ 设计内，不是渲染 bug）。
   if (
     metrics.fallback === "over-budget" &&

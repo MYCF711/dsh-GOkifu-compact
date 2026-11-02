@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C244 | over-budget 按档位归因（857 次「不知道为什么超」变成已知） |
 | C243 | `post-restart-check` 增加两条「新代码是否接管」的判据 |
 | C241 | 「幻觉探针」的文案：别一口咬定是模型编造 |
 | C240 | README 补「面板」一节与归档/补账三条功能 |
@@ -325,6 +326,16 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C244 · over-budget 按档位归因（857 次「不知道为什么超」变成已知）
+
+实测 `ledger-budget.json`：`over-budget=1031`，但只有 174 次有归因（floorOver 86 + irreducible 88）
+⇒ **857 次超预算没有任何解释**。
+
+**做法**：`accumulateLedgerBudget` 在 `fallback === "over-budget"` 时按 `metrics.level` 计数到 `overByLevel`（夹紧 0–5）。
+判据立刻变得可操作：**落在 L5** = 已是最省那一份（设计内）；**落在 L0–L3** = 还有压缩空间，是真 bug。
+
+doctor 的「热清单预算」行显示 `超预算档位 L5=… / L4=…`。测试：`engine-harness` C244（含 level 越界夹紧）。
 
 ### C243 · `post-restart-check` 增加两条「新代码是否接管」的判据
 

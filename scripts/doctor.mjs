@@ -1183,6 +1183,13 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
               .map(([k, v]) => `${k}=${v}`)
               .join(" / ")}`
           : "") +
+        // ★ C244：over-budget 的**档位分布** —— 落在 L5 说明已是最省一份（设计内），落在 L0–L3 说明还有空间。
+        (stats.overByLevel && typeof stats.overByLevel === "object" && Object.keys(stats.overByLevel).length > 0
+          ? ` · 超预算档位 ${Object.entries(stats.overByLevel)
+              .sort((a, b) => Number(b[1]) - Number(a[1]))
+              .map(([lv, n]) => `${lv}=${n}`)
+              .join(" / ")}`
+          : "") +
         (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
         (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
         (Number(stats.budgetIrreducible) > 0
