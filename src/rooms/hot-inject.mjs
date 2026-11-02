@@ -248,7 +248,14 @@ export function decideInjection({
       if (typeof state.lastLedgerInjectSeq === "number" && session.seq - state.lastLedgerInjectSeq < minEvents) {
         return { decision, action: "skip", reason: "throttled-events" };
       }
-      if (typeof state.lastLedgerFailureCount === "number" && ledger.failureCount < state.lastLedgerFailureCount + INJECT_MIN_FAILURE_DELTA) {
+      // ★ C251：**失败边增量门槛也可配**（默认 5 = 旧行为）。
+      //   实测这个门槛才是主要拦截者（`throttled-failures=2514` vs `throttled-events=109`）：
+      //   「失败边没多 5 条就不刷新」= 位置/目标变了也不刷新。设成 **0** 就是"只按事件间隔节流"。
+      const minFailureDelta = (() => {
+        const raw = Number(config?.hotLedgerMinFailureDelta);
+        return Number.isFinite(raw) && raw >= 0 ? Math.min(50, Math.trunc(raw)) : INJECT_MIN_FAILURE_DELTA;
+      })();
+      if (typeof state.lastLedgerFailureCount === "number" && ledger.failureCount < state.lastLedgerFailureCount + minFailureDelta) {
         return { decision, action: "skip", reason: "throttled-failures" };
       }
       if (state.lastLedgerDigest === digest && existing) return { decision, action: "skip", reason: "same-digest" };

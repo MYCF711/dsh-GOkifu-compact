@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C251 | 失败增量门槛可配（`hotLedgerMinFailureDelta`） |
 | C250 | `dsh-gokifu-compact config` 子命令（装好包也能看配置总表） |
 | C249 | 「配置总表」由代码生成（手写文档必漂） |
 | C248 | 注入节流间隔可配（`hotLedgerMinEvents`） |
@@ -330,6 +331,20 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C251 · 失败增量门槛可配（`hotLedgerMinFailureDelta`）
+
+跳过原因的实测分布：`throttled-failures=2514` ≫ `throttled-events=109` ——
+**真正的主要拦截者是「失败边没多 5 条就不刷新」**，C248 只开放了事件间隔。
+
+- 新增 `hotLedgerMinFailureDelta`（默认 **5** = 旧行为，范围 0–50，engine 作用域）；
+- 设 **0** = 只按事件间隔节流（位置更实时，代价是前缀缓存失效）；
+- 非法值（负数 / NaN）回落 5。
+
+测试 `hot-inject` C251，顺带修了夹具本身的问题：`decideInjection` 会更新 state，
+复用同一个 state 对象会让后续用例看到前一次结果（第一版因此把「非法值回落」测成了假绿）。
+
+配置总表已重新生成（29 项）。
 
 ### C250 · `dsh-gokifu-compact config` 子命令（装好包也能看配置总表）
 

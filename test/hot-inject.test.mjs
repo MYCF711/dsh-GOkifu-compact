@@ -533,3 +533,23 @@ tests["C248 注入节流间隔可配：hotLedgerMinEvents 生效（默认 40 = �
   const bad = run(c.session, c.g, { ...c.st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(c.g).length }, { config: { ...CONFIG, hotLedgerMinEvents: 0 } });
   t.eq(bad.reason, "throttled-events", "非法值（0）必须回落到默认 40，不许变成每步注入");
 };
+
+tests["C251 失败增量门槛可配：hotLedgerMinFailureDelta=0 时只按事件间隔节流"] = (t) => {
+  const g = graphWithFailure();
+  const st = makeState();
+  const session = makeSession({ id: "s-delta", seq: 200 });
+  // 每次都要新造一份（decideInjection 会更新 state，复用同一对象会让后面的用例看到前一次的结果）
+  const seed = () => ({ ...st, lastLedgerInjectSeq: 10, lastLedgerFailureCount: failureEdges(g).length });
+  const seeded = seed();
+  const byDefault = run(session, g, seeded);
+  t.eq(byDefault.reason, "throttled-failures", "默认（+5 条）⇒ 失败边没变多就被挡下");
+
+  const zero = run(session, g, seed(), { config: { ...CONFIG, hotLedgerMinFailureDelta: 0 } });
+  t.eq(zero.reason !== "throttled-failures", true, "设成 0 之后不该再被失败增量挡下");
+
+  // 非法值回落默认 5（负数 / NaN）
+  for (const bad of [-1, Number.NaN]) {
+    const r = run(session, g, seed(), { config: { ...CONFIG, hotLedgerMinFailureDelta: bad } });
+    t.eq(r.reason, "throttled-failures", `非法值 ${String(bad)} 必须回落到 5`);
+  }
+};

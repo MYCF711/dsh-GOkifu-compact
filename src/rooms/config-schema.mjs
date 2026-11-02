@@ -80,6 +80,7 @@ export const SCHEMA = Object.freeze([
   //   「失败边没多 5 条就不刷新」意味着**位置变了也不刷新**。这是缓存与新鲜度的取舍，
   //   所以把它**交给用户调**（越小越新、越费缓存），默认仍是 40（与旧行为逐字节一致）。
   { key: "hotLedgerMinEvents", type: "number", default: 40, where: "engine", range: [1, 500], label: "清单刷新间隔（事件）", desc: "两次注入至少隔多少事件；越小位置越新，但改写清单会让前缀缓存失效" },
+  { key: "hotLedgerMinFailureDelta", type: "number", default: 5, where: "engine", range: [0, 50], label: "清单刷新失败增量", desc: "失败边比上次多这么多条才刷新清单；设 0 = 只按事件间隔节流（位置更实时，但改写清单会让前缀缓存失效）" },
   {
     key: "hotLedgerMarkers",
     type: "enum",
@@ -235,6 +236,7 @@ export function resolveConfig(raw = {}) {
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
     // ★ C248：注入节流间隔（默认 40 = 旧行为）
     hotLedgerMinEvents: num(c.hotLedgerMinEvents, describe("hotLedgerMinEvents").default),
+    hotLedgerMinFailureDelta: num(c.hotLedgerMinFailureDelta, describe("hotLedgerMinFailureDelta").default),
     hotLedgerMarkers: describe("hotLedgerMarkers").values.includes(c.hotLedgerMarkers) ? c.hotLedgerMarkers : describe("hotLedgerMarkers").default,
     hotLedgerTraceRoot: str(c.hotLedgerTraceRoot, describe("hotLedgerTraceRoot").default),
     hotLedgerReplace: c.hotLedgerReplace !== false,
