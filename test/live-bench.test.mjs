@@ -56,3 +56,13 @@ tests["C377 HANDOFF 必须指向生成物，且数字与它一致（防再次手
   if (hit) t.includes(handoff, `${hit[1]}%`, `HANDOFF 的命中率必须与生成物一致（${hit[1]}%）`);
   if (cost) t.includes(handoff, `$${cost[1]}`, `HANDOFF 的全量花费必须与生成物一致（$${cost[1]}）`);
 };
+
+tests["C393 HANDOFF 不许再写着「跑的是旧代码 / 需重启」——真机已接管"] = (t) => {
+  const handoff = nodeFs.readFileSync(nodePath.join(HERE, "..", "HANDOFF.md"), "utf8");
+  const head = handoff.slice(0, handoff.indexOf("## 🗒"));
+  t.eq(head.includes("运行实例跑的是旧代码"), false, "真机已接管，不许再写「跑的是旧代码」（过期信息比没有更糟）");
+  t.eq(head.includes("需重启"), false, "不许再把「需重启」当现状");
+  t.includes(head, "已接管", "要点明已接管");
+  t.includes(head, "due 49", "要带出补账干跑的真实数字（49）");
+  t.includes(head, "唯一待办", "必须保留唯一待办（C124）");
+};
