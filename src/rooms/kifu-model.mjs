@@ -265,6 +265,37 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
 }
 
 /** 所有失败边（热上下文的核心资产），按创建顺序。 */
+/**
+ * ★ C300：**「已修正的失败」只在这里定义一次**。
+ *
+ * 由来：这段逻辑在 `src/ui.mjs`（面板卡片）和 `scripts/doctor.mjs`（抗干扰度）里**各写了一遍**，
+ * 两边一模一样 —— 一模一样不等于永远一样：哪天一边改了 evidence 的读法，另一处会**静默分叉**，
+ * 面板说"修好了 8 条"、doctor 说"修好了 5 条"，而且两个都不会报错。
+ *
+ * 语义：某条 failure 之后，**同一个 action** 又成功过（success 的 end > 失败的 end）⇒ 记一条已修正。
+ * @param {object} g
+ * @returns {number}
+ */
+export function countResolvedFailures(g) {
+  const edges = Object.values(g?.edges ?? {});
+  const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+  const okAt = new Map();
+  for (const e of edges) {
+    if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+    const at = endOf(e);
+    if (!Number.isFinite(at)) continue;
+    const prev = okAt.get(e.action);
+    if (prev === undefined || at > prev) okAt.set(e.action, at);
+  }
+  let resolved = 0;
+  for (const e of edges) {
+    if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
+    const at = okAt.get(e.action);
+    if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolved += 1;
+  }
+  return resolved;
+}
+
 export function failureEdges(g) {
   return Object.values(g.edges)
     .filter((e) => e.result === "failure")

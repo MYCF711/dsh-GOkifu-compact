@@ -995,3 +995,12 @@ tests["C298 分段折完的会话要在 closeout 上留数，doctor 才不会把
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C300 「已修正的失败」只定义一次：doctor 必须调模型层那份，不许自己再写一遍"] = (t) => {
+  const doctorSrc = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "doctor.mjs"), "utf8");
+  t.includes(doctorSrc, "countResolvedFailures(loaded.graph)", "doctor 必须调用共享实现");
+  t.eq(doctorSrc.includes("if (at !== undefined && Number.isFinite(seqEnd(e)) && at > seqEnd(e)) resolved += 1;"), false,
+    "doctor 里不许再有第二份 'resolved += 1' 的实现");
+  const uiSrc = nodeFs.readFileSync(nodePath.join(REPO, "src", "ui.mjs"), "utf8");
+  t.includes(uiSrc, 'export { countResolvedFailures }', "面板侧应改为再导出（对外 API 不变）");
+};

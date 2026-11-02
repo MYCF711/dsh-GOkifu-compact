@@ -57,6 +57,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 // ★ A2-1（2026-10-30）：preset 块格式的唯一定义在 R13 的 preset-format 子房间（src/rooms/）。
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
+import { countResolvedFailures } from "./rooms/kifu-model.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
@@ -250,29 +251,8 @@ function collectGraphFiles(home = resolveHome()) {
  * 与 `scripts/doctor.mjs` 的「热清单抗干扰」同一条判据（那边数全部会话，这里数单个会话）。
  * 没有任何副作用；坏图返回 0（面板不许因为一张坏图整页坏掉）。
  */
-export function countResolvedFailures(g) {
-  try {
-    const edges = Object.values(g?.edges ?? {});
-    const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
-    const okAt = new Map();
-    for (const e of edges) {
-      if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
-      const at = endOf(e);
-      if (!Number.isFinite(at)) continue;
-      const prev = okAt.get(e.action);
-      if (prev === undefined || at > prev) okAt.set(e.action, at);
-    }
-    let resolved = 0;
-    for (const e of edges) {
-      if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
-      const at = okAt.get(e.action);
-      if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolved += 1;
-    }
-    return resolved;
-  } catch {
-    return 0;
-  }
-}
+// ★ C300：实现搬到 `rooms/kifu-model.mjs`（doctor 与面板共用一份），这里只再导出，保持对外 API 不变。
+export { countResolvedFailures };
 
 /**
  * ★ C260：补账的**在途闸门**（模块级）。同一进程同一时刻只允许一次真补账。

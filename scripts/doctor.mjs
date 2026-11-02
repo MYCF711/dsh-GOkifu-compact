@@ -20,7 +20,7 @@ import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { GRAPH_VERSION, fromJSON } from "../src/rooms/kifu-model.mjs";
+import { GRAPH_VERSION, fromJSON, countResolvedFailures } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 import { selectSessionLogs } from "./log-window.mjs";
 import { accumulateCacheUsage, createCacheUsage, summarizeCacheUsage } from "./cache-usage.mjs";
@@ -519,19 +519,9 @@ const interference = { total: 0, resolved: 0, worst: [] };
         const seqEnd = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
         const all = Object.values(loaded.graph?.edges ?? {});
         const fails = all.filter((e) => e?.result === "failure" && typeof e.action === "string" && e.action !== "");
-        const okAt = new Map();
-        for (const e of all) {
-          if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
-          const at = seqEnd(e);
-          if (!Number.isFinite(at)) continue;
-          const prev = okAt.get(e.action);
-          if (prev === undefined || at > prev) okAt.set(e.action, at);
-        }
-        let resolved = 0;
-        for (const e of fails) {
-          const at = okAt.get(e.action);
-          if (at !== undefined && Number.isFinite(seqEnd(e)) && at > seqEnd(e)) resolved += 1;
-        }
+        // ★ C300：**不在这里重写一遍** —— 用 `rooms/kifu-model.mjs` 的那份，
+        //   面板卡片与这里的口径必须永远一致（这一族 bug 已经出过三次）。
+        const resolved = countResolvedFailures(loaded.graph);
         interference.total += fails.length;
         interference.resolved += resolved;
         if (fails.length >= 5 && resolved / fails.length > 0.5) {
