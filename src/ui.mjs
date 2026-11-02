@@ -244,6 +244,9 @@ export { countResolvedFailures };
  */
 export const BACKFILL_GATE = { inFlight: false };
 
+/** ★ C416：欠账清单短缓存（10 秒），避免干跑与真补连着扫两遍。 */
+const LIST_DEBTS_CACHE = new Map();
+
 /** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
 function graphSummary(entry) {
   const cached = GRAPH_CACHE.get(entry.file);
@@ -1443,12 +1446,25 @@ function applyInner(ctx) {
             }
           })();
           const store = createPersistStore({ port: createFsPort(nodeFs), root });
-          const listed = listDebts({
-            sessionIds,
-            minEvents,
-            limit,
-            loadGraph: (id) => store.load({ id, cwd: "" }).graph,
-          });
+          // ★ C416：**干跑与真补会连着来两次**，而 `listDebts` 要把 90+ 个图各读一遍（真机单次数秒）。
+          //   这里加一个**10 秒内重用**的短缓存（键 = minEvents+limit）：
+          //   人点完「检查欠账」立即点「开始补账」时，不用再扫一遍。
+          const cacheKey = `${minEvents}:${limit}`;
+          const cached = LIST_DEBTS_CACHE.get(cacheKey);
+          const listed =
+            cached !== undefined && Date.now() - cached.at < 10_000
+              ? cached.value
+              : (() => {
+                  const value = listDebts({
+                    sessionIds,
+                    minEvents,
+                    limit,
+                    loadGraph: (id) => store.load({ id, cwd: "" }).graph,
+                  });
+                  LIST_DEBTS_CACHE.set(cacheKey, { at: Date.now(), value });
+                  return value;
+                })();
+
           // ★ C408：**可以指定要补哪几个**。原来只能"按 tail 降序取前 N 个"，
           //   想先试一个小会话验证通道都做不到（只能先碰最大的那个）。
           const wantedIds = Array.isArray(body.sessionIds) ? body.sessionIds.map(String).filter((x) => x !== "") : null;

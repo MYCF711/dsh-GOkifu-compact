@@ -324,3 +324,19 @@ tests["C408 补账可指定 sessionIds（否则只能先碰最大的那个）"] 
   // rankDebts 是 tail 降序 ⇒ 默认先补最大的；这条注释必须留着解释为什么需要 sessionIds
   t.includes(src, "按 tail 降序取前 N 个", "要写清默认排序，解释 sessionIds 的动机");
 };
+
+tests["C416 欠账清单要短缓存（干跑→真补会连着扫两遍 90+ 个图）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "LIST_DEBTS_CACHE", "必须有清单缓存（C416）");
+  t.includes(src, "Date.now() - cached.at < 10_000", "必须是短 TTL（默认 10 秒）");
+  // store 必须在缓存闭包之前声明（否则 TDZ 直接炸）
+  const storeAt = src.indexOf("const store = createPersistStore(");
+  const cacheAt = src.indexOf("LIST_DEBTS_CACHE.get(cacheKey)");
+  t.ok(storeAt > 0 && cacheAt > storeAt, "store 必须先于缓存闭包声明（否则运行时报 TDZ）");
+  // 键要含参数，否则换 limit 会拿到旧清单
+  t.includes(src, "const cacheKey = `${minEvents}:${limit}`", "缓存键必须包含 minEvents 与 limit");
+};
