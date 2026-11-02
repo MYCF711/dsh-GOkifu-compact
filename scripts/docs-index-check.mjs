@@ -30,6 +30,8 @@ export const INDEXED_DIRS = [
   { dir: "evidence", index: "README.md", label: "evidence" },
   // ★ C116：docs 根目录有 24 份设计/契约/证据文档，此前**没有索引**（新文件写了没人知道）。
   { dir: "docs", index: "README.md", label: "docs" },
+  // ★ C218：外部知识库也是文档（每小时一轮会往里加），一样要有索引，否则很快变孤儿堆。
+  { dir: "docs/knowledge", index: "README.md", label: "knowledge" },
 ];
 
 /** 列出一个目录下所有 .md（不含索引自身与子目录）。 */
