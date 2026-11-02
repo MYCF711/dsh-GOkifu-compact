@@ -25,7 +25,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { fromJSON, validate } from "../src/rooms/kifu-model.mjs";
+import { applyDelta, decodeDeltaFrames, fromJSON, sha, validate } from "../src/rooms/kifu-model.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const asJson = process.argv.includes("--json");
@@ -83,6 +83,32 @@ export function auditGraph(g) {
   return problems;
 }
 
+/**
+ * ★ C143（审查 P1-2 / P1-4）：读图必须**重放 delta** —— 运行时 `kifu-persist.load()` 就是这么干的。
+ * 只读 `graph.json` 会得到一份「过期基线」：既会把只在 delta 里的节点当成不存在（误报陈旧 md）、
+ * 也会漏掉 delta 里带 `delNodes` 的坏图（假绿）。
+ * @returns {{raw: any, graph: any, deltaFrames: number}}
+ */
+export function loadSessionGraph(graphFile) {
+  const text = nodeFs.readFileSync(graphFile, "utf8");
+  const raw = JSON.parse(text);
+  const graph = fromJSON(text);
+  let deltaFrames = 0;
+  const deltaFile = `${graphFile}.delta.jsonl`;
+  if (nodeFs.existsSync(deltaFile)) {
+    try {
+      const { frames } = decodeDeltaFrames(nodeFs.readFileSync(deltaFile, "utf8"), sha(text).slice(0, 16));
+      for (const frame of frames) {
+        applyDelta(graph, frame);
+        deltaFrames += 1;
+      }
+    } catch {
+      /* 坏帧不该让体检崩：按「无 delta」处理，问题由结构检查兜 */
+    }
+  }
+  return { raw, graph, deltaFrames };
+}
+
 /** 扫一个 sessions 目录，返回每张图的问题。 */
 export function auditRoot(sessionsDir) {
   const out = [];
@@ -90,17 +116,14 @@ export function auditRoot(sessionsDir) {
   for (const name of nodeFs.readdirSync(sessionsDir)) {
     const file = nodePath.join(sessionsDir, name, "graph.json");
     if (!nodeFs.existsSync(file)) continue;
-    const text = nodeFs.readFileSync(file, "utf8");
-    let raw;
-    let g;
+    let loaded;
     try {
-      raw = JSON.parse(text);
-      g = fromJSON(text);
+      loaded = loadSessionGraph(file);
     } catch (error) {
       out.push({ session: name, problems: [`graph.json 无法解析：${String(error?.message ?? error).slice(0, 120)}`] });
       continue;
     }
-    out.push({ session: name, problems: [...auditRawIndex(raw), ...auditGraph(g)] });
+    out.push({ session: name, problems: [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)] });
   }
   return out;
 }

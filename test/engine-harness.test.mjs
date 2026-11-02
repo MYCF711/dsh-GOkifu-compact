@@ -1971,3 +1971,22 @@ tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔�
     if ((g3.foldThrash ?? 0) !== 0) throw new Error(`间隔 >=30 事件后 thrash 必须清零，实际 ${g3.foldThrash}`);
   }
 };
+
+tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usage（伪造的账）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c143-rules-route");
+  const ctx = makeCtx({ measureTotal: () => 300_000, usage: { inputTokens: 999, outputTokens: 111 } });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, summaryMode: "rules" });
+  const session = await p22Session(ctx, "sess-c143");
+  // 制造「上一次模型调用」的残留
+  engine._lastSummaryProvider = "p";
+  engine._lastSummaryModel = "m";
+  engine._lastSummaryUsage = { inputTokens: 999, outputTokens: 111 };
+
+  const rule = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!Array.isArray(rule.summary)) throw new Error("规则摘要必须返回 summary");
+  if (engine._lastSummaryProvider !== undefined) throw new Error("规则路径必须清掉 provider（否则 foldMark.route 记的是上次的）");
+  if (engine._lastSummaryModel !== undefined) throw new Error("规则路径必须清掉 model");
+  if (engine._lastSummaryUsage !== undefined) throw new Error("规则路径必须清掉 usage（否则 lastFoldUsage 是伪造的账）");
+  if (engine._lastSummaryModelText !== undefined) throw new Error("模型文本也必须清空");
+};

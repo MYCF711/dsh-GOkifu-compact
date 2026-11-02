@@ -16,7 +16,7 @@
 
 import nodeFs from "node:fs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
-import { auditGraph, auditRawIndex } from "./graph-audit.mjs";
+import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -399,19 +399,17 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       if (!entry.isDirectory()) continue;
       const graphFile = nodePath.join(sessionsRoot, entry.name, "graph.json");
       if (!nodeFs.existsSync(graphFile)) continue;
-      let graph;
-      let raw;
-      const text = nodeFs.readFileSync(graphFile, "utf8");
+      let loaded;
       try {
-        raw = JSON.parse(text);
-        graph = fromJSON(text);
+        loaded = loadSessionGraph(graphFile);
       } catch {
         bad.push(`${entry.name.slice(0, 16)}: 无法解析`);
         continue;
       }
       scanned += 1;
       // ★ C142（审查 P1-3）：悬空 stateIndex 只能在**原始 JSON** 上查（fromJSON 会重建）
-      const problems = [...auditRawIndex(raw), ...auditGraph(graph)];
+      // ★ C143（审查 P1-4）：结构检查也必须在**重放 delta 之后**的图上做
+      const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
       if (problems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${problems[0]}`);
     }
   }
@@ -443,7 +441,9 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       if (!nodeFs.existsSync(graphFile)) continue;
       let graph;
       try {
-        graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+        // ★ C143（审查 P1-2）：必须重放 delta —— 运行时 load 会重放；只读基线会把
+        //   「只在 delta 里、其实还活着」的节点当成不存在（误报陈旧）或漏报真实缺失（假绿）。
+        graph = loadSessionGraph(graphFile).graph;
       } catch {
         continue;
       }

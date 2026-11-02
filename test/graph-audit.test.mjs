@@ -11,9 +11,22 @@ import nodePath from "node:path";
 
 import { auditGraph, auditRawIndex, auditRoot } from "../scripts/graph-audit.mjs";
 import { fromJSON } from "../src/rooms/kifu-model.mjs";
+import { createFsPort, createPersistStore } from "../src/rooms/kifu-persist.mjs";
 import { addAgentNode, addEdge, addUserNode, createGraph, settleEdge, toJSON } from "./graph-fixtures.mjs";
 
 export const tests = {};
+
+function createGoodGraphWithTwoNodes() {
+  const g = createGraph({ sessionId: "session-delta" });
+  const u = addUserNode(g, { seq: 1, text: "把测试跑绿" }).id;
+  const e1 = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)", evidence: { start: 2, end: 3 } });
+  const a1 = addAgentNode(g, { seq: 4, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
+  settleEdge(g, e1, { to: a1, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  const e2 = addEdge(g, { from: a1, intent: "再跑一次", action: "bash(npm test)", evidence: { start: 5, end: 6 } });
+  const a2 = addAgentNode(g, { seq: 7, goal: "再跑一次", worldHash: "W2", constraintHash: "C2", via: e2 }).id;
+  settleEdge(g, e2, { to: a2, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  return g;
+}
 
 function goodGraph() {
   const g = createGraph({ sessionId: "s" });
@@ -90,4 +103,40 @@ tests["C142-4 悬空 stateIndex 必须在**原始 JSON** 上查（fromJSON 会�
   // 反向确认：规范化之后的图看不到它（这正是「假守护」的成因）
   const rebuilt = fromJSON(JSON.stringify(raw));
   t.eq(Object.entries(rebuilt.stateIndex ?? {}).some(([, id]) => id === "n999"), false, "fromJSON 重建后悬空索引消失（所以必须在 raw 上查）");
+};
+
+tests["C143 delta 重放：只在 delta 里的节点不许被当成「不存在」（审查 P1-2/P1-4）"] = (t) => {
+  const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-delta-"));
+  try {
+    // 用真实 store 造一份「基线 + delta」：先落 N1，再加 N2 只追加 delta
+    const store = createPersistStore({ port: createFsPort(), root });
+    const g = createGoodGraphWithTwoNodes();
+    const base = createGraph({ sessionId: "session-delta" });
+    base.nodes = { n1: g.nodes.n1 };
+    base.order = ["n1"];
+    base.edges = {};
+    base.nextNode = 2;
+    store.flush({ id: "session-delta", cwd: "D:/tmp/proj" }, base);
+
+    // 第二版：加入 n2 与它的边，只落 delta（非 tree）
+    const full = createGoodGraphWithTwoNodes();
+    const r = store.flush({ id: "session-delta", cwd: "D:/tmp/proj" }, full, { tree: true });
+    t.eq(r.wroteDelta, true, "第二步必须走 delta 帧");
+
+    // 磁盘上 graph.json 只有 n1；nodes/ 里两个文档都在
+    const dir = nodePath.join(root, "sessions", "session-delta");
+    t.eq(nodeFs.existsSync(nodePath.join(dir, "nodes", "n2.md")), true, "n2.md 必须已写出");
+    const baseline = JSON.parse(nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8"));
+    t.eq(Object.keys(baseline.nodes).length, 1, "基线本身只该有 n1（证明 n2 只在 delta 里）");
+
+    const rows = auditRoot(root);
+    const problems = rows.find((row) => row.session === "session-delta")?.problems ?? [];
+    t.eq(problems.length, 0, `重放 delta 后不该有任何问题：${JSON.stringify(problems)}`);
+
+    // 反证：只用基线（不重放 delta）就会把 n2 当成「图里不存在」—— 正是审查 P1-2 的误报来源
+    const baselineOnly = fromJSON(nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8"));
+    t.eq(Object.keys(baselineOnly.nodes).includes("n2"), false, "基线确实看不到 n2（所以必须重放 delta）");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
 };

@@ -5,6 +5,36 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C143 · 审查剩余三条 P1：delta 重放口径、规则路径伪造的 usage、C130 循环断言
+
+**P1-2 / P1-4：doctor 与 graph-audit 不重放 delta（口径与运行时不同源）**
+
+运行时 `kifu-persist.load()` 会「基线 + 重放 delta」，而体检脚本直接 `JSON.parse(graph.json)`。
+后果两个方向都错：
+
+- **假绿**：真实缺失的节点文档报「缺失 0」（审查者实测 `5df02bf8` 缺 `nodes/n1.md`、`9d5551ed` 缺 `nodes/n78.md`）；
+- **误报**：把「只在 delta 里、其实还活着」的 md 记成「陈旧」（6 个会话、6–32 个）。
+
+修法：新增 `loadSessionGraph(graphFile)`（`graph-audit.mjs`）—— 读基线 + `decodeDeltaFrames` + `applyDelta`，
+doctor 的 3.3b（节点文档）与 3.3c（结构自洽）都改用它。测试 **C143**（graph-audit）：
+用真实 store 造「基线只有 n1、n2 只在 delta 里」⇒ 体检 **0 问题**；并反证「只看基线就看不到 n2」。
+
+**副作用（这是好事）**：doctor 立刻从 4 警变 **5 警** —— 多出来的正是上面那两个**真实缺失**的节点文档：
+
+```
+! 节点文档与棋谱一致（C110） — 2 个节点缺 nodes/<id>.md（… 5df02bf8:1 / 9d5551ed:1）
+```
+
+**P1-5：规则降级路径不清 `route/usage`（伪造的账）**
+
+`ruleResult()` 原来只清 `_lastSummaryModelText`，`_lastSummaryProvider/_Model/_Usage` 留着上一次模型调用的值；
+消费点无条件读取 ⇒ hybrid 降级后 `g.lastFoldUsage` 记的是**上一次模型调用的 usage**、并盖上当前时间，
+UI 照这个数字显示。修法：规则路径一并清空三者；测试 **C143**（engine-harness）断言三者为 `undefined`。
+
+**P1-6：C130 只断言「非占位 ≤1」**
+
+全部替换成占位也能过。现在**清理前**记下最新一条的原文，清理后**逐字比对**（否则「先 stub 再断言长度」是循环论证）。
+
 ### C142 · 独立审查抓到的 P0：**C113 把「还没落盘的变更」一起清掉了**（已修）
 
 **审查结论**（独立子代理，只读，未改文件）：**不能进「等重启验证」**，必须先修这条 P0。

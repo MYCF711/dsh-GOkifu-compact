@@ -556,6 +556,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       this._lastSummaryText = text;
       // 规则摘要是机械生成的，没有「模型自己的输出」这一层 ⇒ 显式清空，别让上一次的值串味。
       this._lastSummaryModelText = undefined;
+      // ★ C143（审查 P1-5）：**route / usage 也必须清**。消费点无条件读取
+      //   `_lastSummaryProvider/_Model/_Usage` ⇒ hybrid 降级后 `lastFoldUsage` 会记成
+      //   「上一次模型调用的 usage + 当前时间」，UI（`src/ui.mjs`）照这个数字显示 —— 纯属伪造的账。
+      this._lastSummaryProvider = undefined;
+      this._lastSummaryModel = undefined;
+      this._lastSummaryUsage = undefined;
       return {
         summary: [{ type: "text", text }],
         rawOutput: undefined,

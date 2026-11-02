@@ -472,6 +472,8 @@ tests["C130 历史清单清理的随机化不变量：只动旧 chess-context，
       otherSeqs.push(session.push({ content: [{ type: "text", text: `普通消息 ${k}` }], source: { kind: "prompt" } }));
     }
     const before = [...session.surface.nodes];
+    const latestSeqBefore = ledgerSeqs.length > 0 ? ledgerSeqs[ledgerSeqs.length - 1] : null;
+    const latestTextBefore = latestSeqBefore === null ? null : messageText(session.eventAt(latestSeqBefore)?.data ?? {});
     const elided = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
     elidedTotal += elided;
     const after = [...session.surface.nodes];
@@ -485,6 +487,14 @@ tests["C130 历史清单清理的随机化不变量：只动旧 chess-context，
       return ev?.data?.source?.kind === "chess-context" && text.length > 200;
     });
     t.eq(nonStub.length <= 1, true, `第 ${i + 1} 组还有 ${nonStub.length} 条非占位清单（应该只剩最新一条）`);
+    // ★ C143（审查 P1-6）：**最新一条必须原样保留** —— 只断言「非占位 ≤1」的话，
+    //   全部替换成占位也能过（那份最新的清单就丢了）。
+    if (latestSeqBefore !== null) {
+      // 必须在**清理前**取原文，清理后逐字比对 —— 否则「先 stub 再断言长度」是循环论证
+      t.eq(after.includes(latestSeqBefore), true, `第 ${i + 1} 组最新一条清单（${latestSeqBefore}）必须仍在 surface 上`);
+      const latestTextAfter = messageText(session.eventAt(latestSeqBefore)?.data ?? {});
+      t.eq(latestTextAfter === latestTextBefore, true, `第 ${i + 1} 组最新一条清单必须逐字未变（清理前 ${latestTextBefore.length} 字符 → 之后 ${latestTextAfter.length}）`);
+    }
     // 幂等：再跑一次不该再动
     const again = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
     t.eq(again, 0, `第 ${i + 1} 组第二次清理必须无事可做（实际 ${again}）`);

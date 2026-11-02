@@ -122,3 +122,21 @@ tests["C124 HANDOFF 顶部的「当前状态」块必须与 package.json 版本�
   t.eq(head.includes("1.17.0 候选（**未发布**，当前工作树）"), false, "顶部不许再留过期的「候选未发布」标题（它曾被当成现状）");
   t.includes(head, "唯一待办", "当前状态块必须明确「唯一待办」（重启 DSH）");
 };
+
+tests["C143-2 现行文档里的「N 警告」（doctor 警告数）也必须带时间戳 + 当次输出"] = (t) => {
+  // 与 C117 同一纪律：doctor 警告数会随 live 数据变化（本轮就因 delta 重放从 4 变 5）。
+  let seen = 0;
+  for (const rel of CHECKED_DOCS) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    const lines = read(rel).split(String.fromCharCode(10));
+    for (const [i, line] of lines.entries()) {
+      if (!/[0-9]+ 警告/.test(line)) continue;
+      seen += 1;
+      const context = [lines[i - 1] ?? "", line, lines[i + 1] ?? ""].join(" ");
+      const dated = /20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(context);
+      const live = context.includes("当次输出");
+      t.eq(dated && live, true, `${rel}:${i + 1} 的「N 警告」必须同时带时间戳与「当次输出」提示（live 数据会变）`);
+    }
+  }
+  t.eq(seen > 0, true, "至少要有一处现行文档记录 doctor 警告数（否则判据形同虚设）");
+};
