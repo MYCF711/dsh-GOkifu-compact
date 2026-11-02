@@ -1,27 +1,20 @@
 # dsh-GOkifu-compact · 交接文件
 
-## ✅ 当前状态（滚动更新，2026-11-02 16:1x 本地）
+## ✅ 当前状态（滚动更新，2026-11-03 05:1x 本地）
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.17.6**（本地，未发布）—— registry `latest` 仍是 **1.17.5**（`npm view dist-tags` 实测）；本地 tag `v1.17.1/2/3`；⛔ `git push` / GitHub Release **未执行**（`origin/main` 与本仓库无共同祖先，需主人决定历史收敛方式） |
-| ⚠️ **运行实例仍是 1.17.5** | 当前进程 pid 24944 / buildId `23339aaade89`（15:15:21 启动）；C216 只落在磁盘 —— 按 AGENTS.md 第 1 条**不由我重启**，归档收尾要重启后才生效 |
-| 代码 | 见 `git log --oneline`；本块写在 **C216** 之后 |
-| 门禁（串行） | **一条命令 `npm run gate`**（6 判分门 + 4 参考门）；明细：全量 **1072 passed / 0 skipped / 0 failed** · bench **417 tokens** / 失败保留 8/8 · **handoff-check FAIL 0 / WARN 11**（C279 修掉那条 legacy foldMark 后 FAIL 归零；C280 让越界引用分方向、WARN 18→11） · **doctor 0 错误 / 8 警告**（运行实例落后＝预期；第三方 preset；树新鲜度；「归档收尾」12 个会话点名；热清单预算 over-budget；注入动作未采集；**C220 摘要幻觉探针**；**C280 越界无方向**） · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **44 会话 / 不自洽 0**（C279 修完） |
-| ⏳ **唯一待办** | **重启后：① 复验归档收尾（C216）② 跑一次补账（backfill）** —— ① 照 `evidence/归档收尾-验证单-2026-11-02.md` 第七节（`closeout.source="archive"` / `trigger:"archive"` foldMark / 区间有序）；② `curl -s -X POST http://127.0.0.1:64349/gokifu/api -H "content-type: application/json" -d "{\"action\":\"backfill\",\"dryRun\":true}"` 看清单，去掉 `dryRun` 真补（每个会话 1 次模型调用，会走「取消归档→resume→收尾→归档回去」）。非阻塞跟进：① 4 个字段仍无样本（`renderErrors` / `budgetFloorOver` / `budgetIrreducible` / `overBySession`）；② 历史 legacy foldMark 需宿主退出后 `--repair-foldmarks`；③ git 侧 tag/Release（无共同祖先，需主人决定） |
-| 面板（1.17.6 新增） | ①「检查更新」：只读 registry，10 分钟缓存 / 失败 60s / 语义化比较 / **只拼命令不安装**；②「补做收尾」：`action:"backfill"`，先 dryRun 看清单，真补走「取消归档→resume→收尾折叠→归档回去」 |
-| 持续学习循环（2026-11-02 起） | goal「持续学习+优化」active；保底定时任务**每小时**（`schedule-6600a1e4`）。总账见 [`docs/knowledge/结论速查.md`](docs/knowledge/结论速查.md)。最近四轮：C231 已修正失败沉底 → C232 面板显示「已修正失败」→ C233 反向 foldMark 提示补「必须先退出 DSH」→ **C234 面板新增「补账」卡**（检查欠账 / 开始补账，重启后不用记 curl）。剩余可动的只有 doctor 里 3 条**等重启**的警告（运行实例版本 / 归档收尾 12 会话 / 注入动作未采集）。 |
-| 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
-| 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理；C138：foldThrash 累计/清零）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
-| 独立审查 | 已跑**两轮**（C142/C143 第一轮；C148 第二轮复审：4 条新 P1 全在诊断层，已修）· 原第一轮：P0 一条已修、**P1 六条已全部处理**（P1-1/P1-3 在 C142，P1-2/P1-4/P1-5/P1-6 在本轮）；剩余 P2 六条已记录 |
-| C146 | 活跃会话的「节点已进图、md 尚未写出」是正常中间态 ⇒ doctor 按 `graph.updatedAt` 2 分钟区分**在途**（不报警）；`applyDirtySnapshot` 过滤「创建后又删除」的 orderAppend（防回放出幽灵节点） |
-| 数据修复 | C144：`graph-audit --repair` 已补写 2 个历史缺失的 `nodes/<id>.md`（只增不删），doctor 回到 **4 警** |
-| 文档判据 | 命令/子命令（C86/C125）、检查名（C97/C98）、常量锚（C100/C101）、测试数（C117）、证据数字（C118/C119/C122/C123）、可发现性（C116/C120）、调研文引用（C121）、HANDOFF 版本（C124） |
-| 图体检 | doctor 内建「棋谱结构自洽（C140）」；另可 `node scripts/graph-audit.mjs` 手动跑（只读，四类不变量 + `index.md` 一致性）；缺文档用 `--repair`（只增不删） |
-| 最新巡检 | `evidence/巡检-第4次-2026-11-02.md`（代码侧 **883 passed / 415 tokens / 0 错 4 警 / 26 会话 0 不自洽 / 命令矩阵 12 条 10 绿 2 预期红 / live 完整性 4,780 节点零缺失**；live 仍旧进程；含「为何停手守夜」三条）；第 3 次见 `evidence/巡检-第3次-2026-11-02.md` |
-| 发布核对 | `evidence/发布核对-2026-11-02.md`（本地 **1.17.1** vs registry **1.16.0**；无 `v1.17.*` tag；三步命令 + 逐步回滚；**未执行** publish/tag/push） |
-| 人读总览 | `evidence/持续优化-总览-2026-11-02.md`（**C1–C170 的 2 分钟版**：六条线 + 剩余待办；当次数字与 HANDOFF 同源） |
-| 怎么读这份文件 | 本块 = 现状；下面的是**追加日志**（C1 → C124，旧在上、新在下），只用于查「某个改动为什么这么写」。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` → `docs/落盘与回滚不变量.md` |
+| 版本 | **1.17.6**（本地未发布）。v1.17.4 / 1.17.5 / 1.17.6 **均未打 tag**；`npm run gate` 末尾会直接给出可照抄的 `git tag -a … && git push`（C324） |
+| ⚠ **运行实例跑的是旧代码** | buildId 与磁盘不一致；**面板路由当前不存在**（扫遍 30 个本地端口，无一个响应 `/gokifu/api`）⇒ **需重启**。按 AGENTS.md 第 1 条，重启不由我执行 |
+| 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
+| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**（新增「发布说明漂移」，C355）。全量 **1101 passed / 0 failed**；handoff-check **FAIL 0 / WARN 18**；doctor **0 错 / 13 警**；boundary-audit **0 条** |
+| 真机实测基准（新） | 命中率 **97.6%**（27,216 次请求 / 113 会话，C362）· 全量花费 ≈ **$59.9**，**最贵 5 个会话占 55%**（C363）· 上下文曲线是**锯齿**（4,030 次请求 18 次回落，max 799,847；C364）· 一次 fold 中位 **11.7s** / p90 **19.0s**（C368） |
+| 补账（待重启执行） | `node scripts/backfill-plan.mjs`：约 **46–47 个欠账 / 10.3M tok / $1.65 / 82 段 / 约 16 分钟**；**3 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 218348` 或调大 `closeoutTimeoutMs`（C368/C343） |
+| 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册 |
+| 实验室工具（本轮新增） | `session-scan`（逐帧解 zstd 会话）· `cache-rate`（命中率 + `--by-session` 算钱）· `context-curve`（锯齿曲线）· `token-calib`（与官方比例对照）· `release-notes-drift`（发布说明漂移）· `backfill-plan`（钱/点击/耗时） |
+| ⏳ 唯一待办 | **重启 DSH**，然后 `node scripts/accept-after-restart.mjs` 验收（应给 `ready`），再按 `backfill-plan` 补账（建议先把 `closeoutMaxFoldTokens` 调到 ≈218348，避免 3 个会话超时） |
+| 未结案候选 | **K-20**（token 比例标定：实测端到端只差 1.07× ⇒ 降级）· **K-22**（两个「上下文大小」不是一个数 + 800k 台阶；证据已在 C366 埋好，重启后第一次 fold 即可对账） |
+| 怎么读这份文件 | 本块 = 现状；下面是**追加日志**（旧在上、新在下）。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` |
 
 ---
 

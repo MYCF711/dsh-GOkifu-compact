@@ -279,9 +279,9 @@ tests["C305 进度页现状摘要必须与实测同步（门禁门数、测试�
   const doc = read("docs/knowledge/进度.md");
   const head = doc.slice(0, doc.indexOf("\n## 第"));
   t.includes(head, "npm run gate", "必须指向唯一验证入口");
-  t.includes(head, "4 参考门", "参考门数量要写对（C303 起是 4 条）");
-  t.includes(head, "1072 passed", "全量测试数必须是当前值");
-  t.includes(head, "$0.83", "欠账花费要写实测值");
+  t.includes(head, "5 参考门", "参考门数量要写对（C355 起是 5 条）");
+  t.includes(head, "1101 passed", "全量测试数必须是当前值");
+  t.includes(head, "$1.65", "欠账花费要写实测值（C368 起为 $1.65）");
   t.includes(head, "别看启动时间戳", "必须提醒启动戳不可信（C293）");
   // C304 的结论要保留：输出不是摘要，但不值得专门优化
   t.includes(head, "不值得专门去优化", "要把「不值得追」的判断写下来，防止下一个人重复折腾");
