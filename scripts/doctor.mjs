@@ -1036,7 +1036,10 @@ add(
     .map(
       (x) =>
         `${String(x.session).slice(0, 18)}: 尾巴 ${x.closeout.eventsSinceLastFold} 事件 · ${x.closeout.source ?? "?"} · ` +
-        `${x.archiveFold ? "已补折" : Number(x.closeout?.chunkedFolded) > 0 ? `分段折了 ${x.closeout.chunkedFolded} 段` : "未补折"}`,
+        // ★ C391：**不要把「没有 archive foldMark」当成异常**。真机实测（2026-11-03）：
+        //   归档时 `closeout.source="archive"` **都**会记下，但折叠跑不了 —— 归档会话没有 agent，
+        //   宿主的压缩只对 idle agent 生效 ⇒ 正确的后续动作是**补账**（cancel archive → resume → 折 → 再归档）。
+        `${Number(x.closeout?.chunkedFolded) > 0 ? `分段折了 ${x.closeout.chunkedFolded} 段` : x.archiveFold ? "已折" : "待补账"}`,
     )
     .join(" · ");
   // ★ C379：把「补账该怎么做」指到一条命令（金额 / 点击次数 / 超时风险都在那里算）。

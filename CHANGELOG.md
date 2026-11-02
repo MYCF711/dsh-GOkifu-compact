@@ -4,6 +4,7 @@
 |---|---|
 | C387 | 摘要「成功但空白」必须抛错（JSON Output 陷阱） |
 | C388 | 重启后检查工具端口写死 64349（改用心跳端口） |
+| C391 | 归档收尾真机验证：信号通了，但「归档即折叠」做不到 |
 | C390 | 面板显示「今日被截断的折叠」+ 学了 Search/Fetch |
 | C389 | 能力探针把 `error: null` 当成错误 |
 | C386 | 验收命令顺带给出补账摘要 |
@@ -479,6 +480,18 @@
 
 真机：重启后 GUI 换到 **56319**，而 `post-restart-check --api` 还在探 64349 ⇒ 误报「面板不可达」。
 现按 **`--port` > 心跳 `ui-route.json` 里的端口 > 64349** 的顺序取。
+
+### C391 · 归档收尾真机验证：信号通了，但「归档即折叠」做不到
+
+真机（`session-ad38cf8c`）：`closeout.source = "archive"` ✅、`eventsSinceLastFold = 1720` ✅；
+但 **无** `trigger:"archive"` foldMark、**无** `chunkedFolded`、**无** `externalFolds`。
+
+原因（已核实）：归档会话没有 agent，宿主压缩只对 idle agent 生效 ⇒ 折叠跑不了；正确通道是**补账**。
+
+- 验证单追加「验证结果」一节（四行对照 + 为什么 + 正确的两条判据）；
+- `doctor` 不再把「没有 archive foldMark」当异常，改显示「待补账」。
+
+**教训**：先确认“这件事能不能发生”，再把它写进验收判据。
 
 ### C390 · 面板显示「今日被截断的折叠」+ 学了 Search/Fetch
 
