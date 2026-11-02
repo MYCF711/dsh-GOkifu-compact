@@ -32,3 +32,4 @@ tests["C303 白名单必须写明理由（否则会变成「把重复藏起来�
     t.eq(typeof why === "string" && why.length > 0, true, `白名单 ${key} 必须写理由`);
   }
 };
+
