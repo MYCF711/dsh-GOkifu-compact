@@ -18,6 +18,7 @@
 | 图体检 | doctor 内建「棋谱结构自洽（C140）」，另可 `node scripts/graph-audit.mjs` 手动跑（只读） |
 | 旧图体检入口 | `node scripts/graph-audit.mjs`（只读；四类不变量逐会话体检，live 24 会话 0 不自洽） |
 | 最新巡检 | `evidence/巡检-第3次-2026-11-02.md`（七道门禁 + verify-install 19/19 + 重启前后差异表） |
+| 发布核对 | `evidence/发布核对-2026-11-02.md`（本地 **1.17.1** vs registry **1.16.0**；无 `v1.17.*` tag；三步命令 + 逐步回滚；**未执行** publish/tag/push） |
 | 人读总览 | `evidence/持续优化-总览-2026-11-02.md`（120 条 C 轮的 2 分钟版：六条线 + 剩余待办） |
 | 怎么读这份文件 | 本块 = 现状；下面的是**追加日志**（C1 → C124，旧在上、新在下），只用于查「某个改动为什么这么写」。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` → `docs/落盘与回滚不变量.md` |
 
