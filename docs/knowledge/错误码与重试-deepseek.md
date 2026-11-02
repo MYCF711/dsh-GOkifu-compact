@@ -37,3 +37,18 @@
 
 > 官方对 429 和对 5xx 的处置**不是一回事**（一个是节奏、一个是瞬时）。
 > 我们现在用同一套退避对两种错 —— 这不是 bug，但是**没吃到这条信息**。
+
+## ★ 官方错误码全表（**已核实**，2026-11-03 抓 <https://api-docs.deepseek.com/quick_start/error_codes>）
+
+| 码 | 含义 | 官方给的做法 | 我们该怎么判 |
+|---|---|---|---|
+| 400 | Invalid Format（请求体格式错） | 按提示改请求 | **永久**，重试没用 |
+| 401 | Authentication Fails | 检查 API key | **永久** |
+| 402 | Insufficient Balance | 去充值 | **永久** |
+| **422** | **Invalid Parameters** | 按提示改参数 | **永久**（旧版漏了这一条，会白重试） |
+| 429 | Rate Limit Reached | 放慢请求节奏 | **可重试**（退避） |
+| 500 | Server Error | 稍后重试 | **可重试** |
+| 503 | Server Overloaded | 稍后重试 | **可重试** |
+
+⇒ `isPermanentSummaryError`（C349）先排除 429/500/503，再把 400/401/402/422 判永久，
+并按文案兜底（invalid format / invalid parameters / authentication fails / insufficient balance / invalid api key）。

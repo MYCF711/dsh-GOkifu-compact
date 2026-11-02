@@ -2734,3 +2734,32 @@ tests["C328 差分只挑新出现的 id（取消归档后再归档也要能被�
   if (diff(new Set(), ["x"]).length !== 1) throw new Error("空基线要全挑出来");
   if (diff(new Set(["x"]), ["x"]).length !== 0) throw new Error("没变化不该挑");
 };
+
+tests["C349 永久错误判定：400/401/402/422 永久；429/500/503 官方说稍后重试 ⇒ 必须可重试"] = async () => {
+  const { mod } = await load();
+  const f = mod.isPermanentSummaryError;
+  if (typeof f !== "function") throw new Error("必须导出 isPermanentSummaryError");
+
+  // 永久（重试没用）
+  for (const msg of [
+    "Error 400: invalid format",
+    "401 Authentication Fails",
+    "402 Insufficient Balance",
+    "422 Invalid Parameters: messages[3].role is not allowed",
+  ]) {
+    if (f(msg) !== true) throw new Error(`应判永久：${msg}`);
+  }
+
+  // 可重试（官方 Solution 写的是"稍后重试"）
+  for (const msg of [
+    "429 Rate Limit Reached",
+    "500 Server Error",
+    "503 Server Overloaded",
+    "request timeout after 90000ms",
+  ]) {
+    if (f(msg) !== false) throw new Error(`不该判永久：${msg}`);
+  }
+
+  // 空值
+  if (f("") !== false || f(null) !== false) throw new Error("空值必须 false");
+};

@@ -170,8 +170,14 @@ export function newlyArchived(previous, current) {
 export function isPermanentSummaryError(message) {
   const text = String(message ?? "");
   if (text === "") return false;
-  return /(^|[^0-9])(400|401|402)([^0-9]|$)/.test(text)
+  // ★ C349：官方错误码表（<https://api-docs.deepseek.com/quick_start/error_codes>，2026-11-03 抓）：
+  //   400 请求格式错 / 401 鉴权失败 / 402 余额不足 / **422 参数非法** ⇒ **都是永久的**，重试没用；
+  //   429 限流 / 500 服务错 / 503 过载 ⇒ 官方明说"稍后重试"，**不能**判成永久。
+  //   旧版漏了 422（"invalid parameters"），遇到会白白重试到上限。
+  if (/(^|[^0-9])(429|500|503)([^0-9]|$)/.test(text)) return false; // 先排除可重试的，防误伤
+  return /(^|[^0-9])(400|401|402|422)([^0-9]|$)/.test(text)
     || /invalid format/i.test(text)
+    || /invalid parameters/i.test(text)
     || /authentication fails?/i.test(text)
     || /insufficient balance/i.test(text)
     || /invalid api key/i.test(text);
