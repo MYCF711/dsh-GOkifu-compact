@@ -1890,13 +1890,21 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       shadowedTokens: range?.shadowedTokens ?? null,
     });
     const summaryUsage = this._lastSummaryUsage ?? null;
-    const summaryRoute = { provider: this._lastSummaryProvider ?? null, model: this._lastSummaryModel ?? null };
+    // ★ C398：**先取出来再清**。真机（2026-11-03 20:24）实测：这次 pressure 折叠**用了模型**（
+    //   route=magpie/deepseek-v4.1-flash1017），但 foldMark.usage.model 是 **null** —— 因为下面那个 if 块在
+    //   构造 foldMark **之前**就把 `_lastSummaryModel` 清了（与 C321 同一类：先清后读 = 永远 null）。
+    const summaryProvider = this._lastSummaryProvider ?? null;
+    const summaryModel = this._lastSummaryModel ?? null;
+    // ★ C398：自动折叠路径**一直没有 finishReason 字段**（C321 只加到了 recordFoldMark）。
+    //   这里一起补上，并预先取出（就在下面被清）。
+    const summaryFinishReason = this._lastSummaryFinishReason ?? null;
+    const summaryRoute = { provider: summaryProvider, model: summaryModel };
     this._lastSummaryMode = undefined;
     if (this._lastSummaryUsage !== undefined) {
       g.lastFoldUsage = {
         ...this._lastSummaryUsage,
-        provider: this._lastSummaryProvider ?? null,
-        model: this._lastSummaryModel ?? null,
+        provider: summaryProvider,
+        model: summaryModel,
         at: Date.now(),
       };
       this._lastSummaryUsage = undefined;
@@ -1921,6 +1929,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       thresholdTokens: this._foldDiag?.thresholdTokens ?? null,
       windowTokens: this._foldDiag?.windowTokens ?? null,
       foldCount: g.foldCount,
+      // ★ C398：截断仪器（C317–C321）之前只装在 recordFoldMark 那条路上；自动折叠这里也要记。
+      finishReason: summaryFinishReason,
       route: summaryRoute,
       fallback: summaryMode === "rules" ? "rules" : null,
       ms: Math.max(0, Date.now() - foldStartedAt),
@@ -1930,8 +1940,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   `inputTokens/outputTokens/totalTokens/cacheReadTokens`，**没有 model** ——
         //   于是 C345 的"按实际模型计价"在面板上永远回落到 flash（跑 Pro 就低报 4 倍）。
         //   这里补上，让成本卡能真的按模型算。
-        provider: this._lastSummaryProvider ?? null,
-        model: this._lastSummaryModel ?? null,
+        provider: summaryProvider,
+        model: summaryModel,
         // ★ C237：我们自己的指令（facts + 模板）占多少 token —— 用它来回答「fold 输入里有多少是我们加的」。
         //   实测（session-1e82afca 一次 231k 的 fold）：指令 3,996 tok = **1.7%**，其余全是宿主送进来的消息。
         //   没有这个字段，每次讨论"输入/遮蔽 = 1.4"都会重新猜一遍。

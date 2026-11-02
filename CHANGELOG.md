@@ -4,6 +4,7 @@
 |---|---|
 | C387 | 摘要「成功但空白」必须抛错（JSON Output 陷阱） |
 | C388 | 重启后检查工具端口写死 64349（改用心跳端口） |
+| C398 | 真机新折叠暴露：model 为 null、finishReason 字段缺失 |
 | C397 | doctor 点名「心跳被无服务进程覆盖」 |
 | C396 | 字段级探针 + 无服务进程不再覆盖心跳（C395+C396） |
 | C394 | `update` 新增 relation：区分「已最新 / 本地更新 / 查不到」 |
@@ -485,6 +486,17 @@
 
 真机：重启后 GUI 换到 **56319**，而 `post-restart-check --api` 还在探 64349 ⇒ 误报「面板不可达」。
 现按 **`--port` > 心跳 `ui-route.json` 里的端口 > 64349** 的顺序取。
+
+### C398 · 真机新折叠暴露：model 为 null、finishReason 字段缺失
+
+重启后第一次 pressure 折叠（`session-c0a5847a`，8.7s）用了模型（route=magpie/deepseek-v4.1-flash1017），但 `usage.model = null`、`finishReason` 字段根本不存在。
+
+- **model null**：清零语句在**构造 foldMark 之前**就把 `_lastSummaryModel` 置 undefined（与 C321 同类）；
+- **finishReason 缺失**：C321 只把它加到了 `recordFoldMark`（手动/外部那条路），自动路径从未写。
+
+修：先取 `summaryProvider/summaryModel/summaryFinishReason` 三个局部变量（清之前），同时填 `lastFoldUsage` 与 `foldMark.usage`，并把 `finishReason` 补进自动 foldMark。守卫 `engine-harness` C398（结构断言，不钉单行）。
+
+**教训**：同一个错误可以被犯第二次 —— 守卫要钉**结构**，不是钉某一行。
 
 ### C397 · doctor 点名「心跳被无服务进程覆盖」
 

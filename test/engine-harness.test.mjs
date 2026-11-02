@@ -2859,3 +2859,18 @@ tests["C387 摘要「成功但空白」必须抛错（官方：JSON Output 可�
   if (useAt < 0) throw new Error("找不到守卫之后的摘要使用点（判据可能已漂移）");
   t.eq(guardAt < useAt, true, "守卫必须在装配最终摘要之前");
 };
+
+tests["C398 自动折叠必须记 model 与 finishReason（真机实测两者都是 null）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  // 必须先取局部变量再清（与 C321 同类：先清后读 = 永远 null）
+  t.includes(src, "const summaryModel = this._lastSummaryModel ?? null;", "必须先取出 model（C398）");
+  t.includes(src, "const summaryFinishReason = this._lastSummaryFinishReason ?? null;", "必须先取出 finishReason（C398）");
+  // foldMark 里要真的写 finishReason
+  const pushAt = src.indexOf("g.foldMarks.push({");
+  const blockEnd = src.indexOf("});", src.indexOf("finishReason:", pushAt));
+  if (pushAt < 0 || blockEnd < 0) throw new Error("找不到自动 fold 的 foldMark 构造");
+  const block = src.slice(pushAt, blockEnd);
+  t.includes(block, "finishReason: summaryFinishReason", "自动 foldMark 必须写 finishReason（C398）");
+  t.includes(block, "model: summaryModel", "usage 里必须写 summaryModel（不是再读字段）");
+  t.eq(/provider: this\._lastSummaryProvider \?\? null,\s*\n\s*model: this\._lastSummaryModel/.test(block), false, "不许在构造里再读已被清空的字段");
+};

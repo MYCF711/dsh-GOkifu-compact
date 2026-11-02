@@ -296,8 +296,9 @@ tests["C346 成本聚合必须按每个 fold 自己的模型计价（usage 里�
   const { fileURLToPath } = await import("node:url");
   const here = nodePath.dirname(fileURLToPath(import.meta.url));
   const engine = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
-  t.includes(engine, "model: this._lastSummaryModel ?? null", "usage 里必须写 model（C346）");
-  t.includes(engine, "provider: this._lastSummaryProvider ?? null", "usage 里也要写 provider");
+  // ★ C398 起写法变了：先取局部变量再写进 usage（先清后读会永远 null）。
+  t.eq(engine.includes("model: summaryModel") || engine.includes("model: this._lastSummaryModel ?? null"), true, "usage 里必须写 model（C346/C398）");
+  t.eq(engine.includes("provider: summaryProvider") || engine.includes("provider: this._lastSummaryProvider ?? null"), true, "usage 里也要写 provider（C346/C398）");
 };
 
 tests["C361 真机 usage 的 inputTokens 是「未命中」：成本必须按 miss+hit+out 算"] = async (t) => {
