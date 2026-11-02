@@ -2666,3 +2666,13 @@ tests["C309 planChunkedCloseout：给一张图，直接算出要折成几段（�
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("planChunkedCloseout(graph, {") ) throw new Error("引擎必须走统一入口，并把可配的单段上限定进去（C316）");
 };
+
+tests["C319 摘要终止原因必须从 assembler.finish 读（raw 是块数组，不是响应对象）"] = () => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  if (!src.includes("return assembler.finish;")) throw new Error("必须从 assembler.finish 读终止原因（C319）");
+  // 关键：不许再在 raw（= assembler.blocks() 的块数组）上读 stopReason —— 那永远读不到
+  if (/this\._lastSummaryFinishReason =[\s\S]{0,200}raw\?\.stopReason/.test(src)) {
+    throw new Error("不可以在 raw 上读 stopReason —— raw 是块数组（C319）");
+  }
+  if (!src.includes("finishRaw?.kind")) throw new Error("要归一化 { kind } 形状");
+};

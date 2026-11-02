@@ -40,6 +40,20 @@ zStopReason = z.union([z.literal("end_turn"), z.literal("max_tokens"),
 ⇒ **字段名是 `stopReason`**，**截断是 `stopReason === "max_tokens"`** —— 不是 `finish_reason === "length"`。
 `length` 只是部分 provider 适配层的原始口径，仍作兜底保留。
 
+## 4.5 第二层错：`raw` 不是响应对象（**已核实**，C319）
+
+C317/C318 都在 `raw` 上读终止原因。但引擎里 `const raw = assembler.blocks();` ——
+**`raw` 是块数组**，在它上面读任何 `stopReason`/`finish_reason` 都永远是 `undefined`。
+
+宿主真正的入口是 assembler 上的两个 getter（asar 原文）：
+
+```js
+get usage() { return this.assembler.usage; }              // 我们一直在用
+get finish() { return this.assembler.finish; }            // 「Terminal reason, defaulting to stop when the stream omitted one」
+```
+
+⇒ 正确写法：`assembler.finish`，形状可能是字符串也可能是 `{ kind }`，两种都归一化（C319）。
+
 ## 5. 还没验的（**待核实**）
 
 - 截断发生率有多高 —— 本机 56 条 foldMark **全部没有该字段**（都是 C317 之前的），所以现在只能报"未采集"；

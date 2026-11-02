@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C319 | 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读 |
 | C318 | 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens` |
 | C317 | 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测" |
 | C316 | `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案） |
@@ -396,6 +397,24 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C319 · 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读
+
+C317 猜 `finish_reason`、C318 改 `stopReason` —— 都不对：引擎里 `const raw = assembler.blocks()`，
+**`raw` 是块数组**，在它上面读任何字段都永远 `undefined`。
+
+asar 里的类定义给出正解：
+
+```js
+get usage()  { return this.assembler.usage; }   // 我们一直在用
+get finish() { return this.assembler.finish; }  // Terminal reason, defaulting to stop
+```
+
+- 改从 `assembler.finish` 读，字符串与 `{ kind }` 两种形状归一化；删掉 `raw.*` 那一串噪音兜底；
+- 测试 `engine-harness` C319：必须从 `assembler.finish` 读、**不许**在 `raw` 上读、要归一化 `{ kind }`。
+
+**三轮才对的教训**：猜字段名（错）→ 猜对名字但猜错**载体**（仍错）→ **读宿主类定义**（对）。
+**「在哪读」比「读什么」更容易错，而它只能靠看源码确定。**
 
 ### C318 · 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens`
 

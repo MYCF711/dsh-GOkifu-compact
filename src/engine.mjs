@@ -1320,14 +1320,27 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // ★ C318：宿主的真实字段是 **`stopReason`**（实测 app.asar 里 `zStopReason = end_turn|max_tokens|max_turn_requests|refusal|cancelled`），
     //   不是 OpenAI 风格的 `finish_reason`。截断判断因此是 **`stopReason === "max_tokens"`**。
     //   仍然保留了 finish_reason / finishReason 等形状的兜底 —— 万一某些 provider 适配层透传原始值。
-    this._lastSummaryFinishReason =
-      raw?.stopReason ??
-      raw?.stop_reason ??
-      raw?.finish_reason ??
-      raw?.finishReason ??
-      raw?.choice?.finish_reason ??
-      raw?.message?.finishReason ??
-      null;
+    // ★ C319：上一版读 `raw` 是错的 —— `raw` 是 `assembler.blocks()`（**块数组**），不是响应对象，
+    //   在它上面读 stopReason 永远拿不到。宿主真正的入口是 assembler 上的两个 getter：
+    //     `get usage()`  → 我们一直在用的 `assembler.usage`
+    //     `get finish()` → 「Terminal reason, defaulting to stop when the stream omitted one」
+    //   形状可能是字符串，也可能是 `{ kind }`；两种都归一化。
+    const finishRaw = (() => {
+      try {
+        return assembler.finish;
+      } catch {
+        return null;
+      }
+    })();
+    const finishNormalized =
+      typeof finishRaw === "string"
+        ? finishRaw
+        : typeof finishRaw?.kind === "string"
+          ? finishRaw.kind
+          : typeof finishRaw?.reason?.kind === "string"
+            ? finishRaw.reason.kind
+            : null;
+    this._lastSummaryFinishReason = finishNormalized;
     this.#markFoldMode(g, mode);
     return {
       summary,
