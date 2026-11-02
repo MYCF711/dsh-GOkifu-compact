@@ -26,6 +26,7 @@
 | 上下文工程**四类策略** | [`上下文工程四类策略-外部资料.md`](./上下文工程四类策略-外部资料.md) | write/select/compress/isolate —— 我们占三格（都更硬），isolate 属宿主 |
 | 提示词压缩（LLMLingua） | [`提示词压缩-LLMLingua.md`](./提示词压缩-LLMLingua.md) | token 级删字 vs 我们的结构压缩；它把「压缩比 + 保真」成对报 ⇒ 立 K-12 |
 | Building effective agents（官方） | [`构建有效agent-外部资料.md`](./构建有效agent-外部资料.md) | workflow/agent/evaluator 三种角色我们各占哪一格；「复杂度要挣来」= 候选表先证伪再动手 |
+| Agent 记忆综述（arXiv） | [`agent记忆综述-外部资料.md`](./agent记忆综述-外部资料.md) | 记忆是自演化的基础；**评测是独立一环** ⇒ 我们缺「抗干扰」维度（K-6 的验收口径） |
 | 本机实测基线 | [`性能基线.md`](./性能基线.md) | `renderLedger` / `loadSessionGraph` / 图规模的实测数字（改性能前先看这个） |
 
 ## 纪律（写给未来的自己）
