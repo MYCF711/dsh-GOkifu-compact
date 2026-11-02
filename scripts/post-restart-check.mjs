@@ -154,6 +154,64 @@ function runBoundaryFindings() {
  * 失败一律判 **warn**（面板 API 不可达不等于插件坏了，可能只是端口变了）。
  * @returns {Promise<{level:string, detail:string}>}
  */
+/**
+ * ★ C294：**能力探针** —— 直接问面板「你认识这些新 action 吗」。
+ *
+ * 为什么需要：`build.json` 的启动戳可能是**已死进程**留下的（C293），buildId 也只能说明
+ * "磁盘变了"，说明不了"进程里跑的是哪一版"。唯一可靠的是**问它做得到什么**。
+ * 实测（2026-11-02）：live 面板认识 models / defaults / health，却不认识 update / backfill ⇒
+ * 内存里那份模块比磁盘旧。这条探针就是把这件事实变成一行结论。
+ *
+ * @param {Array<{action:string, body?:object}>} probes
+ * @param {{port?:number, timeoutMs?:number}} options
+ * @returns {Promise<{level:string, detail:string, known:string[], unknown:string[]}>}
+ */
+export async function checkPanelCapabilities(
+  probes = [{ action: "update" }, { action: "backfill", body: { dryRun: true } }],
+  { port = 64349, timeoutMs = 3000 } = {},
+) {
+  const url = `http://127.0.0.1:${port}/gokifu/api`;
+  const known = [];
+  const unknown = [];
+  for (const probe of probes) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: probe.action, ...(probe.body ?? {}) }),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      const saidUnknown = typeof json?.error === "string" && json.error.includes("未知 action");
+      if (saidUnknown) unknown.push(probe.action);
+      else known.push(probe.action);
+    } catch {
+      return { level: "warn", detail: `面板不可达（端口 ${port}）：${probe.action} 探不了`, known, unknown };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (unknown.length === 0) {
+    return { level: "ok", detail: `面板认识全部 ${known.length} 个新 action（${known.join(" / ")}）⇒ 跑的是新代码`, known, unknown };
+  }
+  return {
+    level: "warn",
+    detail:
+      `面板不认识 ${unknown.length} 个新 action（${unknown.join(" / ")}）⇒ **内存里那份模块比磁盘旧**，` +
+      `需要重启才生效（认识的：${known.length > 0 ? known.join(" / ") : "无"}）`,
+    known,
+    unknown,
+  };
+}
+
 export async function checkBackfillApi({ port = 64349, timeoutMs = 3000 } = {}) {
   const url = `http://127.0.0.1:${port}/gokifu/api`;
   const controller = new AbortController();
@@ -247,6 +305,9 @@ export async function main(argv = process.argv.slice(2)) {
     const portArg = getArg("port", "64349");
     const api = await checkBackfillApi({ port: Number(portArg) || 64349 });
     result.checks.push({ id: "backfill-api", name: "面板补账接口（dryRun）", level: api.level, detail: api.detail });
+    // ★ C294：能力探针 —— 唯一能证明"进程里跑的是新代码"的东西
+    const caps = await checkPanelCapabilities(undefined, { port: Number(portArg) || 64349 });
+    result.checks.push({ id: "panel-caps", name: "面板能力探针（update / backfill）", level: caps.level, detail: caps.detail });
     result.ok = result.checks.every((c) => c.level !== "fail");
   }
   const findings = runBoundaryFindings();

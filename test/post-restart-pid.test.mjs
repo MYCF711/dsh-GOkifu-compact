@@ -18,3 +18,12 @@ tests["C293 pid 探活：活着的进程 true、死的 pid false、坏值 null"]
   t.eq(pidAlive(Number.NaN), null, "NaN 不是合法 pid");
   t.eq(pidAlive(1.5), null, "非整数不是合法 pid");
 };
+
+tests["C294 能力探针：未知 action 必须判「内存里那份模块比磁盘旧」"] = async (t) => {
+  const mod = await import("../scripts/post-restart-check.mjs");
+  t.eq(typeof mod.checkPanelCapabilities, "function", "必须导出 checkPanelCapabilities");
+  // 不可达端口 ⇒ warn（不许抛，也不许判 ok）
+  const down = await mod.checkPanelCapabilities(undefined, { port: 1, timeoutMs: 300 });
+  t.eq(down.level, "warn", "面板不可达必须 warn");
+  t.includes(down.detail, "不可达", "要说清是端口不可达");
+};
