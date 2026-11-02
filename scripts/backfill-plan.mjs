@@ -62,6 +62,10 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
     chunks += Number.isFinite(row.chunks) && row.chunks > 0 ? row.chunks : 1;
   }
   const rounds = chunks === 0 ? 0 : Math.ceil(chunks / Math.max(1, maxChunks));
+  // ★ C342：真正的调度单位是**每次点击最多 20 个会话**（DEFAULT_LIMIT），不是一个"6 段一轮"。
+  //   另外：单会话一次最多折 6 段，`requiredChunks > 6` 的会话**一次点击补不完**。
+  const multiPass = (rows ?? []).filter((r) => Number(r?.requiredChunks) > maxChunks).length;
+  const clicks = (rows ?? []).length === 0 ? 0 : Math.ceil((rows ?? []).length / 20);
   // 每一段折叠都要付一次输入（该段 token）+ 一次摘要输出
   const costUsd = (tokens / 1_000_000) * coldInputPerMTok + (chunks * SUMMARY_OUTPUT_TOKENS / 1_000_000) * OUTPUT_PER_MTOK;
   return {
@@ -72,6 +76,8 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
     tokens,
     chunks,
     rounds,
+    clicks,
+    multiPass,
     costUsd: Math.round(costUsd * 100) / 100,
     rows: rows ?? [],
   };
@@ -150,6 +156,13 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
       estTokens: Number.isFinite(debt.estTokens) ? debt.estTokens : null,
       tokensPerEvent: Number.isFinite(debt.tokensPerEvent) ? debt.tokensPerEvent : null,
       chunks: planned?.chunks?.length ?? 1,
+      // ★ C342：**需要**多少段（不截断）vs **一次最多**给 6 段 —— 前者大于 6 的会话一次补不完
+      requiredChunks: (() => {
+        const est = Number.isFinite(debt.estTokens) ? debt.estTokens : null;
+        const per = Number(debt.tokensPerEvent);
+        if (est === null || !Number.isFinite(per) || per <= 0) return null;
+        return Math.max(1, Math.ceil(est / maxTokens));
+      })(),
     });
   }
   rows.sort((a, b) => (b.estTokens ?? -1) - (a.estTokens ?? -1));
@@ -190,8 +203,15 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (rounds.length > 6) console.log(`  …共 ${rounds.length} 轮`);
   console.log(
-    `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段 ⇒ **约 ${plan.rounds} 轮**（每轮最多 6 段）` +
+    `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段` +
       ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,
+  );
+  console.log(
+    `调度口径：面板**每次点击最多 ${20} 个会话**、每个会话一次最多折 ${6} 段` +
+      ` ⇒ 约 **${plan.clicks} 次点击**；` +
+      (plan.multiPass > 0
+        ? `其中 **${plan.multiPass} 个会话超过 6 段、一次补不完**（要重复点或调大 closeoutMaxFoldTokens）`
+        : `没有会话超过 6 段`),
   );
   return 0;
 }

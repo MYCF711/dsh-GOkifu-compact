@@ -88,3 +88,21 @@ tests["C341 planRounds：按段数贪心装箱，每轮不超上限，大尾巴�
   // 空输入
   t.eq(planRounds([]), [], "空输入 ⇒ 空批次");
 };
+
+tests["C342 调度口径：按「每次点击 20 个会话」算点击数，并点出「一次补不完」的会话"] = async (t) => {
+  const { summarizePlan } = await import("../scripts/backfill-plan.mjs");
+  const mk = (n, extra = {}) => Array.from({ length: n }, (_, i) => ({ sessionId: `s${i}`, tail: 100, estTokens: 200000, chunks: 2, requiredChunks: 2, ...extra }));
+
+  t.eq(summarizePlan(mk(0)).clicks, 0, "空计划 0 次点击");
+  t.eq(summarizePlan(mk(1)).clicks, 1, "1 个会话 1 次");
+  t.eq(summarizePlan(mk(20)).clicks, 1, "正好 20 个 ⇒ 1 次");
+  t.eq(summarizePlan(mk(21)).clicks, 2, "21 个 ⇒ 2 次");
+  t.eq(summarizePlan(mk(46)).clicks, 3, "46 个 ⇒ 3 次（真机就是这个量级）");
+
+  // requiredChunks > 6 的会话要点出来（一次点击补不完）
+  const rows = [...mk(2), { sessionId: "huge", tail: 100, estTokens: 2_000_000, chunks: 6, requiredChunks: 14 }];
+  const plan = summarizePlan(rows);
+  t.eq(plan.multiPass, 1, "只有那一个超大会话算 multiPass");
+  // requiredChunks 缺失时不许误报
+  t.eq(summarizePlan([{ sessionId: "x", tail: 1, estTokens: 1, chunks: 1 }]).multiPass, 0, "缺字段不误报");
+};
