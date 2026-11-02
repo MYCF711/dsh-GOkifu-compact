@@ -54,7 +54,8 @@ const home = process.env.DSH_HOME && process.env.DSH_HOME.length > 0 ? process.e
 const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
 
 const { fromJSON } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "kifu-model.mjs")).href);
-const { renderLedger, renderFacts, isDanglingResidue } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "ledger.mjs")).href);
+const { renderLedger, renderMinimalLedger, renderFacts, isDanglingResidue } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "ledger.mjs")).href);
+const { failureEdges } = await import(pathToFileURL(nodePath.join(REPO, "src", "rooms", "kifu-model.mjs")).href);
 
 /** 一条检查结果。level: ok / warn / fail。 */
 function check(name, level, detail = "") {
@@ -70,7 +71,11 @@ function omissionLines(text) {
 
 /** 对一张图跑全部判据。 */
 export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500 } = {}) {
-  const ledger = renderLedger(graph, { maxTokens, treeDir, traceRoot });
+  // ★ C223：**用生产同一条分支**。hot-inject 对「零失败边」的会话走 renderMinimalLedger
+  //   （26% 的真实会话），旧版这里一律 renderLedger ⇒ 检查的是一条产品根本不走的路
+  //   （实测 5df02bf8 / 30140e4c 因此误报 ⑥当前位置 FAIL）。
+  const zeroFailure = failureEdges(graph).length === 0;
+  const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, { maxTokens, treeDir, traceRoot });
   const text = String(ledger.text ?? "");
   const facts = renderFacts(graph, { treeDir, traceRoot });
   const out = [];

@@ -1218,13 +1218,18 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
  *
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number, fallback:string, budgetMax:number, overBudgetBy:number}}
  */
-export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
+export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {}) {
   const root = g?.rootNode ?? (g?.rootUserNodeIds ?? []).map((id) => g?.nodes?.[id]).filter(Boolean)[0];
   const latest = latestAgentNode(g);
   const goalText = clip(String(latest?.goal ?? root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
   const constraints = root?.constraints ?? [];
   const lines = ["<chess-ledger>"];
-  if (goalText) lines.push(`GOAL: ${goalText}`);
+  // ★ C224：契约 ① 认的是 **ROOT USER**（不是 GOAL）——零失败会话走最小清单，
+  //   旧版只写 GOAL ⇒ handoff-check ①根目标 直接 FAIL（用生产分支后 live 实测 3 个会话）。
+  const rootText = clip(String(root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
+  if (rootText) lines.push(`ROOT USER (verbatim): ${rootText}`);
+  if (goalText && goalText !== rootText) lines.push(`GOAL: ${goalText}`);
+  else if (!rootText && goalText) lines.push(`GOAL: ${goalText}`);
   lines.push(`CONSTRAINTS: ${constraints.length}`);
   // ★ C223：零失败边的会话占真实会话的约 26%，而旧版最小清单**完全没有当前位置** ——
   //   模型只拿到「目标 + 约束个数 + 没有失败」，不知道自己在哪一步、手里那条工作路径是什么。
@@ -1232,6 +1237,14 @@ export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
   //   （5df02bf8 / 30140e4c）。补一行和主清单同形态的 `# path:`（头尾折叠，宽度由 pathDigestLine 控制）。
   const minimalPathIds = latest ? currentPath(g, latest.id).map((n) => n.id) : [];
   if (minimalPathIds.length > 0) lines.push(pathDigestLine(minimalPathIds));
+  // ★ C224：契约 ④/⑤ 认的是 OPTIONS / UNVERIFIED 两个词。零失败**不等于**没有其它问题边 ——
+  //   「未落地尝试」与「跑了但没外部信号」都可能存在，旧版把这两类一起吞掉，
+  //   生产里模型完全看不到（handoff-check 改走生产分支后立刻抓到 2 个会话）。只给计数行，约 10 token。
+  const minimalEdges = Object.values(g?.edges ?? {});
+  const unverifiedCount = minimalEdges.filter((e) => e?.result === "unverified" && !isDanglingResidue(e, { graph: g, now })).length;
+  const optionCount = minimalEdges.filter((e) => isDanglingOption(e, { graph: g, now })).length;
+  if (optionCount > 0) lines.push(`OPTIONS: ${optionCount} not yet landed`);
+  if (unverifiedCount > 0) lines.push(`UNVERIFIED: ${unverifiedCount} unproven`);
   lines.push("NO_FAILED_ATTEMPTS_YET");
   lines.push("</chess-ledger>");
   const text = lines.join("\n");
@@ -1244,6 +1257,9 @@ export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
     omittedEdges: 0,
     failureCount: 0,
     shownFailures: 0,
+    // 最小清单不渲染任何带 seq 的行 ⇒ 出处覆盖率天然是 1（不是"没检查"，是"没有可砍的"）
+    provenanceCoverage: 1,
+    evidenceMissing: 0,
     fallback: over > 0 ? "over-budget" : "none",
     budgetMax: maxTokens,
     overBudgetBy: over,

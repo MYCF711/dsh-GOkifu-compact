@@ -332,14 +332,18 @@ Object.assign(tests, {
     const message = commitAppend(session, first);
     const text = messageText(message);
     t.includes(text, "<chess-ledger>", "仍用既有清单格式");
-    t.includes(text, "GOAL: 跑测试", "必须带目标");
+    // ★ C224：契约 ① 认的是 **ROOT USER**（不是 GOAL）——最小清单改成逐字给根目标，
+    //   与主清单一致；两者都渲染时 GOAL 只在「当前目标 ≠ 根目标」时出现。
+    // ★ C224：最小清单与主清单同口径 —— 根目标逐字给（契约 ①），当前目标与根目标不同时再补一行。
+    t.includes(text, "ROOT USER (verbatim): 把构建跑通", "必须逐字带根目标（契约 ①）");
+    t.includes(text, "GOAL: 跑测试", "当前目标与根目标不同时必须也给出它");
     t.includes(text, "CONSTRAINTS: 2", "必须带约束数量");
     t.includes(text, "NO_FAILED_ATTEMPTS_YET", "必须明说「还没有失败」");
     // ★ C223：零失败会话占真实会话的约 26%，旧版最小清单**完全没有当前位置**（契约 ⑥ 违反）。
     //   handoff-check 在 live 上抓到 2 个会话（5df02bf8 / 30140e4c）就是这个原因。
     t.includes(text, "# path:", "最小清单也必须给出当前位置（契约 ⑥）");
     const lineCount = text.split("\n").length;
-    t.eq(lineCount <= 6, true, `极简注入必须短（实际 ${lineCount} 行）`);
+    t.eq(lineCount <= 7, true, `极简注入必须短（实际 ${lineCount} 行）`);
     // 第二步：同 digest 且清单还在 ⇒ 不重复注入（避免每步刷屏）
     const second = run(session, g, state);
     t.eq(second.action, "skip", "内容没变 ⇒ skip");
