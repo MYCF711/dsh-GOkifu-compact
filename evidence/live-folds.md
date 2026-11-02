@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-01T22:53:56Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-02T00:40:40Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs --write`（只读采集；显式 --write 才覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -8,34 +8,34 @@
 
 | 项 | 有值的 fold / 总数 |
 |---|---:|
-| trigger | 15 / 19 |
-| quality（保真度） | 15 / 19 |
-| closure（可寻址闭包） | 15 / 19 |
-| usage（provider 真实 token） | 19 / 19 |
+| trigger | 16 / 20 |
+| quality（保真度） | 16 / 20 |
+| closure（可寻址闭包） | 16 / 20 |
+| usage（provider 真实 token） | 20 / 20 |
 
 ## 质量
 
-- 有 quality 样本：**15** 次
+- 有 quality 样本：**16** 次
 - constraintRecall min：**1** · failureRecall min：**1**
 - compressionRatio：**48.45 – 350.68**
 - unknownIds（幻觉探针命中）：**0**
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
-- 有 usage 的 fold：**19** 次 · **遮蔽占读入 47% – 76%**（C43 口径）
+- 有 usage 的 fold：**20** 次 · **遮蔽占读入 47% – 76%**（C43 口径）
 - 对照：input/shadowed 1.32 – 2.11（含 host 工具/system 固定开销）
 - 判据：遮蔽占读入 < 30% 时 doctor 判 warn（折得太碎/太早）；比值本身不判错
 
 ## 闭包
 
-- 有 closure 的 fold：**15** 次，其中空闭包 **3** 次（新会话尚无节点时属正常）
-- **悬空（dangling）**：15 次有记录 —— residue 16 / candidates 7 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
-- **边界完整性**：12 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **1325** 条
+- 有 closure 的 fold：**16** 次，其中空闭包 **3** 次（新会话尚无节点时属正常）
+- **悬空（dangling）**：16 次有记录 —— residue 19 / candidates 8 / liveUnsettled 0 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
+- **边界完整性**：13 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **1567** 条
 - 其中 **preGraph 1 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 与上次对比（C50）
 
-- 上次快照：2026-11-01T22:15:06Z
+- 上次快照：2026-11-01T22:53:56Z
 - 新增 fold：**1** 次
 - 质量下限变化：无变化（上次 c=1 / f=1 · unknownIds 0）
 - 边界回归（openAtEnd 增加）：无
@@ -43,14 +43,14 @@
 
 ## 闭包链（C103）
 
-- 检查 **6** 对相邻 fold（同会话、按时间排序）
+- 检查 **7** 对相邻 fold（同会话、按时间排序）
 - 节点级重叠：**0** 处（节点没有被折两次）
 - 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。
 
 ## 会话分布（C54）
 
 - 有 fold 的会话：**7** 个，其中 **4** 个被折过 ≥3 次
-- 折叠最多的会话：session-00b50089-b7a1-…（5 次） / session-8cc34e32-c35d-…（4 次） / session-d70b7c2f-c43e-…（3 次）
+- 折叠最多的会话：session-00b50089-b7a1-…（6 次） / session-8cc34e32-c35d-…（4 次） / session-d70b7c2f-c43e-…（3 次）
 - 压缩无效（foldThrash ≥2，连续两次 fold 间隔 <30 事件）：0 个
 
 ## 逐次明细
@@ -76,4 +76,5 @@
 | 17 | session-00b50089-b7a1-… | 2026-11-01 21:14:44 | pressure | 153878 | 235799 | 1.53 | 9664 | 1/1 | 116.31 | 246/251 |
 | 18 | session-8cc34e32-c35d-… | 2026-11-01 21:19:02 | pressure | 114663 | 195192 | 1.7 | 11465 | 1/1 | 119.69 | 125/134 |
 | 19 | session-00b50089-b7a1-… | 2026-11-01 22:21:33 | pressure | 147936 | 239783 | 1.62 | 18264 | 1/1 | 129.09 | 218/229 |
+| 20 | session-00b50089-b7a1-… | 2026-11-01 23:38:07 | pressure | 145811 | 230456 | 1.58 | 12579 | 1/1 | 115.45 | 247/262 |
 

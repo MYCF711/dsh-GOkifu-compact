@@ -5,6 +5,26 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C147 · live 证据刷新：第 20 次 fold（本会话 seq 11528–13485）
+
+**新增 1 次真实 fold**：本会话 `session-00b50089`，seq **11528–13485**，`pressure` 触发，**c=1 / f=1 / openAtEnd=0**
+—— 它正是当前上下文里这段棋谱摘要的来源（本会话第 6 次 fold）。
+
+**刷新后口径（四处同步）**：
+
+| 指标 | 值 |
+|---|---|
+| fold 总数 / 有 fold 的会话 | **20 / 7**（4 个 multiFold ≥3，thrash **0**） |
+| quality | **16**，`constraintRecall` 与 `failureRecall` 最小值都是 1 |
+| boundary | **13** 次，`openAtEnd` 合计 **0** |
+| closure | 16 次（`preGraph` 1）；闭包链 **7 对**相邻、节点级重叠 **0** |
+| 压缩比 / 成本 | 48.45–350.68 / 遮蔽占读入 **47–76%** |
+
+同步位置：`evidence/live-folds.{json,md}`、`evidence/fold质量-多会话-2026-11-02.md`、`evidence/README.md`、
+`docs/research/00` §11.1、`docs/发布就绪` §3 —— 之后 `evidence-consistency`（C118/C119/C122/C123）全绿，说明五处口径一致。
+
+★ 说明：C146 修掉「在途文档」误报后，这批 live 数字才重新可信 —— **先把尺子校准，再量东西**。
+
 ### C146 · C143 引入的假警报：活跃会话里「刚建的节点还没写 md」被当成空指针
 
 **现象**：C143 让 doctor 重放 delta 之后，live 立刻出现一条新告警 —— 而且它**不是数据问题**：
