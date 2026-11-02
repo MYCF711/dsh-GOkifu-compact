@@ -868,6 +868,14 @@ add(
           if (input <= 0) return "";
           return ` · fold 缓存命中 ${Math.round((cache / input) * 100)}%（${withCache.length} 次；与注入的 97% 不是一个世界 —— 折叠每次都是新区间）`;
         })() +
+        // ★ C237：**我们自己的指令**占 fold 输入多少（facts + 模板）。实测 1.7% ⇒
+        //   「input/shadowed = 1.4」不是我们造成的，以后别再猜。
+        (() => {
+          const known = recentFoldMarks.filter((m) => Number.isFinite(m?.usage?.instructionTokens) && Number.isFinite(m?.usage?.inputTokens) && m.usage.inputTokens > 0);
+          if (known.length === 0) return "";
+          const share = known.reduce((n, m) => n + m.usage.instructionTokens / m.usage.inputTokens, 0) / known.length;
+          return ` · 我们的指令占输入 ${(share * 100).toFixed(1)}%（${known.length} 次；其余是宿主送进来的消息 —— input/shadowed 的差额不归我们）`;
+        })() +
         (minShare < 0.3 ? " —— 折得太碎/太早：遮蔽段占读入不足 30%，考虑提高增长闸" : ""),
     );
   }

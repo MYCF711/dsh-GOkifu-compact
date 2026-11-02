@@ -27,7 +27,7 @@ import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
-import { renderFacts, danglingStats } from "./rooms/ledger.mjs";
+import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
@@ -1107,6 +1107,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // ★ 2026-11-01（real-model 实测发现）：摘要长度是压缩质量的另一半 —— 保真再高，
     //   如果模型不遵守长度预算写出一万多字，上下文成本会翻几倍。记进 foldMarks 供 doctor 追踪，
     //   但**不阻断**（拒绝会丢信息，比长度超标更糟；05 §7.1 的"整条拒绝"在这里不适用）。
+    // ★ C237：把「我们自己加的指令」量出来（facts + 模板），供 foldMark 记录、doctor 显示。
+    //   为什么值得记：讨论「input/shadowed = 1.4」时，没人知道那 40% 是不是我们造成的 ——
+    //   实测一次 231k 的 fold 里我们只占 3,996 tok（1.7%），其余全是宿主送进来的消息。
+    try {
+      this._lastSummaryInstructionTokens = typeof instruction === "string" && instruction !== "" ? estimateTokens(instruction) : null;
+    } catch {
+      this._lastSummaryInstructionTokens = undefined;
+    }
     this._lastSummaryChars = summary.reduce((n, b) => n + String(b.text ?? "").length, 0);
     this._lastSummaryText = summary.map((b) => String(b.text ?? "")).join("\n");
     this._lastSummaryModelText = modelText;
@@ -1168,6 +1176,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const summaryChars = this._lastSummaryChars ?? null;
       const modelText = this._lastSummaryModelText ?? "";
       this._lastSummaryChars = undefined;
+      this._lastSummaryInstructionTokens = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
       const range = { start, end };
@@ -1257,6 +1266,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C137：与 C136 同源 —— 手动压缩无论成功/失败，都不许把 summarize 的 pending 摘要留给下一次 fold。
       //   成功路径已经在 try 里把这三个字段消费掉了（记 foldMark 用），这里清的一次是**兜底**（异常/空返回）。
       this._lastSummaryChars = undefined;
+      this._lastSummaryInstructionTokens = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
       // ★ C148（复审 P2-2）：与 C143 的规则路径同源 —— route/usage 也必须清，
@@ -1511,7 +1521,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       route: summaryRoute,
       fallback: summaryMode === "rules" ? "rules" : null,
       ms: Math.max(0, Date.now() - foldStartedAt),
-      usage: summaryUsage === null ? null : { ...summaryUsage },
+      usage: summaryUsage === null ? null : {
+        ...summaryUsage,
+        // ★ C237：我们自己的指令（facts + 模板）占多少 token —— 用它来回答「fold 输入里有多少是我们加的」。
+        //   实测（session-1e82afca 一次 231k 的 fold）：指令 3,996 tok = **1.7%**，其余全是宿主送进来的消息。
+        //   没有这个字段，每次讨论"输入/遮蔽 = 1.4"都会重新猜一遍。
+        instructionTokens: Number.isFinite(this._lastSummaryInstructionTokens) ? this._lastSummaryInstructionTokens : null,
+      },
       // 摘要总字符数（含机械追加的约束段与最近访问文件）。老 foldMark 没有该字段 ⇒ null。
       summaryChars,
       // 保真度：constraintRecall / failureRecall（应恒 1）/ compressionRatio（记趋势）。
@@ -1634,6 +1650,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   下一次 fold（尤其规则路径不再覆盖这些字段时）会把**上一次失败尝试的摘要**当成自己的，
       //   于是 summaryChars / quality 都是错的，而 foldMark 看起来完全正常。
       this._lastSummaryChars = undefined;
+      this._lastSummaryInstructionTokens = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
       return null;
@@ -1653,6 +1670,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const summaryChars = this._lastSummaryChars ?? null;
       const modelText = this._lastSummaryModelText ?? "";
       this._lastSummaryChars = undefined;
+      this._lastSummaryInstructionTokens = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
       const quality =

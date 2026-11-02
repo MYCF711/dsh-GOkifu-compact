@@ -819,3 +819,37 @@ tests["C236 fold 成本行要带**折叠调用的缓存命中率**（与注入�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C237 fold 成本行要报「我们自己的指令占输入多少」（input/shadowed 的差额不归我们）"] = (t) => {
+  const now = Date.now();
+  const home = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: now - 2000, seqStart: 1, seqEnd: 2, shadowedTokens: 60000, totalAfter: 1000, foldCount: 1,
+          usage: { inputTokens: 100000, outputTokens: 900, cacheReadTokens: 3000, instructionTokens: 4000 } },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(home).find("fold 成本口径");
+    t.includes(String(row.detail), "我们的指令占输入 4.0%", `要给出我们自己的占比：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+  // 没有该字段（新代码还没跑过 fold）⇒ 这一段不出现，但整行不许坏
+  const old = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now() - 1000, seqStart: 1, seqEnd: 2, shadowedTokens: 60000, totalAfter: 1000, foldCount: 1,
+          usage: { inputTokens: 100000, outputTokens: 900, cacheReadTokens: 3000 } },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(old).find("fold 成本口径");
+    t.eq(!!row, true, "老 foldMark（没有 instructionTokens）仍然要有这一行");
+    t.eq(String(row.detail).includes("我们的指令占输入"), false, "没有数据就不许瞎报");
+  } finally {
+    nodeFs.rmSync(old, { recursive: true, force: true });
+  }
+};
