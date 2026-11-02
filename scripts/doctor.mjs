@@ -1167,7 +1167,10 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     const hitText =
       !hasSkipStats || hitRate === null
         ? " · 清单写入=未采集（旧版本没有 skipReasons）"
-        : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）`;
+        // ★ C257：写入率极低时**给出旋钮**（C248/C251 加的两个引擎配置）。
+        //   只陈述"有这两个开关"，不写"建议你调" —— 要不要更实时是用户自己的判断。
+        : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）` +
+          (hitRate < 0.05 ? ` · 想更实时可调 hotLedgerMinEvents / hotLedgerMinFailureDelta（见 docs/配置总表.md）` : "");
     add(
       "热清单预算（fallback）",
       impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",

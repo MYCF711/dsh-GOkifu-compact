@@ -853,3 +853,27 @@ tests["C237 fold 成本行要报「我们自己的指令占输入多少」（inp
     nodeFs.rmSync(old, { recursive: true, force: true });
   }
 };
+
+tests["C257 写入率极低时 doctor 要点名两个节流旋钮（否则用户不知道有这个开关）"] = (t) => {
+  const low = makeHome({
+    ledgerBudget: { samples: 1000, none: 1000, skipReasons: { "throttled-failures": 990 } },
+  });
+  try {
+    const row = runDoctor(low).find("热清单预算");
+    t.includes(String(row.detail), "hotLedgerMinEvents", "写入率 1% ⇒ 必须点名 hotLedgerMinEvents");
+    t.includes(String(row.detail), "hotLedgerMinFailureDelta", "必须点名失败增量那个开关");
+    t.includes(String(row.detail), "配置总表", "要指向配置总表（那里写着范围和默认值）");
+  } finally {
+    nodeFs.rmSync(low, { recursive: true, force: true });
+  }
+  // 写入率正常时不许有这行（零成本）
+  const normal = makeHome({
+    ledgerBudget: { samples: 100, none: 100, skipReasons: { "throttled-events": 10 } },
+  });
+  try {
+    const row = runDoctor(normal).find("热清单预算");
+    t.eq(String(row.detail).includes("hotLedgerMinEvents"), false, "写入率 90% ⇒ 不该再劝调旋钮");
+  } finally {
+    nodeFs.rmSync(normal, { recursive: true, force: true });
+  }
+};
