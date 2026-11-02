@@ -29,6 +29,7 @@ import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
 import {
+  closeoutTimeoutAdvice,
   CLOSEOUT_MAX_FOLD_TOKENS,
   closeoutExceedsLimit,
   planCloseoutChunks,
@@ -1509,6 +1510,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         this.ctx.logger?.info?.(
           `chess-context: 归档收尾分段折叠 ${chunks.length} 段（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，单段上限 ${Math.round(CLOSEOUT_MAX_FOLD_TOKENS / 1000)}k）`,
         );
+        // ★ C369：段数多时可能撞单会话超时（真机 p90 19s × 6 段 = 114s > 90s）。
+        //   这里只**提醒**，不改用户配置的超时（行为不言自变）。
+        try {
+          const p90 = this._foldP90Ms ?? null;
+          const advice = closeoutTimeoutAdvice(chunks.length, Number(this.chess.closeoutTimeoutMs) || 90_000, p90);
+          if (!advice.ok) this.ctx.logger?.warn?.(`chess-context: ${advice.message}`);
+        } catch {
+          /* 建议算不出不影响收尾 */
+        }
         // ★ C291：分段路径**必须**受同一个 `closeoutTimeoutMs` 约束 ——
         //   C289 把它写在了超时包装之外，6 段大折叠能跑两三分钟，等于把归档回调卡死。
         //   现在：整体 deadline + 每段各自的剩余时间 race，到点就停（已折的段保留）。

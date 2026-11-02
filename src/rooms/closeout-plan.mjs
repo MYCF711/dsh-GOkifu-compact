@@ -114,3 +114,28 @@ export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now 
   }
   return { folded, stopped: "done", error: null };
 }
+
+/**
+ * ★ C369：分段收尾的**超时建议**。纯函数。
+ *
+ * 依据：真机 63 次 fold 的耗时中位 **11.7s**、p90 **19.0s**（C368）。
+ * 而默认单会话收尾超时是 90s —— 6 段 × p90 = 114s **会超**。
+ *
+ * @param {number} chunks 段数
+ * @param {number} timeoutMs 当前配置的超时
+ * @param {number|null} p90Ms 真机 p90（拿不到就留 null，不瞎报）
+ * @returns {{ok:boolean, worstMs:number|null, message:string}}
+ */
+export function closeoutTimeoutAdvice(chunks, timeoutMs, p90Ms) {
+  const n = Math.max(1, Number(chunks) || 1);
+  if (!Number.isFinite(p90Ms) || p90Ms <= 0) {
+    return { ok: true, worstMs: null, message: "" };
+  }
+  const worstMs = Math.round(n * p90Ms);
+  if (worstMs <= timeoutMs) return { ok: true, worstMs, message: "" };
+  return {
+    ok: false,
+    worstMs,
+    message: `分段 ${n} 段 × p90 ${(p90Ms / 1000).toFixed(1)}s = ${(worstMs / 1000).toFixed(0)}s > 超时 ${(timeoutMs / 1000).toFixed(0)}s：建议调大 closeoutTimeoutMs 或 closeoutMaxFoldTokens`,
+  };
+}

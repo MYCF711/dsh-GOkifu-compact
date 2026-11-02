@@ -154,3 +154,21 @@ tests["C368 耗时估算：真机中位/ p90 分位，且超时风险要按 p90 
   // 没有样本 ⇒ 不估算、也不误报
   t.eq(estimateSessionRuntime(3, null, null, 90000), { estMs: null, risky: false }, "无样本 ⇒ 不估也不报险");
 };
+
+tests["C369 分段收尾的超时建议：段数 × p90 超了就点名，拿不到 p90 就不瞎报"] = async (t) => {
+  const { closeoutTimeoutAdvice } = await import("../src/rooms/closeout-plan.mjs");
+  t.eq(typeof closeoutTimeoutAdvice, "function", "必须导出 closeoutTimeoutAdvice");
+
+  // 真机数字：6 段 × 19s = 114s > 90s ⇒ 必须报
+  const bad = closeoutTimeoutAdvice(6, 90_000, 19_000);
+  t.eq(bad.ok, false, "6 段 × p90 19s 应判超时");
+  t.eq(bad.worstMs, 114_000, "worst = 段数 × p90");
+  t.includes(bad.message, "closeoutTimeoutMs", "要给出可操作的旋钮");
+
+  // 3 段 × 19s = 57s < 90s ⇒ 不报
+  t.eq(closeoutTimeoutAdvice(3, 90_000, 19_000).ok, true, "3 段不该报");
+  // 拿不到 p90 ⇒ 不瞎报（宁可不说）
+  t.eq(closeoutTimeoutAdvice(6, 90_000, null), { ok: true, worstMs: null, message: "" }, "没有 p90 时不许猜");
+  // 段数非法时按 1 段
+  t.eq(closeoutTimeoutAdvice(0, 90_000, 200_000).ok, false, "段数 0 按 1 段算：200s > 90s");
+};

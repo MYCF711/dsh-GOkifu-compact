@@ -1,9 +1,9 @@
 {
-  "total": 778,
+  "total": 779,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
-    "backfill-plan.test.mjs": 7,
+    "backfill-plan.test.mjs": 8,
     "bench-cli.test.mjs": 3,
     "boundary-audit.test.mjs": 8,
     "build-stamp.test.mjs": 7,
