@@ -798,3 +798,24 @@ tests["C206 tier-2 合并的摘要引用「区间外 id」不算问题（合并�
     nodeFs.rmSync(later, { recursive: true, force: true });
   }
 };
+
+tests["C236 fold 成本行要带**折叠调用的缓存命中率**（与注入的 97% 是两个世界）"] = (t) => {
+  const now = Date.now();
+  const home = makeHome({
+    mutate: (g) => {
+      const mk = (at, input, cache, shadowed, output) => ({
+        at, seqStart: 1, seqEnd: 2, shadowedTokens: shadowed, totalAfter: 1000, foldCount: 1,
+        usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cache },
+      });
+      // 两次 fold：输入 100k+100k，缓存读合计 6k ⇒ 命中 3%
+      g.foldMarks = [mk(now - 2000, 100000, 4000, 60000, 900), mk(now - 1000, 100000, 2000, 60000, 900)];
+    },
+  });
+  try {
+    const row = runDoctor(home).find("fold 成本口径");
+    t.eq(!!row, true, "必须有 fold 成本口径行");
+    t.includes(String(row.detail), "fold 缓存命中 3%", `要给出折叠调用的缓存命中率：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

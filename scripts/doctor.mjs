@@ -858,6 +858,16 @@ add(
       `遮蔽占读入 ${(minShare * 100).toFixed(0)}–${(Math.max(...shares) * 100).toFixed(0)}%` +
         `（${rows.length} 次 fold；input/shadowed ${Math.min(...ratios).toFixed(2)}–${Math.max(...ratios).toFixed(2)} 含 host 工具/system 固定开销，不单独判错）` +
         ` · 每读 1 token 换回 ${Math.min(...rois).toFixed(2)}–${Math.max(...rois).toFixed(2)} token 永久缩减` +
+        // ★ C236：折叠调用的**缓存命中率**（与每步注入的 97% 是两个世界：折叠每次都是新区间）。
+        //   实测 33 次 fold：输入 7.06 M、其中缓存读仅 241 k = 3.4% ⇒ 折叠才是可数的成本（≈$0.032/次）。
+        (() => {
+          const withCache = recentFoldMarks.filter((m) => Number.isFinite(m?.usage?.inputTokens) && Number.isFinite(m?.usage?.cacheReadTokens));
+          if (withCache.length === 0) return "";
+          const input = withCache.reduce((n, m) => n + m.usage.inputTokens, 0);
+          const cache = withCache.reduce((n, m) => n + m.usage.cacheReadTokens, 0);
+          if (input <= 0) return "";
+          return ` · fold 缓存命中 ${Math.round((cache / input) * 100)}%（${withCache.length} 次；与注入的 97% 不是一个世界 —— 折叠每次都是新区间）`;
+        })() +
         (minShare < 0.3 ? " —— 折得太碎/太早：遮蔽段占读入不足 30%，考虑提高增长闸" : ""),
     );
   }
