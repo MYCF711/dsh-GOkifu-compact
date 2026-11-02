@@ -5,7 +5,7 @@
  * 浏览器页面摸不到它；而配置又写在 preset 的 `cordis.patch.yml`（磁盘文件）。
  * 所以页面只做 UI，数据由这里通过 `ctx.webServer` 的具名路由提供：
  *
- *   POST /gokifu/api  {action:"state"|"save"|"health"|"defaults", patch?, sessionId?}
+ *   POST /gokifu/api  {action:"state"|"models"|"defaults"|"save"|"health"|"update", patch?, profile?, refresh?}
  *
  * 设计约束（都是实机踩出来的）：
  *   · 只走 webServer 具名路由，不用 Typert —— Typert 的 remote-client 是 DSH 构建期生成的，
@@ -60,6 +60,11 @@ import { fileURLToPath } from "node:url";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
+// ★ C216「补做收尾」：判债务 / 排序限量 / 串行补（取消归档 → resume → 收尾 → 归档回去）都在 R17 房间里，
+//   这里只做接线（取会话清单、拿宿主服务、把引擎的 closeoutNow 递进去）。
+import { listDebts, backfillArchivedSessions } from "./rooms/closeout-backfill.mjs";
+// 读图必须走 R01 的 store（**会重放 delta** —— 与引擎 / doctor / graph-audit 同口径）。
+import { createPersistStore, createFsPort, graphRoot } from "./rooms/kifu-persist.mjs";
 
 /**
  * 本文件所在目录（真实路径）。
@@ -387,8 +392,13 @@ function health(home = resolveHome(), presets = findPresetFiles(home), profile =
  */
 const CATALOG_CALL_TIMEOUT_MS = 4000;
 
-/** 给一个 promise 套时间上限；超时按「拿不到」处理（调用方的 catch 会接住）。 */
-async function withinBudget(promise, ms = CATALOG_CALL_TIMEOUT_MS) {
+/**
+ * 给一个 promise 套时间上限；超时按「拿不到」处理（调用方的 catch 会接住）。
+ * @param {Promise<any>} promise
+ * @param {number} [ms] 上限（毫秒）
+ * @param {string} [reason] 超时错误文本（默认沿用换模型目录那条；版本检查传自己的）
+ */
+async function withinBudget(promise, ms = CATALOG_CALL_TIMEOUT_MS, reason = "catalog call timed out") {
   let timer;
   try {
     return await Promise.race([
@@ -397,7 +407,7 @@ async function withinBudget(promise, ms = CATALOG_CALL_TIMEOUT_MS) {
         // ⚠ 不许 unref：这个 timer 就是「保证一定会 settle」的那一半。
         //   unref 掉之后，如果宿主调用恰好不产生任何句柄（真实卡死就是这种），
         //   事件循环会先空转退出 ⇒ await 永远不返回（实测：test 里报 unsettled top-level await）。
-        timer = setTimeout(() => reject(new Error("catalog call timed out")), ms);
+        timer = setTimeout(() => reject(new Error(reason)), ms);
       }),
     ]);
   } finally {
@@ -495,6 +505,226 @@ export async function modelCatalog(llm, options = {}) {
   }
   providers.sort((a, b) => a.provider.localeCompare(b.provider, "en"));
   return { providers };
+}
+
+/* ───────────────────── 版本检查（U5）：只读 registry，绝不安装 ───────────────────── */
+
+/**
+ * 「检查更新」的唯一定义 —— `action:"update"`（点「重新检查」）与 `state.update`（首屏读缓存）共用这一份。
+ *
+ * **为什么必须只读**：升级要改 `profiles/<profile>/package.json`（`dsh plugin --profile … add`），
+ * 装完还得重载宿主才会用上新版本。那是人的动作；这里只负责说清「现在是不是新版本、升级命令长什么样」，
+ * 一个字节都不写、一个子进程都不起、也不碰 `node_modules`。
+ *
+ * 契约（`lib/client.js` 与 `test/ui-update.test.mjs` 靠它衔接，改字段要同步）：
+ * ```js
+ * { ok:true, current, latest, publishedAt, hasUpdate, command, error, cachedAt }
+ * ```
+ * 失败**不抛**：`ok:true, latest:null, hasUpdate:false, error:"<原因>"`。
+ * registry 不可达是常态（离线 / 公司网 / 上游故障），页面只该显示「检查失败」+ 原因，
+ * 不许整页坏掉，更不该让首屏等它。
+ */
+export const UPDATE_CACHE_MS = 10 * 60 * 1000;
+
+/**
+ * 失败快照只留 60 秒（成功留 {@link UPDATE_CACHE_MS}）。
+ * 为什么两种 TTL：registry 抖一下不该让那一行 10 分钟都写着「检查失败」；
+ * 但也不能每次开页都重打一个已经挂掉的域名（离线时那就是每次开页卡 5 秒）。
+ */
+const UPDATE_FAILURE_CACHE_MS = 60 * 1000;
+
+/** registry 请求上限（毫秒）—— 外层 `withinBudget` 与 `AbortSignal.timeout` 用同一个数。 */
+const UPDATE_TIMEOUT_MS = 5000;
+
+/** 包文档（packument）：`dist-tags.latest` 是 registry 的权威「最新版」，`time[版本]` 是它的发布时间。 */
+const REGISTRY_PACKUMENT_URL = `https://registry.npmjs.org/${encodeURIComponent(PKG_NAME)}`;
+
+/**
+ * 内存缓存：**键 = profile**。
+ * 为什么键里必须带 profile：命令里嵌着 `--profile <name>`，串了就会把 A 机器的升级命令贴给 B。
+ */
+const UPDATE_CACHE = new Map();
+
+/** 正在飞的请求（同一个 profile 共用；见 {@link checkUpdate} 里的单飞说明）。 */
+const UPDATE_INFLIGHT = new Map();
+
+/**
+ * 解析 `1.2.3` / `v1.2.3` / `1.2.3-rc.1+build.7`。解析不了 ⇒ `null`（**不猜**）。
+ * @param {any} text
+ * @returns {{major:number, minor:number, patch:number, prerelease:string}|null}
+ */
+export function parseVersion(text) {
+  const raw = String(text ?? "").trim().replace(/^v/i, "");
+  const matched = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(raw);
+  if (matched === null) return null;
+  return {
+    major: Number(matched[1]),
+    minor: Number(matched[2]),
+    patch: Number(matched[3]),
+    prerelease: matched[4] ?? "",
+  };
+}
+
+/** semver §11：预发布标识逐段比，数字段按数值比且优先级低于字母段。 */
+function comparePrerelease(left, right) {
+  const a = left.split(".");
+  const b = right.split(".");
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    if (a[index] === undefined) return -1;
+    if (b[index] === undefined) return 1;
+    const aNumber = /^\d+$/.test(a[index]) ? Number(a[index]) : null;
+    const bNumber = /^\d+$/.test(b[index]) ? Number(b[index]) : null;
+    if (aNumber !== null && bNumber !== null) {
+      if (aNumber !== bNumber) return aNumber < bNumber ? -1 : 1;
+      continue;
+    }
+    if (aNumber !== null) return -1;
+    if (bNumber !== null) return 1;
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * 语义化比较：`-1` / `0` / `1`；任一版本解析不了一律 `null`（调用方按「不判断」处理）。
+ *
+ * **不许用字符串比较**：字典序里 `"0.8.9" > "0.8.10"`、`"1.9.0" > "1.10.0"`，
+ * 版本语义上恰好相反 —— 用字符串比会稳定地告诉用户「有新版本」而实际没有（或反过来）。
+ * @param {any} left
+ * @param {any} right
+ * @returns {-1|0|1|null}
+ */
+export function compareVersions(left, right) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  if (a === null || b === null) return null;
+  for (const key of ["major", "minor", "patch"]) {
+    if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
+  }
+  if (a.prerelease === b.prerelease) return 0;
+  // 正式版 > 任何预发布（1.18.0 > 1.18.0-rc.1）
+  if (a.prerelease === "") return 1;
+  if (b.prerelease === "") return -1;
+  return comparePrerelease(a.prerelease, b.prerelease);
+}
+
+/** 升级命令：profile 用请求里的那个，版本用 registry 给的 latest（拿不到就 `@latest`，npm 自己解析）。 */
+function updateCommand(latest, profile) {
+  return `dsh plugin --profile ${profile} add ${PKG_NAME}@${latest || "latest"}`;
+}
+
+/**
+ * 网络/响应异常 → 一句能显示在面板上的中文原因（**不抛**，也不回显整段 HTML）。
+ * 特意把 `error.cause.code`（`ECONNREFUSED` / `ENOTFOUND`）带出来：排障第一眼看的就是它。
+ */
+function describeUpdateError(error) {
+  const message = String(error?.message ?? error).trim() || "未知错误";
+  const cause = String(error?.cause?.code ?? error?.cause?.message ?? "").trim();
+  const combined = cause === "" || message.includes(cause) ? message : `${message}（${cause}）`;
+  const truncated = combined.length > 160 ? `${combined.slice(0, 160)}…` : combined;
+  const timedOut =
+    error?.name === "TimeoutError" || error?.name === "AbortError" || /timed out|timeout|超时/i.test(message);
+  if (timedOut) return message.startsWith("请求 registry") ? message : `请求 registry 超时（${UPDATE_TIMEOUT_MS}ms）`;
+  return truncated;
+}
+
+/**
+ * 问 registry 要最新版与它的发布时间。**只读一个 GET**，不下载 tarball、不校验、不安装。
+ * `dist-tags.latest` 缺失时容忍裸 manifest 形态（`/latest` 端点也长这样），两者都没有 ⇒ 抛（由调用方转成 error）。
+ */
+async function fetchRegistryLatest(fetchImpl) {
+  const signal =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(UPDATE_TIMEOUT_MS)
+      : undefined;
+  const response = await fetchImpl(REGISTRY_PACKUMENT_URL, { signal, headers: { accept: "application/json" } });
+  if (response === null || response === undefined || typeof response.ok !== "boolean") {
+    throw new Error("registry 返回了非 HTTP 响应");
+  }
+  if (!response.ok) throw new Error(`registry HTTP ${response.status}`);
+  const body = await response.json();
+  const latest = String(body?.["dist-tags"]?.latest ?? body?.version ?? "").trim();
+  if (latest === "") throw new Error("registry 返回里没有 latest 版本号");
+  const stamp = body?.time?.[latest];
+  const at = typeof stamp === "string" ? Date.parse(stamp) : Number.NaN;
+  return { latest, publishedAt: Number.isNaN(at) ? null : new Date(at).toISOString() };
+}
+
+/**
+ * 只读缓存快照（`state.update` 用）：**绝不发网络**，没有缓存/已过期 ⇒ `null`。
+ * 首屏因此永远只是「本地读一个 Map」—— registry 慢或挂掉都不会拖住页面打开。
+ * @param {string} [profile]
+ */
+export function cachedUpdate(profile = "desktop") {
+  const entry = UPDATE_CACHE.get(String(profile));
+  if (entry === undefined) return null;
+  const ttl = entry.value.error ? UPDATE_FAILURE_CACHE_MS : UPDATE_CACHE_MS;
+  if (Date.now() - entry.at >= ttl) return null;
+  return { ...entry.value, cachedAt: new Date(entry.at).toISOString() };
+}
+
+/**
+ * 检查有没有新版本（**只读**；10 分钟内存缓存，`refresh` 强制绕过）。
+ *
+ * 永不抛：连「宿主没有 fetch」都转成 `error`。返回体的 `ok` 恒为 `true` ——
+ * 对页面来说「检查不到」是一种**正常结果**，不是请求失败。
+ *
+ * @param {{profile?:string, refresh?:boolean, current?:any, fetch?:Function, timeoutMs?:number}} [options]
+ * @returns {Promise<{ok:true, current:any, latest:string|null, publishedAt:string|null, hasUpdate:boolean, command:string, error:string|null, cachedAt:string}>}
+ */
+export async function checkUpdate(options = {}) {
+  const profile = typeof options.profile === "string" && options.profile.trim() !== "" ? options.profile.trim() : "desktop";
+  const refresh = options.refresh === true;
+  const current = options.current === undefined ? readVersion() : options.current;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : UPDATE_TIMEOUT_MS;
+  const fetchImpl =
+    typeof options.fetch === "function"
+      ? options.fetch
+      : typeof globalThis.fetch === "function"
+        ? globalThis.fetch.bind(globalThis)
+        : null;
+  if (!refresh) {
+    const cached = cachedUpdate(profile);
+    if (cached !== null) return cached;
+  }
+  // 单飞（single-flight）：同一个 profile 的并发请求共用一次网络。
+  // 为什么需要：React 开发态会把 effect 跑两遍、用户也会连点「重新检查」——
+  // 没有这一层，2 次点击就是 2 个 registry 请求（缓存只在**完成之后**才生效）。
+  const pending = UPDATE_INFLIGHT.get(profile);
+  if (pending !== undefined) return pending;
+  const task = (async () => {
+    const value = {
+      ok: true,
+      current,
+      latest: null,
+      publishedAt: null,
+      hasUpdate: false,
+      // 兜底：**不知道**最新版时给 `@latest`（由 npm 解析）。知道「不新」时会清空（见下面的赋值）。
+      command: updateCommand(null, profile),
+      error: null,
+    };
+    try {
+      if (fetchImpl === null) throw new Error("宿主没有可用的 fetch");
+      const info = await withinBudget(fetchRegistryLatest(fetchImpl), timeoutMs, `请求 registry 超时（${timeoutMs}ms）`);
+      value.latest = info.latest;
+      value.publishedAt = info.publishedAt;
+      value.hasUpdate = compareVersions(info.latest, current) === 1;
+      // ★ 只有**真的有新版**才给命令：本地比 registry 新（自己装的是未发布版本）时给 `@<latest>` 等于教人降级。
+      value.command = value.hasUpdate ? updateCommand(info.latest, profile) : "";
+    } catch (error) {
+      value.error = describeUpdateError(error);
+    }
+    const at = Date.now();
+    UPDATE_CACHE.set(profile, { at, value: { ...value } });
+    return { ...value, cachedAt: new Date(at).toISOString() };
+  })();
+  UPDATE_INFLIGHT.set(profile, task);
+  try {
+    return await task;
+  } finally {
+    UPDATE_INFLIGHT.delete(profile);
+  }
 }
 
 function readBody(req) {
@@ -961,6 +1191,9 @@ export function apply(ctx) {
             // ★ W-D：带出实际用的 profile，排障时一眼看出读的是哪个（不传 = desktop，旧行为不变）。
             profile: profileName,
             version: readVersion(),
+            // ★ U5：**只读缓存**（不发网络）。没有缓存/已过期 ⇒ null，页面自己决定要不要补一次检查。
+            //   这样首屏的耗时与 registry 完全无关。
+            update: cachedUpdate(profileName),
             // ★ B4：`config` 给的是**引擎生效值**（缺失键补默认、非法值按引擎规则净化）。
             //   页面直接渲染它就不会再把 true/semantic 显示成「未配置/空」。
             config: described.effective,
@@ -978,6 +1211,77 @@ export function apply(ctx) {
             //   只**新增**字段：上面所有既有字段语义未动。拿不到就是 { providers: [] }。
             models: await catalog(),
           });
+        }
+        if (action === "update") {
+          // ★ U5「检查更新」：同一个 POST 通道、同一套信任检查与 content-type 门禁（不新开路由）。
+          //   失败也是 200 + ok:true + error —— 页面要能显示「检查失败」，而不是把整页打成请求错误。
+          //   **这里绝不执行安装/升级**：只拼一条给人执行的命令。
+          const refresh = body.refresh === true || body.refresh === 1 || body.refresh === "1" || body.refresh === "true";
+          return sendJson(res, 200, await checkUpdate({ profile: profileName, refresh }));
+        }
+        if (action === "backfill") {
+          // ★ C216「补做收尾」：归档那一刻**没压完**的会话，账是欠着的（宿主的压缩只对 idle agent 有效，
+          //   归档会话没有 agent）。这条路把它补齐：取消归档 → resume → 收尾折叠 → 原样归档回去。
+          //   dryRun:true 只报清单（不 resume、不调模型），面板上先看一眼再动手。
+          const bridge = (() => {
+            try {
+              return globalThis[Symbol.for("dsh-gokifu.engine")] ?? null;
+            } catch {
+              return null;
+            }
+          })();
+          if (bridge === null || typeof bridge.closeoutNow !== "function") {
+            return sendJson(res, 503, {
+              ok: false,
+              code: "engine-missing",
+              error: "压缩引擎不在这个进程里（插件未加载，或代码已更新但还没重载宿主）",
+            });
+          }
+          const home = resolveHome();
+          const root = graphRoot({ dshHome: home });
+          const minEvents = Number.isFinite(Number(body.minEvents)) ? Number(body.minEvents) : 40;
+          const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Number(body.limit)) : 20;
+          const dryRun = body.dryRun === true;
+          const sessionIds = (() => {
+            try {
+              return nodeFs
+                .readdirSync(nodePath.join(root, "sessions"), { withFileTypes: true })
+                .filter((d) => d.isDirectory())
+                .map((d) => d.name);
+            } catch {
+              return []; // 还没有任何棋谱：空清单，不是错误
+            }
+          })();
+          const store = createPersistStore({ port: createFsPort(nodeFs), root });
+          const listed = listDebts({
+            sessionIds,
+            minEvents,
+            limit,
+            loadGraph: (id) => store.load({ id, cwd: "" }).graph,
+          });
+          if (dryRun) return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: listed.items });
+          const controller = ctx.get("sessionController");
+          const resolveAgent =
+            controller && controller.agents && typeof controller.agents.resolveAgent === "function"
+              ? (id) => controller.agents.resolveAgent(id)
+              : null;
+          if (resolveAgent === null) {
+            return sendJson(res, 503, {
+              ok: false,
+              code: "no-session-controller",
+              error: "宿主没有 sessionController —— 没法把归档会话 resume 成 live agent",
+              scanned: listed.scanned,
+              due: listed.due,
+              items: listed.items,
+            });
+          }
+          const report = await backfillArchivedSessions({
+            items: listed.items,
+            registry: ctx.get("workspaceRegistry"),
+            resolveAgent,
+            closeout: (agent) => bridge.closeoutNow(agent, { source: "backfill" }),
+          });
+          return sendJson(res, 200, { ok: true, scanned: listed.scanned, due: listed.due, ...report });
         }
         if (action === "models") {
           // ★ U1：单独的 models 动作（页面切换/刷新下拉时用）。永不失败：失败路径都是空目录。

@@ -2293,6 +2293,72 @@ tests["C216 归档信号只认 change.value：registry 在回调里落后一拍�
   if ((engine.compactCalls ?? []).length <= callsBefore) throw new Error("必须真的发起收尾折叠");
 };
 
+tests["C216 归档时没压完的会话：再次打开（变 live）时自动补做收尾（backfill）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-backfill");
+  // 开机时它已经在归档集合里（历史归档）—— 这正是「补账」要覆盖的情形
+  const ctx = makeCtx({ measureTotal: () => 300_000, services: { workspaceRegistry: { archivedSessionIds: ["sess-c216f"] } } });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const before = (engine.compactCalls ?? []).length;
+
+  // 用户把它恢复/打开：事件进来 + 一次空转
+  const session = await p22Session(ctx, "sess-c216f");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === before; i += 1) await new Promise((r) => setTimeout(r, 20));
+
+  const g = await readGraphReplayed(dir, "sess-c216f");
+  if (!g.closeout) throw new Error("恢复后的会话必须补做收尾（closeout 没写）");
+  if (g.closeout.source !== "backfill") throw new Error(`补账要能归因到 backfill，实际 ${JSON.stringify(g.closeout.source)}`);
+  if ((engine.compactCalls ?? []).length <= before) throw new Error("补账必须真的发起一次折叠");
+
+  // 第二个空转点不许再补一次
+  const at = g.closeout.at;
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  await new Promise((r) => setTimeout(r, 80));
+  if ((await readGraphReplayed(dir, "sess-c216f")).closeout.at !== at) throw new Error("同一次欠账只许补一次");
+};
+
+tests["C216 收尾折叠不受 token 压力门槛限制：压力不高时 pressure 不折，archive 必须折"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-forced");
+  // 200K 窗口、只用了 10K ⇒ 远低于阈值：pressure 不该动，archive 必须动（补账不是「长了没长」的问题）
+  const ctx = makeCtx({ measureTotal: () => 10_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c216g");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const calls0 = (engine.compactCalls ?? []).length;
+  await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  const calls1 = (engine.compactCalls ?? []).length;
+  if (calls1 !== calls0) throw new Error("压力不足时 pressure 不该真的 fold");
+
+  await engine.compactIfNeeded({ session, options: {} }, "archive", undefined);
+  if ((engine.compactCalls ?? []).length <= calls1) throw new Error("archive 必须绕过压力门槛真的折一次");
+};
+
+tests["C216 closeoutNow（面板补账入口）：await 到折叠真的出结果，不是 fire-and-forget"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-closeout-now");
+  // 压力只用了 10K（阈值远高于此）：走的是「强制收尾」而不是 pressure
+  const ctx = makeCtx({ measureTotal: () => 10_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c216h");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const before = (engine.compactCalls ?? []).length;
+  const r = await engine.closeoutNow({ session, options: {} });
+  if (!r || r.ok !== true) throw new Error(`closeoutNow 必须返回结果，实际 ${JSON.stringify(r)}`);
+  if (r.folded !== true) throw new Error(`closeoutNow 必须真的折了（folded），实际 ${JSON.stringify(r)}`);
+  if ((engine.compactCalls ?? []).length <= before) throw new Error("closeoutNow 返回前必须已经调用过 compactRegion");
+
+  const g = await readGraphReplayed(dir, "sess-c216h");
+  if (g.closeout?.source !== "backfill") throw new Error(`closeout.source 应为 backfill，实际 ${JSON.stringify(g.closeout)}`);
+  if (g.closeout.folded !== true) throw new Error("closeout 必须记下这次到底折没折（folded）");
+};
+
 tests["C216 归档收尾不会碰「启动前就已归档」的历史会话（没有会话对象 ⇒ 不白跑模型）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-history");

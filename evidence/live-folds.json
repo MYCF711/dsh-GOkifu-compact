@@ -1,25 +1,25 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-02T07:32:12Z",
+  "generatedAt": "2026-11-02T08:12:27Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 42,
+  "sessions": 44,
   "unreadable": 0,
   "summary": {
-    "total": 31,
+    "total": 34,
     "manual": 1,
     "external": null,
     "coverage": {
-      "trigger": 26,
-      "quality": 26,
-      "closure": 26,
-      "usage": 28
+      "trigger": 29,
+      "quality": 29,
+      "closure": 29,
+      "usage": 31
     },
     "triggerCounts": {
-      "pressure": 23,
+      "pressure": 26,
       "tier2": 3
     },
     "quality": {
-      "count": 26,
+      "count": 29,
       "constraintRecallMin": 1,
       "failureRecallMin": 1,
       "compressionRatioMin": 48.45,
@@ -27,20 +27,20 @@
       "unknownIdsTotal": 0
     },
     "cost": {
-      "count": 28,
+      "count": 31,
       "inputPerShadowedMin": 1.32,
       "inputPerShadowedMax": 2.11,
       "shadowedShareMin": 0.473,
       "shadowedShareMax": 0.759
     },
     "closureChain": {
-      "checked": 14,
+      "checked": 15,
       "offenders": [
         "session-00b50089-b7a:n1820→n520"
       ]
     },
     "bySession": {
-      "sessionsWithFolds": 9,
+      "sessionsWithFolds": 11,
       "multiFold": 4,
       "top": [
         {
@@ -49,7 +49,7 @@
         },
         {
           "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
-          "folds": 5
+          "folds": 6
         },
         {
           "sessionId": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
@@ -58,18 +58,18 @@
       ]
     },
     "closure": {
-      "count": 26,
+      "count": 29,
       "empty": 5,
       "preGraph": 1
     },
     "boundary": {
-      "count": 23,
+      "count": 26,
       "openAtEnd": 0,
-      "unsettled": 3078
+      "unsettled": 3358
     },
     "dangling": {
-      "count": 23,
-      "residue": 29,
+      "count": 26,
+      "residue": 32,
       "candidates": 13,
       "liveUnsettled": 0,
       "fromBroken": 0
@@ -81,8 +81,8 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-02T07:17:15Z",
-    "newFolds": 0,
+    "previousAt": "2026-11-02T07:32:12Z",
+    "newFolds": 3,
     "qualityChanged": false,
     "boundaryRegressed": false,
     "costShareDelta": 0,
@@ -1484,6 +1484,153 @@
         "overlapping": 281,
         "openAtEnd": 0,
         "unsettled": 267
+      }
+    },
+    {
+      "sessionId": "session-c0a5847a-d34c-4281-8521-54384849d956",
+      "fold": 1,
+      "at": 1793606143479,
+      "trigger": "pressure",
+      "seqStart": 8,
+      "seqEnd": 339,
+      "hasRange": true,
+      "summaryChars": 2080,
+      "shadowedTokens": 81326,
+      "inputTokens": 124562,
+      "outputTokens": 1926,
+      "inputPerShadowed": 1.53,
+      "shadowedShare": 0.653,
+      "ms": 17417,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 91.07,
+        "expectedConstraints": 0,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 893
+      },
+      "closure": {
+        "nodes": 43,
+        "edges": 56,
+        "firstNode": "n1",
+        "lastNode": "n43",
+        "preGraph": false,
+        "graphNodes": 140
+      },
+      "dangling": {
+        "residue": 3,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 56,
+        "openAtEnd": 0,
+        "unsettled": 48
+      }
+    },
+    {
+      "sessionId": "session-8a73e06b-efaf-4288-bf0b-6f187a2559ec",
+      "fold": 1,
+      "at": 1793606606046,
+      "trigger": "pressure",
+      "seqStart": 8,
+      "seqEnd": 580,
+      "hasRange": true,
+      "summaryChars": 2321,
+      "shadowedTokens": 80361,
+      "inputTokens": 106585,
+      "outputTokens": 2325,
+      "inputPerShadowed": 1.33,
+      "shadowedShare": 0.754,
+      "ms": 23451,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 78.32,
+        "expectedConstraints": 0,
+        "expectedFailures": 3,
+        "unknownIds": 0,
+        "summaryTokens": 1026
+      },
+      "closure": {
+        "nodes": 69,
+        "edges": 100,
+        "firstNode": "n1",
+        "lastNode": "n69",
+        "preGraph": false,
+        "graphNodes": 248
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 100,
+        "openAtEnd": 0,
+        "unsettled": 87
+      }
+    },
+    {
+      "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
+      "fold": 6,
+      "at": 1793607120035,
+      "trigger": "pressure",
+      "seqStart": 3938,
+      "seqEnd": 5103,
+      "hasRange": true,
+      "summaryChars": 1954,
+      "shadowedTokens": 135672,
+      "inputTokens": 226869,
+      "outputTokens": 898,
+      "inputPerShadowed": 1.67,
+      "shadowedShare": 0.598,
+      "ms": 14026,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 151.42,
+        "expectedConstraints": 2,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 896
+      },
+      "closure": {
+        "nodes": 147,
+        "edges": 147,
+        "firstNode": "n292",
+        "lastNode": "n438",
+        "preGraph": false,
+        "graphNodes": 660
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 147,
+        "openAtEnd": 0,
+        "unsettled": 145
       }
     }
   ]

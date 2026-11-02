@@ -267,6 +267,40 @@
 （别的域/别的表/delete 一律不触发）；③ **registry 落后一拍**（载荷已更新、registry 还是旧值）也必须收尾；
 ④ 启动前就归档的历史会话不许误触发。其中第 ③ 例做过**变异检查**：把优先级改回「registry 优先」⇒ 该例必红。
 
+### 新增 · 归档收尾「补账」（C216 的第二半）
+
+**问题**：C216 修好的是「**以后**的归档」。已经归档的那批会话（12 个，合计 24,189 个事件从没压过）怎么办？
+
+**事实**（宿主随包代码实读）：宿主的压缩契约是「**idle agent** 的 durable history」
+（`compactNow(agent, …)`，见 `@deepseek-ai/dsh-compaction` 的 api-catalog）。
+归档会话**没有 agent**，它的 durable history 是 `session.v4.jsonl.zstd` —— 插件既不能加载它，
+也不该去手改宿主的 zstd 日志。所以这批账**离线补不了**，只能在它重新变成 live 时补。
+
+**三条路，按顺序自动收割**：
+
+1. **恢复即补**：曾经归档过、却没有 `closeout` 的会话，一旦重新 live，在第一个空闲点自动补一次
+   （`#backfillIfPending`，折叠 `trigger: "backfill"`）。判据是 `everArchived`（只增不减）——
+   归档 → 取消归档 → 继续用，这笔账仍然欠着。
+2. **强制折叠**：`archive` / `backfill` / `disposed` **不受 token 压力门槛与增长门控**限制。
+   旧代码让收尾和 pressure 走同一道门 ⇒ 压力不高时收尾折叠静默什么都不做，与不修没区别。
+3. **面板一键补账**：`POST /gokifu/api {"action":"backfill","dryRun":true}` 先看清单；
+   去掉 `dryRun` 就真补 —— 每个会话走「**取消归档 → resume → 收尾折叠 → 原样归档回去**」，
+   resume 失败也把归档状态还原，绝不把会话留在半途。
+
+**房间**：`src/rooms/closeout-backfill.mjs`（零 import：resume 与收尾都由调用方注入，可纯数据单测）。
+**引擎入口**：`closeoutNow(agent, {source})` —— 有人等结果的那条路要 await 到折叠出结果。
+
+### 新增 · 面板「检查更新」（U5）
+
+- 服务端 `action:"update"`：**只读 registry**（10 分钟内存缓存、失败快照 60s、缓存键含 profile、
+  并发单飞、5s 超时、永不抛）；`state` 只带**只读缓存**，首屏不发网络。
+- 前端：顶部横幅「有新版本 X（当前 Y）」+ 可复制的升级命令；右栏「检查更新」卡
+  （当前版本 / 最新版本 / 上次检查 / 状态 / 失败原因 / 「重新检查」）。
+- 版本比较是**语义化**的（`0.8.9 < 0.8.10`，字符串比较会红）；**只拼命令，绝不执行安装**。
+- **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
+  registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
+- registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
 ### 顺带修掉一处**门禁假绿**（`handoff-check` 漏 import）
 
 C183 把「重放 delta」接进手工门禁时漏了 `import { loadSessionGraph } from "./graph-audit.mjs"`

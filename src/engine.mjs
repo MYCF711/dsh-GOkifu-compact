@@ -321,6 +321,29 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     } catch {
       /* ignore */
     }
+    // ★ C216：preset 的 compaction group 是 isolate 的 —— 根 realm 的 UI host（src/ui.mjs）
+    //   用 ctx.get("compaction") 拿不到我们。挂到进程全局（Symbol.for，两边的键名一致），
+    //   面板的「补做收尾」才有引擎可调。同一个进程里 4 个 preset 各建一个实例，最后一个生效即可。
+    try {
+      const key = Symbol.for("dsh-gokifu.engine");
+      // ★ C216：**按 agent 的 ctx 反查真身**。同一个进程里每个 preset 的 compaction group 各有一个
+      //   引擎实例，而事件是按 carrier 作用域派发的 —— 拿错实例去 flush 同一张图就是两个写者。
+      //   面板只拿得到 agent，所以这里给它一个「按 ctx 找引擎」的入口，而不是裸实例。
+      const forCtx = (c) => {
+        try {
+          return ENGINE_BY_CTX.get(c) ?? null;
+        } catch {
+          return null;
+        }
+      };
+      globalThis[key] = {
+        latest: this,
+        forCtx,
+        closeoutNow: (agent, options) => (forCtx(agent?.ctx) ?? this).closeoutNow(agent, options),
+      };
+    } catch {
+      /* 没有 globalThis（极端沙箱）：补账入口退化，不影响主路径 */
+    }
     this.graphs = new Map();
     /** ★ C149：这些会话的图是「读不出/版本不符 → 重建」出来的，落盘时不做按图清理。 */
     this.repairedGraphs = new Set();
@@ -337,12 +360,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.archivedBaselineKnown = false;
     /** ★ C216：每个会话最近一次收尾时刻 —— 归档的两种信号（durable 写入 / 宿主销毁）撞车时只收尾一次。 */
     this.closedOutAt = new Map();
+    /** ★ C216：**曾经**被归档过的会话 id（只增不减）。
+     *  归档 → 取消归档 → 打开继续用 之后，`archivedIds` 里就没有它了，
+     *  但「归档时那次收尾没做」这笔账还在 ⇒ 这份集合才是补账的判据（见 #backfillIfPending）。 */
+    this.everArchived = new Set();
     // 基线：能读到宿主 registry 就先记住「启动时已经归档的是哪些」，免得第一次 workspace 变更
     // 把历史归档全当成「刚归档」（那会对着早已结束的会话白跑一次收尾折叠，花一次模型调用）。
     try {
       const known = this.#workspaceRegistry()?.archivedSessionIds;
       if (Array.isArray(known)) {
         this.archivedIds = new Set(known.map(String));
+        this.everArchived = new Set(this.archivedIds);
         this.archivedBaselineKnown = true;
       }
     } catch {
@@ -567,6 +595,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         } catch {
           /* 落盘失败不阻塞 */
         }
+        // ★ C216：补账 —— 「归档时没做收尾」的会话一旦重新变成 live，就在第一个空闲点把那次收尾补上。
+        try {
+          this.#backfillIfPending(agent.session);
+        } catch (error) {
+          ctx.logger?.warn?.(`chess-context: 补做归档收尾失败（不影响会话）：${String(error)}`);
+        }
       }
     });
 
@@ -688,6 +722,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const baselineKnown = this.archivedBaselineKnown;
     const previous = this.archivedIds;
     this.archivedIds = new Set(current);
+    for (const id of current) this.everArchived.add(id);
     // 这一条载荷就是写入后的权威快照 ⇒ 从下一条起，差分是准的。
     if (parsed.trusted) this.archivedBaselineKnown = true;
     for (const id of current) {
@@ -700,10 +735,88 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     }
   }
 
+  /** 把「agent 或 session」统一成 compactIfNeeded 能吃的形状（测试桩接收 {session}）。 */
+  #asAgent(target) {
+    if (target === null || typeof target !== "object") return null;
+    if (target.session !== null && typeof target.session === "object") return target;
+    return { session: target, options: {} };
+  }
+
+  /**
+   * ★ C216：补账入口（给面板 / 维护脚本用）—— 对一个**已经 live** 的会话立刻做一次收尾，
+   * 并等折叠真的出结果。与 #closeout 的差别只有一点：那条路在事件回调里、不能阻塞宿主；
+   * 这条路有人在等响应，所以折叠要 await（内部仍有 closeoutTimeoutMs 的硬超时）。
+   * @param {object} target 宿主 Agent（或测试里的 { session } / session 本身）
+   * @param {{source?: string}} options 归因标签，写进 closeout.source 与 foldMark.trigger
+   * @returns {Promise<{ok:boolean, sessionId?:string, eventsSinceLastFold?:number, folded?:boolean, foldError?:string|null, error?:string}>}
+   */
+  async closeoutNow(target, { source = "backfill" } = {}) {
+    const ownerNow = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerNow !== undefined && ownerNow !== this) return ownerNow.closeoutNow(target, { source });
+    const agent = this.#asAgent(target);
+    const session = agent?.session;
+    if (!session || typeof session.id !== "string") return { ok: false, error: "no session" };
+    try {
+      this.#flush(session, { full: true });
+    } catch {
+      /* 落盘失败不阻塞收尾 */
+    }
+    const g = this.#graph(session);
+    const last = (g.foldMarks ?? []).at(-1);
+    const lastSeq = Number(last?.seqEnd);
+    const endSeq = Number(session.seq);
+    const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
+    let folded = false;
+    let foldError = null;
+    if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
+      try {
+        const result = await this.#closeoutFold(agent, source);
+        folded = result !== null && result !== undefined;
+      } catch (error) {
+        foldError = String(error?.message ?? error).slice(0, 200);
+      }
+    }
+    g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source, folded };
+    this.closedOutAt.set(session.id, { at: Date.now(), source });
+    try {
+      this.#flush(session, { full: true });
+    } catch {
+      /* 同上 */
+    }
+    return { ok: true, sessionId: session.id, eventsSinceLastFold, folded, foldError };
+  }
+
+  /**
+   * ★ C216：补账 —— 「归档时没做收尾」的会话重新变成 live 时补做一次。
+   *
+   * 为什么只能这样补：宿主的压缩契约是「**idle agent** 的durable history」
+   * （`compactNow(agent, …)`，见 `@deepseek-ai/dsh-compaction` 的 api-catalog），
+   * 归档会话没有 agent、其 durable history 是 `session.v4.jsonl.zstd` —— 插件既不能加载它，
+   * 也不该去手改宿主的 zstd 日志。所以「已归档会话的尾巴」离线补不了，只能在它**又被打开**时补。
+   * 判据是 `everArchived`（只增不减）：归档 → 取消归档 → 继续用，仍然欠着这笔账。
+   * @param {object} session
+   */
+  #backfillIfPending(session) {
+    const id = session?.id;
+    if (typeof id !== "string" || id.length === 0) return;
+    if (!this.everArchived.has(id)) return; // 从没归档过：走正常 pressure 路径，别多事
+    if (this.chess.closeoutFold === false) return; // 用户关了收尾折叠：这笔账留着，不假装补过
+    const g = this.graphs.get(id);
+    if (g === undefined) return; // 没处理过它的事件：不凭空建图
+    if (g.closeout !== undefined) return; // 已经收过尾（或刚补过）
+    const last = (g.foldMarks ?? []).at(-1);
+    const lastSeq = Number(last?.seqEnd);
+    const endSeq = Number(session.seq);
+    const tail = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
+    if (!(tail >= (this.chess.closeoutMinEvents ?? 40))) return;
+    this.ctx.logger?.info?.(`chess-context: 补做归档收尾（${id}，尾巴 ${tail} 事件）`);
+    this.#closeout(session, "backfill");
+  }
+
   /**
    * 收尾一次：落盘 → 记 `closeout` → 够长就异步折叠。
    * @param {object} session
-   * @param {"archive" | "disposed"} source 哪个信号触发的（写进 closeout 便于事后归因）
+   * @param {"archive" | "disposed" | "backfill"} source 哪个信号触发的（写进 closeout 便于事后归因）
    */
   #closeout(session, source = "disposed") {
     if (!session || typeof session.id !== "string") return;
@@ -728,7 +841,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source };
       this.#flush(session, { full: true });
       if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
-        void this.#closeoutFold(session);
+        void this.#closeoutFold(session, source);
       }
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
@@ -1062,11 +1175,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @param {object} session
    * @returns {Promise<object|null>}
    */
-  async #closeoutFold(session) {
+  async #closeoutFold(target, trigger = "archive") {
     const limitMs = this.chess.closeoutTimeoutMs ?? 90_000;
     const work = (async () => {
       try {
-        return await this.compactIfNeeded({ session, options: {} }, "archive", undefined);
+        return await this.compactIfNeeded(this.#asAgent(target), trigger, undefined);
       } catch (error) {
         this.ctx.logger?.warn?.(`chess-context: 归档收尾折叠失败（不影响归档）：${String(error)}`);
         return null;
@@ -1212,6 +1325,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
 
     let spec;
+    // ★ C216（真机第二轮）：**收尾折叠不受 token 压力门槛限制**。
+    //   archive / backfill 的语义是「这段尾巴必须有个交代」，恰恰发生在**压力还不高**的时候
+    //   （会话已经闲置很久、用户做完就归档）。旧代码让它们和 pressure 走同一道门槛 ⇒
+    //   尾巴够长但没有到阈值时收尾折叠会静默什么都不做 —— 与不修没区别。
+    //   仍然保留 retainTokens / minFoldTokens 的语义：真的没东西可折时 planFold 会返回 null。
+    const forced = trigger === "archive" || trigger === "backfill" || trigger === "disposed";
     if (overflow) {
       spec = { thresholdTokens: 0, retainTokens: 0 };
     } else {
@@ -1226,15 +1345,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
       // ★ C197：无论是否触发，都记一次「压力快照」（节流在方法内），让 doctor 能回答「还差多少」
       this.#recordPressure(session, measurement.totalTokens, spec.thresholdTokens, trigger);
-      if (measurement.totalTokens < spec.thresholdTokens) return null;
+      if (!forced && measurement.totalTokens < spec.thresholdTokens) return null;
       const prune = this.ctx.get("toolResultPruner");
       if (prune !== undefined) {
         prune.pruneSession(session);
         measurement = meter.measure(session);
       }
-      if (measurement.totalTokens < spec.thresholdTokens) return null;
-      // 增长门控：距上次 fold 的增量不足就不折腾（省掉一次模型调用）
-      if (this.chess.growthFloorTokens > 0 && g.foldCount > 0) {
+      if (!forced && measurement.totalTokens < spec.thresholdTokens) return null;
+      // 增长门控：距上次 fold 的增量不足就不折腾（省掉一次模型调用）。
+      // archive / backfill 是**补账**，不是「长了没长」的问题 ⇒ 跳过这道门控（C216）。
+      if (!forced && this.chess.growthFloorTokens > 0 && g.foldCount > 0) {
         const growth = measurement.totalTokens - (g.lastFoldTotalTokens ?? 0);
         if (growth < this.chess.growthFloorTokens) return null;
       }

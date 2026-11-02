@@ -133,6 +133,14 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "closeout-backfill": {
+    file: "closeout-backfill.mjs",
+    // ★ C216（2026-11-02）：归档「补账」房间 —— 判债务 / 排序限量 / 串行补（取消归档→resume→收尾→归档回去）。
+    //   设计上**零 import**：resume 与收尾都由调用方注入，房间不碰磁盘、不碰 ctx、不碰宿主包，
+    //   所以 allowed 为空；forbid 与其它房间同口径。
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//,],
+  },
   "migrate": {
     file: "migrate.mjs",
     // 契约 R14 + P6C-2：R00 只读、R01 路径规则（graphRoot）、R06 判据（classifyDangling 单一来源）、
@@ -471,8 +479,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "touched-files", "user-patch", "verify", "world"],
-      "房间集合必须与契约 17 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp）",
+      ["build-stamp", "closeout-backfill", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "touched-files", "user-patch", "verify", "world"],
+      "房间集合必须与契约 19 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");

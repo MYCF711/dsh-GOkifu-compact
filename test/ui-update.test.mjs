@@ -1,0 +1,438 @@
+/**
+ * ui-update.test.mjs —— 面板「检查更新」（U5）：当前版本 / 最新版本 / 有无新版 / 升级命令
+ *
+ * 架构前提：面板只**报告**，不**安装**。升级要改 `profiles/<profile>/package.json`
+ * （`dsh plugin --profile … add`），装完还得重载宿主 —— 那是人的动作。
+ * 所以这里的全部工作就是：读 registry 的 `dist-tags/latest`、按**语义化版本**比一次、
+ * 拼出命令、**10 分钟内存缓存**。本文件同时钉住「不联网也能测」：fetch 全部注入。
+ *
+ * 覆盖：
+ *   ① registry 有新版本 ⇒ `hasUpdate:true` + 命令里的版本正确；`state` 首屏**不发网络**
+ *   ② registry 与本地同版本 ⇒ `hasUpdate:false`
+ *   ③ registry 不可达 / HTTP 错 / 垃圾响应 / 不回包 ⇒ `ok:true` + `error`，**不抛**
+ *   ④ 缓存：两次不带 refresh 只打一次网络；`refresh:true` 再打一次；缓存键含 profile
+ *   ⑤ 语义化比较（`0.8.9 < 0.8.10`）—— 换成字符串比较这里必红
+ *   ⑥ 客户端：横幅文案 / 状态文案 / 时间格式，以及「重新检查」「检查失败」真的接上了
+ *
+ * 不连网、不启动 DSH、不碰真实 home（路由用例全部跑在临时 DSH_HOME 里）。
+ */
+
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const ROOT = nodePath.resolve(HERE, "..");
+const TMP = nodePath.join(ROOT, "tmp");
+const CLIENT = nodePath.join(ROOT, "lib", "client.js");
+const UI = nodePath.join(ROOT, "src", "ui.mjs");
+const LOCAL_HEADERS = { host: "127.0.0.1:19387", "content-type": "application/json" };
+/** 真实的包名/版本（`current` 的期望值就从这里来 —— 不在测试里再抄一份版本号）。 */
+const PKG = JSON.parse(nodeFs.readFileSync(nodePath.join(ROOT, "package.json"), "utf8"));
+
+export const tests = {};
+
+/* ───────────────────────── 夹具 ───────────────────────── */
+
+function rmrf(p) {
+  if (p && nodeFs.existsSync(p)) nodeFs.rmSync(p, { recursive: true, force: true });
+}
+
+function mkTempHome(label) {
+  nodeFs.mkdirSync(TMP, { recursive: true });
+  return nodeFs.mkdtempSync(nodePath.join(TMP, `gokifu-ui-update-${label}-`));
+}
+
+/** `state` 动作会扫 graph 目录 —— 一律跑在空 home 里，绝不碰真实 DSH_HOME。 */
+async function withHome(label, fn) {
+  const home = mkTempHome(label);
+  const prev = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    return await fn(home);
+  } finally {
+    if (prev === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prev;
+    rmrf(home);
+  }
+}
+
+/** 临时替换 globalThis.fetch（用例结束必还原）；`checkUpdate` 在**调用时**才解析 fetch。 */
+async function withFetch(impl, fn) {
+  const prev = globalThis.fetch;
+  globalThis.fetch = impl;
+  try {
+    return await fn();
+  } finally {
+    if (prev === undefined) delete globalThis.fetch;
+    else globalThis.fetch = prev;
+  }
+}
+
+/** 一份最小可用的 registry packument 响应（形状与 `/dsh-gokifu-compact` 真实响应一致）。 */
+function registryResponse(latest, publishedAt) {
+  const body = {
+    name: PKG.name,
+    "dist-tags": { latest },
+    versions: { [latest]: { name: PKG.name, version: latest } },
+    time: publishedAt === null || publishedAt === undefined ? {} : { [latest]: publishedAt },
+  };
+  return { ok: true, status: 200, json: async () => body };
+}
+
+/** 本地版本 + 一个次版本（1.17.6 → 1.18.0）：无论以后版本号怎么涨，它都严格更新。 */
+function nextMinor(version) {
+  const [major, minor] = String(version).split(".");
+  return `${major}.${Number(minor) + 1}.0`;
+}
+
+/** 挂一次真实 host 路由（与 ui-health / ui-models 同法：不启动 DSH）。 */
+async function mount() {
+  const uiMod = await import(`${pathToFileURL(UI).href}?ui-update=${Math.random()}`);
+  const routes = [];
+  uiMod.apply({
+    webServer: { register: (r) => (routes.push(r), () => {}), host: "127.0.0.1" },
+    effect: (fn) => fn(),
+  });
+  if (routes.length !== 1) throw new Error(`应注册 1 条路由，得到 ${routes.length}`);
+  return { handler: routes[0].handler, uiMod };
+}
+
+function call(handler, body) {
+  return new Promise((resolve, reject) => {
+    const text = JSON.stringify(body);
+    const req = {
+      method: "POST",
+      headers: LOCAL_HEADERS,
+      on(event, cb) {
+        if (event === "data") cb(Buffer.from(text, "utf8"));
+        if (event === "end") cb();
+        return req;
+      },
+    };
+    const res = {
+      status: 0,
+      raw: "",
+      writeHead(status) {
+        this.status = status;
+      },
+      end(chunk) {
+        this.raw = chunk ?? "";
+        let json = null;
+        try {
+          json = JSON.parse(this.raw);
+        } catch {
+          json = null;
+        }
+        resolve({ status: this.status, json });
+      },
+    };
+    Promise.resolve(handler(req, res)).catch(reject);
+  });
+}
+
+/** 与 test/ui-layout.test.mjs 同法加载 client bundle（classic script，只注入 window）。 */
+function loadClientBundle() {
+  const src = nodeFs.readFileSync(CLIENT, "utf8");
+  let loaded = null;
+  const fakeWindow = { __ModuleLoader__: { load: (row) => (loaded = row) } };
+  // eslint-disable-next-line no-new-func
+  const fn = new Function("window", src);
+  fn(fakeWindow);
+  if (loaded === null) throw new Error("client.js 没有调用 window.__ModuleLoader__.load");
+  const react = {
+    createElement: (...args) => ({ args }),
+    useState: () => [undefined, () => {}],
+    useEffect: () => {},
+    useCallback: (callback) => callback,
+    useMemo: (factory) => factory(),
+  };
+  const mod = loaded.factory((spec) => {
+    if (spec === "react") return react;
+    throw new Error(`client.js 意外 require(${spec})`);
+  });
+  return { src, mod };
+}
+
+/* ───────────────────────── ① 有新版本 ───────────────────────── */
+
+tests["U5-1 registry 有新版本 ⇒ hasUpdate:true、命令里的版本正确；state 首屏不发网络"] = async (t) => {
+  await withHome("new", async () => {
+    const latest = nextMinor(PKG.version);
+    const publishedAt = "2026-11-01T10:00:00.000Z";
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls += 1;
+        return registryResponse(latest, publishedAt);
+      },
+      async () => {
+        const { handler, uiMod } = await mount();
+        t.eq(typeof uiMod.checkUpdate, "function", "host 半导出 checkUpdate（唯一实现）");
+        t.eq(uiMod.UPDATE_CACHE_MS, 600000, "缓存窗口 = 10 分钟");
+
+        // 首屏：只读内存缓存 —— registry 再怎么慢都不该出现在打开页面的路径上
+        const stateRes = await call(handler, { action: "state" });
+        t.eq(stateRes.status, 200, "state 200");
+        t.eq(calls, 0, "state 不许为版本检查发网络（首屏不等 registry）");
+        t.eq(stateRes.json?.update, null, "没有缓存时 state.update = null（页面自己决定补不补）");
+        t.eq(stateRes.json?.version, PKG.version, "既有 version 字段语义未动");
+
+        // 点「重新检查」/ 首屏补一次：走 action:"update"
+        const res = await call(handler, { action: "update" });
+        t.eq(res.status, 200, "update 200（不是新路由，仍是 POST /gokifu/api）");
+        t.eq(calls, 1, "检查更新打一次 registry");
+        t.eq(res.json?.ok, true, "ok:true");
+        t.eq(res.json?.current, PKG.version, "current = package.json 里的版本");
+        t.eq(res.json?.latest, latest, "latest = registry 的 dist-tags/latest");
+        t.eq(res.json?.publishedAt, publishedAt, "publishedAt = time[latest]");
+        t.eq(res.json?.hasUpdate, true, `${latest} > ${PKG.version} ⇒ 有新版本`);
+        t.eq(
+          res.json?.command,
+          `dsh plugin --profile desktop add ${PKG.name}@${latest}`,
+          "命令：profile 缺省 desktop、版本用 latest",
+        );
+        t.eq(res.json?.error, null, "成功时 error 是 null");
+        t.ok(
+          typeof res.json?.cachedAt === "string" && !Number.isNaN(Date.parse(res.json.cachedAt)),
+          "cachedAt 是 ISO 时间（页面显示「上次检查」）",
+        );
+        t.eq(
+          Object.keys(res.json ?? {}).sort(),
+          ["cachedAt", "command", "current", "error", "hasUpdate", "latest", "ok", "publishedAt"],
+          "返回体字段与契约一致（只这 8 个）",
+        );
+
+        // 有了缓存之后，state 直接能显示，且仍然不发网络
+        const stateAgain = await call(handler, { action: "state" });
+        t.eq(calls, 1, "有缓存后 state 也不发网络");
+        t.eq(stateAgain.json?.update?.latest, latest, "state.update 给缓存里的 latest");
+        t.eq(stateAgain.json?.update?.hasUpdate, true, "state.update 带 hasUpdate");
+        t.eq(stateAgain.json?.update?.command, res.json.command, "state.update 带同一条命令");
+      },
+    );
+  });
+};
+
+/* ───────────────────────── ② 已是最新 ───────────────────────── */
+
+tests["U5-2 registry 与本地同版本 ⇒ hasUpdate:false（不靠字符串碰运气）"] = async (t) => {
+  await withHome("same", async () => {
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls += 1;
+        return registryResponse(PKG.version, "2026-10-30T08:00:00.000Z");
+      },
+      async () => {
+        const { handler } = await mount();
+        const res = await call(handler, { action: "update" });
+        t.eq(calls, 1, "真的问了一次 registry");
+        t.eq(res.status, 200, "200");
+        t.eq(res.json?.ok, true, "ok:true");
+        t.eq(res.json?.latest, PKG.version, "latest 照给（不因为没新版就吞掉）");
+        t.eq(res.json?.hasUpdate, false, "同版本 ⇒ 没有新版");
+        t.eq(res.json?.error, null, "没有错误");
+        t.eq(res.json?.command, "", "没有新版 ⇒ 不给命令（本地比 registry 新时给 @latest 等于教人降级）");
+      },
+    );
+  });
+};
+
+/* ───────────────────────── ③ 失败路径 ───────────────────────── */
+
+tests["U5-3 registry 不可达 / HTTP 错 / 垃圾响应 / 不回包 ⇒ ok:true + error，不抛"] = async (t) => {
+  await withHome("fail", async () => {
+    const cases = [
+      [
+        "连接被拒（ECONNREFUSED）",
+        async () => {
+          const error = new TypeError("fetch failed");
+          error.cause = { code: "ECONNREFUSED" };
+          throw error;
+        },
+        /ECONNREFUSED/,
+      ],
+      ["registry 5xx", async () => ({ ok: false, status: 503, json: async () => ({}) }), /503/],
+      ["返回里没有版本号", async () => ({ ok: true, status: 200, json: async () => ({ nope: true }) }), /版本号/],
+      [
+        "abort 超时（AbortSignal.timeout 的形状）",
+        async () => {
+          const error = new Error("The operation was aborted due to timeout");
+          error.name = "TimeoutError";
+          throw error;
+        },
+        /超时/,
+      ],
+      ["宿主没有 fetch", null, /fetch/],
+    ];
+    for (const [label, impl, pattern] of cases) {
+      await withFetch(impl === null ? undefined : impl, async () => {
+        const { handler } = await mount();
+        let thrown = null;
+        let res = null;
+        try {
+          res = await call(handler, { action: "update" });
+        } catch (error) {
+          thrown = error;
+        }
+        t.eq(thrown, null, `${label}：路由不许抛（页面不能整页坏掉）`);
+        t.eq(res?.status, 200, `${label}：仍是 200（不是 4xx/5xx）`);
+        t.eq(res?.json?.ok, true, `${label}：ok:true`);
+        t.eq(res?.json?.latest, null, `${label}：latest 是 null（不编造版本）`);
+        t.eq(res?.json?.hasUpdate, false, `${label}：hasUpdate:false`);
+        t.eq(res?.json?.publishedAt, null, `${label}：publishedAt 是 null`);
+        t.ok(String(res?.json?.error ?? "").length > 0, `${label}：error 必须非空（页面要显示原因）`);
+        t.ok(pattern.test(String(res?.json?.error)), `${label}：error 里带原因（实测：${res?.json?.error}）`);
+        t.ok(
+          typeof res?.json?.command === "string" && res.json.command.startsWith("dsh plugin --profile desktop add "),
+          `${label}：命令仍给出（版本回落 @latest，由 npm 解析）`,
+        );
+      });
+    }
+
+    // 真正「不回包」的 registry：外层必须有时间上限，否则请求会挂到天荒地老
+    const uiMod = await import(`${pathToFileURL(UI).href}?ui-update-timeout=${Math.random()}`);
+    const started = Date.now();
+    const value = await uiMod.checkUpdate({
+      profile: "hang",
+      current: "1.0.0",
+      timeoutMs: 25,
+      fetch: () => new Promise(() => {}),
+    });
+    const elapsed = Date.now() - started;
+    t.eq(value.ok, true, "不回包也是 ok:true");
+    t.eq(value.latest, null, "不回包 ⇒ latest:null");
+    t.eq(value.hasUpdate, false, "不回包 ⇒ hasUpdate:false");
+    t.ok(/超时/.test(String(value.error)), `不回包 ⇒ error 说的是超时（实测：${value.error}）`);
+    t.ok(elapsed < 2000, `必须在时间预算附近返回（实测 ${elapsed}ms，预算 25ms）`);
+  });
+};
+
+/* ───────────────────────── ④ 缓存 ───────────────────────── */
+
+tests["U5-4 缓存：两次不带 refresh 只打一次网络；refresh:true 再打一次；键含 profile"] = async (t) => {
+  await withHome("cache", async () => {
+    const latest = nextMinor(PKG.version);
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls += 1;
+        return registryResponse(latest, "2026-11-01T10:00:00.000Z");
+      },
+      async () => {
+        const { handler } = await mount();
+
+        const first = await call(handler, { action: "update", profile: "cache-a" });
+        t.eq(calls, 1, "第一次真的问了 registry");
+        t.eq(first.json?.latest, latest, "第一次拿到 latest");
+
+        const second = await call(handler, { action: "update", profile: "cache-a" });
+        t.eq(calls, 1, "10 分钟内第二次命中缓存，不再打网络");
+        t.eq(second.json?.cachedAt, first.json?.cachedAt, "两次给的是同一份快照（cachedAt 相同）");
+
+        await call(handler, { action: "update", profile: "cache-a", refresh: true });
+        t.eq(calls, 2, "refresh:true 强制绕过缓存，再打一次");
+
+        await call(handler, { action: "update", profile: "cache-a" });
+        t.eq(calls, 2, "刷新后的结果又进了缓存（第三次仍不打网络）");
+
+        const other = await call(handler, { action: "update", profile: "cache-b" });
+        t.eq(calls, 3, "缓存键含 profile：换个 profile 必须重新问（命令不一样）");
+        t.eq(
+          other.json?.command,
+          `dsh plugin --profile cache-b add ${PKG.name}@${latest}`,
+          "命令里的 profile 用请求里的那个",
+        );
+
+        await call(handler, { action: "update", profile: "cache-b" });
+        t.eq(calls, 3, "cache-b 也进了缓存");
+
+        // 非法 profile 回落 desktop（不拼出不安全的命令），且用的是 desktop 的缓存键
+        await call(handler, { action: "update", profile: "bad profile!!" });
+        const badProfile = await call(handler, { action: "update", profile: "bad profile!!" });
+        t.eq(
+          badProfile.json?.command,
+          `dsh plugin --profile desktop add ${PKG.name}@${latest}`,
+          "非法 profile 回落 desktop",
+        );
+        t.eq(calls, 4, "回落 desktop 后第二次同样命中 desktop 缓存");
+
+        // 单飞：同一 profile 的两次「同时」请求只打一次网络（React 开发态会跑两遍 effect、用户也会连点）
+        const [concurrentA, concurrentB] = await Promise.all([
+          call(handler, { action: "update", profile: "cache-c" }),
+          call(handler, { action: "update", profile: "cache-c" }),
+        ]);
+        t.eq(calls, 5, "并发两次只打一次 registry（单飞）");
+        t.eq(concurrentA.json?.latest, latest, "并发 A 拿到结果");
+        t.eq(concurrentB.json?.latest, latest, "并发 B 共用同一份结果");
+      },
+    );
+  });
+};
+
+/* ───────────────────────── ⑤ 语义化比较 ───────────────────────── */
+
+tests["U5-5 语义化比较：0.8.9 < 0.8.10（字符串比较会在这里红）"] = async (t) => {
+  const uiMod = await import(`${pathToFileURL(UI).href}?ui-update-semver=${Math.random()}`);
+  t.eq(uiMod.compareVersions("0.8.9", "0.8.10"), -1, "0.8.9 < 0.8.10（字典序说反了）");
+  t.eq(uiMod.compareVersions("0.8.10", "0.8.9"), 1, "反向对称");
+  t.eq(uiMod.compareVersions("1.9.0", "1.10.0"), -1, "1.9.0 < 1.10.0（字典序同样说反）");
+  t.eq(uiMod.compareVersions("1.17.6", "1.18.0"), -1, "1.17.6 < 1.18.0");
+  t.eq(uiMod.compareVersions("1.17.6", "1.17.6"), 0, "同版本 ⇒ 0");
+  t.eq(uiMod.compareVersions("2.0.0", "1.99.99"), 1, "主版本优先");
+  t.eq(uiMod.compareVersions("v1.17.6", "1.17.6"), 0, "容忍 v 前缀");
+  t.eq(uiMod.compareVersions("1.18.0-rc.1", "1.18.0"), -1, "预发布 < 正式版");
+  t.eq(uiMod.compareVersions("1.18.0-rc.2", "1.18.0-rc.1"), 1, "预发布按数字段比");
+  t.eq(uiMod.compareVersions("nope", "1.0.0"), null, "解析不了 ⇒ null（不猜）");
+  t.eq(uiMod.compareVersions("1.17.6", null), null, "current 缺失 ⇒ null（页面显示未知）");
+  // 反证：字典序确实会把这两对判反 —— 上面那两条断言不是「碰巧绿」
+  t.eq("0.8.9" < "0.8.10", false, "字典序认为 0.8.9 不小于 0.8.10");
+  t.eq("1.9.0" < "1.10.0", false, "字典序认为 1.9.0 不小于 1.10.0");
+};
+
+/* ───────────────────────── ⑥ 客户端 ───────────────────────── */
+
+tests["U5-6 客户端：横幅/状态文案与时间格式，且「重新检查」「检查失败」真的接上"] = async (t) => {
+  const { src, mod } = loadClientBundle();
+  const T = mod.__testables;
+  for (const key of ["updateStatusText", "updateBannerText", "updateCommandText", "formatTimestamp"]) {
+    t.eq(typeof T[key], "function", `__testables 暴露 ${key}（纯逻辑可测）`);
+  }
+
+  t.eq(
+    T.updateBannerText({ current: "1.17.6", latest: "1.18.0", hasUpdate: true }),
+    "有新版本 1.18.0（当前 1.17.6）",
+    "顶部横幅文案（只陈述事实）",
+  );
+  t.eq(T.updateBannerText({ current: "1.17.6", latest: "1.17.6", hasUpdate: false }), "", "已是最新 ⇒ 不显示横幅");
+  t.eq(T.updateBannerText(null), "", "还没有结果 ⇒ 不显示横幅");
+  t.eq(T.updateBannerText({ hasUpdate: true, latest: "", current: "" }), "有新版本 ?（当前 ?）", "字段缺失也不产出 undefined");
+
+  t.eq(T.updateStatusText(null), "未检查", "没检查过");
+  t.eq(T.updateStatusText({ latest: "1.18.0", hasUpdate: true, error: null }), "有新版本", "有新版本");
+  t.eq(T.updateStatusText({ latest: "1.17.6", hasUpdate: false, error: null }), "已是最新", "已是最新");
+  t.eq(T.updateStatusText({ latest: null, hasUpdate: false, error: "registry HTTP 503" }), "检查失败", "检查失败");
+  t.eq(T.updateStatusText({ latest: "", hasUpdate: false, error: null }), "未知", "拿不到版本号 ⇒ 未知");
+
+  t.eq(T.updateCommandText({ command: "dsh plugin --profile desktop add x@1.0.0" }), "dsh plugin --profile desktop add x@1.0.0", "命令原样透传");
+  t.eq(T.updateCommandText(null), "", "没有命令 ⇒ 空串");
+  t.eq(T.updateCommandText({}), "", "字段缺失 ⇒ 空串");
+
+  t.eq(T.formatTimestamp("2026-11-01T10:00:00.000Z").length, 16, "时间格式 YYYY-MM-DD HH:mm");
+  t.ok(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(T.formatTimestamp("2026-11-01T10:00:00.000Z")), "形状固定（本地时区）");
+  t.eq(T.formatTimestamp(""), "", "空串 ⇒ 空（页面显示 —）");
+  t.eq(T.formatTimestamp("nope"), "", "非法时间 ⇒ 空（绝不显示 Invalid Date）");
+  t.eq(T.formatTimestamp(undefined), "", "undefined ⇒ 空");
+
+  // 接线（防回退）：请求走 action:"update"、绕过 host 缓存的按钮是真的、失败文本真的渲染出来
+  t.includes(src, 'action: "update"', "客户端发的是 action:\"update\"");
+  t.includes(src, "refresh: refresh === true", "refresh 是布尔（true 才绕过 host 缓存）");
+  t.includes(src, "重新检查", "「重新检查」按钮存在");
+  t.includes(src, "检查失败：", "检查失败时把原因渲染出来（不是空白）");
+  t.includes(src, "updateBannerText(update)", "横幅文案接纯函数");
+  t.includes(src, 'style: styles.banner', "横幅样式真的用上");
+  t.includes(src, "copyUpdateCommand(updateCommand)", "命令可复制");
+  // 检查失败是 host 的正常返回（ok:true + error）：不许走会把 error 当异常的 callApi
+  t.notIncludes(src, 'callApi("update"', "检查失败要能显示 —— 不能复用会抛错的 callApi");
+};
