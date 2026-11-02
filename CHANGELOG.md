@@ -5,6 +5,28 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C160 · 历史清单占位文案不点名内部文件名（模型可见文本的边界）
+
+**发现**：`LEDGER_STUB_TEXT`（旧 `<chess-ledger>` 被折叠后留下的那行占位）写着
+
+```
+... superseded by the latest <chess-ledger>; full trace in graph.json
+```
+
+`graph.json` 是**内部文件名**。它在明确告诉模型「完整轨迹在某个文件里」——
+模型会把 `graph.json` 当成**可读路径**去尝试（读不到再猜），而真相只是「这条已过时，以最新那条为准」。
+
+**修法**：文案改为 `...; the plugin keeps the full trace`，**不再点名任何内部文件名**。
+
+**判据**（加进既有的「占位」用例，不新增用例）：
+
+- 占位文案**不许**匹配 `graph\.json` / `foldMark` / `nodes\/` / `stateIndex` / `dirty`；
+- 仍**保留** `<chess-ledger>` 标签名（让模型知道被折叠的是哪类块）；
+- 长度仍 < 200（幂等判据依赖它）。
+
+★ 这类问题的性质：**注入文本是模型唯一的输入面**，写进去的每个名词都会被当成「可用的东西」。
+「顺手写清楚细节」在这里恰恰是污染。
+
 ### C159 · 真 tarball 的安装形态冒烟：`import("dsh-gokifu-compact/graph")` 必须可用
 
 **为什么 C155 不够**：C155 只验证「`npm pack --dry-run` 的清单里有没有文件」——

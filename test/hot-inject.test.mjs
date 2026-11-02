@@ -301,6 +301,9 @@ export const tests = {
     t.eq(stub?.source?.form, "ledger-stub", "占位 form");
     t.eq(messageText(stub), LEDGER_STUB_TEXT, "占位文案必须逐字一致");
     t.ok(LEDGER_STUB_TEXT.length < 200, "占位必须 <200 字符（幂等判据）");
+    // ★ C160：占位是**模型可见文本** —— 不许点名内部文件名/内部字段名（模型会当成可读路径去试）
+    t.eq(/graph\.json|foldMark|nodes\/|stateIndex|dirty/i.test(LEDGER_STUB_TEXT), false, `占位不许泄露内部实现名：${LEDGER_STUB_TEXT}`);
+    t.includes(LEDGER_STUB_TEXT, "<chess-ledger>", "仍要保留标签名，让模型知道被折叠的是哪类块");
   },
 };
 /* ═══════════ OPT-EMPTY（task-130）：零失败边也要有最小注入 ═══════════ */

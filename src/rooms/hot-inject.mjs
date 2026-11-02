@@ -34,7 +34,9 @@ export const INJECT_MIN_EVENTS = 40;
 export const INJECT_MIN_FAILURE_DELTA = 5;
 
 /** 历史清单的占位文案（**冻结**：`<200 字符` 是幂等判据；`form:"ledger-stub"` 是过滤依据）。 */
-export const LEDGER_STUB_TEXT = "[stale chess-ledger elided — superseded by the latest <chess-ledger>; full trace in graph.json]";
+// ★ C160：占位文案**不点名内部文件名** —— 模型看到 `graph.json` 会把它当成可读路径去尝试，
+//   而真相是「这条已过时、以最新那条为准」。仍然保留标签名，让模型知道被折叠的是哪类块。
+export const LEDGER_STUB_TEXT = "[stale chess-ledger elided — superseded by the latest <chess-ledger>; the plugin keeps the full trace]";
 
 /** 消息的纯文本（用于「内容一字不差就不动」的判定）。 */
 export function messageText(message) {
