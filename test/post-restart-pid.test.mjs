@@ -111,3 +111,17 @@ tests["C353 验收脚本不许把 buildOk 写死 true（旧代码是最常见的
   });
   t.eq(unknown.verdict, "ready", "构建未知时不该硬判 stale");
 };
+
+tests["C386 验收命令要顺带给出补账摘要（别让人再跑第二条命令）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
+  t.includes(src, "backfill-plan.mjs", "必须复用 backfill-plan 的口径（而不是自己再算一套）");
+  t.includes(src, "补账：", "必须打印补账摘要行");
+  t.includes(src, "closeoutMaxFoldTokens", "要给出建议旋钮");
+  t.includes(src, "次点击", "要给出点击次数（用户真正关心的调度量）");
+  // 失败要降级，不许把验收整体搞挂
+  t.includes(src, "算不出来", "算不出来时要降级提示，而不是抛错");
+};

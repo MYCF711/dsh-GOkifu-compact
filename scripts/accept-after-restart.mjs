@@ -218,6 +218,21 @@ export async function main(argv = process.argv.slice(2)) {
   console.log("== 重启后验收（accept-after-restart）==");
   console.log(`  ${result.line}`);
   for (const item of result.todo) console.log(`   · ${item}`);
+  // ★ C386：验收完了人立刻要问「那现在补账多少、要几次、会不会超时」——
+  //   把这三个数并到**同一条命令的输出里**，免得还要另跑 `backfill-plan`。
+  try {
+    const { buildPlan, summarizePlan, recommendMaxFoldTokens } = await import("./backfill-plan.mjs");
+    const rows = await buildPlan(home);
+    const plan = summarizePlan(rows, { roughPerEvent: 154 });
+    const rec = recommendMaxFoldTokens(rows);
+    console.log(
+      `  补账：${plan.total} 个欠账 · ${(plan.tokens / 1e6).toFixed(2)} M tok · 冷缓存 **$${plan.costUsd.toFixed(2)}** · ` +
+        `约 **${plan.clicks} 次点击**${plan.multiPass > 0 ? `（${plan.multiPass} 个超 6 段）` : ""}` +
+        `${rec === null ? "" : `；建议 closeoutMaxFoldTokens ≈ **${rec.value}**`}`,
+    );
+  } catch (error) {
+    console.log(`  补账：算不出来（${String(error?.message ?? error).slice(0, 80)}）—— 可单独跑 node scripts/backfill-plan.mjs`);
+  }
   return result.verdict === "stale" ? 1 : 0;
 }
 
