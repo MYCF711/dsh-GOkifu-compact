@@ -827,7 +827,10 @@ add(
     : `遮蔽 ${cost.mark?.shadowedTokens ?? cost.shadowedTokens ?? "?"} tok` +
       `${cost.mark ? `（seq ${cost.mark.seqStart ?? "?"}-${cost.mark.seqEnd ?? "?"}）` : ""}` +
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
-      `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
+      `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）` +
+      // ★ C356：API 是**无状态**的（官方 multi_round_chat）—— 折掉的 N token 之后**每轮都省**。
+      //   只说"这次花了多少"会严重低估收益，所以给一句口径，不编数字。
+      " · 口径：这是**单次**花费；被遮蔽的 token 在之后每轮请求里都会省（无状态 API 每轮重发历史）",
 );
 /* ★ C348：**思考模式默认开着**（官方《Thinking Mode》：默认 enabled、默认 effort=high）。
    摘要请求也会带上思考 ⇒ 输出 token 里有一部分是推理。这块要**看得见**，否则

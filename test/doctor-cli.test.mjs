@@ -1216,3 +1216,13 @@ tests["C348 推理占比：有一半以上是思考时必须警告（默认 effo
     nodeFs.rmSync(noReasoning, { recursive: true, force: true });
   }
 };
+
+tests["C356 fold 成本行必须说明是「单次花费」（无状态 API 下收益每轮复利）"] = (t) => {
+  // 说明：这条用**源码断言**而不是夹具 —— doctor 的 `lastFold` 需要真实图上的完整 foldMark
+  // （`at/seqStart/seqEnd/usage` 齐备且被 summary 选中），夹具里造不出稳定的形状；
+  // 行为侧已在真机确认（`口径：这是**单次**花费…` 会出现在输出里）。
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "doctor.mjs"), "utf8") ?? "";
+  t.includes(src, "这是**单次**花费", "成本行必须点明是单次花费");
+  t.includes(src, "无状态", "要说明无状态 API 每轮重发历史");
+  t.includes(src, "每轮", "要说明收益是每轮复利");
+};

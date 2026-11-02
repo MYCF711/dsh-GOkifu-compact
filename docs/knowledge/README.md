@@ -38,6 +38,8 @@
 | **前缀缓存单元（持久化规则）** | [`前缀缓存单元-持久化规则-deepseek.md`](./前缀缓存单元-持久化规则-deepseek.md) | 官方：命中要匹配**完整的前缀单元**，单元在**请求边界**（用户输入末/模型输出末）、公共前缀、固定 token 间隔三处持久化；⇒ 我们"清单没变就不重写"（identical 144 次）**同时是缓存友好的** |
 | **思考模式（默认开启）** | [`思考模式-默认开启-deepseek.md`](./思考模式-默认开启-deepseek.md) | 官方：思考模式**默认 enabled、默认 effort=high**，`reasoning.effort=none` 才关；宿主 usage 有 `reasoningTokens`。真机 58 条 fold **没有** reasoningTokens ⇒ 本机未上报，成本暂无低估 |
 | **Token 计量官方比例** | [`token计量官方比例-deepseek.md`](./token计量官方比例-deepseek.md) | 官方：英文 0.3 token/字、中文 0.6 token/字；我们 CJK 算 **1.0**（高估 67%）、ASCII 算 **0.25**（低估 17%）。改成官方比例会让 17 条测试红（阈值全要重推）⇒ 记候选 K-20 |
+| **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
+| **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |
 | **KV 缓存单元语义（DeepSeek）** | [`上下文缓存-单元语义-deepseek.md`](./上下文缓存-单元语义-deepseek.md) | 命中要**整段匹配已落盘的单元**；所以「改哪里」比「改多少」更决定成本 —— 改尾部几乎免费 |
