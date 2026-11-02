@@ -30,6 +30,7 @@ import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-plann
 import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
 import {
   closeoutTimeoutAdvice,
+  recentFoldP90,
   CLOSEOUT_MAX_FOLD_TOKENS,
   closeoutExceedsLimit,
   planCloseoutChunks,
@@ -1513,7 +1514,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         // ★ C369：段数多时可能撞单会话超时（真机 p90 19s × 6 段 = 114s > 90s）。
         //   这里只**提醒**，不改用户配置的超时（行为不言自变）。
         try {
-          const p90 = this._foldP90Ms ?? null;
+          // ★ C370（K-23）：从**本会话图上的 foldMark.ms**现算 p90（最近 20 条）——
+          //   不再依赖那个从未赋值的 `_foldP90Ms`。取不到就 null（那条 warn 不会譯报）。
+          const p90 = (() => {
+            try {
+              return recentFoldP90(this.#graph(target.session)?.foldMarks ?? []);
+            } catch {
+              return null;
+            }
+          })();
           const advice = closeoutTimeoutAdvice(chunks.length, Number(this.chess.closeoutTimeoutMs) || 90_000, p90);
           if (!advice.ok) this.ctx.logger?.warn?.(`chess-context: ${advice.message}`);
         } catch {

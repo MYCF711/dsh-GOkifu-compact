@@ -139,3 +139,27 @@ export function closeoutTimeoutAdvice(chunks, timeoutMs, p90Ms) {
     message: `分段 ${n} 段 × p90 ${(p90Ms / 1000).toFixed(1)}s = ${(worstMs / 1000).toFixed(0)}s > 超时 ${(timeoutMs / 1000).toFixed(0)}s：建议调大 closeoutTimeoutMs 或 closeoutMaxFoldTokens`,
   };
 }
+
+/**
+ * ★ C370（K-23）：从 foldMark.ms 里取耗时分位数。纯函数，引擎与离线脚本共用。
+ * 真机（63 次）：中位 11.7s / p90 19.0s / max 34.5s。
+ * @param {number[]} values 毫秒
+ * @returns {{n:number, median:number|null, p90:number|null, max:number|null}}
+ */
+export function foldDurationStats(values) {
+  const ms = (values ?? []).map(Number).filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  if (ms.length === 0) return { n: 0, median: null, p90: null, max: null };
+  const at = (p) => ms[Math.min(ms.length - 1, Math.floor(ms.length * p))];
+  return { n: ms.length, median: at(0.5), p90: at(0.9), max: ms[ms.length - 1] };
+}
+
+/**
+ * ★ C370：从一批 foldMark 里算 p90（只看最近 `window` 条）。纯函数。
+ * @param {Array<{ms?:number}>} marks
+ * @param {number} [window]
+ * @returns {number|null}
+ */
+export function recentFoldP90(marks, window = 20) {
+  const list = (Array.isArray(marks) ? marks : []).slice(-Math.max(1, window));
+  return foldDurationStats(list.map((m) => m?.ms)).p90;
+}

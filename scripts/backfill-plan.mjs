@@ -18,7 +18,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
-import { planChunkedCloseout, CLOSEOUT_MAX_FOLD_TOKENS } from "../src/rooms/closeout-plan.mjs";
+import { planChunkedCloseout, CLOSEOUT_MAX_FOLD_TOKENS, foldDurationStats } from "../src/rooms/closeout-plan.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -161,12 +161,6 @@ export function averageTokensPerEvent(samples) {
  * @param {number[]} values 毫秒
  * @returns {{n:number, median:number|null, p90:number|null, max:number|null}}
  */
-export function foldDurationStats(values) {
-  const ms = (values ?? []).map(Number).filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
-  if (ms.length === 0) return { n: 0, median: null, p90: null, max: null };
-  const at = (p) => ms[Math.min(ms.length - 1, Math.floor(ms.length * p))];
-  return { n: ms.length, median: at(0.5), p90: at(0.9), max: ms[ms.length - 1] };
-}
 
 /**
  * ★ C368：估算一个待补会话的**墙钟耗时**，并判断是否可能撞收尾超时。纯函数。

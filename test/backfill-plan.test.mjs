@@ -135,8 +135,11 @@ tests["C343 recommendMaxFoldTokens：给出「调到多少能让最大的会话�
 };
 
 tests["C368 耗时估算：真机中位/ p90 分位，且超时风险要按 p90 判"] = async (t) => {
-  const { foldDurationStats, estimateSessionRuntime } = await import("../scripts/backfill-plan.mjs");
-  t.eq(typeof foldDurationStats, "function", "必须导出 foldDurationStats");
+  // C370 起分位统计住在 closeout-plan 房间（引擎与脚本共用一份），这里从房间取
+  const { foldDurationStats } = await import("../src/rooms/closeout-plan.mjs");
+  const { estimateSessionRuntime } = await import("../scripts/backfill-plan.mjs");
+  t.eq(typeof foldDurationStats, "function", "房间必须导出 foldDurationStats");
+  t.eq(typeof estimateSessionRuntime, "function", "脚本必须导出 estimateSessionRuntime");
 
   const d = foldDurationStats([1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 20000]);
   t.eq(d.n, 10, "10 个样本");
@@ -171,4 +174,27 @@ tests["C369 分段收尾的超时建议：段数 × p90 超了就点名，拿不
   t.eq(closeoutTimeoutAdvice(6, 90_000, null), { ok: true, worstMs: null, message: "" }, "没有 p90 时不许猜");
   // 段数非法时按 1 段
   t.eq(closeoutTimeoutAdvice(0, 90_000, 200_000).ok, false, "段数 0 按 1 段算：200s > 90s");
+};
+
+tests["C370 K-23 接线：p90 从图上 foldMark 现算（不再依赖从未赋值的字段）"] = async (t) => {
+  const { recentFoldP90, foldDurationStats } = await import("../src/rooms/closeout-plan.mjs");
+  t.eq(typeof recentFoldP90, "function", "必须有 recentFoldP90");
+
+  const marks = Array.from({ length: 10 }, (_, i) => ({ ms: (i + 1) * 1000 })); // 1s..10s
+  // 只取最近 20 条：这里 10 条全取，p90 = 第 floor(10*0.9)=9 个 = 10000
+  t.eq(recentFoldP90(marks), 10000, `最近 10 条 p90 应为 10000，实际 ${recentFoldP90(marks)}`);
+  // window 生效：只取最近 3 条（8/9/10s）⇒ p90 = 最后一条 10000
+  t.eq(recentFoldP90(marks, 3), 10000, "window=3 时取最近三条");
+  // 没有 ms ⇒ null（不许瞎报）
+  t.eq(recentFoldP90([{ ms: 0 }, { ms: null }]), null, "没有有效 ms ⇒ null");
+  t.eq(recentFoldP90([]), null, "空数组 ⇒ null");
+
+  // 引擎接线：必须真的从图上算，不许再用那个从未赋值的字段
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
+  t.eq(src.includes("this._foldP90Ms"), false, "不许再依赖 _foldP90Ms（K-23）");
+  t.includes(src, "recentFoldP90(", "引擎必须调用 recentFoldP90");
 };
