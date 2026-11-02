@@ -556,3 +556,40 @@ tests["C193 doctor 必须报「观测字段覆盖」：部分落盘=ok 并列出
     nodeFs.rmSync(none, { recursive: true, force: true });
   }
 };
+
+tests["C195 doctor 必须报「注入命中率」（光看渲染次数看不出模型实际看到几次清单）"] = (t) => {
+  const home = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(home, "chess-context", "ledger-budget.json"),
+      JSON.stringify({
+        samples: 100,
+        none: 90,
+        "over-budget": 10,
+        impossible: 0,
+        provenanceMin: 1,
+        provenanceLow: 0,
+        skipReasons: { "throttled-events": 80, "throttled-failures": 10 },
+      }),
+      "utf8",
+    );
+    const row = runDoctor(home).find("热清单预算（fallback）");
+    t.includes(row.detail, "清单写入 10/100（10%", `必须算出写入占比：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
+  // 没有 skipReasons（旧版本）⇒ 明确写「未采集」，不能假装 100%
+  const legacy = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(legacy, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 5, none: 5, "over-budget": 0, impossible: 0 }),
+      "utf8",
+    );
+    const row = runDoctor(legacy).find("热清单预算（fallback）");
+    t.includes(row.detail, "清单写入=未采集", "旧数据必须写未采集");
+  } finally {
+    nodeFs.rmSync(legacy, { recursive: true, force: true });
+  }
+};

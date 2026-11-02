@@ -960,10 +960,21 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     const provText = provMissing
       ? " · provenanceMin=未采集"
       : ` · provenanceMin=${provMin}${provLow > 0 ? `（<1 共 ${provLow} 次）` : ""}`;
+    // ★ C195：注入**命中率** —— 光看「渲染了多少次」看不出「模型实际看到几次清单」。
+    //   skipReasons 记的是每次被跳过的原因；命中率 = (samples - 跳过总数) / samples。
+    const hasSkipStats = stats.skipReasons !== undefined && stats.skipReasons !== null;
+    const skipTotal = Object.values(stats.skipReasons ?? {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
+    const samples = Number(stats.samples ?? 0);
+    const injected = samples > 0 ? Math.max(0, samples - skipTotal) : 0;
+    const hitRate = samples > 0 ? injected / samples : null;
+    const hitText =
+      !hasSkipStats || hitRate === null
+        ? " · 清单写入=未采集（旧版本没有 skipReasons）"
+        : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）`;
     add(
       "热清单预算（fallback）",
       impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
-      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}` +
+      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
         (Number(stats.budgetFloorOver) > 0
           ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
           : "") +
