@@ -49,6 +49,30 @@ export function curveStats(usages) {
   };
 }
 
+/**
+ * ★ C375：把 foldMark 的 `at` 与请求时间轴对齐，算出「折后首个请求的真实大小」。纯函数。
+ * 用来回答 K-22：`totalAfter`（宿主 meter）到底比真实请求大多少。
+ * @param {Array<{at:number, totalAfter?:number}>} folds
+ * @param {Array<{t:number, size:number}>} requests
+ * @returns {Array<{at:number, totalAfter:number|null, prompt:number|null, gap:number|null}>}
+ */
+export function pairFoldsWithRequests(folds, requests) {
+  const reqs = (requests ?? []).filter((r) => Number.isFinite(r?.t) && Number.isFinite(r?.size)).sort((a, b) => a.t - b.t);
+  const out = [];
+  for (const f of folds ?? []) {
+    if (!Number.isFinite(f?.at)) continue;
+    const after = reqs.find((r) => r.t >= f.at) ?? null;
+    const totalAfter = Number.isFinite(f?.totalAfter) ? f.totalAfter : null;
+    out.push({
+      at: f.at,
+      totalAfter,
+      prompt: after === null ? null : after.size,
+      gap: after === null || totalAfter === null ? null : after.size - totalAfter,
+    });
+  }
+  return out;
+}
+
 export function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);

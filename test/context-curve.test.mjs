@@ -28,3 +28,18 @@ tests["C364 输入口径是 input+hit（只算 input 会漏掉命中部分）"] 
   t.eq(s.max, 10000, "必须把命中算进上下文大小");
   t.eq(s.n, 1, "1 条样本");
 };
+
+tests["C375 折叠与请求对齐：算出折后首个请求与 totalAfter 的差（K-22 的证据）"] = async (t) => {
+  const { pairFoldsWithRequests } = await import("../scripts/context-curve.mjs");
+  t.eq(typeof pairFoldsWithRequests, "function", "必须导出 pairFoldsWithRequests");
+
+  const folds = [{ at: 100, totalAfter: 300_000 }, { at: 200, totalAfter: null }, { at: 999, totalAfter: 1 }];
+  const reqs = [{ t: 90, size: 1 }, { t: 110, size: 26_000 }, { t: 210, size: 28_000 }];
+  const rows = pairFoldsWithRequests(folds, reqs);
+
+  t.eq(rows.length, 3, "每条 fold 一行");
+  t.eq(rows[0].prompt, 26_000, "要取 fold 之后**第一个**请求（不是之前那个）");
+  t.eq(rows[0].gap, 26_000 - 300_000, "gap = 真实请求 − totalAfter");
+  t.eq(rows[1].gap, null, "totalAfter 缺失 ⇒ gap 为 null（不许瞎算）");
+  t.eq(rows[2].prompt, null, "后面没有请求 ⇒ prompt 为 null");
+};

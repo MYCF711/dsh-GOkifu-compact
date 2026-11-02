@@ -199,3 +199,15 @@
 **未解**：为何真实请求会冲到 **799,847**？如果 prompt 只有保留尾部，那它怎么长到 80 万的？
 两种可能：（a）本会话每轮都在灌大量工具输出；（b）fold 之间隔很长（本例 1–2 小时）。
 下一步可以用 `context-curve` + fold 时刻叠图直接看出。
+
+### 追加：`totalAfter` 的分布不是常量（**已核实**，C375）
+
+63 条 `totalAfter`：min **217,774** / p25 273,741 / 中位 **299,276** / p75 313,879 / max **425,060**。
+
+⇒ 它**确实是一个测量值**（不是固定预算），但它与「折后首个请求只有 2.6–3.1 万」严重不匹配。
+
+已把对齐工具化：`context-curve` 新增纯函数 `pairFoldsWithRequests()`（C375），
+输入 foldMark（`at/totalAfter`）与请求（`t/size`），直接给出每次折后的 `prompt` 与 `gap`。
+
+**决定性实验（下一步，需重启）**：在每次请求前同时记下 `measure().totalTokens` 与宿主返回的 usage，
+两者并列存入 foldMark / ledger-budget，就能彻底回答「`measure()` 量的是什么」。
