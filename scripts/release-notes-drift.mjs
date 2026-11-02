@@ -64,6 +64,25 @@ export function driftOf(changelog, notes, { since = 0 } = {}) {
   return { all, scoped, mentioned: all.filter((n) => mentioned.has(n)), missing };
 }
 
+/**
+ * ★ C421：**反向漂移** —— 发布说明里提到、但 CHANGELOG 里**根本没有**的编号。
+ *
+ * 为什么需要：反向（报还欠）能抳 "忘了写"；但"写错号"（如 `C42` 写成 `C421`）
+ * 在反向里看不出来 —— 导航会指向一个不存在的条目。
+ * @param {string} changelog
+ * @param {string} notes
+ * @param {{since?:number}} [options] 只看 since 之后的（避开早期文档里的历史引用）
+ * @returns {number[]} 不存在但被引用的编号
+ */
+export function phantomMentions(changelog, notes, { since = 0 } = {}) {
+  const all = new Set(changelogNumbers(changelog));
+  const out = [];
+  for (const n of mentionedNumbers(notes)) {
+    if (n >= since && !all.has(n)) out.push(n);
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
 export function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
@@ -94,6 +113,12 @@ export function main(argv = process.argv.slice(2)) {
   }
   // ★ C355：门禁的参考门只把 `!`/`✗` 开头的行当作摘要 —— 用 ⚠ 会被静默吞掉
   console.log(`  ! 漏了 ${missing.length} 条：${missing.map((n) => `C${n}`).join(" / ")}`);
+  // ★ C421：反向——发布说明引用了不存在的编号（导航会指向空处）
+  const phantom = phantomMentions(changelog, notes, { since });
+  if (phantom.length > 0) {
+    console.log(`  ! 引用了不存在的编号 ${phantom.length} 个：${phantom.map((n) => `C${n}`).join(" / ")}`);
+    return 1;
+  }
   return 0;
 }
 

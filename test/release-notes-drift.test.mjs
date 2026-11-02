@@ -44,3 +44,17 @@ tests["C355 输出前缀：有遗漏必须用 `!` 开头（门禁的参考门只
   const clean = spawnSync(process.execPath, [script], { encoding: "utf8" });
   t.includes(String(clean.stdout ?? ""), "没有遗漏", "当前仓库状态应无遗漏（否则先补发布说明）");
 };
+
+tests["C421 反向漂移：发布说明引用了 CHANGELOG 里不存在的编号必须报（导航指向空处）"] = async (t) => {
+  const { phantomMentions } = await import("../scripts/release-notes-drift.mjs");
+  t.eq(typeof phantomMentions, "function", "必须导出 phantomMentions");
+  const cl = ["### C1 · a", "### C2 · b", "### C3 · c"].join("\n");
+  // 提到 C2/C3 都存在 ⇒ 无幽灵
+  t.eq(phantomMentions(cl, "见 C2 与 C3", { since: 1 }), [], "都存在的编号不报");
+  // 提到 C999（不存在）⇒ 必须报
+  t.eq(phantomMentions(cl, "见 C999", { since: 1 }), [999], "不存在的编号必须报");
+  // 范围写法里超出的部分也要抓
+  t.eq(phantomMentions(cl, "C1–C5", { since: 1 }), [4, 5], "范围里超出的编号要抓出来");
+  // since 之前的不算（早期文档里有历史引用）
+  t.eq(phantomMentions(cl, "C0", { since: 1 }), [], "since 之前不报");
+};
