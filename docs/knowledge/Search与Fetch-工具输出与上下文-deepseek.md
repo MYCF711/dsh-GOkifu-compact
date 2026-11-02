@@ -22,3 +22,16 @@
 
 - 宿主是否给 agent 挂了 search/fetch 工具；若挂了，`tool/result` 里这类内容占比多少（可用 `session-scan` 按类型统计）。
 - Fetch 回来的正文是否被宿主自动截断（若截断，折叠的收益会被高估）。
+
+## 2.5 端点与返回形式（**已核实**，C419）
+
+| 项 | 值 |
+|---|---|
+| Search | `POST https://api.deepseek.com/v1/tools/search` |
+| Fetch | `POST https://api.deepseek.com/v1/tools/fetch` |
+| 鉴权 | 同 DeepSeek API 的 **Bearer** |
+| 返回 | 都是**原始 JSON**；**Fetch 把网页正文转成 Markdown** |
+
+⇒ 两个直接含义：① Fetch 的结果**是文本（Markdown）**，会进我们的 token 估算（不像图片那样是盲区）；
+'
+'② 但一个长页面可能几万 token —— 它是**工具结果膨胀**的典型来源，靠折叠与宿主的 `tool-result-pruner` 压。

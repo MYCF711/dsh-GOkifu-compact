@@ -91,3 +91,24 @@ tests["C418 docs 下的文件名不许含不可见字符（零宽/BOM/控制符�
   walk(root);
   t.eq(bad, [], `这些文件名含不可见字符（会让 glob/路径拼接/链接全部错位）：${bad.join(" / ")}`);
 };
+
+tests["C419 基准文档要有「从哪开始」：最小的三个会话（验证通道）"] = async (t) => {
+  const doc = nodeFs.readFileSync(DOC, "utf8");
+  t.includes(doc, "## 五、从哪开始", "必须有第五节（C419）");
+  t.includes(doc, "尾巴事件", "要给尾巴事件数");
+  const rows = doc.split("\n").filter((l) => /^\| \d \| /.test(l));
+  t.eq(rows.length >= 1, true, "至少列出一个最小会话");
+  // 渲染器本身也要能被假数据驱动（防写死）
+  const { renderBenchDoc } = await import("../scripts/live-bench.mjs");
+  const fake = renderBenchDoc({
+    files: 1,
+    cache: { requests: 1, miss: 1, hit: 0, output: 0, hitRate: 0 },
+    folds: { n: 0, median: null, p90: null, max: null },
+    debt: {
+      due: 1, tokens: 0, chunks: 0, estCost: 0, recommendedMaxTokens: null, totalCost: 0, top5Share: null,
+      smallest: [{ sessionId: "sess-x", tail: 7 }],
+    },
+  });
+  t.includes(fake, "sess-x", "最小三个必须来自入参");
+  t.includes(fake, "| 1 | sess-x | 7 |", "行格式要正确");
+};

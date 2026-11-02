@@ -72,6 +72,16 @@ export function renderBenchDoc(data) {
     `| 冷缓存估价 | ${debt.estCost === null ? "?" : "$" + debt.estCost.toFixed(2)} |`,
     `| 建议单段上限 | ${debt.recommendedMaxTokens === null ? "?" : debt.recommendedMaxTokens} |`,
     "",
+    "## 五、从哪开始（验证通道用最小的）",
+    "",
+    !Array.isArray(debt.smallest) || debt.smallest.length === 0
+      ? "（算不出最小的几个）"
+      : [
+          "| 顺位 | 会话 | 尾巴事件 |",
+          "|---|---|---|",
+          ...debt.smallest.map((x, i) => `| ${i + 1} | ${x.sessionId} | ${x.tail} |`),
+        ].join("\n"),
+    "",
   ];
   return lines.join("\n");
 }
@@ -103,6 +113,13 @@ export async function buildBenchData(home) {
       recommendedMaxTokens: recommendMaxFoldTokens(rows)?.value ?? null,
       totalCost,
       top5Share: totalCost > 0 ? top5 / totalCost : null,
+      smallest:
+        rows.length === 0
+          ? null
+          : [...rows]
+              .sort((a, b) => (Number(a.tail) || 0) - (Number(b.tail) || 0))
+              .slice(0, 3)
+              .map((r) => ({ sessionId: r.sessionId, tail: r.tail })),
     },
   };
 }
