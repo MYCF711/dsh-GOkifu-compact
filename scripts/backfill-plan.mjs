@@ -1,0 +1,134 @@
+/**
+ * backfill-plan.mjs —— 补账到底要花多少、几轮能补完（离线，不调模型）
+ *
+ * 为什么需要：面板的「检查欠账」只在有宿主时能用；而"要不要现在补、补几轮、多少钱"
+ * 这种事**离线也该能算清楚**。真机数据（2026-11-02）：35 个欠账、可估 11 个、
+ * 合计 ≈ 5.51 M tok ≈ $0.83 —— 但没人能一眼看出"要跑几轮"。
+ *
+ * 口径全部复用生产代码，不另起一套：
+ *   · 欠账判定：`rooms/closeout-backfill.mjs` 的 `debtOfGraph`
+ *   · 分段：`engine.planChunkedCloseout`（预检 + 切分，C288/C289/C309 同一条链）
+ *
+ * 用法：
+ *   node scripts/backfill-plan.mjs                 # 表格
+ *   node scripts/backfill-plan.mjs --json
+ *   node scripts/backfill-plan.mjs --home <DSH_HOME>
+ */
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
+import { planChunkedCloseout, CLOSEOUT_MAX_FOLD_TOKENS } from "../src/rooms/closeout-plan.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+const ROOT = nodePath.resolve(HERE, "..");
+
+/** 冷缓存下的输入单价（美元 / 百万 token）：与 成本模型-deepseek价格.md 同一口径。 */
+export const COLD_INPUT_PER_MTOK = 0.15;
+/** 每次补账除了折进去的尾巴，还要付一次摘要输出（保守按 2k token、$0.6/M 计）。 */
+export const SUMMARY_OUTPUT_TOKENS = 2000;
+export const OUTPUT_PER_MTOK = 0.6;
+
+/**
+ * ★ C339：把一批欠账算成「要几轮、多少钱」。纯函数，便于单测。
+ *
+ * @param {Array<{sessionId: string, tail: number, estTokens: number|null, chunks: number}>} rows
+ * @param {{maxChunks?: number, coldInputPerMTok?: number}} [options]
+ * @returns {{total:number, estimable:number, unknown:number, tokens:number, chunks:number,
+ *            rounds:number, costUsd:number, rows: Array<object>}}
+ */
+export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INPUT_PER_MTOK } = {}) {
+  let tokens = 0;
+  let chunks = 0;
+  let estimable = 0;
+  let unknown = 0;
+  for (const row of rows ?? []) {
+    if (!Number.isFinite(row?.estTokens)) {
+      unknown += 1;
+      continue;
+    }
+    estimable += 1;
+    tokens += row.estTokens;
+    chunks += Number.isFinite(row.chunks) && row.chunks > 0 ? row.chunks : 1;
+  }
+  const rounds = chunks === 0 ? 0 : Math.ceil(chunks / Math.max(1, maxChunks));
+  // 每一段折叠都要付一次输入（该段 token）+ 一次摘要输出
+  const costUsd = (tokens / 1_000_000) * coldInputPerMTok + (chunks * SUMMARY_OUTPUT_TOKENS / 1_000_000) * OUTPUT_PER_MTOK;
+  return {
+    total: (rows ?? []).length,
+    estimable,
+    unknown,
+    tokens,
+    chunks,
+    rounds,
+    costUsd: Math.round(costUsd * 100) / 100,
+    rows: rows ?? [],
+  };
+}
+
+/**
+ * 扫一遍会话目录，给每个欠账算尾巴/估算/段数（读图走 loadSessionGraph，脚本侧硬规矩 C183）。
+ * @param {string} home
+ * @param {{maxTokens?: number}} [options]
+ */
+export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } = {}) {
+  const { loadSessionGraph } = await import("./graph-audit.mjs");
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  const rows = [];
+  if (!nodeFs.existsSync(sessionsRoot)) return rows;
+  for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+    if (!nodeFs.existsSync(file)) continue;
+    let graph = null;
+    try {
+      graph = loadSessionGraph(file).graph;
+    } catch {
+      continue;
+    }
+    const debt = debtOfGraph(graph);
+    if (!debt.due) continue;
+    const planned = planChunkedCloseout(graph, { maxTokens });
+    rows.push({
+      sessionId: entry.name.slice(0, 18),
+      tail: debt.tail,
+      estTokens: Number.isFinite(debt.estTokens) ? debt.estTokens : null,
+      chunks: planned?.chunks?.length ?? 1,
+    });
+  }
+  rows.sort((a, b) => (b.estTokens ?? -1) - (a.estTokens ?? -1));
+  return rows;
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const getArg = (name, fallback) => {
+    const i = argv.indexOf(`--${name}`);
+    return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+  };
+  const home = getArg("home", process.env.DSH_HOME ?? "");
+  if (home === "") {
+    console.log("需要 --home <DSH_HOME>（或设置 DSH_HOME）");
+    return 2;
+  }
+  const rows = await buildPlan(home);
+  const plan = summarizePlan(rows);
+  if (argv.includes("--json")) {
+    console.log(JSON.stringify(plan, null, 2));
+    return 0;
+  }
+  console.log(`== 补账计划 ==  ${plan.total} 个欠账 · 可估 ${plan.estimable} · 估不出 ${plan.unknown}`);
+  for (const row of rows.slice(0, 12)) {
+    const est = row.estTokens === null ? "?" : `${Math.round(row.estTokens / 1000)}k tok`;
+    console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段`);
+  }
+  if (rows.length > 12) console.log(`  · …另 ${rows.length - 12} 个`);
+  console.log(
+    `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段 ⇒ **约 ${plan.rounds} 轮**（每轮最多 6 段）` +
+      ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,
+  );
+  return 0;
+}
+
+const invokedDirectly =
+  process.argv[1] !== undefined && nodePath.resolve(process.argv[1]) === nodePath.resolve(fileURLToPath(import.meta.url));
+if (invokedDirectly) process.exitCode = await main();

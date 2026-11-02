@@ -28,6 +28,13 @@ import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
+import {
+  CLOSEOUT_MAX_FOLD_TOKENS,
+  closeoutExceedsLimit,
+  planCloseoutChunks,
+  planChunkedCloseout,
+  runChunkedCloseout,
+} from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
@@ -158,79 +165,6 @@ export function newlyArchived(previous, current) {
     if (!seen.has(value)) out.push(value);
   }
   return out;
-}
-
-export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS, maxChunks = 6 } = {}) {
-  const tooBig = closeoutExceedsLimit(graph, maxTokens);
-  if (tooBig === null) return null;
-  let debt = null;
-  try {
-    debt = debtOfGraph(graph);
-  } catch {
-    debt = null;
-  }
-  const chunks = planCloseoutChunks({
-    fromSeq: Number(debt?.lastFoldSeq ?? 0),
-    tail: tooBig.tail,
-    tokensPerEvent: debt?.tokensPerEvent ?? null,
-    maxTokens,
-    maxChunks,
-  });
-  return { est: tooBig.est, tail: tooBig.tail, chunks };
-}
-
-
-export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now = Date.now } = {}) {
-  let folded = 0;
-  for (const chunk of chunks) {
-    const remaining = deadline - now();
-    if (remaining <= 0) return { folded, stopped: "deadline", error: null };
-    try {
-      await fold(chunk.start, chunk.end, remaining);
-      folded += 1;
-    } catch (error) {
-      return { folded, stopped: "error", error };
-    }
-  }
-  return { folded, stopped: chunks.length === 0 ? "done" : "done", error: null };
-}
-
-export function planCloseoutChunks({
-  fromSeq = 0,
-  tail = 0,
-  tokensPerEvent = null,
-  maxTokens = CLOSEOUT_MAX_FOLD_TOKENS,
-  maxChunks = 6,
-} = {}) {
-  const start0 = Number(fromSeq);
-  const total = Number(tail);
-  const per = Number(tokensPerEvent);
-  if (!Number.isFinite(start0) || start0 < 0) return [];
-  if (!Number.isFinite(total) || total <= 0) return [];
-  if (!Number.isFinite(per) || per <= 0) return [];
-  const chunkEvents = Math.max(1, Math.floor(maxTokens / per));
-  const chunks = [];
-  let cursor = start0;
-  const end0 = start0 + total;
-  while (cursor < end0 && chunks.length < Math.max(1, maxChunks)) {
-    const end = Math.min(end0, cursor + chunkEvents);
-    chunks.push({ start: cursor, end, estTokens: Math.round((end - cursor) * per) });
-    cursor = end;
-  }
-  return chunks;
-}
-
-export function closeoutExceedsLimit(graph, maxTokens = CLOSEOUT_MAX_FOLD_TOKENS) {
-  if (graph === null || typeof graph !== "object") return null;
-  let debt;
-  try {
-    debt = debtOfGraph(graph);
-  } catch {
-    return null;
-  }
-  const est = Number(debt?.estTokens);
-  if (!Number.isFinite(est) || est <= maxTokens) return null;
-  return { est, tail: Number(debt.tail) };
 }
 
 export function isPermanentSummaryError(message) {
@@ -475,7 +409,7 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
  * 超过它就去打模型必被拒绝（上下文超长）—— 实测本机 11/11 个可估欠账都超。
  * 现在只是**预检跳过 + 留日志**；真正的解是分段折叠（K-15 第二步）。
  */
-export const CLOSEOUT_MAX_FOLD_TOKENS = 150_000;
+
 
 export const name = "dsh-gokifu-compact";
 
@@ -2258,3 +2192,6 @@ function ruleSummary(g, range) {
   lines.push(`- 本段遮蔽 seq ${range?.start ?? "?"}-${range?.end ?? "?"}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
   return lines.join("\n");
 }
+
+// ★ C339：规划逻辑搬到 `rooms/closeout-plan.mjs`（脚本也能 import），这里保持对外不变。
+export { CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout };

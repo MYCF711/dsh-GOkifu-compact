@@ -39,6 +39,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "closeout-plan": {
+    // C339：归档收尾的"要不要分段/怎么切/怎么执行"纯函数（engine 与离线脚本共用）
+    file: "closeout-plan.mjs",
+    allowed: ["./closeout-backfill.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /(^|\/)kifu-model\.mjs$/],
+  },
   "profile-io": {
     // C306：面板与安装器共用的两个读文件小工具（原来各写一遍）
     file: "profile-io.mjs",
@@ -486,8 +492,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world"],
-      "房间集合必须与契约 20 个一致（C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world"],
+      "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
