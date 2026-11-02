@@ -77,6 +77,38 @@ function runDoctor(home) {
   };
 }
 
+tests["C219 热清单注入动作：replace 占比高 ⇒ warn（改写历史中间那条 = 缓存从那里起作废）；append 为主 ⇒ ok"] = (t) => {
+  const heavyReplace = makeHome({
+    ledgerBudget: { samples: 30, injectActions: { append: 3, replace: 27 }, updatedAt: Date.now() },
+  });
+  try {
+    const row = runDoctor(heavyReplace).find("热清单注入动作");
+    t.eq(!!row, true, "必须有「热清单注入动作」检查项");
+    t.eq(row.status, "warn", `replace 占 90% 必须 warn：${JSON.stringify(row)}`);
+    t.eq(String(row.detail).includes("replace 占 90%"), true, `要给出占比：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(heavyReplace, { recursive: true, force: true });
+  }
+  const mostlyAppend = makeHome({
+    ledgerBudget: { samples: 25, injectActions: { append: 20, replace: 5 }, updatedAt: Date.now() },
+  });
+  try {
+    const row = runDoctor(mostlyAppend).find("热清单注入动作");
+    t.eq(row.status, "ok", `replace 占 20% 应 ok：${JSON.stringify(row)}`);
+    t.eq(String(row.detail).includes("append 20"), true, `要给出 append 次数：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(mostlyAppend, { recursive: true, force: true });
+  }
+  const none = makeHome({ ledgerBudget: { samples: 5 } });
+  try {
+    const row = runDoctor(none).find("热清单注入动作");
+    t.eq(row.status, "warn", "旧版 budget 没有 injectActions ⇒ 未采集（warn），不许报 ok");
+    t.eq(String(row.detail).includes("未采集"), true, `文案要写未采集：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(none, { recursive: true, force: true });
+  }
+};
+
 tests["C66-1 fold 悬空：没有 dangling 记录 ⇒ warn「未采集」（不许报 ok）；全 0 ⇒ ok"] = (t) => {
   const none = makeHome({ mutate: (g) => { g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 9 }]; } });
   try {

@@ -115,6 +115,21 @@ export function skipReasonKey(result) {
   return reason;
 }
 
+/**
+ * ★ C219：注入动作的统计键 —— append / replace 才计（skip 已由 skipReasons 覆盖）。
+ *
+ * 为什么要单独记它：**append 是缓存友好的（前缀不动，只在末尾追加），replace 是改写历史中间那条**
+ * —— 后者会让 DeepSeek 的 disk cache 从那条消息起**失去前缀匹配**（见 docs/knowledge/上下文缓存-deepseek.md）。
+ * 没有这个数字就只能靠猜"我们到底在不在破坏缓存"。
+ * @param {object} result decideInjection 的返回
+ * @returns {"append"|"replace"|null}
+ */
+export function injectActionKey(result) {
+  if (result === null || typeof result !== "object") return null;
+  if (result.action === "append" || result.action === "replace") return result.action;
+  return null;
+}
+
 /** 有界累加：最多记 8 个原因键，其余归 "other"（防止某个极端 reason 把统计表撑爆）。 */
 export function bumpSkipReason(map, key, limit = 8) {
   if (!key) return map;
@@ -397,6 +412,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       provenanceLow: 0,
       updatedAt: 0,
       samples: 0,
+      // ★ C219：注入动作分布（append 缓存友好 / replace 改写历史）—— 见 injectActionKey
+      injectActions: {},
     };
     if (this.chess.hotLedger) this.#bindLedger();
     this.#bindKeeper();
@@ -877,6 +894,16 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           this.#persistLedgerBudget();
         }
         // ★ C91：跳过原因分布（identical / throttled-events / no-ledger …），每 20 次落一次盘即可
+        // ★ C219：注入动作分布（append / replace）—— 缓存友好性的**唯一**可观测信号
+        const actionKey = injectActionKey(result);
+        if (actionKey !== null) {
+          const actions = this.ledgerBudget.injectActions && typeof this.ledgerBudget.injectActions === "object" ? this.ledgerBudget.injectActions : {};
+          actions[actionKey] = (Number.isFinite(actions[actionKey]) ? actions[actionKey] : 0) + 1;
+          this.ledgerBudget.injectActions = actions;
+          this.ledgerBudget.updatedAt = Date.now();
+          const totalActions = Object.values(actions).reduce((sum, n) => sum + (Number(n) || 0), 0);
+          if (totalActions % 20 === 0) this.#persistLedgerBudget();
+        }
         const skipKey = skipReasonKey(result);
         if (skipKey !== null) {
           this.ledgerBudget.skipReasons = bumpSkipReason(this.ledgerBudget.skipReasons, skipKey);

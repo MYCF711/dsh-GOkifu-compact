@@ -1043,6 +1043,11 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (mod.skipReasonKey({ action: "skip", reason: "identical" }) !== "identical") throw new Error("普通跳过要记原因");
   if (mod.skipReasonKey({ action: "skip", reason: "error:boom" }) !== null) throw new Error("error: 不许重复记");
   if (mod.skipReasonKey({ action: "append" }) !== null) throw new Error("成功注入不记原因");
+  // ★ C219：注入动作（append 缓存友好 / replace 改写历史中间那条 —— 后者让前缀缓存作废）
+  if (mod.injectActionKey({ action: "append" }) !== "append") throw new Error("append 要计入动作分布");
+  if (mod.injectActionKey({ action: "replace" }) !== "replace") throw new Error("replace 要计入动作分布");
+  if (mod.injectActionKey({ action: "skip", reason: "identical" }) !== null) throw new Error("skip 由 skipReasons 管，不重复计");
+  if (mod.injectActionKey(null) !== null) throw new Error("null 不许抛");
   const bumped = ["a", "a", "b"].reduce((m, k) => mod.bumpSkipReason(m, k), {});
   if (bumped.a !== 2 || bumped.b !== 1) throw new Error(`分布累加错：${JSON.stringify(bumped)}`);
   // 有界：超过 8 个键后新键一律归 other

@@ -1099,6 +1099,27 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+/* ★ C219：热清单**注入动作** —— 缓存友好性。
+   append = 只在末尾追加（前缀不动，DeepSeek 的 disk cache 还能命中）；
+   replace = 改写 surface 中间那条（从那里起前缀失配，缓存作废）。
+   这条以前完全看不到：我们只在文档里说"尽量少写"，没有数字。 */
+{
+  const actions = stats && typeof stats === "object" && stats.injectActions && typeof stats.injectActions === "object" ? stats.injectActions : null;
+  const append = Number(actions?.append) || 0;
+  const replace = Number(actions?.replace) || 0;
+  if (actions === null || append + replace === 0) {
+    add("热清单注入动作（缓存友好性）", "warn", "未采集（ledger-budget.json 里还没有 injectActions —— C219 起才写；重启后自然出现）");
+  } else {
+    const total = append + replace;
+    const pct = Math.round((replace / total) * 100);
+    add(
+      "热清单注入动作（缓存友好性）",
+      pct >= 90 ? "warn" : "ok",
+      `append ${append} / replace ${replace}（replace 占 ${pct}%；replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配、缓存作废，占比越高越贵）`,
+    );
+  }
+}
+
 /* ★ C197：token 压力快照 —— 回答「为什么还不 fold」：是没到阈值，还是根本没被调用。 */
 {
   const pressure = stats && typeof stats === "object" && stats.pressure && typeof stats.pressure === "object" ? stats.pressure : null;
