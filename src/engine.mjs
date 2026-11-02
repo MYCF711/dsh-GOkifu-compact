@@ -47,6 +47,18 @@ const FOLD_MARKS_KEEP = 20;
  *  30 个事件约等于 10–15 步（一步通常 2~3 个事件）。取值依据：太大会漏判（正常的重压间隔也就几十事件），
  *  太小会把「小步高频压缩」误判成故障。只用于记录与提示，不影响是否 fold。 */
 const THRASH_SEQ = 30;
+/**
+ * ★ C177：fold 连续失败后的**重试退避**（按事件计，不是按时间）。
+ *
+ * 为什么需要：`foldFailures` 以前只用于「告诉模型别乱压」的热清单告警，**不参与任何流程控制**。
+ * 于是摘要模型坏掉（或命中持续 bug）时，**每个 pressure 事件都会再试一次** —— 每次都调一次模型，
+ * 每次都失败。用户看到的是「上下文没被压，账单在涨」。
+ *
+ * 退避规则：第 k 次连续失败后，至少要再过 `min(BASE<<(k-1), CAP)` 个事件才允许重试；
+ * `context-overflow`（自救路径）**不受限** —— 那是「不压就会溢出」的硬场景，宁可再试一次。
+ */
+const FOLD_RETRY_BASE_SEQ = 30;
+const FOLD_RETRY_CAP_SEQ = 480;
 
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 
@@ -394,6 +406,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       legacyElided: false,
       // ★ 2026-10-29：压缩连续失败计数（热清单告警用）。成功一次清零。
       foldFailures: 0,
+      lastFoldFailureSeq: 0,
       lastFoldError: "",
     };
     const g = this.#graph(session);
@@ -837,6 +850,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const policy = resolvePolicy(this.chess, target);
     const meter = this.ctx.tokenMeter;
     let measurement = meter.measure(session);
+
+    // ★ C177：连续失败后的退避 —— 不给「坏掉的摘要路径」每个事件都再付一次模型调用。
+    //   `context-overflow` 是自救路径，不设退避（宁可再试，也不能让上下文真的溢出）。
+    if (trigger !== "context-overflow") {
+      const stBackoff = this.#runtimeFor(session);
+      const failures = stBackoff.foldFailures ?? 0;
+      if (failures > 0) {
+        const wait = Math.min(FOLD_RETRY_BASE_SEQ * 2 ** Math.min(failures - 1, 6), FOLD_RETRY_CAP_SEQ);
+        const since = session.seq - (stBackoff.lastFoldFailureSeq ?? 0);
+        if (since < wait) return null;
+      }
+    }
     const g = this.#graph(session);
     const st = this.#runtimeFor(session);
 
@@ -912,6 +937,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // fold 真的抛错：恢复图，保证「foldCount 没变 ⇒ 图也没变」
       restore();
       st.foldFailures += 1;
+      st.lastFoldFailureSeq = session.seq;
       st.lastFoldError = String(error?.message ?? error).slice(0, 180);
       this.#flush(session, { tree: true });
       throw error;
@@ -927,6 +953,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const after = meter.measure(session);
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
     st.foldFailures = 0;
+    st.lastFoldFailureSeq = 0;
     st.lastFoldError = "";
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——

@@ -1998,3 +1998,61 @@ tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usag
   if (engine._lastSummaryUsage !== undefined) throw new Error("规则路径必须清掉 usage（否则 lastFoldUsage 是伪造的账）");
   if (engine._lastSummaryModelText !== undefined) throw new Error("模型文本也必须清空");
 };
+
+tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型调用），越界后恢复；overflow 不受限"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c177-backoff");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c177");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  // 让 compactRegion 一直抛错，模拟「摘要路径坏掉」
+  const original = engine.compactRegion.bind(engine);
+  let attempts = 0;
+  engine.compactRegion = async () => {
+    attempts += 1;
+    throw new Error("injected-persistent-boom");
+  };
+  try {
+    // 第 1 次：真的要试（并失败）
+    let threw = false;
+    try {
+      await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    } catch {
+      threw = true;
+    }
+    if (!threw) throw new Error("首次失败必须抛错（_lastSummary 那套约定）");
+    if (attempts !== 1) throw new Error(`首次应尝试 1 次，实际 ${attempts}`);
+
+    // 第 2 次：还在退避窗口内（30 事件）⇒ 必须直接跳过，不再尝试
+    const second = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (second !== null) throw new Error(`退避窗口内必须返回 null，实际 ${JSON.stringify(second)}`);
+    if (attempts !== 1) throw new Error(`退避窗口内不许再尝试（attempts 应仍为 1，实际 ${attempts}）`);
+
+    // 推进事件越过窗口 ⇒ 允许再试一次
+    for (let i = 0; i < 60; i += 1) session.nextSeq(); // 推进事件，越过退避窗口
+    let threw2 = false;
+    try {
+      await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    } catch {
+      threw2 = true;
+    }
+    if (!threw2) throw new Error("越过退避窗口后应再试并再次失败（抛错）");
+    if (attempts !== 2) throw new Error(`越过窗口后应尝试第 2 次，实际 ${attempts}`);
+
+    // overflow 自救路径不受退避限制
+    session.nextSeq(); // 只推进 1 个事件 —— 仍在退避窗口内，但 overflow 不受限
+    let threw3 = false;
+    try {
+      await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+    } catch {
+      threw3 = true;
+    }
+    if (!threw3) throw new Error("overflow 必须尝试（不受退避限制）");
+    if (attempts !== 3) throw new Error(`overflow 应再尝试一次，实际 ${attempts}`);
+  } finally {
+    engine.compactRegion = original;
+  }
+
+};
