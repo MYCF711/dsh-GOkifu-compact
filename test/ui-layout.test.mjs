@@ -291,3 +291,30 @@ tests["C269 每张右栏卡片都必须既定义、又出现在 rightColumn 里�
     t.eq(new RegExp(`const ${name} =`).test(src), true, `rightColumn 里的 ${name} 没有对应定义（拼错了？）`);
   }
 };
+
+/**
+ * ★ C270：面板承诺的每个 action，服务端都必须真的认。
+ *   反向（服务端有、面板不调）允许存在，但必须是**已知允许列表** ——
+ *   新增一个没人调的服务端 action，要么补面板，要么明确加进允许列表并写原因。
+ */
+tests["C270 面板调的每个 action 服务端都必须认；服务端多余 action 要有明确允许"] = (t) => {
+  const client = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  const server = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+
+  const called = new Set([
+    ...[...client.matchAll(/callApi\("([a-z]+)"/g)].map((m) => m[1]),
+    ...[...client.matchAll(/action:\s*"([a-z]+)"/g)].map((m) => m[1]),
+  ]);
+  const served = new Set([...server.matchAll(/action === "([a-z]+)"/g)].map((m) => m[1]));
+
+  t.eq(called.size > 0, true, "必须能解析出客户端调用的 action（正则失配会让这条永远绿）");
+  for (const name of called) {
+    t.eq(served.has(name), true, `面板调用了 ${name}，但服务端没有这个 action（点了会 404/未知 action）`);
+  }
+  // 服务端有、面板不用的：只允许这两个已知项（它们已并入 state 载荷）
+  const ALLOWED_SERVER_ONLY = new Set(["defaults", "health"]);
+  for (const name of served) {
+    if (ALLOWED_SERVER_ONLY.has(name)) continue;
+    t.eq(called.has(name), true, `服务端有 action "${name}" 但面板从不调用 —— 要么补面板，要么加进允许列表并写原因`);
+  }
+};
