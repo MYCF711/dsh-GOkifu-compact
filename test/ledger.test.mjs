@@ -483,3 +483,22 @@ tests["C351 token 估算的偏差必须被写死（改常量就得回来改这�
   t.eq(ascii, 2, `ASCII 8 字应估 2 token（= 官方 0.3 的 0.83 倍），实际 ${ascii}`);
   t.eq(cjk > ascii * 3, true, "CJK 必须明显比 ASCII 贵（这是分档设计的前提）");
 };
+
+tests["C352 官方比例估算器：中文 0.6/字、英文 0.3/字（校准脚本依赖它）"] = async (t) => {
+  const { officialEstimate, compareEstimates } = await import("../scripts/token-calib.mjs");
+  // 10 个汉字 ⇒ 6 token
+  t.eq(officialEstimate("汉字汉字汉字汉字汉字").tokens, 6, "10 汉字 ⇒ 6 token（0.6/字）");
+  // 10 个英文 ⇒ 3 token
+  t.eq(officialEstimate("abcdefghij").tokens, 3, "10 英文 ⇒ 3 token");
+  // 换行不计
+  t.eq(officialEstimate("\n\n").tokens, 0, "换行不产生 token");
+  // 混合：4 汉字(2.4) + 4 英文(1.2) ⇒ ceil(3.6)=4
+  t.eq(officialEstimate("数据压缩test").tokens, 4, "混合按各自比例相加后向上取整");
+
+  // compareEstimates 给出比值；纯中文时我们应偏高（CJK 1.0 vs 官方 0.6）
+  const cjkOnly = compareEstimates("汉字汉字汉字汉字汉字汉字汉字汉字汉字汉字");
+  t.eq(cjkOnly.ratio > 1.5, true, `纯中文时应明显偏高，实际 ${cjkOnly.ratio}`);
+  // 纯英文时我们应偏低（0.25 vs 0.3）
+  const asciiOnly = compareEstimates("abcdefghijklmnopqrst");
+  t.eq(asciiOnly.ratio < 1, true, `纯英文时应偏低，实际 ${asciiOnly.ratio}`);
+};
