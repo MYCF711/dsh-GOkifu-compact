@@ -92,7 +92,8 @@ export function main(argv = process.argv.slice(2)) {
     console.log("  ✅ 没有遗漏");
     return 0;
   }
-  console.log(`  ⚠ 漏了 ${missing.length} 条：${missing.map((n) => `C${n}`).join(" / ")}`);
+  // ★ C355：门禁的参考门只把 `!`/`✗` 开头的行当作摘要 —— 用 ⚠ 会被静默吞掉
+  console.log(`  ! 漏了 ${missing.length} 条：${missing.map((n) => `C${n}`).join(" / ")}`);
   return 0;
 }
 

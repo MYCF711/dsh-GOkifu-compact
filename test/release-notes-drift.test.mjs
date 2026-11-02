@@ -29,3 +29,18 @@ tests["C354 漂移：只报 since 之后的缺口（否则会把历史版本全�
   // since 默认 0 ⇒ 全量（保留旧行为给需要时用）
   t.eq(driftOf(cl, "C1–C2").missing, [3, 4], "默认从 0 起只报未提到的");
 };
+
+tests["C355 输出前缀：有遗漏必须用 `!` 开头（门禁的参考门只摘 !/✗ 行，用 ⚠ 会被吞）"] = async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const script = nodePath.join(here, "..", "scripts", "release-notes-drift.mjs");
+
+  const miss = spawnSync(process.execPath, [script, "--since", "1"], { encoding: "utf8" });
+  const missLines = String(miss.stdout ?? "").split("\n").map((l) => l.trim());
+  t.eq(missLines.some((l) => l.startsWith("! 漏了")), true, `有遗漏时必须输出「! 漏了 …」：${miss.stdout?.slice(0, 200)}`);
+
+  const clean = spawnSync(process.execPath, [script], { encoding: "utf8" });
+  t.includes(String(clean.stdout ?? ""), "没有遗漏", "当前仓库状态应无遗漏（否则先补发布说明）");
+};

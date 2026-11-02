@@ -52,6 +52,17 @@ export const GATES = Object.freeze([
   { id: "test", name: "全量测试全绿", script: "test/run.mjs", expect: /0 failed/ },
   { id: "pack", name: "打包内容可从任意 commit 复现", script: "pack-check.mjs", expect: /打包内容全部有出处/, optional: true },
   {
+    id: "release-notes",
+    name: "发布说明漂移（本版漏了哪些改动）—— 仅供参考",
+    script: "release-notes-drift.mjs",
+    // ★ C355：发布说明是**用户唯一会读的版本级文档**，而它已经落后过两次（C327 / C337）。
+    //   这条以前靠"我想起来"才发现 —— 现在每次门禁都顺带看一眼。
+    //   不做判分门：漏一条说明不该挡住交付，但必须**出现在同一份输出里**。
+    advisory: true,
+    ignoreExit: true,
+    expect: /没有遗漏|漏了 \d+ 条/,
+  },
+  {
     id: "maintenance",
     name: "维护性（版本 / tag / 发版）—— 仅供参考，不算门禁",
     script: "check-maintenance.mjs",

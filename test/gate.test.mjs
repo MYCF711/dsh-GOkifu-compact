@@ -19,7 +19,7 @@ tests["C272 门禁清单：六道门一个都不能少，且每道门指向的�
   const judged = GATES.filter((g) => g.advisory !== true).map((g) => g.id).sort();
   const advisory = GATES.filter((g) => g.advisory === true).map((g) => g.id);
   t.eq(judged, ["boundary", "changelog-index", "docs-index", "handoff", "pack", "test"], "判分门必须等于这六项");
-  t.eq(advisory, ["maintenance", "field-reads", "duplicates", "restart"], "参考门 = 维护性（卡授权）+ 重启后核对（卡重启）+ 字段审计（需人判断）");
+  t.eq(advisory, ["release-notes", "maintenance", "field-reads", "duplicates", "restart"], "参考门 = 发布说明漂移（C355）+ 维护性（卡授权）+ 重启后核对（卡重启）+ 字段审计（需人判断）");
 
   for (const gate of GATES) {
     const rel = gate.script.startsWith("test/") ? gate.script : nodePath.join("scripts", gate.script);
