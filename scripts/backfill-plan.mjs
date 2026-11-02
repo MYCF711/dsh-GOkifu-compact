@@ -115,6 +115,29 @@ export function planRounds(rows, { maxChunksPerRound = 6 } = {}) {
 }
 
 /**
+ * ★ C343：给"一次补不完"的会话推荐一个 `closeoutMaxFoldTokens` 值。
+ *
+ * 逻辑很简单但很有用：要让最大的那个会话在 ≤6 段内折完，单段上限至少要
+ * `ceil(estTokens / maxChunks)`。取所有会话的最大需求，再夹到配置允许的区间
+ * （`config-schema` 里是 20000–800000）。
+ *
+ * @param {Array<{estTokens:number|null}>} rows
+ * @param {{maxChunks?: number, min?: number, max?: number}} [options]
+ * @returns {{value:number, needed:number|null, fits:boolean}|null} null = 没有可估的会话
+ */
+export function recommendMaxFoldTokens(rows, { maxChunks = 6, min = 20000, max = 800000 } = {}) {
+  const needs = (rows ?? [])
+    .map((r) => Number(r?.estTokens))
+    .filter((x) => Number.isFinite(x) && x > 0)
+    .map((est) => Math.ceil(est / Math.max(1, maxChunks)));
+  if (needs.length === 0) return null;
+  const needed = Math.max(...needs);
+  const value = Math.min(max, Math.max(min, needed));
+  return { value, needed, fits: needed <= max };
+}
+
+/**
+ * 扫一遍会话目录/**
  * 扫一遍会话目录/**
  * 扫一遍会话目录，给每个欠账算尾巴/估算/段数（读图走 loadSessionGraph，脚本侧硬规矩 C183）。
  * @param {string} home
@@ -206,6 +229,13 @@ export async function main(argv = process.argv.slice(2)) {
     `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段` +
       ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,
   );
+  const rec = recommendMaxFoldTokens(rows);
+  if (plan.multiPass > 0 && rec !== null) {
+    console.log(
+      `  ⇒ 建议把 \`closeoutMaxFoldTokens\` 调到 **${rec.value}**` +
+        (rec.fits ? `（最大值会话需要 ${rec.needed}）` : `（⚠ 需要 ${rec.needed} 已超上限 ${800000}，最大的那个仍要重复点）`),
+    );
+  }
   console.log(
     `调度口径：面板**每次点击最多 ${20} 个会话**、每个会话一次最多折 ${6} 段` +
       ` ⇒ 约 **${plan.clicks} 次点击**；` +

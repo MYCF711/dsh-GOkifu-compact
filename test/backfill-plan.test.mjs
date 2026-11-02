@@ -106,3 +106,30 @@ tests["C342 调度口径：按「每次点击 20 个会话」算点击数，并�
   // requiredChunks 缺失时不许误报
   t.eq(summarizePlan([{ sessionId: "x", tail: 1, estTokens: 1, chunks: 1 }]).multiPass, 0, "缺字段不误报");
 };
+
+tests["C343 recommendMaxFoldTokens：给出「调到多少能让最大的会话一次折完」"] = async (t) => {
+  const { recommendMaxFoldTokens } = await import("../scripts/backfill-plan.mjs");
+  t.eq(typeof recommendMaxFoldTokens, "function", "必须导出 recommendMaxFoldTokens");
+
+  // 没有可估的会话 ⇒ null（不许瞎给建议）
+  t.eq(recommendMaxFoldTokens([]), null, "空输入 null");
+  t.eq(recommendMaxFoldTokens([{ estTokens: null }]), null, "全都估不出也要 null");
+
+  // 2.0M / 6 段 ⇒ 需要 333,334 一段
+  const rec = recommendMaxFoldTokens([{ estTokens: 2_000_000 }, { estTokens: 500_000 }]);
+  t.eq(rec.needed, Math.ceil(2_000_000 / 6), "取最大需求（按 6 段）");
+  t.eq(rec.value, rec.needed, "在上限内时直接用需求值");
+  t.eq(rec.fits, true, "能装下");
+
+  // 超上限 ⇒ 夹到上限，并标记 fits=false（诚实说补不完）
+  const over = recommendMaxFoldTokens([{ estTokens: 9_000_000 }], { max: 800000 });
+  t.eq(over.value, 800000, "夹到配置上限");
+  t.eq(over.fits, false, "超上限要标 false，不能假装能一次补完");
+
+  // 低于下限 ⇒ 抬到下限（配置有最小值）
+  t.eq(recommendMaxFoldTokens([{ estTokens: 1000 }], { min: 20000 }).value, 20000, "低于下限要抬到下限");
+
+  // 建议值必须落在配置允许区间内（20000–800000）
+  const real = recommendMaxFoldTokens([{ estTokens: 1_146_214 }]);
+  t.eq(real.value >= 20000 && real.value <= 800000, true, `建议值必须在配置区间内：${real.value}`);
+};
