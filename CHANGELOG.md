@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C424 | HANDOFF 补「重启后三步」与「应该新出现的东西」 |
 | C423 | 把 status 做成 npm run status，并写进 HANDOFF/README |
 | C422 | 新增 status：一条命令看完门禁/测试/doctor/面板/补账/基准 |
 | C421 | 发布说明漂移加反向检查（引用了不存在的编号） |
@@ -496,6 +497,18 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C424 · HANDOFF 补「重启后三步」与「应该新出现的东西」
+
+HANDOFF 之前只说"唯一待办 = 补账"，但**重启之后具体做什么、怎么确认生效**，还得人自己拼。
+既然重启是唯一剩下的动作，就应该把它写成**照抄即可**的三步。
+
+- **⏭ 重启后的三步**：① `npm run status` ② `accept-after-restart.mjs` ③ `backfill-one.mjs --session e78cc233 --dry`（先演后跑）；
+- **🔜 应该新出现的东西**：`today.truncated` / `update.relation` / `foldMark.usage.model` / `finishReason` / `measuredBefore` /
+  doctor「折叠证据字段」从 `0 0 0` 变非 0 / 面板认识 `sessionIds`——**逐项点名字段**，否则"生效没生效"无法判断；
+- 守卫 `live-bench` C424：必须有三步、必须含三条命令、必须列出应新增字段与参数级能力。
+
+**教训**：**"要重启"不是待办，"重启后做什么、怎么算成功"才是待办。**
 
 ### C423 · 把 status 做成 npm run status，并写进 HANDOFF/README
 

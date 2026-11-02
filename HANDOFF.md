@@ -15,6 +15,8 @@
 | 实验室工具（本轮新增） | `session-scan`（逐帧解 zstd 会话）· `cache-rate`（命中率 + `--by-session` 算钱）· `context-curve`（锯齿曲线）· `token-calib`（与官方比例对照）· `release-notes-drift`（发布说明漂移）· `backfill-plan`（钱/点击/耗时） |
 | ⏳ 唯一待办 | **补账**（欠账 49 个 / 10.7M tok / $1.72 冷缓存 / 约 3 次点击）；建议先把 `closeoutMaxFoldTokens` 调到 ≈230915（否则 3 个会话按 p90 会超 90s 超时，C392 干跑会直接告诉你） |
 | 未结案候选 | **K-20**（token 比例标定：实测端到端只差 1.07× ⇒ 降级）· **K-22**（两个「上下文大小」不是一个数 + 800k 台阶；证据已在 C366 埋好，重启后第一次 fold 即可对账） |
+| ⏭ 重启后的三步（照抄） | ① `npm run status` 看六行（若「全量测试」显示"未重跑"且门禁绿，即一切正常）②`node scripts/accept-after-restart.mjs` 看是否 `ready` ③ 想验证补账通道就先 `node scripts/backfill-one.mjs --session e78cc233 --dry`（只演不跑），确认后去掉 `--dry` 补**一个**小会话 |
+| 🔜 重启后**应该新出现**的东西 | `state.today.truncated`、`state.update.relation`、`foldMark.usage.model` / `finishReason` / `measuredBefore`、doctor「折叠证据字段」由 `0 0 0` 变为非 0、面板认识 `sessionIds` 参数（`accept-after-restart` 会点名）；若仍缺，说明面板那份模块还是旧的 |
 | 怎么读这份文件 | 本块 = 现状；下面是**追加日志**（旧在上、新在下）。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` |
 
 ---

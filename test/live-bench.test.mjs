@@ -112,3 +112,15 @@ tests["C419 基准文档要有「从哪开始」：最小的三个会话（验�
   t.includes(fake, "sess-x", "最小三个必须来自入参");
   t.includes(fake, "| 1 | sess-x | 7 |", "行格式要正确");
 };
+
+tests["C424 HANDOFF 必须给出「重启后三步」与「应该新出现的东西」（让重启可执行、可验收）"] = (t) => {
+  const handoff = nodeFs.readFileSync(nodePath.join(HERE, "..", "HANDOFF.md"), "utf8");
+  const head = handoff.slice(0, handoff.indexOf("## 🗒"));
+  t.includes(head, "重启后的三步", "必须有照抄步骤（C424）");
+  t.includes(head, "npm run status", "第一步必须是一键看现状");
+  t.includes(head, "accept-after-restart.mjs", "第二步必须是验收命令");
+  t.includes(head, "backfill-one.mjs", "第三步必须给出单会话验证命令");
+  t.includes(head, "应该新出现", "必须列清重启后应新增的字段（否则无法判断生效没生效）");
+  t.includes(head, "today.truncated", "要点名具体字段");
+  t.includes(head, "sessionIds", "要点名参数级能力");
+};
