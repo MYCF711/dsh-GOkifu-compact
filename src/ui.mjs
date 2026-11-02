@@ -58,6 +58,7 @@ import { fileURLToPath } from "node:url";
 // ★ A2-1（2026-10-30）：preset 块格式的唯一定义在 R13 的 preset-format 子房间（src/rooms/）。
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
 import { countResolvedFailures } from "./rooms/kifu-model.mjs";
+import { readProfileBundles, readTextOrNull } from "./rooms/profile-io.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
@@ -95,26 +96,8 @@ function resolveHome() {
 }
 
 /** 读 profile 的 `dsh.profile.bundles[]`；任何异常都当成「没有」（发现函数不许抛）。 */
-function readProfileBundles(profileDir) {
-  const file = nodePath.join(profileDir, "package.json");
-  try {
-    if (!nodeFs.existsSync(file)) return [];
-    const pkg = JSON.parse(nodeFs.readFileSync(file, "utf8"));
-    const bundles = pkg?.dsh?.profile?.bundles;
-    return Array.isArray(bundles) ? bundles.filter((b) => typeof b === "string" && b.trim() !== "") : [];
-  } catch {
-    return [];
-  }
-}
 
 /** 读文本；不存在 / 不是文件 / 读失败 ⇒ null（发现函数不许抛）。 */
-function readTextOrNull(file) {
-  try {
-    return nodeFs.existsSync(file) ? nodeFs.readFileSync(file, "utf8") : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * 找 preset 文件，**两代兼容**（W4，2026-11-01）。

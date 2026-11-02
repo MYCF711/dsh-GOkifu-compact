@@ -39,6 +39,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "profile-io": {
+    // C306：面板与安装器共用的两个读文件小工具（原来各写一遍）
+    file: "profile-io.mjs",
+    allowed: ["node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "config-schema": {
     file: "config-schema.mjs",
     allowed: [],
@@ -473,14 +479,14 @@ export const tests = {
     t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
   },
 
-  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；P6C-2 起 12 个）"(t) {
+  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；C306 起 20 个）"(t) {
     const bad = roomPathViolations();
     t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "touched-files", "user-patch", "verify", "world"],
-      "房间集合必须与契约 19 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
+      ["build-stamp", "closeout-backfill", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "node-docs", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world"],
+      "房间集合必须与契约 20 个一致（C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");

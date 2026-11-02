@@ -28,6 +28,13 @@ export const ALLOW = Object.freeze({
   // 空实现 / 一行包装，重复无害
   "return null;": "空实现",
   "throw new Error(\"not implemented\");": "占位实现",
+  // ★ C306：`scripts/install.mjs` 是**独立发布**的 CLI（会被复制进 profile 单独运行），
+  //   所以它不能 `import "../src/rooms/profile-io.mjs"` —— 这两份小工具必须各留一份。
+  //   面板侧已改为引用 `src/rooms/profile-io.mjs`（唯一真相在这里），install 侧是有意的副本。
+  "try{return nodeFs.existsSync(file)?nodeFs.readFileSync(file,\"utf8\"):null;}catch{return null;}":
+    "install.mjs 是独立发布的 CLI，不能依赖 ../src（有意保留）",
+  "const file=nodePath.join(profileDir,\"package.json\");try{if(!nodeFs.existsSync(file))return [];const pkg=JSON.parse(nodeFs.readFileSync(file,\"utf8\"));const bundles=pkg?.dsh?.profile?.bundles;return Array.isArray(bundles)?bundles.filter((b)=>typeof b===\"string\"&&b.trim()!==\"\"):[];}catch{return [];}":
+    "同上：install.mjs 独立发布，需要自带一份读 profile bundles 的实现",
 });
 
 function listSources() {
