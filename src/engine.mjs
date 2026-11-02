@@ -1423,7 +1423,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         // ★ C289：不再"跳过"，改成**分段折叠**（K-15 第二步）。
         const graph = typeof id === "string" ? this.graphs.get(id) : undefined;
         // ★ C309：预检 + 切分合成一个纯函数调用（可测），这里只管执行
-        const planned = planChunkedCloseout(graph);
+        // ★ C316：单段上限可配（默认 150k 保守；宿主窗口 1M 时可调大以减少补账轮次）
+        const configuredMax = Number(this.chess.closeoutMaxFoldTokens);
+        const planned = planChunkedCloseout(graph, {
+          maxTokens: Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : CLOSEOUT_MAX_FOLD_TOKENS,
+        });
         const chunks = planned?.chunks ?? [];
         const debt = (() => {
           try {

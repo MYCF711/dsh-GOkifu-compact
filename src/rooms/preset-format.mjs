@@ -118,6 +118,7 @@ export function engineBlock() {
     `    closeoutFold: true       # 归档（session/disposed）时补一次折叠，别留未压缩的尾巴`,
     `    closeoutMinEvents: 40    # 尾巴至少这么多事件才补（太少不值得一次模型调用）`,
     `    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续`,
+    `    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）`,
   ];
 }
 
@@ -219,6 +220,7 @@ export const KEY_COMMENTS = {
   closeoutFold: "归档时补一次收尾折叠（避免 kifu 留尾巴）",
   closeoutMinEvents: "收尾折叠的最小事件数",
   closeoutTimeoutMs: "收尾折叠硬超时（ms）",
+  closeoutMaxFoldTokens: "分段收尾的单段输入上限（tokens）",
   graphDir: "棋谱目录；留空 = <DSH_HOME>/chess-context",
   worldHashMaxFiles: "世界状态哈希最多 stat 多少文件",
 };

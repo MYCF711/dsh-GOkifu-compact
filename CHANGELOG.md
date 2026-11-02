@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C316 | `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案） |
 | C314 | 渲染耗时装进 doctor 当早期预警（不值得改 ≠ 不用管） |
 | C313 | 分项计时仪器上线：95% 的时间在拼字符串，**推翻了 K-16 的前提** |
 | C312 | 性能数字换成稳口径（115 → 143 ms），并记下 `measureLedgerSections` 的坑 |
@@ -393,6 +394,20 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C316 · `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案）
+
+宿主 `contextWindow` 实测 1,000,000，而分段收尾单段上限写死 150,000（6.7 倍保守）。C315 只改两处 → 7 条红 → 回滚。
+这轮按清单**一次改完六处**：
+
+1. `config-schema.mjs`：SCHEMA + `PRESET_KEYS` + **`LABEL_ORDER`**（`fieldLabels()` 走它，不读 SCHEMA —— 最容易漏）；
+2. `preset-format.mjs`：`engineBlock()` 模板 + 注释表；
+3. `lib/client.js`：面板 `FIELDS`（中文名 + 滑杆范围）；
+4. `docs/配置总表.md`：重生成（29 → **30** 项）；
+5. `engine.mjs`：读配置传进 `planChunkedCloseout`（非法值退回常量）；
+6. 六处测试计数：SCHEMA 30 / PRESET_KEYS 21 / DEFAULTS 18 / engineBlock 26 行·20 键 / golden describeConfig / C309 接线断言。
+
+**效果**：窗口 1M 时可把单段上限调到 400k ⇒ 1.24M 尾巴从「两轮」变「一轮」。**默认仍 150k**，要调的自己改 preset。
 
 ### C315（已回滚）· 收尾单段上限做成配置键：接线面比预想大，先记成 K-17
 

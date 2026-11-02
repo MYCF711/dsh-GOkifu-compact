@@ -2664,5 +2664,5 @@ tests["C309 planChunkedCloseout：给一张图，直接算出要折成几段（�
   }
   // 接线：引擎必须用它
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
-  if (!src.includes("const planned = planChunkedCloseout(graph)")) throw new Error("引擎必须走统一入口");
+  if (!src.includes("planChunkedCloseout(graph, {") ) throw new Error("引擎必须走统一入口，并把可配的单段上限定进去（C316）");
 };

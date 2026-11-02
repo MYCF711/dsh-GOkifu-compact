@@ -103,6 +103,7 @@ export const SCHEMA = Object.freeze([
   { key: "closeoutFold", type: "boolean", default: true, where: "preset", label: "归档收尾折叠", desc: "会话被归档（session/disposed）时补一次折叠，避免 kifu 留有未压缩的尾巴（C210）" },
   { key: "closeoutMinEvents", type: "number", default: 40, where: "preset", range: [1, 10000], label: "归档收尾最小事件数", desc: "距上次 fold 至少这么多事件才补折叠（太少不值得花一次模型调用）" },
   { key: "closeoutTimeoutMs", type: "number", default: 90000, where: "preset", range: [1000, 600000], label: "归档收尾超时(ms)", desc: "收尾折叠的硬超时；超时只记日志，归档继续（C210）" },
+  { key: "closeoutMaxFoldTokens", type: "number", default: 150000, where: "preset", range: [20000, 800000], label: "收尾单段上限(tokens)", desc: "分段收尾每段的输入上限；宿主窗口大时调大能减少补账轮次，太大则会被 provider 拒（C316）" },
   { key: "graphDir", type: "string", default: "", where: "engine", desc: "棋谱落盘目录；留空 = <DSH_HOME>/chess-context" },
   { key: "worldHashMaxFiles", type: "number", default: 200, where: "engine", desc: "世界状态哈希最多 stat 多少个文件" },
 ]);
@@ -131,6 +132,7 @@ export const PRESET_KEYS = Object.freeze([
   "closeoutFold",
   "closeoutMinEvents",
   "closeoutTimeoutMs",
+  "closeoutMaxFoldTokens",
 ]);
 
 /** 透传给官方基类的 11 个同名键。 */
@@ -184,6 +186,7 @@ const LABEL_ORDER = Object.freeze([
   "closeoutFold",
   "closeoutMinEvents",
   "closeoutTimeoutMs",
+  "closeoutMaxFoldTokens",
   "summarizationProvider",
   "summarizationModel",
 ]);
