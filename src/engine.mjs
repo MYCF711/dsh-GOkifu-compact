@@ -324,6 +324,30 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.graphs = new Map();
     /** ★ C149：这些会话的图是「读不出/版本不符 → 重建」出来的，落盘时不做按图清理。 */
     this.repairedGraphs = new Set();
+    /** ★ C216：会话对象轻引用（按 id）。归档那一下宿主的 registry 只认 id，
+     *  而收尾折叠需要 session（seq / cwd / surface），所以顺手留个引用。
+     *  不必担心泄漏：`session/disposed` 时会删掉，且本引擎的图/运行时本来就是按会话常驻的。 */
+    this.sessionRefs = new Map();
+    /** ★ C216：当前已知的归档 id 集合 —— 用**前后差分**判断「刚被归档的是谁」。
+     *  构造时先取一次宿主 registry 的基线；取不到就退化成「只认本进程活着的会话」。 */
+    this.archivedIds = new Set();
+    /** ★ C216：这份基线是不是「真基线」（构造时读到了宿主 registry）。
+     *  为假时说明我们不知道历史归档有哪些 —— 那种情况下只对「本进程确实处理过事件」的会话收尾，
+     *  免得把 26 条历史归档当成「刚归档」挨个白跑一次折叠。 */
+    this.archivedBaselineKnown = false;
+    /** ★ C216：每个会话最近一次收尾时刻 —— 归档的两种信号（durable 写入 / 宿主销毁）撞车时只收尾一次。 */
+    this.closedOutAt = new Map();
+    // 基线：能读到宿主 registry 就先记住「启动时已经归档的是哪些」，免得第一次 workspace 变更
+    // 把历史归档全当成「刚归档」（那会对着早已结束的会话白跑一次收尾折叠，花一次模型调用）。
+    try {
+      const known = this.#workspaceRegistry()?.archivedSessionIds;
+      if (Array.isArray(known)) {
+        this.archivedIds = new Set(known.map(String));
+        this.archivedBaselineKnown = true;
+      }
+    } catch {
+      /* registry 还没起来：退化成「只认本进程活着的会话」 */
+    }
     /** 三层文件树已写过的会话（2000 边时 4000 文件会卡事件循环，只首次与 fold 后写） */
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */
     this.flushTimers = new Map();
@@ -519,6 +543,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const { ctx } = this;
     ctx.on("session/event", (session, event) => {
       try {
+        this.sessionRefs.set(session.id, session);
         const g = this.#graph(session);
         const st = this.#runtimeFor(session);
         st.events += 1;
@@ -530,6 +555,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       }
     });
     ctx.on("agent/status", ({ agent, status }) => {
+      try {
+        if (agent?.session?.id) this.sessionRefs.set(agent.session.id, agent.session);
+      } catch {
+        /* 引用只是便利，记不下不影响主路径 */
+      }
       if (status === "idle") {
         try {
           // 回合边界 = 提交点：落一份完整的 graph.json（外部读者/doctor/verify 直接读它）
@@ -540,34 +570,169 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       }
     });
 
-    // ★ C210：**会话被归档/移出 store**（`session/disposed`）时的收尾。
-    //   用户会「做完就归档」，而在此之前最后一个折点之后的内容只存在于图里、没有任何摘要 ——
-    //   kifu 于是「不完整」：有节点、没有那一段的压缩产物。
-    //
-    //   这里做三件事（全部 best-effort，绝不阻塞归档、绝不抛）：
+    // ★ C210：择机收尾 —— 用户在**最后一个折点之后**继续聊，然后「做完就归档」，
+    //   那一段只存在于图里、没有任何摘要 ⇒ kifu 不完整（有节点、没压缩产物）。
+    //   收尾做三件事（全部 best-effort，绝不阻塞、绝不抛）：
     //     ① 立刻 `full` 落盘（节点/index/标量一次性写全，避免归档时文件还欠着）；
     //     ② 在图上记 `closeout`：归档时刻 + 距上次 fold 的事件数（doctor 据此报「归档时还有尾巴」）；
     //     ③ 若配置允许（`closeoutFold`，默认开）且尾巴够长，**异步**跑一次 `trigger: "archive"` 的折叠。
+    //
+    // ★ C216（2026-11-02 真机证伪 C210 的前提）：**GUI 归档不 emit `session/disposed`**。
+    //   宿主侧证据（app.asar 随包代码）：
+    //     · `workspaceRegistry.archiveSession()` 只在 durable state 的 `archivedSessionIds`
+    //       里追加 id（`dsh-workspace/lib/index.js`），会话仍是 live 的；
+    //     · `session/disposed` 只在 `detachEntered()` 里 emit（`dsh-session/lib/index.js`），
+    //       即会话真的被移出 live store（删除 / 宿主退出）时才发；
+    //     · 归档实现的是「闸门」而非「销毁」——`ArchivedSessionGate` 只拒 `agent/pre-step`。
+    //   真机 1.17.5 实测：15:24 归档后 `closeout` 仍为 null，`graph.json` 连一次 full 落盘都没有。
+    //   所以真正的归档信号是 workspace 域的 durable 写入：`domain/changed`（公开 emit 事件，
+    //   见 dsh-tool-cordis 的 api-catalog：`{domain, table, key, operation, value}`）。
+    //   两个入口共用同一段收尾，且按 id 去重（同一个会话只收尾一次）。
     ctx.on("session/disposed", (session) => {
+      this.#closeout(session, "disposed");
       try {
-        this.#flush(session, { full: true });
+        this.sessionRefs.delete(session?.id);
       } catch {
-        /* 落盘失败不阻塞归档 */
-      }
-      try {
-        const g = this.#graph(session);
-        const last = (g.foldMarks ?? []).at(-1);
-        const lastSeq = Number(last?.seqEnd);
-        const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, Number(session.seq) - lastSeq) : Number(session.seq);
-        g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length };
-        this.#flush(session, { full: true });
-        if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
-          void this.#closeoutFold(session);
-        }
-      } catch (error) {
-        this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
+        /* 引用只是便利 */
       }
     });
+    ctx.on("domain/changed", (change) => {
+      try {
+        this.#onWorkspaceChange(change);
+      } catch (error) {
+        ctx.logger?.warn?.(`chess-context: 归档信号处理失败（不影响宿主）：${String(error)}`);
+      }
+    });
+  }
+
+  /* ────────────────────────── 归档收尾（C210 / C216） ────────────────────────── */
+
+  /**
+   * 宿主 workspace registry：cordis 服务，可能还没起来/测试里没有，一律防御式取。
+   * @returns {{archivedSessionIds?: unknown[]} | null}
+   */
+  #workspaceRegistry() {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    try {
+      if (typeof ctx.get === "function") {
+        const viaGet = ctx.get("workspaceRegistry");
+        if (viaGet && typeof viaGet === "object") return viaGet;
+      }
+      const direct = ctx.workspaceRegistry;
+      if (direct && typeof direct === "object") return direct;
+    } catch {
+      /* 服务未注入：走 change.value 兜底 */
+    }
+    return null;
+  }
+
+  /**
+   * 从归档 id 反查会话对象：先问宿主 store（归档会话仍 live），再退到我们自己的轻引用。
+   * @param {string} id
+   * @returns {object | null}
+   */
+  #sessionRef(id) {
+    if (typeof id !== "string" || id.length === 0) return null;
+    try {
+      const live = this.ctx?.sessions?.get?.(id);
+      if (live) return live;
+    } catch {
+      /* store 接口不一定是 get()；继续用本地引用 */
+    }
+    return this.sessionRefs.get(id) ?? null;
+  }
+
+  /**
+   * 从 `domain/changed` 里取出「当前归档集合」。
+   * ★ 顺序是硬坑：`change.value` **必须**优先，`registry` 只能当兜底 ——
+   *   `global.set()` 里 `emitChanged(...)` 是在 `registry.state = state` **之前**同步发出的
+   *   （`dsh-storage-domain`：`await unit.setGlobal(value)` → `globalValue = value` → `emitChanged`；
+   *    `dsh-workspace`：`await this.global.set(state); this.state = state;`），
+   *   所以回调里回读 `registry.archivedSessionIds` 拿到的是**写入前的旧值**，
+   *   差分永远是空 ⇒ 收尾永远不触发。宿主自己的 `WorkspaceFeed` 也只用 `change.value`，从不回读。
+   * 载荷：workspace 的 global 记录 table 为 `""`，value 就是 `workspaceDomainState`
+   * （含 `archivedSessionIds`，见 dsh-workspace/lib/types/spec.js）。
+   * @param {object} change
+   * @returns {{ids: string[], trusted: boolean} | null} null = 这条变更与归档无关 / 读不出来
+   */
+  #archivedIdsFrom(change) {
+    if (!change || change.domain !== "workspace") return null;
+    if (change.operation !== "put") return null;
+    const table = change.table;
+    if (table !== "" && table !== undefined) return null; // 只认 global 记录
+    let value = change.value;
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        return null;
+      }
+    }
+    const ids = value?.archivedSessionIds;
+    if (Array.isArray(ids)) return { ids: ids.map(String), trusted: true };
+    // 兜底（老宿主/形状异常）：回读 registry。它有一拍延迟，只能当最后手段。
+    const fromRegistry = this.#workspaceRegistry()?.archivedSessionIds;
+    return Array.isArray(fromRegistry) ? { ids: fromRegistry.map(String), trusted: false } : null;
+  }
+
+  /**
+   * workspace 域任意写入 ⇒ 与上一次已知集合差分，挑出**刚被归档**的会话。
+   * 归档写的就是这个 global 记录，所以归档/取消归档都会走到这里。
+   * @param {object} change
+   */
+  #onWorkspaceChange(change) {
+    const parsed = this.#archivedIdsFrom(change);
+    if (parsed === null) return;
+    const current = parsed.ids;
+    const baselineKnown = this.archivedBaselineKnown;
+    const previous = this.archivedIds;
+    this.archivedIds = new Set(current);
+    // 这一条载荷就是写入后的权威快照 ⇒ 从下一条起，差分是准的。
+    if (parsed.trusted) this.archivedBaselineKnown = true;
+    for (const id of current) {
+      if (previous.has(id)) continue;
+      // 只对**本进程真的处理过事件**的会话收尾；基线可信时才放纵到宿主 store 里的 live 会话。
+      // 历史归档（启动前就归档了）既没有事件流也没有会话对象，硬做只会白花一次模型调用。
+      const session = this.sessionRefs.get(id) ?? (baselineKnown ? this.#sessionRef(id) : null);
+      if (!session) continue;
+      this.#closeout(session, "archive");
+    }
+  }
+
+  /**
+   * 收尾一次：落盘 → 记 `closeout` → 够长就异步折叠。
+   * @param {object} session
+   * @param {"archive" | "disposed"} source 哪个信号触发的（写进 closeout 便于事后归因）
+   */
+  #closeout(session, source = "disposed") {
+    if (!session || typeof session.id !== "string") return;
+    // ★ C216：同一次归档可能引来两个信号（workspace 域的 durable 写入 + 宿主顺手销毁了该会话），
+    //   两者都能到 ⇒ 只让**先到的那个**做收尾，另一个在 10s 窗口内直接放行掉。
+    //   注意只压「不同来源」的撞车：同一个来源再报一次（取消归档后再归档）仍然照做。
+    const now = Date.now();
+    const prev = this.closedOutAt.get(session.id);
+    if (prev && prev.source !== source && now - prev.at < 10_000) return;
+    this.closedOutAt.set(session.id, { at: now, source });
+    try {
+      this.#flush(session, { full: true });
+    } catch {
+      /* 落盘失败不阻塞归档 */
+    }
+    try {
+      const g = this.#graph(session);
+      const last = (g.foldMarks ?? []).at(-1);
+      const lastSeq = Number(last?.seqEnd);
+      const endSeq = Number(session.seq);
+      const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
+      g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source };
+      this.#flush(session, { full: true });
+      if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
+        void this.#closeoutFold(session);
+      }
+    } catch (error) {
+      this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
+    }
   }
 
   /* ────────────────────────── 热上下文注入 ────────────────────────── */

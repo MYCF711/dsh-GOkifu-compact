@@ -221,6 +221,68 @@
 
 # 更新记录
 
+## 1.17.6（2026-11-02）
+
+> **真机第一测把 C210 的前提打掉了**：GUI 归档**根本不发** `session/disposed`。
+> 收尾折叠改挂 workspace 域的 durable 写入（`domain/changed`），并给 doctor 补上观测 ——
+> 这条失败以前**完全看不见**（`closeout` 没写、`archive` foldMark 没有，但门禁全绿）。
+
+### 修复 · 归档不再「有节点、没摘要」（C216）
+
+按 `evidence/归档收尾-验证单-2026-11-02.md` 第三节的 3 条命令逐条跑完，判据**全部不达标**：
+
+| 判据 | 期望 | 实测 |
+|---|---|---|
+| `closeout` 出现 | 是 | ❌ `undefined`（尾巴 13,029 事件，一条没记） |
+| `foldMarks` 多一条 `trigger: "archive"` | 是 | ❌ 仍 12 条（pressure×9 / tier2×3） |
+| `live-folds` 31 → 32 | 是 | ❌ 仍 31 |
+| 归档时刻有一次 full 落盘 | 是 | ❌ `graph.json` mtime 停在 15:23:36，归档在 15:24 |
+
+**根因**（宿主随包代码 `app.asar` 实读，三条互相印证）：
+
+1. `workspaceRegistry.archiveSession()` 只往 workspace 域 global 记录的 `archivedSessionIds` 追加 id
+   （`dsh-workspace/lib/index.js`）—— 会话**仍在 live store**；
+2. `session/disposed` 全仓只有一个 emit 点：`SessionStore.emitDisposed()` ← `detachEntered()` ←
+   `enter()` 返回的 disposer —— 只在会话**真的被移出 store**（agent teardown / 应用退出）时发
+   （`dsh-session/lib/index.js`）；
+3. 归档实现的是**闸门**不是销毁：`ArchivedSessionGate` 只 `reject` `agent/pre-step`
+   ——「归档会话仍然活着、还可能提出下一步」。
+
+也就是说：「归档」这条路上**没有任何一个我们监听得到的事件**。C210 挂错了钩子。
+
+**修法**：
+
+1. 新增 `ctx.on("domain/changed")`（公开 emit 事件，`{domain, table, key, operation, value}`），
+   只认 `domain="workspace"` / `table=""` / `operation="put"`；
+2. **用 `change.value.archivedSessionIds`，禁止回读 registry** —— `global.set()` 里 `emitChanged(...)`
+   是在 `registry.state = state` **之前**同步发出的，回调里回读拿到的是写入前的旧值，
+   差分永远为空、收尾照样不触发（宿主自己的 `WorkspaceFeed` 也只认 `change.value`）；
+3. 与上一次已知集合差分 → 挑出**刚被归档**的会话；只对「本进程真的处理过事件」的会话收尾
+   （历史归档不许白跑一次模型调用），构造时用 registry 播一次基线；
+4. 同一次归档若同时引来两个信号（durable 写入 + 宿主销毁），10s 内只收尾一次；
+   `closeout.source` 记 `archive` / `disposed` 便于事后归因；
+5. `scripts/doctor.mjs` 新增「归档收尾（closeout）」：已归档 + 有棋谱 + 没有 closeout ⇒ `warn` 并点名。
+
+**测试**：`engine-harness` 新增 4 例 —— ① 归档走 `domain/changed` 真的补折；② 只认 workspace-global-put
+（别的域/别的表/delete 一律不触发）；③ **registry 落后一拍**（载荷已更新、registry 还是旧值）也必须收尾；
+④ 启动前就归档的历史会话不许误触发。其中第 ③ 例做过**变异检查**：把优先级改回「registry 优先」⇒ 该例必红。
+
+### 顺带修掉一处**门禁假绿**（`handoff-check` 漏 import）
+
+C183 把「重放 delta」接进手工门禁时漏了 `import { loadSessionGraph } from "./graph-audit.mjs"`
+⇒ 每一张图都在 `try` 里抛 `loadSessionGraph is not defined`，被当成「图读不出」跳过；
+而 ERROR 分支**不进 fail/warn 统计**，于是门禁长期显示 `FAIL 0 / WARN 0`，**实际一个会话都没检查过**
+（HANDOFF 的「六道门禁全绿」里有它一份）。补上 import 后真数第一次可见：
+
+| 真实状态 | 明细 |
+|---|---|
+| `handoff-check` **FAIL 3 / WARN 11**（43 会话） | 2 条 ⑥当前位置（两张老图：一张只有 1 个 agent 节点、一张 1 user+10 agent）· 1 条 ⑯闭包自洽（＝已知 legacy foldMark `seqStart>seqEnd`，要宿主退出后 `--repair-foldmarks`）· 其余 warn = 旧版本折叠缺 `quality`/`trigger`、over-budget、摘要里出现区间外 id |
+
+不改门禁口径、也不隐去这些红灯：它们是**真实存在**的历史数据/渲染问题，已进 HANDOFF 待办。
+
+⚠️ **要重启才生效**：本仓库以 `link:` 挂进 `home/profiles/desktop`，宿主启动时加载代码。
+复验步骤见 `evidence/归档收尾-验证单-2026-11-02.md` 第七节。
+
 ## 1.17.5（2026-11-02）
 
 > 与 1.17.4 相同的修复，**再加一层保险**（C215）：整个对象被换成代理时也能按 `ctx` 反查真身。

@@ -165,9 +165,9 @@ export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   return session;
 }
 
-export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null } = {}) {
+export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null, services = {} } = {}) {
   const listeners = new Map();
-  const overlay = {};
+  const overlay = { ...services };
   const ctx = {
     logger: { info: () => {}, warn: (m) => ctx.warns.push(String(m)), debug: () => {}, error: (m) => ctx.errors.push(String(m)) },
     /** 记录 warn 文案（用于断言「摘要模型不可用时退回了路由」） */
@@ -2201,6 +2201,111 @@ tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败�
   await new Promise((r) => setTimeout(r, 80));
   const g2 = await readGraphReplayed(nodePath.join(graphDir, "c210-fail"), "sess-c210-fail");
   if (!g2.closeout) throw new Error("失败路径也必须留下 closeout 记录");
+};
+
+tests["C216 GUI 归档不发 session/disposed：必须认 workspace 域的 durable 写入（domain/changed）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-archive");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c216");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const callsBefore = (engine.compactCalls ?? []).length;
+
+  // 真机 1.17.5 的归档路径：只写 workspace 域 global 记录，会话仍 live、不发 session/disposed
+  const archived = { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: ["sess-c216"] } };
+  await ctx.emitRaw("domain/changed", archived);
+  for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
+  if ((engine.compactCalls ?? []).length <= callsBefore) throw new Error("归档必须发起一次收尾折叠（compactRegion 没被调用）");
+
+  const g = await readGraphReplayed(dir, "sess-c216");
+  if (!g.closeout) throw new Error("归档必须记 closeout（没有就等于「归档了但没补收尾」）");
+  if (g.closeout.source !== "archive") throw new Error(`closeout 要能归因到 archive，实际 ${JSON.stringify(g.closeout.source)}`);
+  if (typeof g.closeout.eventsSinceLastFold !== "number" || g.closeout.eventsSinceLastFold < 5) {
+    throw new Error(`closeout 必须记下尾巴事件数，实际 ${JSON.stringify(g.closeout.eventsSinceLastFold)}`);
+  }
+
+  // 同一条 durable 写入被重复广播（宿主重放 / 后续无关变更）不许重复收尾
+  const atBefore = g.closeout.at;
+  await ctx.emitRaw("domain/changed", archived);
+  await new Promise((r) => setTimeout(r, 60));
+  if ((await readGraphReplayed(dir, "sess-c216")).closeout.at !== atBefore) throw new Error("重复广播同一个归档不许重复收尾");
+
+  // 取消归档 → 继续聊 → 再归档：必须能再收尾一次（否则「恢复会话接着用」永远收不了尾）
+  await ctx.emitRaw("domain/changed", { ...archived, value: { archivedSessionIds: [] } });
+  await ctx.emitRaw("domain/changed", archived);
+  await new Promise((r) => setTimeout(r, 80));
+  const atAfterSecond = (await readGraphReplayed(dir, "sess-c216")).closeout.at;
+  if (atAfterSecond === atBefore) throw new Error("取消归档后再归档必须能重新收尾");
+
+  // 同一次归档撞上两个信号（durable 写入 + 宿主顺手销毁）：只许收尾一次
+  await ctx.emitRaw("session/disposed", session);
+  await new Promise((r) => setTimeout(r, 60));
+  if ((await readGraphReplayed(dir, "sess-c216")).closeout.at !== atAfterSecond) {
+    throw new Error("归档 + 销毁是同一个收尾的两个信号，10s 内只许算一次");
+  }
+};
+
+tests["C216 归档信号只认 workspace 的 global 记录：别的域 / 别的表 / delete 都不许触发收尾"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-scope");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c216b");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const id = "sess-c216b";
+  const noisy = [
+    { domain: "session", table: "", key: "", operation: "put", value: { archivedSessionIds: [id] } },
+    { domain: "workspace", table: "workspaces", key: "w1", operation: "put", value: { archivedSessionIds: [id] } },
+    { domain: "workspace", table: "", key: "", operation: "delete", value: { archivedSessionIds: [id] } },
+  ];
+  for (const change of noisy) await ctx.emitRaw("domain/changed", change);
+  await new Promise((r) => setTimeout(r, 80));
+  if ((await readGraphReplayed(dir, "sess-c216b")).closeout) throw new Error("非 workspace-global-put 的变更不许触发归档收尾");
+
+  // 反向确认：同样一份载荷，走对的门就能收尾
+  await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: [id] } });
+  await new Promise((r) => setTimeout(r, 80));
+  const g = await readGraphReplayed(dir, "sess-c216b");
+  if (!g.closeout) throw new Error("workspace/global/put 必须触发归档收尾");
+};
+
+tests["C216 归档信号只认 change.value：registry 在回调里落后一拍（读到的是旧值）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-stale-registry");
+  // 模拟宿主真实时序：`global.set()` 里 emitChanged 是在 `registry.state = state` **之前**同步发出的，
+  // 所以回调里回读 registry.archivedSessionIds 拿到的是写入前的旧值（这里就是空数组）。
+  const staleRegistry = { archivedSessionIds: [] };
+  const ctx = makeCtx({ measureTotal: () => 300_000, services: { workspaceRegistry: staleRegistry } });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c216e");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const callsBefore = (engine.compactCalls ?? []).length;
+
+  await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: ["sess-c216e"] } });
+  for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
+  const g = await readGraphReplayed(dir, "sess-c216e");
+  if (!g.closeout) throw new Error("载荷里已经写着新归档集合，回读 registry 拿到旧值也不许影响收尾");
+  if ((engine.compactCalls ?? []).length <= callsBefore) throw new Error("必须真的发起收尾折叠");
+};
+
+tests["C216 归档收尾不会碰「启动前就已归档」的历史会话（没有会话对象 ⇒ 不白跑模型）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c216-history");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 1, closeoutTimeoutMs: 2000 });
+  await p22Session(ctx, "sess-c216c");
+  await ctx.emitRaw("agent/status", { agent: { session: makeSession({ id: "sess-c216d" }) }, status: "idle" });
+  const callsBefore = (engine.compactCalls ?? []).length;
+  // 一次无关的 workspace 变更，携带了 26 个历史归档 id（真机就是这个规模）
+  const history = Array.from({ length: 26 }, (_, i) => `session-archived-${i}`);
+  await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: history } });
+  await new Promise((r) => setTimeout(r, 120));
+  if ((engine.compactCalls ?? []).length !== callsBefore) throw new Error("历史归档不许触发收尾折叠");
 };
 
 tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/compactRegion 在构造时就绑定到实例"] = async () => {

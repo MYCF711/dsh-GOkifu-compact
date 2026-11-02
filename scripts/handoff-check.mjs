@@ -41,6 +41,10 @@ import nodePath from "node:path";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { check as consistencyCheck } from "./consistency-check.mjs";
+// ★ C216：C183 把「重放 delta」接进来时漏了这个 import —— 于是每一张图都在 try 里抛
+//   `loadSessionGraph is not defined`，被当成「图读不出」跳过，而 ERROR 分支**不进 fail/warn 统计**
+//   ⇒ 门禁显示「FAIL 0 / WARN 0」，实际上一个会话都没检查过（假绿）。教训同 C201。
+import { loadSessionGraph } from "./graph-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");

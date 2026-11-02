@@ -319,6 +319,21 @@ const recentFoldMarks = [];
 /** ★ 2026-11-01：出现「压缩无效」的会话数 / 最深连续次数。 */
 let thrashGraphs = 0;
 let maxThrash = 0;
+/** ★ C216：归档收尾观测 —— 归档时插件有没有补最后一段（closeout + archive foldMark）。 */
+const closeouts = [];
+const missingCloseout = [];
+let archivedWithGraph = 0;
+/** 宿主 registry 里的归档集合（workspace 域 global 记录）。读不到就当没有 —— 只是观测。 */
+const archivedIds = (() => {
+  try {
+    const f = nodePath.join(home, "storages", "workspace.json");
+    const raw = JSON.parse(nodeFs.readFileSync(f, "utf8"));
+    const ids = raw?.global?.archivedSessionIds;
+    return new Set(Array.isArray(ids) ? ids.map((x) => String(x)) : []);
+  } catch {
+    return new Set();
+  }
+})();
 let todayFolds = 0;
 let todayShadow = 0;
 let todaySessions = 0;
@@ -371,6 +386,20 @@ if (nodeFs.existsSync(chessRoot)) {
       }
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
+      // ★ C216：归档收尾 —— closeout 是「归档那一刻」的记账，archive foldMark 是「真的补折了」。
+      //   两者缺一都说明「归档了但 kifu 最后一段没压过」，而这条以前完全看不见。
+      {
+        const bareId = d.name.startsWith("session-") ? d.name : `session-${d.name}`;
+        const archived = archivedIds.has(d.name) || archivedIds.has(bareId);
+        const archiveFold = marks.filter((m) => m.trigger === "archive").at(-1);
+        if (archived && g.closeout === undefined) {
+          archivedWithGraph += 1;
+          missingCloseout.push(d.name);
+        }
+        if (g.closeout !== undefined || archiveFold !== undefined) {
+          closeouts.push({ session: d.name, closeout: g.closeout, archiveFold, archived });
+        }
+      }
       // ★ C196：fold 新鲜度 —— 距上次 fold 之后又长了多少事件。只展示不判断（阈值 doctor 看不到）。
       if (marks.length > 0) {
         const last = marks.filter((m) => Number.isFinite(m.seqEnd)).at(-1);
@@ -826,6 +855,36 @@ add(
       .map((x) => `${String(x.session).slice(0, 18)}: +${x.growth} 事件（${x.folds} 次 fold，最近 ${new Date(x.at).toISOString()}）`)
       .join(" · ");
     add("fold 新鲜度（距上次 fold 的事件数）", "ok", `${text}（只是观测：真正触发时机由窗口阈值与 growthFloor 共同决定）`);
+  }
+}
+
+/* ★ C216：归档收尾 —— 回答「会话被归档时，最后那一段到底压了没有」。
+   判据（真机 1.17.5 的失败样本）：已归档 + 有棋谱 + 一条 closeout 都没有 ⇒ 归档信号没接上。
+   这条是 C210 那次真机验证得出的：它挂在 `session/disposed` 上，而 GUI 归档根本不发这个事件。 */
+{
+  const withCloseout = closeouts.filter((x) => x.closeout !== undefined);
+  const withArchiveFold = closeouts.filter((x) => x.archiveFold !== undefined);
+  const recent = withCloseout
+    .sort((a, b) => Number(b.closeout?.at ?? 0) - Number(a.closeout?.at ?? 0))
+    .slice(0, 3)
+    .map((x) => `${String(x.session).slice(0, 18)}: 尾巴 ${x.closeout.eventsSinceLastFold} 事件 · ${x.closeout.source ?? "?"} · ${x.archiveFold ? "已补折" : "未补折"}`)
+    .join(" · ");
+  if (missingCloseout.length > 0) {
+    add(
+      "归档收尾（closeout）",
+      "warn",
+      `${missingCloseout.length} 个会话已归档、留下棋谱，却一条 closeout 都没有（${missingCloseout.slice(0, 3).join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
+        ` —— 归档没走到收尾路径：1.17.6 之前挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）` +
+        `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}`,
+    );
+  } else if (withCloseout.length === 0) {
+    add("归档收尾（closeout）", "warn", "未采集（还没有会话在归档时被收尾过）");
+  } else {
+    add(
+      "归档收尾（closeout）",
+      withArchiveFold.length > 0 ? "ok" : "warn",
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold —— ${recent}`,
+    );
   }
 }
 
