@@ -1149,3 +1149,38 @@ tests["C333/C334 心跳要比构建、要看有没有 web 服务（多进程环�
     nodeFs.rmSync(noWeb, { recursive: true, force: true });
   }
 };
+
+tests["C347 成本口径：没有 model 的 fold 必须点出来（否则成本看着精确、其实是按下限算的）"] = (t) => {
+  // ① 有 usage 但没 model ⇒ warn，并说明按 flash 估
+  const noModel = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", usage: { inputTokens: 1000, outputTokens: 10 } }];
+    },
+  });
+  try {
+    const row = runDoctor(noModel).find("成本用的模型（口径）");
+    t.eq(!!row, true, "必须有这一行");
+    t.eq(row.status, "warn", "没有模型名要 warn");
+    t.includes(String(row.detail), "flash", "要说明按 flash 估");
+  } finally {
+    nodeFs.rmSync(noModel, { recursive: true, force: true });
+  }
+
+  // ② 带 model ⇒ ok，并按 pro/flash 归类
+  const withModel = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", usage: { inputTokens: 1000, outputTokens: 10, model: "deepseek-v4-pro" } },
+        { at: Date.now(), seqStart: 3, seqEnd: 4, trigger: "pressure", usage: { inputTokens: 1000, outputTokens: 10, model: "deepseek-flash" } },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(withModel).find("成本用的模型（口径）");
+    t.eq(row.status, "ok", "都有模型名应 ok");
+    t.includes(String(row.detail), "v4-pro=1", "要按模型分类计数");
+    t.includes(String(row.detail), "flash=1", "flash 也要计数");
+  } finally {
+    nodeFs.rmSync(withModel, { recursive: true, force: true });
+  }
+};

@@ -829,6 +829,60 @@ add(
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
       `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
 );
+/* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
+   我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
+   所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。 */
+{
+  const withUsage = [];
+  // ★ 注意：这里必须显式拼 `chess-context/sessions` —— 模块顶层还有个同名的
+  //   `sessionsRoot`（= home/sessions，宿主的会话目录），作用域不同但名字一样，
+  //   写错就会静默扫到空目录（本块第一版就是这么错的：报"没有任何 folded usage"）。
+  const graphRoot = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(graphRoot)) {
+    for (const entry of nodeFs.readdirSync(graphRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadSessionGraph(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        if (mark?.usage && typeof mark.usage === "object") withUsage.push(mark.usage);
+      }
+    }
+  }
+  if (withUsage.length === 0) {
+    add("成本用的模型（口径）", "warn", "未采集（没有任何 folded usage）");
+  } else {
+    const counts = new Map();
+    let missing = 0;
+    for (const usage of withUsage) {
+      const raw = typeof usage.model === "string" && usage.model !== "" ? usage.model : null;
+      if (raw === null) {
+        missing += 1;
+        continue;
+      }
+      const key = raw.toLowerCase().includes("pro") ? "v4-pro" : raw.toLowerCase().includes("flash") ? "flash" : raw;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const dist = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ");
+    add(
+      "成本用的模型（口径）",
+      missing > 0 ? "warn" : "ok",
+      `有 usage 的 fold ${withUsage.length} 条 · ${dist === "" ? "全部没有模型名" : dist}` +
+        (missing > 0
+          ? ` · **${missing} 条没有 model**（C346 之前记的）⇒ 这些按 **flash** 估价，跑 pro 的话是**下限**`
+          : " · 都能按实际模型计价"),
+    );
+  }
+}
+
 /* ★ 2026-11-01（C20）：fold 的**成本效率** —— 摘要请求读了多少 token，才换回多少遮蔽 token。
    live 实测 input/shadowed = 1.43–1.63：**摘要请求读的是整个 surface，不是只读被折叠段**。
    比值 ≥2 说明「读两倍才压一倍」—— 触发点太晚、或增量范围切得太碎。纯观测，不改行为。 */
