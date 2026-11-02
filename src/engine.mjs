@@ -57,6 +57,25 @@ const THRASH_SEQ = 30;
  * 退避规则：第 k 次连续失败后，至少要再过 `min(BASE<<(k-1), CAP)` 个事件才允许重试；
  * `context-overflow`（自救路径）**不受限** —— 那是「不压就会溢出」的硬场景，宁可再试一次。
  */
+/**
+ * ★ C242（K-13）：**永久性错误不值得重试**。
+ * 依据 DeepSeek 官方错误码表：400/401/402 是"配置或账户"问题，重试一万次结果一样；
+ * 429/500/503 才是"再等一会儿可能就好"。
+ * 为什么要单独判：我们的退避是**按事件数**的（不是按时间），对永久性错误一视同仁
+ * ⇒ 每 30/60/120… 个事件就白花一次尝试，日志里全是同一条错。
+ * @param {unknown} message
+ * @returns {boolean}
+ */
+export function isPermanentSummaryError(message) {
+  const text = String(message ?? "");
+  if (text === "") return false;
+  return /(^|[^0-9])(400|401|402)([^0-9]|$)/.test(text)
+    || /invalid format/i.test(text)
+    || /authentication fails?/i.test(text)
+    || /insufficient balance/i.test(text)
+    || /invalid api key/i.test(text);
+}
+
 const FOLD_RETRY_BASE_SEQ = 30;
 const FOLD_RETRY_CAP_SEQ = 480;
 
@@ -529,6 +548,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       tier2Failures: 0,
       lastTier2FailureSeq: 0,
       lastFoldError: "",
+      // ★ C242：上一次折叠是不是「永久性错误」（401/402/400…）—— 是的话下一次直接用规则摘要，别再花模型调用
+      forceRulesNext: false,
     };
     const g = this.#graph(session);
     // 从磁盘恢复触碰集合与最后节点
@@ -939,7 +960,10 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   async summarize(input, agent, signal) {
     const session = agent.session;
     const g = this.#graph(session);
-    const mode = this.chess.summaryMode;
+    // ★ C242：上一次是永久性错误 ⇒ 这一次不再花模型调用，直接规则摘要（消费后立即清标记）。
+    const forcedRules = this.#runtimeFor(session)?.forceRulesNext === true;
+    if (forcedRules) this.#runtimeFor(session).forceRulesNext = false;
+    const mode = forcedRules ? "rules" : this.chess.summaryMode;
 
     // ★ 2026-10-29 真实 DSH 进程抓到（headless 实测）：规则摘要的返回值**必须**带 provider/model 字符串。
     //   官方 commitCompactionBody 把 summarize() 的 provider/model **不判空**地写进
@@ -1436,6 +1460,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       st.lastFoldFailureSeq = session.seq;
       st.lastFoldError = String(error?.message ?? error).slice(0, 180);
       this.#flush(session, { tree: true });
+      // ★ C242（K-13）：永久性错误 ⇒ ①退避顶到上限（别每 30 个事件白试一次）
+      //   ②下次折叠强制走规则摘要（压缩不能因此不落地）。
+      if (isPermanentSummaryError(st.lastFoldError)) {
+        st.foldFailures = Math.max(st.foldFailures, 7); // 7 ⇒ wait = min(30×2^6, 480)
+        st.forceRulesNext = true;
+      }
       throw error;
     } finally {
       this._chessActiveRange = null;

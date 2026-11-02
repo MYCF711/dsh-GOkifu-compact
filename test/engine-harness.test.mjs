@@ -2444,3 +2444,35 @@ tests["C215 就算整个对象被换成代理：入口方法也能按 ctx 反查
     await Engine.prototype.compactNow.call(stranger, { session, options: {} }, undefined, "cmd-stranger");
   }
 };
+
+tests["C242 永久性错误（400/401/402）不值得重试：判别式 + 顶到最大退避 + 下次强制规则摘要"] = async () => {
+  const { mod } = await load();
+  const isPermanent = mod.isPermanentSummaryError;
+  if (typeof isPermanent !== "function") throw new Error("isPermanentSummaryError 必须导出（可测）");
+  // 该判「永久」的
+  for (const msg of [
+    "401 - Authentication Fails",
+    "402 - Insufficient Balance",
+    "400 - Invalid Format: bad body",
+    "provider error: invalid api key",
+    '{"code":401,"message":"Unauthorized"}',
+  ]) {
+    if (isPermanent(msg) !== true) throw new Error(`应判永久性错误：${msg}`);
+  }
+  // 不该判「永久」的（429/503 是"等一会儿可能就好"）
+  for (const msg of ["429 - Rate Limit Reached", "503 - Server Overloaded", "500 - Server Error", "socket hang up", "", null]) {
+    if (isPermanent(msg) !== false) throw new Error(`不该判永久性错误：${String(msg)}`);
+  }
+  // 反证：数字必须整段匹配，别把 "1401 tokens" 当成 401
+  if (isPermanent("shadowed 1401 tokens") !== false) throw new Error("1401 不该命中 401");
+
+  // 接线守卫（静态）：判别式必须真的被用上 —— 两处，缺一处这个候选就是摆设。
+  const nodeFs2 = await import("node:fs");
+  const src = nodeFs2.readFileSync("src/engine.mjs", "utf8");
+  if (!/if \(isPermanentSummaryError\(st\.lastFoldError\)\)/.test(src)) {
+    throw new Error("失败分支必须按永久性错误分类");
+  }
+  if (!/const mode = forcedRules \? "rules" : this\.chess\.summaryMode;/.test(src)) {
+    throw new Error("summarize 必须消费 forceRulesNext（消费后清标记）");
+  }
+};
