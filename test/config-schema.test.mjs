@@ -197,3 +197,14 @@ tests["C252 UI 的 label 表必须是「可编辑键」的子集（有标签没�
     );
   }
 };
+
+tests["C253 宿主消费的三个键不许被当成死配置删掉（本插件不读 ≠ 没用）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href);
+  // 这三个键由宿主 `dsh-compaction` 读取（asar 实测：compactionRetries / maxOverflowRetries 都在读），
+  // 本插件引擎不读它们 —— 所以"没人用就删掉"会**静默改变宿主的重试行为**。
+  for (const key of ["compactionRetries", "maxOverflowRetries", "modelPolicies"]) {
+    const field = mod.SCHEMA.find((f) => f.key === key);
+    t.eq(!!field, true, `${key} 必须仍在 SCHEMA 里（宿主消费）`);
+    t.includes(String(field.desc), "宿主", `${key} 的说明必须写明「由宿主消费」，否则下一个人会以为它是死键`);
+  }
+};

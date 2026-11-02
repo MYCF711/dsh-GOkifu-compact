@@ -30,7 +30,8 @@ function cell(value) {
 
 function defaultValueText(field) {
   if (field.type === "boolean") return field.default ? "`true`（默认开）" : "`false`（默认关）";
-  if (field.default === "" ) return "`''`（空）";
+  if (Array.isArray(field.default)) return field.default.length === 0 ? "`[]`（空数组）" : `\`${JSON.stringify(field.default)}\``;
+  if (field.default === "") return "`''`（空）";
   return `\`${field.default}\``;
 }
 

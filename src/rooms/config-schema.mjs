@@ -56,9 +56,9 @@ export const SCHEMA = Object.freeze([
   { key: "summarizationProvider", type: "string", default: "", where: "preset", label: "摘要 provider", desc: "摘要模型 provider；留空=跟随最近一次路由" },
   { key: "summarizationModel", type: "string", default: "", where: "preset", label: "摘要 model", desc: "摘要模型 model；留空=跟随最近一次路由" },
   { key: "maxTokens", type: "number", default: 8192, where: "preset", range: [256, 65536], label: "摘要输出上限（tokens）", desc: "摘要输出上限（注意：不在 preset 模板里，今天的 engineBlock 不含它）" },
-  { key: "compactionRetries", type: "number", default: 1, where: "engine", desc: "" },
-  { key: "maxOverflowRetries", type: "number", default: 1, where: "engine", desc: "" },
-  { key: "modelPolicies", type: "array", default: [], where: "engine", desc: "" },
+  { key: "compactionRetries", type: "number", default: 1, where: "engine", label: "压缩重试次数", desc: "**由宿主消费**（`dsh-compaction` 读它决定 compact 重试几次）；本插件不读，写进 preset 的 config: 块后由宿主生效" },
+  { key: "maxOverflowRetries", type: "number", default: 1, where: "engine", label: "溢出重试次数", desc: "**由宿主消费**（`dsh-compaction` 的溢出重试）；本插件不读" },
+  { key: "modelPolicies", type: "array", default: [], where: "engine", label: "模型策略表", desc: "**由宿主消费**（按模型覆盖压缩策略）；本插件不读。留空 = 用宿主默认" },
   { key: "auto", type: "boolean", default: true, where: "preset", label: "自动压缩", desc: "自动压缩（between-step 压力触发）" },
 
   // —— 棋谱扩展 ——
