@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C320 | 截断判定吃掉三种拼法（`max-tokens` / `max_tokens` / `length`） |
 | C319 | 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读 |
 | C318 | 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens` |
 | C317 | 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测" |
@@ -397,6 +398,22 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C320 · 截断判定吃掉三种拼法（`max-tokens` / `max_tokens` / `length`）
+
+C317 认 `length`、C318 认 `max_tokens`，都对但都不够。挖出宿主 `finishReasonValue` 的合法 kind：
+
+```
+stop | tool-calls | "max-tokens" | aborted | error
+```
+
+⇒ 流式块那层用**连字符**，`zStopReason` 用**下划线**，OpenAI 原始用 `length` —— 三套拼法一件事。
+
+- 新增 `kifu-model.isTruncatedFinish(reason)`：小写 + 去掉 `-`/`_` 后与 `maxtokens` 比，三种拼法一次吃下；
+- doctor 改用它；测试 `ledger` C320：三种拼法 true、大小写不敏感、正常结束全 false。
+
+**四轮教训**：猜名字（错）→ 猜对名字猜错载体（错）→ 找到载体但只认一种拼法（半错）→ **归一化吃全口径**（对）。
+**「同一概念有几种拼法」必须主动去查。**
 
 ### C319 · 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读
 

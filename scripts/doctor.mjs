@@ -20,7 +20,7 @@ import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
-import { GRAPH_VERSION, fromJSON, countResolvedFailures } from "../src/rooms/kifu-model.mjs";
+import { GRAPH_VERSION, fromJSON, countResolvedFailures, isTruncatedFinish } from "../src/rooms/kifu-model.mjs";
 import { measureLedgerTimings } from "../src/rooms/ledger.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 import { selectSessionLogs } from "./log-window.mjs";
@@ -1407,8 +1407,8 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
           continue;
         }
         known += 1;
-        // ★ C318：宿主口径是 `max_tokens`（zStopReason）；`length` 是 OpenAI 原始口径，两个都算截断
-        if (reason === "max_tokens" || reason === "length") truncated += 1;
+        // ★ C320：三种拼法（max-tokens / max_tokens / length）归一化后统一判 —— 别再来回猜口径
+        if (isTruncatedFinish(reason)) truncated += 1;
       }
     }
   }
@@ -1421,7 +1421,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       "摘要截断（finish_reason=length）",
       truncated > 0 ? "warn" : "ok",
       `${known} 次有 finishReason 的 fold 里 **${truncated}** 次是 length` +
-        `（stopReason=max_tokens ⇒ 内容可能被截断，摘要可能丢了约束/死路）` +
+        `（终止原因=max-tokens ⇒ 内容可能被截断，摘要可能丢了约束/死路）` +
         (unknown > 0 ? ` · 另有 ${unknown} 条未采集（C317 之前的 fold）` : ""),
     );
   }

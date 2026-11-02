@@ -297,6 +297,26 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
  * @param {object} edge
  * @returns {{start:number,end:number}|null}
  */
+/**
+ * ★ C320：**「这次摘要是不是被截断了」只有一种判法**。
+ *
+ * 三层口径实测（2026-11-02，逐层从 app.asar 挖出）：
+ *   - 宿主流式块：`assembler.finish.reason.kind ∈ {stop, tool-calls, "max-tokens", aborted, error}`（**连字符**）
+ *   - 宿主终态联合：`zStopReason = end_turn | "max_tokens" | …`（**下划线**）
+ *   - OpenAI 原始值：`finish_reason = "length"`
+ *
+ * 三种拼法指的是同一件事。所以判的时候**先归一化**（小写 + 去掉 `-` `_`），
+ * 再和 `maxtokens` / `length` 比 —— 否则换一层口径，仪器就静默失灵（C317/C318 连续踩过两次）。
+ *
+ * @param {unknown} reason
+ * @returns {boolean}
+ */
+export function isTruncatedFinish(reason) {
+  if (typeof reason !== "string" || reason === "") return false;
+  const normalized = reason.toLowerCase().replace(/[-_]/g, "");
+  return normalized === "maxtokens" || normalized === "length";
+}
+
 export function evidenceSpan(edge) {
   const evidence = edge?.evidence;
   if (typeof evidence === "number" && Number.isFinite(evidence)) return { start: evidence, end: evidence };

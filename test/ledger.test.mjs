@@ -455,3 +455,19 @@ tests["C313 分项计时仪器：给出 total + parts，且各段之和不超过
   t.eq(sum <= r.total * 20 + 50, true, `各段之和 ${sum.toFixed(1)}ms 明显超过 total ${r.total.toFixed(1)}ms —— 仪器在瞎报`);
   t.eq(typeof r.split, "string", "要给一句可归因说明");
 };
+
+tests["C320 截断判定要吃掉三种拼法（max-tokens / max_tokens / length），别再猜口径"] = async (t) => {
+  const { isTruncatedFinish } = await import("../src/rooms/kifu-model.mjs");
+  t.eq(typeof isTruncatedFinish, "function", "必须导出 isTruncatedFinish");
+  // 三层口径实测：assembler 用连字符、zStopReason 用下划线、OpenAI 用 length
+  t.eq(isTruncatedFinish("max-tokens"), true, "宿主流式块口径（连字符）");
+  t.eq(isTruncatedFinish("max_tokens"), true, "宿主终态联合口径（下划线）");
+  t.eq(isTruncatedFinish("length"), true, "OpenAI 原始口径");
+  t.eq(isTruncatedFinish("LENGTH"), true, "大小写不敏感");
+  // 正常结束都不算截断
+  for (const ok of ["stop", "end_turn", "tool-calls", "tool_calls", "completed", ""]) {
+    t.eq(isTruncatedFinish(ok), false, `${ok} 不该算截断`);
+  }
+  t.eq(isTruncatedFinish(null), false, "null 不算截断");
+  t.eq(isTruncatedFinish(undefined), false, "undefined 不算截断");
+};

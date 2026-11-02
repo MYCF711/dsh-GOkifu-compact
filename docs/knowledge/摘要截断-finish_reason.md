@@ -54,6 +54,21 @@ get finish() { return this.assembler.finish; }            // 「Terminal reason,
 
 ⇒ 正确写法：`assembler.finish`，形状可能是字符串也可能是 `{ kind }`，两种都归一化（C319）。
 
+## 4.6 第三层：三种拼法指的是同一件事（**已核实**，C320）
+
+逐层从 asar 挖出来的**三套口径**：
+
+| 层 | 字段 | 截断值 |
+|---|---|---|
+| 宿主流式块（`assembler.finish.reason.kind`） | `reason.kind` | **`"max-tokens"`**（连字符） |
+| 宿主终态联合（`zStopReason`） | `stopReason` | **`"max_tokens"`**（下划线） |
+| OpenAI 原始（provider 适配层） | `finish_reason` | **`"length"`** |
+
+`finishReasonValue` 的合法 kind 集合实测为：`stop` / `tool-calls` / `max-tokens` / `aborted` / `error`。
+
+⇒ 判「有没有被截断」**必须先归一化**（小写 + 去掉 `-` `_`），再比 `maxtokens`。
+C317（`length`）、C318（`max_tokens`）都只覆盖一层 —— **换一层口径，仪器就静默失灵**。
+
 ## 5. 还没验的（**待核实**）
 
 - 截断发生率有多高 —— 本机 56 条 foldMark **全部没有该字段**（都是 C317 之前的），所以现在只能报"未采集"；
