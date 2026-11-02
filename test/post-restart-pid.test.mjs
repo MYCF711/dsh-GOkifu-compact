@@ -156,3 +156,21 @@ tests["C409/C410 参数级探针 + 端口自动发现（心跳被覆盖时也能
   t.eq(mod.sessionIdsProbe({ status: 500, json: null }), "unknown", "其它情况不许下结论");
   t.eq(mod.sessionIdsProbe({ status: 200, json: { ok: true } }), "unknown", "没有 dryRun 标记也算未知");
 };
+
+tests["C413 探针正面判定：ok:true + 软错误（registry 不可达）仍算认识这个 action"] = async (t) => {
+  const mod = await import("../scripts/post-restart-check.mjs");
+  t.eq(typeof mod.probePositive, "function", "必须导出 probePositive");
+
+  // 典型误判：action 跑通了，但查 registry 失败 ⇒ 响应带 error 字符串
+  t.eq(mod.probePositive({ status: 200, json: { ok: true, latest: null, error: "请求 registry 超时" } }), true,
+    "ok:true + 软错误仍算认识（C413）");
+  // 真正的「不认识」
+  t.eq(mod.probePositive({ status: 200, json: { error: "未知 action: xxx" } }), false, "未知 action 必须判不认识");
+  // 正常响应
+  t.eq(mod.probePositive({ status: 200, json: { ok: true, error: null } }), true, "正常响应算认识");
+  t.eq(mod.probePositive({ status: 200, json: { error: null, version: "1" } }), true, "error:null 也算认识");
+  // 非 2xx / 非 JSON 一律不认识
+  t.eq(mod.probePositive({ status: 405, json: null }), false, "405 不算");
+  t.eq(mod.probePositive({ status: 200, json: null }), false, "非 JSON 不算");
+  t.eq(mod.probePositive({ status: 500, json: { ok: true } }), false, "5xx 不算");
+};

@@ -19,6 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 import nodeFs from "node:fs";
+import { listeningPorts } from "./accept-after-restart.mjs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
@@ -166,6 +167,23 @@ function runBoundaryFindings() {
  * @param {{port?:number, timeoutMs?:number}} options
  * @returns {Promise<{level:string, detail:string, known:string[], unknown:string[]}>}
  */
+/**
+ * ★ C413：能力探针的**正面判定**。纯函数，便于单测。
+ *
+ * 规则：2xx + 可解析 + **没有「未知 action」**；响应带 `ok:true` 时，即使有软错误（registry 不可达等）也算认识。
+ * @param {{status?:number, ok?:boolean, json:any}} res
+ * @returns {boolean}
+ */
+export function probePositive(res) {
+  const status = Number(res?.status ?? 0);
+  const is2xx = Number.isFinite(status) ? status >= 200 && status < 300 : res?.ok === true;
+  const json = res?.json ?? null;
+  if (!is2xx || json === null || typeof json !== "object") return false;
+  if (typeof json.error === "string" && json.error.includes("未知 action")) return false;
+  if (json.ok === true) return true;
+  return json.error === undefined || json.error === null || json.error === "";
+}
+
 export async function checkPanelCapabilities(
   probes = [{ action: "update" }, { action: "backfill", body: { dryRun: true } }],
   { port = 64349, timeoutMs = 3000 } = {},
@@ -198,8 +216,9 @@ export async function checkPanelCapabilities(
       //   仪器骗人的第 N 次：判定必须基于**阳性证据**（2xx 且能解析），不是"没有反证"。
       // ★ C389：`error: null` 是**正常**响应（我们的 handler 就是这么写的）。
       //   旧写法 `error === undefined` 会把 `error:null` 当成反面证据 ⇒ 真机上把能用的 `update` 判成了"不认识"（误报「需要重启」）。
-      const noError = json !== null && (json?.error === undefined || json?.error === null || json?.error === "");
-      const positive = res.ok && noError;
+      // ★ C413：`ok:true` + **软错误**（如 registry 不可达）仍算"认识这个 action"。
+      //   真机：`update` 本身跑通了，但查 registry 失败 ⇒ 响应带 `error` 字符串 ⇒ 旧判法把它当成"不认识"。
+      const positive = probePositive({ status: res.status, ok: res.ok, json });
       if (saidUnknown) unknown.push(probe.action);
       else if (positive) known.push(probe.action);
       else unknown.push(probe.action);
@@ -336,7 +355,32 @@ export async function main(argv = process.argv.slice(2)) {
         return null;
       }
     })();
-    const port = Number(portArg) || heartbeatPort || 64349;
+    // ★ C412：与 C410 同源 —— 心跳没端口时**自己去找**，而不是回退到硬编码的 64349。
+    //   真机（2026-11-03）：GUI 已换到 56319，而这里还在探 64349 ⇒ 误报「面板不可达」。
+    const discoverPort = async () => {
+      try {
+        const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
+        for (const candidate of listeningPorts(out)) {
+          try {
+            const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "health" }),
+              signal: AbortSignal.timeout(1500),
+            });
+            if (!res.ok) continue;
+            const json = await res.json();
+            if (json !== null && typeof json === "object" && (json.ok === true || typeof json.installed === "boolean")) return candidate;
+          } catch {
+            /* 不是面板 */
+          }
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+    const port = Number(portArg) || heartbeatPort || (await discoverPort()) || 64349;
     const api = await checkBackfillApi({ port });
     result.checks.push({ id: "backfill-api", name: "面板补账接口（dryRun）", level: api.level, detail: api.detail });
     // ★ C294：能力探针 —— 唯一能证明"进程里跑的是新代码"的东西

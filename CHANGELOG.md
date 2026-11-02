@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C413 | 探针把「软错误」误判成「不认识」；post-restart-check 也用端口发现（C412+C413） |
 | C411 | 官方 usage 字段定义核实：inputTokens = prompt_cache_miss_tokens |
 | C410 | 验收命令自带端口发现 + 参数级探针（C409+C410） |
 | C408 | 补账可指定 sessionIds（先拿小会话验证通道） |
@@ -485,6 +486,26 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C413 · 探针把「软错误」误判成「不认识」；post-restart-check 也用端口发现（C412+C413）
+
+上一轮给 `accept-after-restart` 加了端口自动发现。这一轮把同一处缺陷在**第二个脚本**里也修掉，并顺手抓到一条新的误报：
+
+- **C412**：`post-restart-check --api` 也改成「`--port` > 心跳 > **扫描发现** > 64349」，不再回退到硬编码端口；
+- **C413**：真机跑出来它说「面板不认识 `update`」——但 `update` 其实**跑通了**，只是这次**查 npm registry 失败**，响应里带了 `error` 字符串。
+  旧判法（`error === undefined || null || ""`）把这种**软错误**当成"不认识"。
+
+现在抽成纯函数 `probePositive()`：
+
+| 响应 | 判定 |
+|---|---|
+| `200 + {ok:true, error:"registry 超时"}` | **认识**（action 跑了） |
+| `200 + {error:"未知 action: xxx"}` | 不认识 |
+| 405 / 非 JSON / 5xx | 不认识 |
+
+真机复跑：`✓ 面板认识全部 2 个新 action（update / backfill）`。
+
+**教训**：**"这个接口不认识"和"这个接口办了事但办砸了"必须分开判**——否则一次网络抖动就会让你误以为要重启。
 
 ### C411 · 官方 usage 字段定义核实：inputTokens = prompt_cache_miss_tokens
 
