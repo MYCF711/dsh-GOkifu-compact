@@ -76,3 +76,18 @@ tests["C407 重启验收清单必须带「第二轮」现状快照（列清哪�
   t.includes(doc, "accept-after-restart.mjs", "必须给出第一条件命令");
   t.includes(doc, "折叠证据字段", "必须指向 doctor 那行作为仪器链的判据");
 };
+
+tests["C418 docs 下的文件名不许含不可见字符（零宽/BOM/控制符）"] = (t) => {
+  const root = nodePath.join(HERE, "..", "docs");
+  const bad = [];
+  const walk = (dir) => {
+    for (const e of nodeFs.readdirSync(dir, { withFileTypes: true })) {
+      const p = nodePath.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      // 零宽空格/连接符/BOM/双向控制符/控制字符
+      if (/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u0000-\u001f]/.test(e.name)) bad.push(nodePath.relative(root, p));
+    }
+  };
+  walk(root);
+  t.eq(bad, [], `这些文件名含不可见字符（会让 glob/路径拼接/链接全部错位）：${bad.join(" / ")}`);
+};
