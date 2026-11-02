@@ -1312,6 +1312,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
+    // ★ C317：**摘要被截断**必须能看出来。
+    //   官方 API 文档（create-chat-completion）：`finish_reason="length"` 表示生成超过 max_tokens
+    //   或上下文超限，此时**内容可能被截断**。以前我们完全没读这个字段 ——
+    //   被截断的摘要与完整摘要在 foldMark 里长得一模一样（summaryChars 只是短一点）。
+    //   防御式读取：宿主不同版本可能把它放在 raw / message / choice 上；读不到就是 null。
+    this._lastSummaryFinishReason =
+      raw?.finish_reason ?? raw?.finishReason ?? raw?.choice?.finish_reason ?? raw?.message?.finishReason ?? null;
     this.#markFoldMode(g, mode);
     return {
       summary,
@@ -1367,6 +1374,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const summaryChars = this._lastSummaryChars ?? null;
       const modelText = this._lastSummaryModelText ?? "";
       this._lastSummaryChars = undefined;
+      this._lastSummaryFinishReason = undefined;
       this._lastSummaryInstructionTokens = undefined;
       this._lastSummaryText = undefined;
       this._lastSummaryModelText = undefined;
@@ -1381,6 +1389,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         seqStart: start,
         seqEnd: end,
         summaryChars,
+      // ★ C317：`"length"` = 摘要被 max_tokens 截断（内容可能不完整）；null = 没采集到
+      finishReason: this._lastSummaryFinishReason ?? null,
         closure: foldClosureOf(g, range),
         boundary: foldBoundaryOf(g, range),
         quality: summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range, summaryText, modelText }),

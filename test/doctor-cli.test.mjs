@@ -1037,3 +1037,39 @@ tests["C314 doctor 要报「最大会话的渲染耗时」，并与 K-16 的结�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C317 摘要截断必须可观测：finish_reason=length 要报出来，老数据说未采集"] = (t) => {
+  // ① 有截断 ⇒ warn 且点名次数
+  const truncated = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now() - 2000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "length" },
+        { at: Date.now() - 1000, seqStart: 10, seqEnd: 20, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "stop" },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(truncated).find("摘要截断");
+    t.eq(!!row, true, "必须有这一行");
+    t.eq(row.status, "warn", "有截断必须 warn");
+    t.includes(String(row.detail), "1", "要点名截断次数");
+    t.includes(String(row.detail), "可能被截断", "要说明后果（官方口径）");
+  } finally {
+    nodeFs.rmSync(truncated, { recursive: true, force: true });
+  }
+
+  // ② 老数据（没有 finishReason）⇒ 明说未采集，不许当成"没问题"
+  const legacy = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000 }];
+    },
+  });
+  try {
+    const row = runDoctor(legacy).find("摘要截断");
+    t.eq(row.status, "warn", "未采集必须 warn");
+    t.includes(String(row.detail), "未采集", "要写「未采集」而不是 ok");
+    t.includes(String(row.detail), "C317", "要说明是哪一轮开始才记录");
+  } finally {
+    nodeFs.rmSync(legacy, { recursive: true, force: true });
+  }
+};

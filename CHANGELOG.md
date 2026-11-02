@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C317 | 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测" |
 | C316 | `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案） |
 | C314 | 渲染耗时装进 doctor 当早期预警（不值得改 ≠ 不用管） |
 | C313 | 分项计时仪器上线：95% 的时间在拼字符串，**推翻了 K-16 的前提** |
@@ -394,6 +395,19 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C317 · 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测"
+
+官方 API 文档：`finish_reason="length"` = 超 `max_tokens` 或超上下文，此时 **content 可能被截断**。
+查自己：全仓库 `grep finish_reason` = **0 命中** —— 被截断的摘要与"正常偏短"在 foldMark 里长得一样，
+质量指标也不会报警（规则段机械追加，`constraintRecall` 恒 1），但模型摘要部分可能丢了约束/死路。
+
+- 引擎记 `foldMark.finishReason`（防御式读四种宿主形状，读不到记 `null`），用后即清；
+- `doctor` 新增「摘要截断」行：`N 次里有 M 次 length`；**老 foldMark 没有该字段就说「未采集」**；
+- 新知识库条目 `摘要截断-finish_reason.md`（来源 + 已核实/待核实）；
+- 测试 `doctor-cli` C317：有截断 ⇒ warn 且点名；只有老数据 ⇒ 「未采集」+ 说明起点。
+
+**待核实**：宿主把 `finish_reason` 放在哪个字段（四种形状都试了，要等重启后第一次 fold 才知道）。
 
 ### C316 · `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案）
 

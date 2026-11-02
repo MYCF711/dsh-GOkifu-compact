@@ -1379,6 +1379,53 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+/* ★ C317：摘要被截断（finish_reason="length"）—— 官方文档说这时**内容可能被截断**，
+   而被截断的摘要在 foldMark 里与完整的几乎一样（只是 summaryChars 短些）。
+   只在采集到 finishReason 的 fold 上统计；老 foldMark 没有该字段就明说"未采集"。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let total = 0;
+  let known = 0;
+  let truncated = 0;
+  let unknown = 0;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        g = loadSessionGraph(file).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        total += 1;
+        const reason = mark?.finishReason;
+        if (typeof reason !== "string") {
+          unknown += 1;
+          continue;
+        }
+        known += 1;
+        if (reason === "length") truncated += 1;
+      }
+    }
+  }
+  if (total === 0) {
+    add("摘要截断（finish_reason=length）", "warn", "未采集（没有 foldMark）");
+  } else if (known === 0) {
+    add("摘要截断（finish_reason=length）", "warn", `未采集（${total} 条 foldMark 都没有 finishReason —— C317 之前的不记录）`);
+  } else {
+    add(
+      "摘要截断（finish_reason=length）",
+      truncated > 0 ? "warn" : "ok",
+      `${known} 次有 finishReason 的 fold 里 **${truncated}** 次是 length` +
+        `（官方：这时内容可能被截断 ⇒ 摘要可能丢了约束/死路）` +
+        (unknown > 0 ? ` · 另有 ${unknown} 条未采集（C317 之前的 fold）` : ""),
+    );
+  }
+}
+
 /* ★ C314：热清单渲染的**实测耗时**（取最大的那个会话）。
    为什么值得报：C313 证明慢在拼字符串（95%），而不是查图 —— 既然改不动，
    那就**把它变成早期预警**：一旦最大会话的渲染超过阈值，这里就会变色，
