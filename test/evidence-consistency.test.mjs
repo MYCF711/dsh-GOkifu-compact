@@ -205,7 +205,7 @@ tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启�
   for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
     t.includes(doc, needle, `清单必须覆盖 ${needle}`);
   }
-  t.includes(doc, "1024 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.includes(doc, "1025 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
   t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
 };
 
@@ -262,4 +262,15 @@ tests["C172 「2 分钟总览」必须与 CHANGELOG / HANDOFF / live-folds.json 
   t.eq(!!live, true, "总览必须写 live fold 次数与会话数");
   t.eq(Number(live[1]), json.summary.total, `总览 fold ${live[1]} vs 证据 ${json.summary.total}`);
   t.eq(Number(live[2]), json.summary.bySession.sessionsWithFolds, `总览会话 ${live[2]} vs 证据 ${json.summary.bySession.sessionsWithFolds}`);
+};
+
+tests["C295 重启验收清单必须带「现状快照」+ 能力探针（否则重启后拿什么对照）"] = (t) => {
+  const doc = read("evidence/重启验收清单-2026-11-02.md");
+  t.includes(doc, "现状快照", "要有重启前的实测快照，重启后才能对照");
+  t.includes(doc, "post-restart-check.mjs --api", "要写清能力探针命令");
+  t.includes(doc, "update", "能力探针要包含 update（C294 实测它最灵敏）");
+  t.includes(doc, "backfill", "能力探针要包含 backfill");
+  t.includes(doc, "不可信", "要提醒启动时间戳不可信（C293）");
+  // 快照里必须写当前测试数（改数字要同步）
+  t.includes(doc, "1025 passed", "快照里的全量测试数必须写当前值");
 };
