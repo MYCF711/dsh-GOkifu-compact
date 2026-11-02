@@ -568,3 +568,26 @@ tests["C271 价目单点化：代码里的价格必须等于知识库那张表�
   t.eq(P.hit < P.miss, true, "hit 必须比 miss 便宜（这是缓存机制的前提）");
   t.eq(P.out > P.miss, true, "输出比输入贵——如果反了，大概是抄错了列");
 };
+
+tests["C285 补账前必须说明「冷缓存」：归档会话的折叠按全额输入计费（不是平时的 98% 命中）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  const lines = T.backfillLines({
+    ok: true,
+    dryRun: true,
+    scanned: 44,
+    due: 2,
+    items: [
+      { sessionId: "session-aaa", tail: 12000 },
+      { sessionId: "session-bbb", tail: 3000 },
+    ],
+  });
+  t.eq(lines.length >= 3, true, `要有清单 + 冷缓存提示：${JSON.stringify(lines)}`);
+  const joined = lines.join(" ");
+  t.includes(joined, "冷缓存", "必须说明补账走冷缓存");
+  t.includes(joined, "全额", "必须说明按全额输入计费");
+
+  // 没有欠账时不该出现这句（零成本，也不制造焦虑）
+  const empty = T.backfillLines({ ok: true, dryRun: true, scanned: 44, due: 0, items: [] });
+  t.eq(empty.join(" ").includes("冷缓存"), false, "没有欠账时不该提冷缓存");
+};
