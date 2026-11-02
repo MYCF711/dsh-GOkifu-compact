@@ -60,6 +60,16 @@ export const GATES = Object.freeze([
     ignoreExit: true,
     expect: /通过 \d+/,
   },
+  {
+    id: "restart",
+    name: "重启后核对（运行实例 vs 磁盘代码）—— 仅供参考",
+    script: "post-restart-check.mjs",
+    // ★ C274：这条回答的是"我改的东西到底跑起来了没有"——**每次门禁都该顺带看一眼**。
+    //   它天然会红（代码新、进程旧），所以只能当参考门；红的时候正是该重启的时候。
+    advisory: true,
+    ignoreExit: true,
+    expect: /重启后核对/,
+  },
 ]);
 
 function scriptPathOf(gate) {
@@ -86,9 +96,17 @@ function runOne(gate) {
 function advisorySummary(out) {
   const plain = out.replace(ANSI, "");
   const stat = (plain.match(/通过\s+\d+\s*·\s*警告\s+\d+\s*·\s*失败\s+\d+/) ?? [])[0];
-  if (stat === undefined) return null;
-  const bad = (plain.match(/✗[^\n]*/) ?? plain.match(/![^\n]*/) ?? [])[0];
-  return bad === undefined ? stat.trim() : `${stat.trim()} · ${bad.trim()}`;
+  // 有的参考门（如 post-restart-check）没有统计行，只有逐条 ✓/!/✗ —— 那就摘前两条问题行
+  const badLines = plain
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("✗") || line.startsWith("!"));
+  if (stat === undefined) {
+    if (badLines.length === 0) return null;
+    return badLines.slice(0, 2).join(" · ") + (badLines.length > 2 ? ` · …另 ${badLines.length - 2} 条` : "");
+  }
+  const bad = badLines[0];
+  return bad === undefined ? stat.trim() : `${stat.trim()} · ${bad}`;
 }
 
 export function main(argv = process.argv.slice(2)) {
