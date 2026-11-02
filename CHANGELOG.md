@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C196 | doctor 报「fold 新鲜度」—— 顺带发现一个**需要下一轮查清**的怪现象 |
 | C195 | doctor 报「清单写入率」：2% 不是 bug，是常驻 + 限流的结果 |
 | C194 | 闭包/边界统计也会被反向区间「骗成 0」 |
 | C193 | doctor 新增「观测字段覆盖」：我们现在到底看得到什么 |
@@ -231,6 +232,30 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C196 · doctor 报「fold 新鲜度」—— 顺带发现一个**需要下一轮查清**的怪现象
+
+**做法**：新增一行「fold 新鲜度（距上次 fold 的事件数）」，对每个有 fold 的会话算
+`max(node.seq) − 最近一条 foldMark.seqEnd`，取前三。**只观测，不判断** —— 真正触发时机由
+窗口阈值与 `growthFloorTokens` 共同决定，doctor 看不到 token 计量，不能替它拍板。
+
+**live 首跑（一项刺眼的数据）**：
+
+```
+session-00b50089-b: +13,326 事件（10 次 fold，最近 2026-11-02T03:20:51Z） · session-1e82afca-8: +3,659 · session-d70b7c2f-c: +3,390
+```
+
+**本会话自上次 fold 之后已增长 13,326 个事件** —— 期间上下文明显在涨（本会话正是那串很长的 checkpoint 对话），
+但**没有任何新的 foldMark 落盘**。
+
+三种可能，下一轮必须查清（不许猜）：
+
+1. 阈值确实没到（1M 窗口 × `thresholdRatio` 很大，`growthFloorTokens` 也高）；
+2. **宿主侧 compaction 走了别的路径**（例如 `/compact` 或内置 checkpoint），而那条路径**不写 foldMark**
+   —— 那就是**观测盲区**：折叠真的发生了，账却没记；
+3. 本会话不在棋谱引擎的管辖 preset 下（`preset-standard` 之外）。
+
+**测试 C196**（doctor-cli）：有 foldMark ⇒ ok 且 detail 含 `+N 事件` 与「只是观测」；无 foldMark ⇒ warn。
 
 ### C195 · doctor 报「清单写入率」：2% 不是 bug，是常驻 + 限流的结果
 

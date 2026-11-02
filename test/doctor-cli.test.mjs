@@ -593,3 +593,30 @@ tests["C195 doctor 必须报「注入命中率」（光看渲染次数看不出�
     nodeFs.rmSync(legacy, { recursive: true, force: true });
   }
 };
+
+tests["C196 doctor 必须报「fold 新鲜度」：距上次 fold 的事件数（只观测不判断）"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now() - 3_600_000, seqStart: 1, seqEnd: 100, trigger: "pressure" }];
+      g.foldCount = 1;
+    },
+  });
+  try {
+    const row = runDoctor(home).find("fold 新鲜度");
+    t.eq(row.status, "ok", `应为 ok：${JSON.stringify(row)}`);
+    t.includes(row.detail, "事件", "detail 必须带事件数");
+    t.includes(row.detail, "只是观测", "必须声明「只是观测，不判断」——避免被当门禁");
+    t.eq(/\+\d+ 事件/.test(row.detail), true, `必须给出 +N 事件：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
+  // 没有 foldMarks ⇒ warn（观测不到），且不能崩
+  const empty = makeHome({ mutate: (g) => { g.foldMarks = []; g.foldCount = 0; } });
+  try {
+    const row = runDoctor(empty).find("fold 新鲜度");
+    t.eq(row.status, "warn", `无记录应 warn：${JSON.stringify(row)}`);
+  } finally {
+    nodeFs.rmSync(empty, { recursive: true, force: true });
+  }
+};

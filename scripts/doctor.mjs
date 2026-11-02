@@ -309,6 +309,7 @@ let newestFlush = 0;
 let lastFold = null;
 /** ★ P2-2（task-192）：跨会话收集 foldMarks（带 session 名），供「最近 5 次 fold」展示。 */
 const recentFoldMarks = [];
+  const foldGrowth = [];
 /** ★ 2026-11-01：出现「压缩无效」的会话数 / 最深连续次数。 */
 let thrashGraphs = 0;
 let maxThrash = 0;
@@ -364,6 +365,18 @@ if (nodeFs.existsSync(chessRoot)) {
       }
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
+      // ★ C196：fold 新鲜度 —— 距上次 fold 之后又长了多少事件。只展示不判断（阈值 doctor 看不到）。
+      if (marks.length > 0) {
+        const last = marks.filter((m) => Number.isFinite(m.seqEnd)).at(-1);
+        let maxSeq = 0;
+        for (const node of Object.values(g.nodes ?? {})) {
+          const seq = Number(node?.seq);
+          if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+        }
+        if (last !== undefined && maxSeq > 0) {
+          foldGrowth.push({ session: d.name, growth: Math.max(0, maxSeq - Number(last.seqEnd)), at: last.at ?? 0, folds: marks.length });
+        }
+      }
       // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 连续两次 fold 间隔 < 30 事件的会话数。
       if (typeof g.foldThrash === "number" && g.foldThrash >= 2) {
         thrashGraphs += 1;
@@ -797,6 +810,19 @@ add(
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+/* ★ C196：fold 新鲜度 —— 回答「什么时候会再 fold」。只展示，不判断。 */
+{
+  const top = [...foldGrowth].sort((a, b) => b.growth - a.growth).slice(0, 3);
+  if (top.length === 0) {
+    add("fold 新鲜度（距上次 fold 的事件数）", "warn", "没有可用的 fold 记录（或都没有 seqEnd）");
+  } else {
+    const text = top
+      .map((x) => `${String(x.session).slice(0, 18)}: +${x.growth} 事件（${x.folds} 次 fold，最近 ${new Date(x.at).toISOString()}）`)
+      .join(" · ");
+    add("fold 新鲜度（距上次 fold 的事件数）", "ok", `${text}（只是观测：真正触发时机由窗口阈值与 growthFloor 共同决定）`);
+  }
+}
+
 /* ★ 2026-11-01（C12）：fold 触发原因分布 —— `context-overflow` 出现 = 已经被迫自救，
    说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。 */
 {
