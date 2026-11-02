@@ -98,6 +98,37 @@ const THRASH_SEQ = 30;
  * @param {() => number} [options.now]
  * @returns {Promise<{folded:number, stopped:"done"|"deadline"|"error", error:unknown}>}
  */
+/**
+ * ★ C309：从一张图直接算出「收尾要折成哪几段」—— 把 C288 的预检与 C289 的切分接成一条**可测**的纯链路。
+ *
+ * 为什么再包一层：`closeoutExceedsLimit` 只答"要不要分段"，`planCloseoutChunks` 只答"怎么切"，
+ * 而"给这张图，到底切出什么"没有可测入口（引擎里那段是私有方法，测不到）。
+ *
+ * @param {object} graph
+ * @param {{maxTokens?:number, maxChunks?:number}} [options]
+ * @returns {{est:number, tail:number, chunks:Array<{start:number,end:number,estTokens:number}>}|null}
+ *          null = 不需要分段（或估不出来）
+ */
+export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS, maxChunks = 6 } = {}) {
+  const tooBig = closeoutExceedsLimit(graph, maxTokens);
+  if (tooBig === null) return null;
+  let debt = null;
+  try {
+    debt = debtOfGraph(graph);
+  } catch {
+    debt = null;
+  }
+  const chunks = planCloseoutChunks({
+    fromSeq: Number(debt?.lastFoldSeq ?? 0),
+    tail: tooBig.tail,
+    tokensPerEvent: debt?.tokensPerEvent ?? null,
+    maxTokens,
+    maxChunks,
+  });
+  return { est: tooBig.est, tail: tooBig.tail, chunks };
+}
+
+
 export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now = Date.now } = {}) {
   let folded = 0;
   for (const chunk of chunks) {
@@ -1391,6 +1422,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (tooBig !== null) {
         // ★ C289：不再"跳过"，改成**分段折叠**（K-15 第二步）。
         const graph = typeof id === "string" ? this.graphs.get(id) : undefined;
+        // ★ C309：预检 + 切分合成一个纯函数调用（可测），这里只管执行
+        const planned = planChunkedCloseout(graph);
+        const chunks = planned?.chunks ?? [];
         const debt = (() => {
           try {
             return debtOfGraph(graph);
@@ -1398,11 +1432,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             return null;
           }
         })();
-        const chunks = planCloseoutChunks({
-          fromSeq: Number(debt?.lastFoldSeq ?? 0),
-          tail: tooBig.tail,
-          tokensPerEvent: debt?.tokensPerEvent ?? null,
-        });
         if (chunks.length === 0) {
           this.ctx.logger?.warn?.(
             `chess-context: 归档收尾跳过（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，超过一次性折叠上限，且切不出可折叠的分段）`,

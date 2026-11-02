@@ -2637,3 +2637,32 @@ tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中�
   const emptyOut = await mod.runChunkedCloseout({ chunks: [], deadline: Date.now() + 1000, fold: async () => {} });
   if (emptyOut.folded !== 0 || emptyOut.stopped !== "done") throw new Error(`空清单应 0/done：${JSON.stringify(emptyOut)}`);
 };
+
+tests["C309 planChunkedCloseout：给一张图，直接算出要折成几段（预检 + 切分合成一条链）"] = async () => {
+  const { mod } = await load();
+  if (typeof mod.planChunkedCloseout !== "function") throw new Error("必须导出 planChunkedCloseout");
+
+  // 小尾巴 ⇒ 不需要分段（null）
+  const small = { nodes: { n1: { seq: 120 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 1_000 }] };
+  if (mod.planChunkedCloseout(small) !== null) throw new Error("小尾巴不该被判为需要分段");
+
+  // 大尾巴：1000 tok/事件 × 尾巴 199900 ⇒ 远大于 150k ⇒ 每段 150 事件、最多 6 段
+  const big = { nodes: { n1: { seq: 200_000 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 100_000 }] };
+  const planned = mod.planChunkedCloseout(big);
+  if (planned === null) throw new Error("大尾巴必须给出分段计划");
+  if (!(planned.chunks.length > 0 && planned.chunks.length <= 6)) throw new Error(`段数必须在 1..6：${planned.chunks.length}`);
+  // 首尾相接 + 每段不超上限
+  let cursor = planned.chunks[0].start;
+  for (const c of planned.chunks) {
+    if (c.start !== cursor) throw new Error("段必须首尾相接");
+    if (c.estTokens > mod.CLOSEOUT_MAX_FOLD_TOKENS) throw new Error(`单段超上限：${c.estTokens}`);
+    cursor = c.end;
+  }
+  // 估不出来（无历史 fold）⇒ null（不瞎切）
+  if (mod.planChunkedCloseout({ nodes: { n1: { seq: 999_999 } }, foldMarks: [] }) !== null) {
+    throw new Error("没有历史 fold ⇒ 不许切");
+  }
+  // 接线：引擎必须用它
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  if (!src.includes("const planned = planChunkedCloseout(graph)")) throw new Error("引擎必须走统一入口");
+};
