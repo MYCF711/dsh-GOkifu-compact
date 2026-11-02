@@ -348,6 +348,20 @@ tests["C17-6 L1–L5 档位语义不变：档位越高越省（tokens 单调不�
   if (seen.length < 3) throw new Error(`没有测到多档：${seen.join(" ")}`);
 };
 
+tests["C226 只有 1 个节点的路径也必须渲染（旧门槛 path.length>1 会整块丢掉路径）"] = (t) => {
+  // 事故：`renderLedger` 里路径块的门槛是 `if (path.length > 1)` —— 任何「只有当前位置、走不出链」的图
+  // （只有一个 agent 节点、或边还没接上）在**任何档位**都不出路径行。handoff-check 契约 ⑥ 在 live 上
+  // 稳定抓到 2 个会话（5df02bf8 / 30140e4c）报 FAIL，产品侧就是这里。
+  const g = createGraph({ sessionId: "fx-single-path" });
+  addUserNodeId(g, { seq: 1, text: "把构建修好" });
+  addAgentNode(g, { seq: 2, goal: "再试一次", worldHash: "W1", constraintHash: "C1" });
+  for (const level of [0, 1, 2, 3, 4, 5]) {
+    const out = renderLedger(g, { level, maxTokens: 500 });
+    const has = /CURRENT PATH|# path:|WORKING:/.test(out.text);
+    t.eq(has, true, `L${level} 必须给出当前位置（path 只有 1 个节点）`);
+  }
+};
+
 tests["C17-7 markers:off 不省掉路径（标记档位与路径档位互不影响）"] = () => {
   // 当前路径 ≠ 工作路径的夹具：两行本来就都该出现，markers:off 不许动它们
   const { g } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-off" });

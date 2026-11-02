@@ -59,3 +59,16 @@
   ② 若 replace 占比高且改写位置靠前 ⇒ 试「append 优先 + 每 N 次才 elide 一次旧清单」；
   ③ 判据用**真实命中率**（DeepSeek 的 `prompt_cache_hit_tokens`，若 magpie 透传）而不是"感觉便宜了"。
   **卡在哪**：先确认 magpie 是否把缓存命中字段透传给宿主 usage —— 这是下一步要查的第一件事。
+
+## 5. 补充：`/chat/completions` 是**无状态**的（2026-11-02 读 multi_round_chat 文档）
+
+> 来源：<https://api-docs.deepseek.com/guides/multi_round_chat>（HTTP 200）
+
+原文：*"the server does not record the context of the user's requests. Therefore, the user must
+concatenate all previous conversation history and pass it to the chat API with each request."*
+
+**对我们意味着什么（把前两轮串起来）**：
+- 服务端**什么都不记** ⇒ 我们每轮发出去的**完整 surface 就是缓存键**；
+- 所以「改写中间那条清单」不只是省不省 token 的问题，而是**把后面的整段前缀作废**（C219）；
+- 而「少渲染一行路径」（C226 修的那个 bug）虽然只差 2 token，却也是**内容变化** ⇒ 每次变化都换一次键。
+  ⇒ 结论：**渲染的稳定性本身就是成本**，不是只有 token 数才是。

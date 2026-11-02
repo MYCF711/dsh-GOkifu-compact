@@ -991,7 +991,10 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // C56：这是计数行、不是省略行 —— 位置信息已由「docs / TRACE」约定承载，不再重复一条指针。
       tailLines.push(`UNVERIFIED: ${open.length} unproven (latest ${latestOpen.id})`);
     }
-    if (path.length > 1) {
+    // ★ C226：**1 个节点的路径也是路径**。旧条件是 `path.length > 1` ⇒ 任何「只有当前位置、
+    //   走不出链」的图（只有一个 agent 节点 / 边还没接上）在**任何档位**都不出路径行，
+    //   而 handoff-check 的契约 ⑥ 要求「图有路径 ⇒ 清单必须有当前位置」（live 实测 2 个会话稳定 FAIL）。
+    if (path.length > 0) {
       const shape = PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)];
       // ★ C-17（2026-10-30，第二轮修）：路径行预算必须扣掉**这一档除路径以外的全部行** ——
       //   header / root / constraints **以及已经算好的 tailLines（失败边块）**、还要 push 的
