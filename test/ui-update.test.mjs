@@ -615,3 +615,20 @@ tests["C286 补账前要给出「大概多少钱」：按每个会话的 estToke
   const noEst = T.backfillLines({ ok: true, dryRun: true, scanned: 5, due: 1, items: [{ sessionId: "x", tail: 900 }] });
   t.eq(noEst.join(" ").includes("M tok"), false, "没有估值时不许出现金额行");
 };
+
+tests["C287 大尾巴要提前提醒：估算超过 150k tok 的会话可能超出模型窗口"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  const lines = T.backfillLines({
+    ok: true, dryRun: true, scanned: 44, due: 2,
+    items: [
+      { sessionId: "big-tail-session", tail: 13515, estTokens: 1_212_919 },
+      { sessionId: "small-one", tail: 900, estTokens: 40_000 },
+    ],
+  });
+  const bigLine = lines.find((l) => l.includes("big-tail-session"));
+  const smallLine = lines.find((l) => l.includes("small-one"));
+  t.includes(bigLine, "可能超出模型窗口", `大尾巴要警告：${bigLine}`);
+  t.includes(bigLine, "1213k tok", `要报估算量级：${bigLine}`);
+  t.eq(smallLine.includes("⚠"), false, `小尾巴不该警告：${smallLine}`);
+};
