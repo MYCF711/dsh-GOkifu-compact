@@ -173,6 +173,7 @@ export async function checkPanelCapabilities(
   const url = `http://127.0.0.1:${port}/gokifu/api`;
   const known = [];
   const unknown = [];
+  let lastFailure = null;  // C331：非阳性响应（如 405）要能说清是什么
   for (const probe of probes) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -191,8 +192,15 @@ export async function checkPanelCapabilities(
         json = null;
       }
       const saidUnknown = typeof json?.error === "string" && json.error.includes("未知 action");
+      // ★ C331：**只有拿到能解析的响应才算"认识"**。
+      //   实测（2026-11-02 真机）：重启后 `/gokifu/api` 对**所有** action 回 HTTP 405 + 空体
+      //   （插件路由没起来），而旧逻辑"没有『未知 action』字样就算认识" ⇒ 把死路由判成"新代码已接管"。
+      //   仪器骗人的第 N 次：判定必须基于**阳性证据**（2xx 且能解析），不是"没有反证"。
+      const positive = res.ok && json !== null && json?.error === undefined;
       if (saidUnknown) unknown.push(probe.action);
-      else known.push(probe.action);
+      else if (positive) known.push(probe.action);
+      else unknown.push(probe.action);
+      if (!positive) lastFailure = `HTTP ${res.status}${json === null ? "（非 JSON）" : ""}`;
     } catch {
       return { level: "warn", detail: `面板不可达（端口 ${port}）：${probe.action} 探不了`, known, unknown };
     } finally {
@@ -201,6 +209,15 @@ export async function checkPanelCapabilities(
   }
   if (unknown.length === 0) {
     return { level: "ok", detail: `面板认识全部 ${known.length} 个新 action（${known.join(" / ")}）⇒ 跑的是新代码`, known, unknown };
+  }
+  // 全部拿不到阳性响应（如路由 405）⇒ 这不是"旧代码"，是**面板根本没起来**
+  if (known.length === 0 && lastFailure !== null) {
+    return {
+      level: "warn",
+      detail: `面板路由不响应（${lastFailure}）—— 插件可能**没加载**（不是"旧代码"）：先确认插件在 profile 里、再重启`,
+      known,
+      unknown,
+    };
   }
   return {
     level: "warn",

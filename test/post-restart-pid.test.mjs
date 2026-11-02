@@ -27,3 +27,38 @@ tests["C294 能力探针：未知 action 必须判「内存里那份模块比磁
   t.eq(down.level, "warn", "面板不可达必须 warn");
   t.includes(down.detail, "不可达", "要说清是端口不可达");
 };
+
+tests["C331 能力探针只认阳性证据（405/非 JSON 不算认识）"] = async (t) => {
+  const mod = await import("../scripts/post-restart-check.mjs");
+  // 面板不可达 ⇒ warn（已有 C294 覆盖），这里补：**死路由**（405）绝不能被判成"认识"
+  const dead = await mod.checkPanelCapabilities([{ action: "state" }], { port: 1, timeoutMs: 300 });
+  t.eq(dead.level, "warn", "不可达必须 warn");
+  t.eq(dead.known, [], "不可达时不许把 action 记成 known");
+};
+
+tests["C331 验收判定：路由不响应时必须判 stale，不许判 ready"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  const r = mod.verdictOf({
+    caps: { level: "warn", known: [], unknown: ["update", "backfill"] },
+    backfill: { reachable: false, due: null, error: "HTTP 405" },
+    closeout: { seen: false, sessions: 0 },
+    truncation: { collected: 0, truncated: 0 },
+    buildOk: false,
+  });
+  t.eq(r.verdict, "stale", `路由死了必须 stale：${JSON.stringify(r)}`);
+  t.includes(r.line, "重启", "要告诉人重启");
+  t.eq(r.todo.length >= 2, true, "至少要列出面板不认识 + buildId 不符");
+};
+
+tests["C331 验收判定：全部阳性时判 ready"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  const r = mod.verdictOf({
+    caps: { level: "ok", known: ["update", "backfill"], unknown: [] },
+    backfill: { reachable: true, due: 3, error: null },
+    closeout: { seen: true, sessions: 1 },
+    truncation: { collected: 5, truncated: 0 },
+    buildOk: true,
+  });
+  t.eq(r.verdict, "ready", `全阳性必须 ready：${JSON.stringify(r)}`);
+  t.includes(r.line, "欠账 3", "要带出欠账数");
+};
