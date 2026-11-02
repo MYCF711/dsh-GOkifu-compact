@@ -1363,12 +1363,36 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         this.ctx.logger?.info?.(
           `chess-context: 归档收尾分段折叠 ${chunks.length} 段（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，单段上限 ${Math.round(CLOSEOUT_MAX_FOLD_TOKENS / 1000)}k）`,
         );
+        // ★ C291：分段路径**必须**受同一个 `closeoutTimeoutMs` 约束 ——
+        //   C289 把它写在了超时包装之外，6 段大折叠能跑两三分钟，等于把归档回调卡死。
+        //   现在：整体 deadline + 每段各自的剩余时间 race，到点就停（已折的段保留）。
+        const deadline = Date.now() + limitMs;
         let folded = 0;
+        let stopped = "done";
         for (const chunk of chunks) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            stopped = "deadline";
+            break;
+          }
           try {
-            await this.compactRegion(chunk.start, chunk.end, this.#asAgent(target), undefined);
+            let timer = null;
+            const timeout = new Promise((resolve) => {
+              timer = setTimeout(() => resolve("timeout"), remaining);
+              if (typeof timer?.unref === "function") timer.unref();
+            });
+            const out = await Promise.race([
+              this.compactRegion(chunk.start, chunk.end, this.#asAgent(target), undefined),
+              timeout,
+            ]);
+            if (timer !== null) clearTimeout(timer);
+            if (out === "timeout") {
+              stopped = "deadline";
+              break;
+            }
             folded += 1;
           } catch (error) {
+            stopped = "error";
             this.ctx.logger?.warn?.(
               `chess-context: 分段收尾在第 ${folded + 1}/${chunks.length} 段失败（不影响归档）：${String(error)}`,
             );
@@ -1381,7 +1405,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         const remaining = Math.max(0, (tooBig.tail ?? 0) - chunks.reduce((sum, c) => sum + (c.end - c.start), 0));
         this.ctx.logger?.info?.(
           `chess-context: 分段收尾完成 ${folded}/${chunks.length} 段（覆盖到 seq ${covered} / 尾巴 ${tooBig.tail} 事件，` +
-            `还剩约 ${remaining} 事件 —— 装不下就再收一次）`,
+            `还剩约 ${remaining} 事件；结束原因 ${stopped}${stopped === "deadline" ? `，已用满 ${limitMs}ms 预算` : ""} —— 装不下就再收一次）`,
         );
         void totalEnd;
         return { tier: "chunked", folded, chunks: chunks.length };

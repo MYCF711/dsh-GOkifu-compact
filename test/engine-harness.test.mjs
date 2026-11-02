@@ -2573,5 +2573,18 @@ tests["C289 分段收尾：过大的尾巴要切成首尾相接、每段不超�
   // 接线：超限路径必须真的走分段，而不是直接跳过
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("归档收尾分段折叠")) throw new Error("超限时必须走分段折叠并写日志");
-  if (!src.includes("await this.compactRegion(chunk.start, chunk.end")) throw new Error("每段必须真的调 compactRegion");
+  if (!src.includes("this.compactRegion(chunk.start, chunk.end")) throw new Error("每段必须真的调 compactRegion");
+};
+
+tests["C291 分段收尾必须受同一个超时预算（不能绕开 closeoutTimeoutMs）"] = () => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  const start = src.indexOf("const deadline = Date.now() + limitMs");
+  if (start <= 0) throw new Error("分段循环前必须有 deadline");
+  const loop = src.slice(start, src.indexOf("覆盖到 seq", start));
+  if (!loop.includes("remaining <= 0")) throw new Error("每段前要检查剩余时间");
+  if (!loop.includes("Promise.race")) throw new Error("每段要用剩余时间 race");
+  if (!loop.includes('stopped = "deadline"')) throw new Error("到点要记录结束原因是 deadline");
+  const log = src.slice(src.indexOf("分段收尾完成"), src.indexOf("分段收尾完成") + 400);
+  if (!log.includes("结束原因")) throw new Error("日志要写结束原因");
+  if (!log.includes("预算")) throw new Error("到点时要说明用满了预算");
 };
