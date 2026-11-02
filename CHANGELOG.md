@@ -217,6 +217,26 @@
 
 # 更新记录
 
+## 1.17.2（2026-11-02）
+
+> 相对 1.17.1 只有两件事，但都很实在。
+
+### 新能力 · 归档收尾折叠（C210）
+
+会话被归档（`session/disposed`）时，插件会 **best-effort 补一次折叠**：
+
+- 立刻 `full` 落盘（节点 / index / 标量）；
+- 图上记 `closeout: { at, eventsSinceLastFold, folds }`；
+- `closeoutFold`（默认开）且尾巴 ≥ `closeoutMinEvents`（默认 40）⇒ 异步跑 `trigger: "archive"` 折叠，
+  硬超时 `closeoutTimeoutMs`（默认 90s）。
+
+**为什么**：以前「做完就归档」的会话，最后一段永远没有压缩产物 —— kifu 看着完整、其实缺一截。
+
+### 修正 · 计数口径（C211）
+
+手工压缩写的 `foldMark` 没有区间。`live-folds` 与 `consistency-check` 现在都只数**有区间**的折叠，
+另出 `manual` 计数 —— 否则「证据 28 / 磁盘 29」这种假不一致会一直挂着。
+
 ## 1.17.1 — 2026-11-02（**未发布**）
 
 > 主题：**装完重启就生效，用户永远不需要跑命令。**

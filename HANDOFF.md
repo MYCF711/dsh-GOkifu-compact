@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.17.1** —— ✅ **已 npm publish（2026-11-02T05:07Z，138 files）**、本地已打 `v1.17.1`；⛔ `git push`/GitHub Release **未执行**（无共同祖先，需主人决定历史收敛方式） |
+| 版本 | **1.17.2** —— ✅ **已 npm publish（2026-11-02T05:07Z，138 files）**、本地已打 `v1.17.1`；⛔ `git push`/GitHub Release **未执行**（无共同祖先，需主人决定历史收敛方式） |
 | ✅ **重启已完成** | `2026-11-02T03:37:05Z` 新进程 **pid 42544 / buildId `cdbc08e523aa`**；`after-restart` **必需项全部通过**（①buildId ②进程时间 ④节点文档 ⑤live fold）③仅剩 1 条旧版本反向 foldMark（warn） |
 | 代码 | 见 `git log --oneline`；本块写于 **C166** 之后，共 **171 条 C 轮提交** |
 | 门禁（串行） | 全量 **917 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 0**（C183 重放 delta 后，原先 5 条 warn 消失） · doctor **0 错误 / 5 警告**（重启后曾降到 3；本轮起继续提交 ⇒ 「运行实例 build 与磁盘不一致」重新出现，属预期：磁盘已前进、实例要等下次重启；另 3 条 = legacy foldMark / 第三方 preset 边界 / 预算在途） · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **26 会话 0 不自洽** |
