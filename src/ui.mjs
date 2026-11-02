@@ -357,12 +357,19 @@ export function priceForModel(model) {
 export function estimateFoldCostUsd(usage, model = usage?.model) {
   const input = Number(usage?.inputTokens);
   if (!Number.isFinite(input) || input < 0) return null;
-  const hit = Math.max(0, Math.min(input, Number(usage?.cacheReadTokens) || 0));
-  const miss = input - hit;
+  const hit = Math.max(0, Number(usage?.cacheReadTokens) || 0);
   const output = Math.max(0, Number(usage?.outputTokens) || 0);
-  // ★ C345：按**实际模型**计价（认不出回落 flash = 下限估算）
+  // ★ C361：**`inputTokens` 到底是"全部输入"还是"未命中输入"？** 真机数据给了答案：
+  //   会话文件里一条真实 usage 是 `{inputTokens:2158, outputTokens:257, totalTokens:21999, cacheReadTokens:19584}`，
+  //   且 2158 + 19584 + 257 = 21999 ⇒ **inputTokens 只算未命中部分**（miss），total 才是三者之和。
+  //   旧实现按"input 含 hit"算（miss = input - hit）⇒ 命中一多 miss 就被算成 0，**成本被严重低估**。
+  //   这里用 totalTokens 自证：若 total ≈ miss + hit + out，就按"input 即 miss"；否则退回老口径。
+  const total = Number(usage?.totalTokens);
+  const looksSplit = Number.isFinite(total) && total > 0 && Math.abs(total - (input + hit + output)) <= 2;
+  const miss = looksSplit ? input : Math.max(0, input - hit);
+  const hitTokens = looksSplit ? hit : Math.min(input, hit);
   const p = priceForModel(model);
-  return (miss * p.miss + hit * p.hit + output * p.out) / 1e6;
+  return (miss * p.miss + hitTokens * p.hit + output * p.out) / 1e6;
 }
 
 export function todayAggregateFrom(scan) {

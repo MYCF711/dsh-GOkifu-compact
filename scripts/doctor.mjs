@@ -957,10 +957,13 @@ add(
         (() => {
           const withCache = recentFoldMarks.filter((m) => Number.isFinite(m?.usage?.inputTokens) && Number.isFinite(m?.usage?.cacheReadTokens));
           if (withCache.length === 0) return "";
-          const input = withCache.reduce((n, m) => n + m.usage.inputTokens, 0);
+          // ★ C361：真机 usage 的 `inputTokens` 是**未命中**部分（total = miss + hit + out 自证），
+          //   所以命中率分母要用 miss + hit；拿 inputTokens 当分母会算出 >100% 的荒谬值。
+          const miss = withCache.reduce((n, m) => n + m.usage.inputTokens, 0);
           const cache = withCache.reduce((n, m) => n + m.usage.cacheReadTokens, 0);
-          if (input <= 0) return "";
-          return ` · fold 缓存命中 ${Math.round((cache / input) * 100)}%（${withCache.length} 次；与注入的 97% 不是一个世界 —— 折叠每次都是新区间）`;
+          const denom = miss + cache;
+          if (denom <= 0) return "";
+          return ` · fold 缓存命中 ${Math.round((cache / denom) * 100)}%（${withCache.length} 次；分母 = 未命中 + 命中）`;
         })() +
         // ★ C237：**我们自己的指令**占 fold 输入多少（facts + 模板）。实测 1.7% ⇒
         //   「input/shadowed = 1.4」不是我们造成的，以后别再猜。

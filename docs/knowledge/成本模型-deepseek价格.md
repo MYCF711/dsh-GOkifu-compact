@@ -88,3 +88,23 @@
 - 模型名：`deepseek-flash`（V4.1-Flash-1017，旧名 `deepseek-v4-flash` / `…-vision-exp` 已退役但请求仍被接受并按 Flash 计价）、`deepseek-v4-pro`（V4-Pro-0813）；
 - 上下文长度 **1M**，最大输出 **384K**；**思考模式默认开启**（可关闭）；
 - 差别 **3.3×–4.4×**：此前面板一律按 Flash 计价，跑 Pro 时会**低报 4 倍多**（C345 已改为按实际模型计价）。
+
+## ★ `inputTokens` 到底是"全部输入"还是"未命中输入"（**已核实**，C361）
+
+真机会话文件里的一条真实 usage（78 条样本之一）：
+
+```json
+{"inputTokens":2158,"outputTokens":257,"totalTokens":21999,"cacheReadTokens":19584}
+```
+
+而 **2158 + 19584 + 257 = 21999** = `totalTokens` ⇒ **`inputTokens` 只算未命中部分（miss）**。
+
+| 口径 | 公式 | 真机样本成本（flash 低峰） |
+|---|---|---|
+| 旧（把 input 当全部输入） | miss = max(0, 2158 − 19584) = **0** | **$0.00016** |
+| 新（miss + hit + out） | 2158×0.15 + 19584×0.003 + 257×0.6 | **$0.00054** |
+
+⇒ 旧口径在命中率高时把 miss 算成 0，**成本低估约 3.3 倍**。现在按 `totalTokens` 自证：
+`|total − (input+hit+out)| ≤ 2` 才按新口径，否则退回旧口径（不留"猜"的空间）。
+
+命中率的**分母**同理要改成 `miss + hit` —— 用 `inputTokens` 当分母会算出 >100%。

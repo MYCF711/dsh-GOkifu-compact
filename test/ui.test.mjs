@@ -299,3 +299,25 @@ tests["C346 成本聚合必须按每个 fold 自己的模型计价（usage 里�
   t.includes(engine, "model: this._lastSummaryModel ?? null", "usage 里必须写 model（C346）");
   t.includes(engine, "provider: this._lastSummaryProvider ?? null", "usage 里也要写 provider");
 };
+
+tests["C361 真机 usage 的 inputTokens 是「未命中」：成本必须按 miss+hit+out 算"] = async (t) => {
+  const { estimateFoldCostUsd } = await import("../src/ui.mjs");
+  // 真机样本（会话文件里抓的）：inputTokens 只含未命中，total = miss + hit + out
+  const real = { inputTokens: 2158, outputTokens: 257, totalTokens: 21999, cacheReadTokens: 19584 };
+  const got = estimateFoldCostUsd(real, "deepseek-flash");
+  // 手算：(2158×0.15 + 19584×0.003 + 257×0.6)/1e6 = (323.7+58.752+154.2)/1e6
+  const want = (2158 * 0.15 + 19584 * 0.003 + 257 * 0.6) / 1e6;
+  t.eq(Math.abs(got - want) < 1e-9, true, `应得 ${want}，实际 ${got}`);
+
+  // 旧口径（input 含 hit，没有 totalTokens）不能被打破
+  const legacy = { inputTokens: 10000, outputTokens: 500, cacheReadTokens: 9000 };
+  const legacyCost = estimateFoldCostUsd(legacy, "deepseek-flash");
+  const legacyWant = (1000 * 0.15 + 9000 * 0.003 + 500 * 0.6) / 1e6;
+  t.eq(Math.abs(legacyCost - legacyWant) < 1e-9, true, `老口径应得 ${legacyWant}，实际 ${legacyCost}`);
+
+  // total 对不上（既不是 miss+hit+out）⇒ 退回老口径，不许瞎猜
+  const weird = { inputTokens: 1000, outputTokens: 10, totalTokens: 999999, cacheReadTokens: 400 };
+  const weirdCost = estimateFoldCostUsd(weird, "deepseek-flash");
+  const weirdWant = (600 * 0.15 + 400 * 0.003 + 10 * 0.6) / 1e6;
+  t.eq(Math.abs(weirdCost - weirdWant) < 1e-9, true, `total 不可信时退回老口径：${weirdWant} vs ${weirdCost}`);
+};
