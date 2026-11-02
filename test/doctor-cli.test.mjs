@@ -894,3 +894,22 @@ tests["C266 归档收尾要按来源分桶（重启后一眼看出是不是 arch
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C276 悬空边报 error 时必须给出**能执行的命令**（只说「需要 migrate」等于没说）"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 100, totalAfter: 10, foldCount: 1, dangling: { fromBroken: 2, residue: 0, candidates: 0, liveUnsettled: 0 } },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(home).find("fold 悬空");
+    t.eq(!!row, true, "必须有「fold 悬空」这一行");
+    t.eq(row.status, "error", "fromBroken>0 必须是 error");
+    t.includes(String(row.detail), "migrate-dangling", "必须写出真实命令（不然用户不知道敲什么）");
+    t.includes(String(row.detail), "--apply", "要说明确认后怎么真正执行");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

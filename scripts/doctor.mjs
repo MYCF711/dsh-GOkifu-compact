@@ -1089,7 +1089,9 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       "fold 悬空（dangling）",
       broken > 0 ? "error" : live > 0 ? "warn" : "ok",
       broken > 0
-        ? `${broken} 条边的 from 节点已不存在（图坏了，需要 migrate）`
+        // ★ C276：只说"需要 migrate"等于没说 —— 用户不知道命令叫什么、也不知道可以先 dry-run。
+        ? `${broken} 条边的 from 节点已不存在（图坏了）：` +
+          "先 `dsh-gokifu-compact migrate-dangling` 看清单（dry-run），确认后加 `--apply`（会自动备份）"
         : live > 0
           ? `${live} 条边在 fold 时仍未结算（可能切在动作中间）—— 结合「fold 边界完整性」看`
           : `${marks.length} 次 fold：residue ${residue} / candidates ${candidates} / liveUnsettled 0 / fromBroken 0`,
