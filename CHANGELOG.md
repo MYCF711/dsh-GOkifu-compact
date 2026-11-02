@@ -5,6 +5,7 @@
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
 | C206 | ✅ **新代码在真机上跑出了两次真实折叠**（发布门槛的最后一项满足） |
+| C213 | 探针：压缩引擎那一组到底挂了谁（`probe-compaction-wiring.mjs`） |
 | C212 | 真机事故：手动 `/compact` 抛「Receiver must be an instance of class… |
 | C211 | 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列） |
 | C210 | 归档收尾折叠：**会话被归档时别再留未压缩的尾巴** |
@@ -325,6 +326,42 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 
 **测试 C206**（doctor-cli）：只有 tier2 的越界 id ⇒ **不许出现该行**；常规 fold 的越界 id ⇒ **必须报**并点名 id。
 
+
+### C213 · 探针：压缩引擎那一组到底挂了谁（`probe-compaction-wiring.mjs`）
+
+C212 只做到「把错误翻译成人话」。这一轮往前一步：**取证**——真机上同一 group 里还有谁。
+
+```bash
+node scripts/probe-compaction-wiring.mjs          # 只读，读 DSH_HOME/cordis.patch.yml
+node scripts/probe-compaction-wiring.mjs --json   # 机读
+```
+
+**它做的事**：从 preset 里抠出 `- id: compaction` 这一组，列出成员，并按角色分三类：
+
+| 角色 | 判定 | 当前命中 |
+|---|---|---|
+| **provider** | 名字含 `gokifu-compact` + `engine` | `gokifu-compact` |
+| **wrapper** | 名字含 pruner / wrap / proxy / intercept | **`tool-result-pruner`** |
+| caller | 名字含 command / cmd / slash | `command-compact` |
+
+**输出（当次真机）**：
+
+```
+⚠ 同组里有 1 个**包装器**：tool-result-pruner —— 真机若报「Receiver must be an instance of class …」，
+  先查它们是不是把 ctx.compaction 换成了代理对象
+```
+
+**结论与边界**（写进 evidence，不写成定论）：
+- 同组只有一个包装器，确实最像「换掉 `this`」的元凶；
+- 但**没有 pruner 源码可读**（`app.asar` 未解包），而且该错误只出现 **1 次**（别的新会话没炸）
+  ⇒ 也可能是「安装/热重载期间类身份短暂不一致」；
+- 验证方式：重启后在新会话跑一次 `/compact` —— 成功则降级为安装期问题，再炸则基本锁定 pruner。
+
+**测试 C213（3 条）**：抠组正确（成员顺序、config 不串味、兄弟 group 不算）；
+角色分类正确（pruner 进 wrapper、command 进 caller、engine 进 provider）；缺文件/缺组必须返回 null（探针退出码 1）。
+
+★ 解析器是自己写的极简版（不引 yaml 依赖）—— 所以测试里专门钉了「pruner 的 config 不许串到 engine 身上」，
+这个 bug 第一版就踩到了。
 
 ### C212 · 真机事故：手动 `/compact` 抛「Receiver must be an instance of class …」
 
