@@ -199,8 +199,8 @@ tests["U5-1 registry 有新版本 ⇒ hasUpdate:true、命令里的版本正确�
         );
         t.eq(
           Object.keys(res.json ?? {}).sort(),
-          ["cachedAt", "command", "current", "error", "hasUpdate", "latest", "ok", "publishedAt"],
-          "返回体字段与契约一致（只这 8 个）",
+          ["cachedAt", "command", "current", "error", "hasUpdate", "latest", "ok", "publishedAt", "relation"],
+          "返回体字段与契约一致（只这 9 个；C394 起新增 relation）",
         );
 
         // 有了缓存之后，state 直接能显示，且仍然不发网络
@@ -645,4 +645,23 @@ tests["C290 文案必须跟得上 C289：超大尾巴是「自动分段折」，
   t.includes(joined, "每段 ≤150k tok", "要给出单段上限");
   t.includes(joined, "再点一次", "装不下要说可以再点一次继续");
   t.eq(joined.includes("会失败"), false, "C289 之后不许再说「会失败」——那是旧行为的说法");
+};
+
+tests["C394 `hasUpdate:false` 有三种原因，必须用 relation 区分（ahead / same / null）"] = async (t) => {
+  const { versionRelation } = await import("../src/ui.mjs");
+  t.eq(typeof versionRelation, "function", "必须导出 versionRelation");
+  // 本地 1.17.6、registry 1.17.5 ⇒ 本地更新（不能让人以为"已是最新"）
+  t.eq(versionRelation("1.17.6", "1.17.5"), "ahead", "本地比 registry 新 ⇒ ahead");
+  t.eq(versionRelation("1.17.5", "1.17.6"), "behind", "registry 更新 ⇒ behind");
+  t.eq(versionRelation("1.17.6", "1.17.6"), "same", "相同 ⇒ same");
+  t.eq(versionRelation("1.17.6", null), null, "查不到 ⇒ null（不许当成 same）");
+  t.eq(versionRelation(null, "1.17.5"), null, "本地未知 ⇒ null");
+
+  // 接线：update 的返回值里必须带 relation
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "value.relation = versionRelation(", "update 必须设置 relation（C394）");
 };

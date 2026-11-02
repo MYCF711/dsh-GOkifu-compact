@@ -701,6 +701,22 @@ function comparePrerelease(left, right) {
  * @param {any} right
  * @returns {-1|0|1|null}
  */
+/**
+ * ★ C394：告诉人「为什么没有更新」。`hasUpdate:false` 有三种完全不同的原因：
+ * 已经是最新、**本地比 registry 还新**（自己装的未发布版本）、根本没查到。
+ * 不区分的话，用户会以为"我已经是最新了"。
+ * @param {string|null} current 本地版本
+ * @param {string|null} latest registry 版本
+ * @returns {"ahead"|"behind"|"same"|null}
+ */
+export function versionRelation(current, latest) {
+  if (typeof current !== "string" || current === "" || typeof latest !== "string" || latest === "") return null;
+  const cmp = compareVersions(latest, current);
+  if (cmp === 1) return "behind";
+  if (cmp === -1) return "ahead";
+  return "same";
+}
+
 export function compareVersions(left, right) {
   const a = parseVersion(left);
   const b = parseVersion(right);
@@ -806,6 +822,7 @@ export async function checkUpdate(options = {}) {
       latest: null,
       publishedAt: null,
       hasUpdate: false,
+      relation: null,
       // 兜底：**不知道**最新版时给 `@latest`（由 npm 解析）。知道「不新」时会清空（见下面的赋值）。
       command: updateCommand(null, profile),
       error: null,
@@ -816,6 +833,8 @@ export async function checkUpdate(options = {}) {
       value.latest = info.latest;
       value.publishedAt = info.publishedAt;
       value.hasUpdate = compareVersions(info.latest, current) === 1;
+      // ★ C394：同时告诉人比较结果（behind/same/ahead）—— `hasUpdate:false` 不等于"已是最新"。
+      value.relation = versionRelation(current, info.latest);
       // ★ 只有**真的有新版**才给命令：本地比 registry 新（自己装的是未发布版本）时给 `@<latest>` 等于教人降级。
       value.command = value.hasUpdate ? updateCommand(info.latest, profile) : "";
     } catch (error) {
