@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C328 | 归档信号解析与差分抽成纯函数并测住（唯一被真机证伪过的设计点） |
 | C327 | 发布说明补齐（1.17.6 还停在 C234，落后 90 条） |
 | C326 | 文档里的脚本**参数**也要真实存在 |
 | C325 | 用例数守卫：防止测试被悄悄删/覆盖 |
@@ -404,6 +405,17 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C328 · 归档信号解析与差分抽成纯函数并测住（唯一被真机证伪过的设计点）
+
+C210 挂 `session/disposed` 在真机上被证伪（GUI 归档不发该事件）⇒ C216 改挂 `domain/changed`。
+但过滤条件一直只有源码断言，没被行为测过。
+
+- `archivedIdsFromChange(change, registry)` → `{ids, trusted} | null`：只认 workspace/put/global；
+  `value` 对象或 JSON 串都行、坏 JSON ⇒ null；没有数组时退 registry 且标 `trusted:false`；
+- `newlyArchived(previous, current)`：只挑新出现的 id（取消归档后再归档可被重新认出）；
+- 引擎里的 `#archivedIdsFrom` / `#onWorkspaceChange` 改为委托，只剩副作用；
+- 测试 `engine-harness` C328 两条覆盖上述边界。
 
 ### C327 · 发布说明补齐（1.17.6 还停在 C234，落后 90 条）
 

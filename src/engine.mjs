@@ -109,6 +109,57 @@ const THRASH_SEQ = 30;
  * @returns {{est:number, tail:number, chunks:Array<{start:number,end:number,estTokens:number}>}|null}
  *          null = 不需要分段（或估不出来）
  */
+/**
+ * ★ C328：**归档信号只在这里解析一次**（纯函数，可单测）。
+ *
+ * 这条路径是本仓库最容易错的地方 —— C210 的设计（挂 `session/disposed`）在**真机上被证伪**过：
+ * GUI 归档只往 `workspace.json` 写 `archivedSessionIds`，**不发那个事件**（C216）。
+ * 所以过滤条件必须逐条钉住，不能只靠"源码里有这几行"。
+ *
+ * 认的形状：`{domain:"workspace", table:"", operation:"put", value:{archivedSessionIds:[…]}}`
+ *   · `table` 可以是 `""` 或 `undefined`（都是 global 记录），其它表一律不认；
+ *   · `value` 可能是对象，也可能是 JSON 字符串（durable 存储回放时见过）。
+ *
+ * @param {any} change
+ * @param {{archivedSessionIds?: unknown[]} | null} [registry] 兜底来源（有一拍延迟，只当最后手段）
+ * @returns {{ids: string[], trusted: boolean} | null} null = 不是归档信号
+ */
+export function archivedIdsFromChange(change, registry = null) {
+  if (!change || change.domain !== "workspace") return null;
+  if (change.operation !== "put") return null;
+  const table = change.table;
+  if (table !== "" && table !== undefined) return null;
+  let value = change.value;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  const ids = value?.archivedSessionIds;
+  if (Array.isArray(ids)) return { ids: ids.map(String), trusted: true };
+  const fromRegistry = registry?.archivedSessionIds;
+  return Array.isArray(fromRegistry) ? { ids: fromRegistry.map(String), trusted: false } : null;
+}
+
+/**
+ * ★ C328：从「上一份归档集合」到「这一份」的差分 —— 只挑**新出现**的 id。
+ *
+ * @param {Set<string>|Iterable<string>} previous
+ * @param {Iterable<string>} current
+ * @returns {string[]}
+ */
+export function newlyArchived(previous, current) {
+  const seen = previous instanceof Set ? previous : new Set(previous ?? []);
+  const out = [];
+  for (const id of current ?? []) {
+    const value = String(id);
+    if (!seen.has(value)) out.push(value);
+  }
+  return out;
+}
+
 export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS, maxChunks = 6 } = {}) {
   const tooBig = closeoutExceedsLimit(graph, maxTokens);
   if (tooBig === null) return null;
@@ -876,23 +927,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    * @returns {{ids: string[], trusted: boolean} | null} null = 这条变更与归档无关 / 读不出来
    */
   #archivedIdsFrom(change) {
-    if (!change || change.domain !== "workspace") return null;
-    if (change.operation !== "put") return null;
-    const table = change.table;
-    if (table !== "" && table !== undefined) return null; // 只认 global 记录
-    let value = change.value;
-    if (typeof value === "string") {
-      try {
-        value = JSON.parse(value);
-      } catch {
-        return null;
-      }
-    }
-    const ids = value?.archivedSessionIds;
-    if (Array.isArray(ids)) return { ids: ids.map(String), trusted: true };
-    // 兜底（老宿主/形状异常）：回读 registry。它有一拍延迟，只能当最后手段。
-    const fromRegistry = this.#workspaceRegistry()?.archivedSessionIds;
-    return Array.isArray(fromRegistry) ? { ids: fromRegistry.map(String), trusted: false } : null;
+    // ★ C328：解析逻辑抽成纯函数 `archivedIdsFromChange`（可单测）；这里只负责取 registry 兜底。
+    return archivedIdsFromChange(change, this.#workspaceRegistry());
   }
 
   /**
@@ -910,8 +946,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     for (const id of current) this.everArchived.add(id);
     // 这一条载荷就是写入后的权威快照 ⇒ 从下一条起，差分是准的。
     if (parsed.trusted) this.archivedBaselineKnown = true;
-    for (const id of current) {
-      if (previous.has(id)) continue;
+    // ★ C328：差分逻辑也是纯函数（`newlyArchived`），这里只做副作用
+    for (const id of newlyArchived(previous, current)) {
       // 只对**本进程真的处理过事件**的会话收尾；基线可信时才放纵到宿主 store 里的 live 会话。
       // 历史归档（启动前就归档了）既没有事件流也没有会话对象，硬做只会白花一次模型调用。
       const session = this.sessionRefs.get(id) ?? (baselineKnown ? this.#sessionRef(id) : null);

@@ -2692,3 +2692,45 @@ tests["C321 finishReason 必须真的落进 foldMarks（doctor 读的是那里�
   if (!(take < markStart)) throw new Error("取值必须在构造 foldMark 之前");
   if (clearBetween < 0 || clearBetween > markStart) throw new Error("取值与构造之间要有一次清理（防泄漏到下一次 fold）");
 };
+
+tests["C328 归档信号解析：只认 workspace/put/global，且 value 可对象可 JSON 串"] = async () => {
+  const { mod } = await load();
+  const parse = mod.archivedIdsFromChange;
+  if (typeof parse !== "function") throw new Error("必须导出 archivedIdsFromChange");
+
+  const ok = parse({ domain: "workspace", table: "", operation: "put", value: { archivedSessionIds: ["s1", 2] } });
+  if (JSON.stringify(ok) !== JSON.stringify({ ids: ["s1", "2"], trusted: true })) throw new Error(`正常形状解析错：${JSON.stringify(ok)}`);
+  if (parse({ domain: "workspace", table: undefined, operation: "put", value: { archivedSessionIds: [] } })?.trusted !== true) {
+    throw new Error("table 缺省也要认（都是 global 记录）");
+  }
+  // value 是 JSON 字符串（durable 回放见过）
+  const viaString = parse({ domain: "workspace", table: "", operation: "put", value: '{"archivedSessionIds":["s9"]}' });
+  if (JSON.stringify(viaString?.ids) !== '["s9"]') throw new Error(`JSON 串要能解析：${JSON.stringify(viaString)}`);
+  // 坏 JSON ⇒ null（不许抛）
+  if (parse({ domain: "workspace", table: "", operation: "put", value: "{坏" }) !== null) throw new Error("坏 JSON 必须 null");
+
+  // 这些都不是归档信号
+  for (const change of [
+    { domain: "session", table: "", operation: "put", value: { archivedSessionIds: ["x"] } },
+    { domain: "workspace", table: "", operation: "delete", value: { archivedSessionIds: ["x"] } },
+    { domain: "workspace", table: "other", operation: "put", value: { archivedSessionIds: ["x"] } },
+    null,
+  ]) {
+    if (parse(change) !== null) throw new Error(`不该认：${JSON.stringify(change)}`);
+  }
+
+  // 没有数组时退到 registry（trusted=false：它有一拍延迟）
+  const fallback = parse({ domain: "workspace", table: "", operation: "put", value: {} }, { archivedSessionIds: ["r1"] });
+  if (fallback?.trusted !== false || JSON.stringify(fallback?.ids) !== '["r1"]') throw new Error("兜底要标 trusted=false");
+  if (parse({ domain: "workspace", table: "", operation: "put", value: {} }, null) !== null) throw new Error("没兜底就 null");
+};
+
+tests["C328 差分只挑新出现的 id（取消归档后再归档也要能被认出来）"] = async () => {
+  const { mod } = await load();
+  const diff = mod.newlyArchived;
+  if (typeof diff !== "function") throw new Error("必须导出 newlyArchived");
+  const got = diff(new Set(["a", "b"]), ["b", "c", "c"]);
+  if (JSON.stringify(got) !== JSON.stringify(["c", "c"])) throw new Error(`差分结果不对：${JSON.stringify(got)}`);
+  if (diff(new Set(), ["x"]).length !== 1) throw new Error("空基线要全挑出来");
+  if (diff(new Set(["x"]), ["x"]).length !== 0) throw new Error("没变化不该挑");
+};
