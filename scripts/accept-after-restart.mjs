@@ -134,6 +134,45 @@ export function panelFieldProbe(stateJson) {
   return { ok: missing.length === 0, missing };
 }
 
+/**
+ * ★ C409：**参数级探针**。能力探针只知道"认识不认识这个 action"，
+ * 但真正会坑人的是**参数没生效**：真机实例（C408）——面板认识 `backfill`，
+ * 但不认识 `sessionIds` 参数，于是"只补一个小会话"的请求会**静默跑 20 个**。
+ *
+ * 探法：发一个肯定不存在的 id（`__probe__`）+干跑 —— 加载了新代码的面板会回 **400**（"都不在待补清单里"）；
+ * 旧面板会忽略该参数、回 200 + 全量 items。两者都不会真补、不花钱。
+ * @param {{status:number, json:any}} res
+ * @returns {"supported"|"unsupported"|"unknown"}
+ */
+export function sessionIdsProbe(res) {
+  const status = Number(res?.status);
+  const json = res?.json ?? null;
+  if (status === 400 && typeof json?.error === "string" && json.error.includes("待补清单")) return "supported";
+  if (status === 200 && json?.dryRun === true) return "unsupported";
+  return "unknown";
+}
+
+/**
+ * ★ C410：从 `netstat -ano` 文本里取**本机监听的端口列表**（去重、排序）。
+ * 用途：心跳被覆盖（port=null）时，靠扫描找回面板在哪个端口 ——
+ * 否则所有"读心跳取端口"的工具会一起集体失效（真机事故 2026-11-03）。
+ * @param {string} netstatText
+ * @returns {number[]}
+ */
+export function listeningPorts(netstatText) {
+  const ports = new Set();
+  for (const line of String(netstatText ?? "").split("\n")) {
+    if (!/LISTENING/i.test(line)) continue;
+    const cols = line.trim().split(/\s+/);
+    const local = cols[1] ?? "";
+    const m = /:([0-9]{2,5})$/.exec(local);
+    if (m === null) continue;
+    const port = Number(m[1]);
+    if (Number.isInteger(port) && port > 0) ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
@@ -151,7 +190,32 @@ export async function main(argv = process.argv.slice(2)) {
       return null;
     }
   })();
-  const port = Number(getArg("port", "")) || heartbeatPort || 64349;
+  // ★ C410：心跳拿不到端口时，**自己去找**（扫本机监听端口）。
+  const explicitPort = Number(getArg("port", ""));
+  const discoverPort = async () => {
+    try {
+      const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
+      for (const candidate of listeningPorts(out)) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "health" }),
+            signal: AbortSignal.timeout(1500),
+          });
+          if (!res.ok) continue;
+          const json = await res.json();
+          if (json !== null && typeof json === "object" && (json.ok === true || typeof json.installed === "boolean")) return candidate;
+        } catch {
+          /* 不是面板：试下一个 */
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+  const port = explicitPort || heartbeatPort || (await discoverPort()) || 64349;
   const home = getArg("home", process.env.DSH_HOME ?? "");
   // ★ C338：端口属主 vs 心跳 pid —— 真机上这俩经常不是同一个进程
   const heartbeatPid = (() => {
@@ -233,7 +297,23 @@ export async function main(argv = process.argv.slice(2)) {
       return null;
     }
   })();
+  // ★ C409：参数级探针（干跑 + 不存在的 id，不花钱）
+  const paramProbe = await (async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "backfill", dryRun: true, sessionIds: ["__probe__"] }),
+      });
+      return sessionIdsProbe({ status: res.status, json: await res.json() });
+    } catch {
+      return "unknown";
+    }
+  })();
   const result = verdictOf({ caps, backfill, ...evidence, buildOk: build.ok });
+  if (paramProbe === "unsupported") {
+    result.todo.push("面板不认识 `sessionIds` 参数（C408）—— 别带着它发真补账请求，否则会静默跑 20 个");
+  }
   if (fieldProbe !== null && !fieldProbe.ok) {
     result.todo.push(`面板代码比磁盘旧：缺字段 ${fieldProbe.missing.join(" / ")}（需重载或重启才能看到新数据）`);
     if (result.verdict === "ready") result.verdict = "partial";

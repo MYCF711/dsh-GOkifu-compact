@@ -137,3 +137,22 @@ tests["C405 验收命令顺带带上 doctor 一句话（健康与接管是同一
   t.eq(src.includes('match(/错误\s*(\d+)\s*\/\s*警告\s*(\d+)/)') || src.includes("错误"), true, "要解析「错误 N / 警告 M」");
   t.includes(src, "拿不到就不说", "解析不到时不许瞎说");
 };
+
+tests["C409/C410 参数级探针 + 端口自动发现（心跳被覆盖时也能找到面板）"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+
+  // ① listeningPorts：从 netstat 文本取监听端口
+  const netstat = [
+    "  TCP    127.0.0.1:56319        0.0.0.0:0              LISTENING       37108",
+    "  TCP    127.0.0.1:64349        0.0.0.0:0              LISTENING       24944",
+    "  TCP    127.0.0.1:56319        127.0.0.1:52000        ESTABLISHED     37108",
+    "  TCP    [::1]:8080             [::]:0                 LISTENING       777",
+  ].join("\n");
+  t.eq(mod.listeningPorts(netstat), [8080, 56319, 64349], "去重 + 只认 LISTENING + 升序");
+
+  // ② sessionIdsProbe：400 = 支持；200+dryRun = 不支持；其它 = 未知
+  t.eq(mod.sessionIdsProbe({ status: 400, json: { error: "指定的 sessionIds 都不在待补清单里" } }), "supported", "400 说明参数被识别");
+  t.eq(mod.sessionIdsProbe({ status: 200, json: { dryRun: true, items: [] } }), "unsupported", "200+dryRun 说明参数被忽略");
+  t.eq(mod.sessionIdsProbe({ status: 500, json: null }), "unknown", "其它情况不许下结论");
+  t.eq(mod.sessionIdsProbe({ status: 200, json: { ok: true } }), "unknown", "没有 dryRun 标记也算未知");
+};
