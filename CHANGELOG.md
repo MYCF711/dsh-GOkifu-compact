@@ -5,6 +5,24 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C155 · 打包清单必须包含全部运行时文件（新房间漏进白名单 = 用户端直接崩）
+
+**风险**：`package.json` 的 `files` 是一张**手写白名单**。本轮循环新增了房间
+`src/rooms/node-docs.mjs`（C110）—— 如果它没进白名单，`pack-check`（只看「包内文件是否都有出处」）
+**不会红**，用户装完 `require` 到它时才 404。这是典型的「本地全绿、用户全崩」。
+
+**做法**：`package-exports` 新增 **C155**（真跑一次 `npm pack --dry-run --json`）：
+
+1. 关键运行时文件必须都在包里（`package.json` / `cordis.patch.yml` / `src/engine.mjs` / `src/ui.mjs` / `lib/client.js`）；
+2. **磁盘上每个 `src/rooms/*.mjs` 都必须进包**（并比对数量），缺一个即红；
+3. 量级守卫：包内文件数 ≥ 100（历史 128→129，异常缩水要能看见）。
+
+**当前结果**：**129 files / 18 个房间全在包内** ✅
+
+★ 实现坑：`spawnSync("npm", [...], { shell: true })` 会触发 Node 的 DEP0190（args+shell 已废弃），
+改成**单条命令字符串** `spawnSync("npm pack --dry-run --json", { shell: true })` 后无告警。
+（Windows 下 npm 是 `.cmd`，必须经 shell。）
+
 ### C154 · 发布核对文档的版本锚（防「发了新版还写着旧版本」）
 
 **为什么**：`evidence/发布核对-2026-11-02.md` 里写着「本地 **1.17.1**」这个**会变的**事实。

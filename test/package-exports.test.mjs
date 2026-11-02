@@ -166,3 +166,25 @@ tests["OPT-EXPORTS · 包 files 覆盖 src/（两个 exports 目标会真的被�
     if (/\.engine-under-test/.test(normalized)) throw new Error(`exports 目标被包排除规则命中：${rel}`);
   }
 };
+
+tests["C155 打包清单必须包含全部运行时文件（新增房间漏进 files 白名单 = 用户那边直接崩）"] = (t) => {
+  const REPO = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
+  // Windows 下 npm 是 .cmd，必须经 shell；用**单条命令字符串**避免 DEP0190（args+shell 已废弃）
+  const packed = spawnSync("npm pack --dry-run --json", { cwd: REPO, encoding: "utf8", shell: true });
+  t.eq(packed.status, 0, `npm pack --dry-run 必须成功：${String(packed.stderr ?? "").slice(0, 200)}`);
+  const info = JSON.parse(packed.stdout)[0];
+  const files = new Set(info.files.map((f) => f.path));
+
+  // ① 关键运行时文件一个都不能少
+  for (const need of ["package.json", "cordis.patch.yml", "src/engine.mjs", "src/ui.mjs", "lib/client.js"]) {
+    t.eq(files.has(need), true, `打包清单缺少 ${need}`);
+  }
+  // ② 磁盘上每个 src/rooms/*.mjs 都必须进包（新房间忘了白名单，用户端 import 会 404）
+  const roomsOnDisk = nodeFs.readdirSync(nodePath.join(REPO, "src", "rooms")).filter((f) => f.endsWith(".mjs"));
+  const roomsPacked = [...files].filter((f) => f.startsWith("src/rooms/") && f.endsWith(".mjs"));
+  const missing = roomsOnDisk.filter((f) => !files.has(`src/rooms/${f}`));
+  t.eq(missing.length, 0, `这些房间没进包：${missing.join(", ")}`);
+  t.eq(roomsPacked.length, roomsOnDisk.length, `包内房间数 ${roomsPacked.length} 应等于磁盘 ${roomsOnDisk.length}`);
+  // ③ 量级守卫：包内文件数不应异常缩水（历史 128→129）
+  t.eq(info.files.length >= 100, true, `包内文件数异常偏少：${info.files.length}`);
+};
