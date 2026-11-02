@@ -236,3 +236,27 @@ tests["C239 折叠成本估算：价格口径（命中/未命中/输出）与「
   t.eq(est({ cacheReadTokens: 100 }), null, "缺 inputTokens ⇒ null");
   t.eq(est({ inputTokens: 100, cacheReadTokens: 999 }), est({ inputTokens: 100, cacheReadTokens: 100 }), "命中数不许超过输入（夹紧）");
 };
+
+tests["C282 图缓存必须 LRU 淘汰，不许「满了就全清」（那是一次缓存雪崩）"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "ui.mjs")).href);
+  t.eq(typeof uiMod.lruSet, "function", "必须导出 lruSet（可单测）");
+
+  // ① 超过上限只淘汰最久未用的一条，不是清空
+  const map = new Map();
+  for (let i = 0; i < 5; i += 1) uiMod.lruSet(map, `k${i}`, i, 3);
+  t.eq([...map.keys()], ["k2", "k3", "k4"], `插入 5 条上限 3 ⇒ 只留最近 3 条：${[...map.keys()]}`);
+
+  // ② 命中续命：被访问过的条目不该被后来的挤掉
+  uiMod.lruSet(map, "k2", 2, 3); // k2 变成最新
+  uiMod.lruSet(map, "k5", 5, 3); // 该淘汰 k3（最久未用）
+  t.eq([...map.keys()], ["k4", "k2", "k5"], `命中的条目必须续命：${[...map.keys()]}`);
+
+  // ③ 值被更新（同 key 覆盖）而不是重复插入
+  t.eq(map.get("k2"), 2, "同 key 覆盖值");
+  t.eq(map.size, 3, "size 不许超上限");
+
+  // ④ 接线断言：graphSummary 命中时必须调 lruSet（否则热条目会被冷条目挤掉）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "lruSet(GRAPH_CACHE, entry.file, cached)", "命中路径必须续命");
+  t.eq(src.includes("GRAPH_CACHE.clear()"), false, "不许再有「满了全清」");
+};

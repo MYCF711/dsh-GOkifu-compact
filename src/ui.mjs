@@ -203,7 +203,26 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
  *   · 同一个请求里 latestGraph 与 todayAggregate **共用一次扫描**（否则 readdir+stat 要跑两遍）。
  */
 const GRAPH_CACHE = new Map();
-const GRAPH_CACHE_MAX = 2000;
+// ★ C282：上限从 2000 收到 256，并改成**真正的 LRU 淘汰**。
+//   旧行为是 `size >= MAX` 就 `clear()` 全清 —— 那是一次**缓存雪崩**：下一次 /state 要把所有图重读一遍
+//   （实测 44 个会话 / 11 MB JSON；2000 个会话时这一下就是几秒 + 内存尖峰）。
+//   现在：满了只淘汰**最久没被访问**的一条，命中时把条目移到队尾（Map 的插入序就是 LRU 序）。
+const GRAPH_CACHE_MAX = 256;
+
+/**
+ * 把 key 放到队尾（= 最近使用），并在超限时淘汰队首（= 最久未用）。
+ * 抽成纯函数是为了能单独测：缓存策略错了不会报错，只会**悄悄变慢**。
+ */
+export function lruSet(map, key, value, max = GRAPH_CACHE_MAX) {
+  map.delete(key); // 先删再插 ⇒ 插入序 = 最近使用序
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next();
+    if (oldest.done === true) break;
+    map.delete(oldest.value);
+  }
+  return map;
+}
 
 /** 目录扫描：{root, files:[{dir,file,mtimeMs,size}]}（不读文件内容）。 */
 function collectGraphFiles(home = resolveHome()) {
@@ -264,7 +283,10 @@ export const BACKFILL_GATE = { inFlight: false };
 /** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
 function graphSummary(entry) {
   const cached = GRAPH_CACHE.get(entry.file);
-  if (cached !== undefined && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) return cached;
+  if (cached !== undefined && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) {
+    lruSet(GRAPH_CACHE, entry.file, cached); // 命中也要续命（否则热条目会被冷条目挤掉）
+    return cached;
+  }
   let summary = null;
   try {
     const g = JSON.parse(nodeFs.readFileSync(entry.file, "utf8"));
@@ -285,8 +307,7 @@ function graphSummary(entry) {
     summary = null; // 坏图：缓存「坏」这个事实，别每次重读
   }
   const row = { mtimeMs: entry.mtimeMs, size: entry.size, summary };
-  if (GRAPH_CACHE.size >= GRAPH_CACHE_MAX) GRAPH_CACHE.clear();
-  GRAPH_CACHE.set(entry.file, row);
+  lruSet(GRAPH_CACHE, entry.file, row);
   return row;
 }
 
