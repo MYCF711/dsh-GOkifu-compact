@@ -2809,3 +2809,20 @@ tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / 
   // 成功后要清（否则下一次 fold 会记上一次的数）
   if (!src.includes("this._foldDiag = undefined;")) throw new Error("成功后必须清掉诊断（C366）");
 };
+
+tests["C367 限流/过载除了事件退避，还要有「最小等待时间」（事件数≠时间）"] = async (t) => {
+  const { mod } = await load();
+  const delay = mod.retryMinDelayMs;
+  if (typeof delay !== "function") throw new Error("必须导出 retryMinDelayMs");
+  // 官方：429 = 放慢节奏；500/503 = 稍后重试
+  t.eq(delay("rate-limit"), 30_000, "限流至少等 30s");
+  t.eq(delay("overload"), 5_000, "过载至少等 5s");
+  // 其它类别不受影响（保证旧行为）
+  for (const kind of ["timeout", "other", "permanent", null, undefined]) {
+    t.eq(delay(kind), 0, `${kind} 不该有额外等待`);
+  }
+  // 接线：判定里必须真的用了它
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  if (!src.includes("const minDelay = retryMinDelayMs(")) throw new Error("退避判定必须调用 retryMinDelayMs（C367）");
+  if (!src.includes("st.lastFoldFailureAt = Date.now()")) throw new Error("失败时必须记时间戳（C367）");
+};

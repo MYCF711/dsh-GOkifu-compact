@@ -211,6 +211,19 @@ export function classifySummaryError(message) {
  * @param {{base?: number, cap?: number}} [defaults]
  * @returns {{base:number, cap:number}}
  */
+/**
+ * ★ C367：早期退避只能数**事件**，但官方对 429 说的是「放慢节奏」——那是**时间**语义。
+ *  所以在事件退避之外，再加一道**最小等待毫秒数**（仅对限流/过载生效，其它类型 0 = 不影响旧行为）。
+ * 官方并发限制：`deepseek-flash` 2500 / `deepseek-v4-pro` 500（账号级）。
+ * @param {string} kind
+ * @returns {number} 毫秒
+ */
+export function retryMinDelayMs(kind) {
+  if (kind === "rate-limit") return 30_000;
+  if (kind === "overload") return 5_000;
+  return 0;
+}
+
 export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
   if (kind === "rate-limit") return { base, cap: cap * 2 };
   if (kind === "overload") return { base: Math.round(base * 2), cap };
@@ -1681,6 +1694,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         const wait = Math.min(profile.base * 2 ** Math.min(failures - 1, 6), profile.cap);
         const since = session.seq - (stBackoff.lastFoldFailureSeq ?? 0);
         if (since < wait) return null;
+        // ★ C367：限流/过载还要满足**最小等待时间**（事件数不等于时间）
+        const minDelay = retryMinDelayMs(stBackoff.lastFoldErrorKind ?? "other");
+        if (minDelay > 0) {
+          const at = Number(stBackoff.lastFoldFailureAt);
+          if (!Number.isFinite(at) || Date.now() - at < minDelay) return null;
+        }
       }
     }
     const g = this.#graph(session);
@@ -1773,7 +1792,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       restore();
       st.foldFailures += 1;
       st.lastFoldFailureSeq = session.seq;
-      st.lastFoldError = String(error?.message ?? error).slice(0, 180); st.lastFoldErrorKind = classifySummaryError(st.lastFoldError); // C350
+      st.lastFoldError = String(error?.message ?? error).slice(0, 180); st.lastFoldErrorKind = classifySummaryError(st.lastFoldError); st.lastFoldFailureAt = Date.now(); // C350/C367
       this.#flush(session, { tree: true });
       // ★ C242（K-13）：永久性错误 ⇒ ①退避顶到上限（别每 30 个事件白试一次）
       //   ②下次折叠强制走规则摘要（压缩不能因此不落地）。
@@ -1798,6 +1817,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     st.lastFoldError = "";
     st.lastFoldErrorKind = null;
     this._foldDiag = undefined;
+    st.lastFoldFailureAt = 0;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
     //   隔得太近说明上一次回收的空间立刻又满了（典型原因：压完没缩小、或会话本身在灌数据）。
