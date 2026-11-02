@@ -5,6 +5,7 @@
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
 | C206 | ✅ **新代码在真机上跑出了两次真实折叠**（发布门槛的最后一项满足） |
+| C212 | 真机事故：手动 `/compact` 抛「Receiver must be an instance of class… |
 | C211 | 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列） |
 | C210 | 归档收尾折叠：**会话被归档时别再留未压缩的尾巴** |
 | C209 | ✅ **1.17.1 已发布到 npm**（本地 tag 已打；git 侧因无共同祖先未动） |
@@ -324,6 +325,36 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 
 **测试 C206**（doctor-cli）：只有 tier2 的越界 id ⇒ **不许出现该行**；常规 fold 的越界 id ⇒ **必须报**并点名 id。
 
+
+### C212 · 真机事故：手动 `/compact` 抛「Receiver must be an instance of class …」
+
+**发现**：doctor 的「最近的压缩尝试（1h）」报 **成功 0 / 失败 1** —— 05:15:43Z 的
+`session-ed98c462-9da9-4e78-8907-de992b7c19d7` 手动压缩失败：
+
+```json
+{"type":"compaction/end","data":{"sourceCommandId":"cmd-…","turn":null,
+ "error":"Receiver must be an instance of class ChessCompactionEngine"}}
+```
+
+**这是压缩本职范围内该管的**：它让「手动压缩」不可用，而且报错原文完全无法照着处置。
+
+**判断（不猜，逐条排除）**：`sourceCommandId` 存在 ⇒ 是命令触发；`turn: null` ⇒ **不是** `open-turn`；
+该会话 `foldCount=0` ⇒ **不是**我们的记账出问题。剩下的就是 **`this` 不是引擎实例**
+（插件装载两份 / 被包装器代理 / 非绑定调用）。
+
+**本轮做的（只做诊断，不动行为）**：
+
+| 改动 | 内容 |
+|---|---|
+| `manual-compact` 新增分类 **`receiver`** | 人话提示直说「引擎实例与宿主的类不是同一个」「通常是同一插件被装载了两份」，处置写「**重启 DSH** + 确认同名插件只有一条」；**原始文案保留**（排查靠它） |
+| `MANUAL_COMPACT_KINDS` | 加入 `receiver` |
+| `doctor`「最近错误」 | 该类错误追加处置提示，不再只甩原文 |
+| **测试 C212** | 分类/人话标题/原文保留/`code` 不编造/`annotate` 后 `name` 不变 |
+
+**证据留档**：`evidence/手动压缩失败-类身份不一致-2026-11-02.md`（含日志原文、三类成因、待查项）。
+
+**还没查清（下一轮）**：**谁换了 `this`** —— 要对照 preset 里是否有插件包装 `ctx.compaction`
+（`tool-result-pruner` 等），以及 13:12 那个新会话与常规会话在 preset 上的差异。需要宿主侧信息，不猜。
 
 ### C211 · 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列）
 

@@ -248,3 +248,20 @@ export const tests = {
     })();
   },
 };
+
+tests["C212 类身份不一致（Receiver must be an instance of …）必须被单独分类，并给出可执行处置"] = (t) => {
+  const err = new Error("Receiver must be an instance of class ChessCompactionEngine");
+  const d = describeManualCompactError(err);
+  t.eq(d.kind, "receiver", `必须识别成 receiver，实际 ${d.kind}`);
+  t.includes(d.text, "手动压缩失败（receiver）", "人话标题要带分类");
+  t.includes(d.text, "Receiver must be an instance of class", "必须保留原始文案（排查靠它）");
+  t.includes(d.hint, "重启", "处置必须包含「重启 DSH」");
+  t.eq(d.code, "", "没有 code 时不许编造");
+
+  // annotate 之后：code/name 保留、message 换成人话、diagnosis 挂上
+  const framed = new Error("Receiver must be an instance of class X");
+  annotateManualCompactError(framed);
+  t.eq(framed.name, "Error", "name 必须保留");
+  t.includes(framed.message, "手动压缩失败（receiver）", "message 必须被换成可读文案");
+  t.includes(framed.diagnosis.hint, "同一插件被装载了两份", "诊断里要指出「装载了两份」这个根因方向");
+};

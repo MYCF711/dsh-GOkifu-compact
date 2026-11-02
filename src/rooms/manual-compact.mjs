@@ -29,6 +29,7 @@ export const MANUAL_COMPACT_KINDS = Object.freeze([
   "persistence",
   "commit",
   "changed",
+  "receiver",
   "unknown",
 ]);
 
@@ -43,6 +44,8 @@ const HINTS = Object.freeze({
   persistence: "提交后的落盘 flush 失败（durability checkpoint）——检查磁盘/权限；历史未被缩短，可重试。",
   commit: "提交阶段失败（compaction/end 写入失败）——历史未被缩短，可重试；反复失败请带原始错误报障。",
   changed: "压缩期间历史被改动了（SurfaceChangedError）——先停掉其它写入（别的 agent/工具），再重试。",
+  receiver:
+    "引擎实例与宿主的类不是同一个（Receiver must be an instance of …）——通常是**同一插件被装载了两份**（旧版本还在内存里 / 热重载 / 非绑定方式调用），或安装过程中类身份被换掉。处理：重启 DSH 让插件只装一份；若刚升级过，确认没有第二个副本（`dsh plugin list` 里同名条目只应有一条）。",
   unknown: "未分类的手动压缩失败——保留原始 code 与 cause 供排查。",
 });
 
@@ -62,7 +65,7 @@ function codeOf(error) {
 /**
  * 纯分类：只看 `code` / `message` / `name`，不做任何副作用。
  * @param {{code?:string,name?:string,message?:string}|string|null} error
- * @returns {"open-turn"|"idle"|"busy-lock"|"cancelled"|"summary"|"persistence"|"commit"|"changed"|"unknown"}
+ * @returns {"open-turn"|"idle"|"busy-lock"|"cancelled"|"summary"|"persistence"|"commit"|"changed"|"receiver"|"unknown"}
  */
 export function classifyManualCompactError(error) {
   const code = codeOf(error);
@@ -88,6 +91,10 @@ export function classifyManualCompactError(error) {
   if (/did not commit cleanly|commit/i.test(message)) return "commit";
   if (/changed during/i.test(message)) return "changed";
   if (/smaller summary|summar/i.test(message)) return "summary";
+  // ★ C212：类身份不一致 —— live 实测（2026-11-02T05:15Z 某会话手动 /compact）抛过
+  //   `Receiver must be an instance of class ChessCompactionEngine`。这类不是「历史有问题」，
+  //   而是「引擎对象不是宿主认得的那一个」，给再多重试都无用，必须指出处置方式。
+  if (/Receiver must be an instance of class/i.test(message)) return "receiver";
   return "unknown";
 }
 

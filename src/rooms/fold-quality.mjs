@@ -160,10 +160,12 @@ export function findUnknownIds(graph, summaryText) {
 export function findOutOfRangeIds(graph, range, summaryText) {
   const text = String(summaryText ?? "");
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) {
-    return { checked: 0, outOfRange: [] };
+    return { checked: 0, outOfRange: [], earlier: [], later: [] };
   }
   const seen = new Set();
   const outOfRange = [];
+  const earlier = [];
+  const later = [];
   // 注意：这里刻意不用 backslash 转义的词边界（历史上有过被脚本写坏成控制字符的坑），
   // 改成「匹配后手动检查前后字符是不是标识符字符」，语义等价且不依赖转义。
   for (const match of text.matchAll(/[en][0-9]{1,4}/g)) {
@@ -183,9 +185,14 @@ export function findOutOfRangeIds(graph, range, summaryText) {
     if (edge !== null) span = evidenceSpan(edge);
     else if (node !== null && Number.isFinite(node.seq)) span = { start: node.seq, end: node.seq };
     if (span === null) continue;
-    if (span.end < range.start || span.start > range.end) outOfRange.push(id);
+    // ★ C212：越界要分方向 ——
+    //   · 引用**更早**的实体（span.end < range.start）= 摘要转述历史 kifu（合法，甚至是好事）；
+    //   · 引用**更晚**的实体（span.start > range.end）= 折叠时那段还没被折进来，属于编造/错引。
+    //   以前两者混在一个数组里，doctor 只能笼统报「越界 id」，于是把正常的回溯也当成问题。
+    if (span.end < range.start) earlier.push(id);
+    else if (span.start > range.end) later.push(id);
   }
-  return { checked: seen.size, outOfRange };
+  return { checked: seen.size, outOfRange: [...earlier, ...later], earlier, later };
 }
 
 export function measureFoldQuality({

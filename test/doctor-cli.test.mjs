@@ -677,20 +677,40 @@ tests["C206 tier-2 合并的摘要引用「区间外 id」不算问题（合并�
     nodeFs.rmSync(tier2Only, { recursive: true, force: true });
   }
 
-  // ② 常规 fold 的越界 id ⇒ 必须报（真偏差）
-  const pressure = makeHome({
+  // ② 常规 fold 的「越界**更早**」⇒ C212 起算正常（回溯历史 kifu），必须是 ok 且明说
+  const earlier = makeHome({
     mutate: (g) => {
       g.foldMarks = [
-        { at: Date.now(), seqStart: 1, seqEnd: 4, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n2125"] } },
+        { at: Date.now(), seqStart: 10, seqEnd: 20, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n2"] } },
       ];
       g.foldCount = 1;
     },
   });
   try {
-    const row = runDoctor(pressure).find("压缩摘要的越界");
-    if (row === undefined || row === null) throw new Error("常规 fold 的越界 id 必须报出来");
-    t.includes(row.detail, "n2125", "必须点名具体 id");
+    const row = runDoctor(earlier).find("压缩摘要的越界");
+    if (row === undefined || row === null) throw new Error("越界 id 必须有一行结论（哪怕是 ok）");
+    t.eq(row.status, "ok", `引用更早的实体应判 ok：${JSON.stringify(row)}`);
+    t.includes(row.detail, "回溯历史", "必须说明为什么正常");
   } finally {
-    nodeFs.rmSync(pressure, { recursive: true, force: true });
+    nodeFs.rmSync(earlier, { recursive: true, force: true });
+  }
+
+  // ③ 引用**更晚**的实体 ⇒ 折叠时那段还不存在，必须报（真偏差）
+  const later = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now(), seqStart: 10, seqEnd: 20, trigger: "pressure", quality: { constraintRecall: 1, failureRecall: 1, outOfRangeIds: ["n99"], outOfRangeLater: ["n99"] } },
+      ];
+      g.foldCount = 1;
+    },
+  });
+  try {
+    const row = runDoctor(later).find("压缩摘要的越界");
+    if (row === undefined || row === null) throw new Error("引用更晚的实体必须报出来");
+    t.eq(row.status, "warn", "必须是 warn");
+    t.includes(row.detail, "n99", "必须点名具体 id");
+    t.includes(row.detail, "更晚", "必须说明是「更晚」这一侧");
+  } finally {
+    nodeFs.rmSync(later, { recursive: true, force: true });
   }
 };

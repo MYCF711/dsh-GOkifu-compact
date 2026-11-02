@@ -278,7 +278,13 @@ for (const { file, session } of recentSessionLogs(6)) {
       lastFailAt = Math.max(lastFailAt, at);
       if (at >= since) {
         foldFail += 1;
-        if (lastErrors.length < 3) lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}`);
+        if (lastErrors.length < 3) {
+          // ★ C212：类身份不一致这类错误，光看原文没法处置 —— 附一句「该做什么」。
+          const hint = /Receiver must be an instance of class/i.test(String(e.data.error))
+            ? "（插件被装载了两份/类身份不一致 ⇒ 重启 DSH，并确认同名插件只有一条）"
+            : "";
+          lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}${hint}`);
+        }
       }
     } else {
       foldOkAll += 1;
@@ -890,12 +896,24 @@ add(
     // ★ C206：tier-2 合并的摘要是**规则重建**的（它要把被合并两段的约束/死路/路径都带上），
     //   天然会引用「合并区间之外」的节点与边 —— 那不是幻觉，是合并语义。所以只对**常规 fold** 判越界。
     const outOfRangeSource = withQuality.filter((m) => m.tier2 !== true);
-    const outOfRangeIds = [...new Set(outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : [])))].slice(0, 8);
+    // ★ C212：只把「引用了**更晚**的实体」算问题（折叠时那段还不存在 ⇒ 编造/错引）。
+    //   「引用更早的实体」是回溯历史 kifu，合法（旧版混在一起 ⇒ 把正常回溯也报成越界）。
+    const outOfRangeIds = [
+      ...new Set(outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : []))),
+    ].slice(0, 8);
+    const laterIds = [
+      ...new Set(
+        outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeLater) ? m.quality.outOfRangeLater : [])),
+      ),
+    ].slice(0, 8);
     if (unknownIds.length > 0) {
       add("压缩摘要的未知 id（幻觉探针）", "warn", `摘要提到但图里没有：${unknownIds.join(", ")}`);
     }
-    if (outOfRangeIds.length > 0) {
-      add("压缩摘要的越界 id（C104）", "warn", `摘要提到但不在本次折叠区间：${outOfRangeIds.join(", ")}`);
+    if (laterIds.length > 0) {
+      add("压缩摘要的越界 id（C104/C212）", "warn", `摘要引用了**更晚**的实体（折叠时还不存在）：${laterIds.join(", ")}`);
+    } else if (outOfRangeIds.length > 0) {
+      // 只有「更早」的引用 ⇒ 回溯历史 kifu，正常，不再占一行警告
+      add("压缩摘要的越界 id（C104/C212）", "ok", `越界 ${outOfRangeIds.length} 个，全部是引用更早的实体（回溯历史 kifu）—— 正常`);
     }
   }
 }
