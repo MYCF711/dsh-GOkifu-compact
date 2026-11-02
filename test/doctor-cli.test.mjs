@@ -1004,3 +1004,21 @@ tests["C300 「已修正的失败」只定义一次：doctor 必须调模型层�
   const uiSrc = nodeFs.readFileSync(nodePath.join(REPO, "src", "ui.mjs"), "utf8");
   t.includes(uiSrc, 'export { countResolvedFailures }', "面板侧应改为再导出（对外 API 不变）");
 };
+
+tests["C304 fold 输出效率：要报出「输出 token 远大于摘要本身」的事实"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      // 一次 fold：摘要 350 字符（≈100 token），却输出 1200 token ⇒ 12×
+      g.foldMarks = [{ at: Date.now() - 1000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 5000, summaryChars: 350, usage: { inputTokens: 1000, outputTokens: 1200, cacheReadTokens: 0 } }];
+    },
+  });
+  try {
+    const row = runDoctor(home).find("fold 输出效率");
+    t.eq(!!row, true, "必须有这一行");
+    t.includes(String(row.detail), "×", "要给出倍数");
+    t.includes(String(row.detail), "reasoning_content", "要解释多半是 thinking 的推理 token");
+    t.eq(row.status, "warn", "超过 3× 且占多数 ⇒ warn");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

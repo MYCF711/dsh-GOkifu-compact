@@ -1335,6 +1335,49 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     );
   }
 }
+/* ★ C304：折叠的**输出效率** —— 输出 token 里有多少不是摘要本身。
+   官方文档（thinking_mode）：思考的想法走 `reasoning_content`，与 `content` 同级返回；
+   开了 thinking 就会按输出价（$0.6/M）多生成一坨我们根本不用的推理。
+   本机实测（40 次带 usage 的 fold）：outputTokens / 摘要估算 token 中位 **2 倍**，9 次超 3 倍、最大 **12 倍**。
+   只报事实，不自动改配置（关不关 thinking 是用户的选择）。 */
+{
+  const samples = [];
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        // ★ C183：脚本侧读图必须走 loadSessionGraph（会重放 delta），不许裸 fromJSON
+        g = loadSessionGraph(file).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        const out = Number(mark?.usage?.outputTokens);
+        const chars = Number(mark?.summaryChars);
+        if (!Number.isFinite(out) || out <= 0 || !Number.isFinite(chars) || chars <= 0) continue;
+        samples.push(out / Math.max(1, Math.round(chars / 3.5)));
+      }
+    }
+  }
+  if (samples.length === 0) {
+    add("fold 输出效率（输出 token / 摘要本身）", "warn", "未采集（没有同时带 usage.outputTokens 与 summaryChars 的 fold）");
+  } else {
+    const sorted = [...samples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const heavy = samples.filter((x) => x > 3).length;
+    add(
+      "fold 输出效率（输出 token / 摘要本身）",
+      heavy > samples.length / 2 ? "warn" : "ok",
+      `${samples.length} 次 fold：中位 **${median.toFixed(1)}×**、最大 ${sorted.at(-1).toFixed(1)}×；` +
+        `${heavy} 次超过 3× —— 输出账单里有一部分不是摘要（多半是 thinking 的 reasoning_content，按输出价计费）`,
+    );
+  }
+}
+
 /* ── 输出 ── */
 const bad = checks.filter((c) => c.status === "error").length;
 const warn = checks.filter((c) => c.status === "warn").length;
