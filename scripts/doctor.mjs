@@ -23,6 +23,7 @@ import { execFileSync } from "node:child_process";
 import { GRAPH_VERSION, fromJSON } from "../src/rooms/kifu-model.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 import { selectSessionLogs } from "./log-window.mjs";
+import { accumulateCacheUsage, createCacheUsage, summarizeCacheUsage } from "./cache-usage.mjs";
 // ★ W5/W-B（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
 //   不再写死「旧 home 的某个固定 preset 目录/名字」—— 新版 DSH 没有 preset-bundles，旧 home 才走它。
 //   选 `./install.mjs` 而不是 `../src/ui.mjs`：doctor 是 CLI 侧脚本，install.mjs 就在同目录、
@@ -244,6 +245,7 @@ const WINDOW_MS = 60 * 60 * 1000; // 1 小时：只看「现在是不是还在�
 const since = Date.now() - WINDOW_MS;
 // ★ C218：按**时间窗**选日志，而不是「最新 6 份」——旧写法会漏掉真实折叠（C-18 事故：
 //   01:12 那次 fold 落在第 7 份日志里，doctor 报「成功 0 / 失败 0」）。上限 24 份，解压成本可控。
+const cacheUsage = createCacheUsage();
 for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs: WINDOW_MS, head: 6, limit: 24 })) {
   let events;
   try {
@@ -260,6 +262,8 @@ for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs:
       continue;
     }
     const at = typeof e.time === "number" ? e.time : 0;
+    // ★ C220：同一趟解压顺手把每次调用的缓存命中捞出来（assistant/message 带 usage）
+    if (e.type === "assistant/message" && e.data?.usage) accumulateCacheUsage(cacheUsage, e.data.usage);
     if (e.type === "compaction/summary" && e.data?.usage) {
       // 旧版本写的 graph 没有 lastFoldUsage —— 从会话日志里捞最近一次摘要的真实 usage 兜底
       if (logUsage === null || at > logUsage.at) {
@@ -1029,6 +1033,22 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       open > 0
         ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
         : `${withBoundary.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
+    );
+  }
+}
+
+/* ★ C220：上下文缓存命中 —— 本机 96% 的输入 token 走缓存（DeepSeek disk cache）。
+   这条是**成本侧的唯一真相**：真正贵的是「没命中的那部分」，而不是我们注入了多少。 */
+{
+  const c = summarizeCacheUsage(cacheUsage);
+  if (c.calls === 0) {
+    add("上下文缓存命中（缓存读 / 计费输入）", "warn", "未采集（窗口内的会话日志里没有带 usage 的调用）");
+  } else {
+    const pct = (v) => (v === null ? "—" : Math.round(v * 100) + "%");
+    add(
+      "上下文缓存命中（缓存读 / 计费输入）",
+      c.ratioMedian !== null && c.ratioMedian < 0.5 ? "warn" : "ok",
+      `${c.calls} 次调用 · 缓存读 ${c.cacheTokens} tok / 计费输入 ${c.inputTokens} tok（占比 ${pct(c.savedShare)}）· 单次命中率中位 ${pct(c.ratioMedian)}（最低 ${pct(c.ratioMin)}）· 缓存断点 ${c.breaks} 次（较上一次骤降 >30pp）`,
     );
   }
 }

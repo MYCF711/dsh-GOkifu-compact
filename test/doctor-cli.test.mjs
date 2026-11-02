@@ -77,6 +77,18 @@ function runDoctor(home) {
   };
 }
 
+tests["C220 上下文缓存命中：没有会话日志 ⇒ 未采集（warn），不许报 ok"] = (t) => {
+  const home = makeHome({});
+  try {
+    const row = runDoctor(home).find("上下文缓存命中");
+    t.eq(!!row, true, "必须有「上下文缓存命中」检查项");
+    t.eq(row.status, "warn", "没有日志 ⇒ warn（未采集），不许假装 0 次调用就等于健康");
+    t.eq(String(row.detail).includes("未采集"), true, `文案要写未采集：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
 tests["C219 热清单注入动作：replace 占比高 ⇒ warn（改写历史中间那条 = 缓存从那里起作废）；append 为主 ⇒ ok"] = (t) => {
   const heavyReplace = makeHome({
     ledgerBudget: { samples: 30, injectActions: { append: 3, replace: 27 }, updatedAt: Date.now() },
