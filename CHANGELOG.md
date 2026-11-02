@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C193 | doctor 新增「观测字段覆盖」：我们现在到底看得到什么 |
 | C192 | 发布文档跟上重启事实（「等重启」→「等第一次 fold」） |
 | C191 | ✅ **重启已完成并验收通过**（buildId `cdbc08e523aa`） |
 | C190 | 「包内 129 files」写死了（每个新增文件都会让它漂移） |
@@ -228,6 +229,25 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C193 · doctor 新增「观测字段覆盖」：我们现在到底看得到什么
+
+**问题**：五个新观测字段（`renderErrors` / `skipReasons` / `budgetFloorOver` / `budgetIrreducible`
+/ `overBySession`）是「压缩是否被真正观测到」的指标，但**只有 `after-restart` 会报**。
+日常 `doctor` 看不到 —— 于是「字段还没落盘」和「字段已落盘但值为 0」长得一样。
+
+**做法**：doctor 新增 **3.3d 观测字段覆盖（C193）**：
+
+| 状态 | 级别 | detail |
+|---|---|---|
+| 全 5 个都在 | ok | 列出全部字段名 |
+| 部分在（≥1） | **ok** | 「已落盘 2/5（…）；缺：…」—— 缺的字段只是**还没有对应路径的真机样本** |
+| 一个都没有 | warn | 「0/5」—— 说明新代码还没跑过任何 fold |
+
+**当前 live**：`2/5（skipReasons, overBySession）`，缺 `renderErrors / budgetFloorOver / budgetIrreducible`
+—— 正好对应「还没有渲染失败样本 / 还没有触到不可裁下限」。
+
+**测试 C193**（doctor-cli）：部分落盘 ⇒ `ok` 且 detail 含 `1/5` 与缺失字段名；一个都没有 ⇒ `warn` 且含 `0/5`。
 
 ### C192 · 发布文档跟上重启事实（「等重启」→「等第一次 fold」）
 

@@ -390,6 +390,32 @@ if (nodeFs.existsSync(chessRoot)) {
     if (indexMtime === 0 ? graphIdle : graphIdle && mtime - indexMtime > 5 * 60 * 1000) indexStale += 1;
   }
 }
+/* ── 3.3d 新观测字段覆盖（C193）──
+   这五个字段是「压缩是否被真正观测到」的指标；缺哪个就说明对应路径**还没有真机样本**
+   （不是错误，但必须让人看见「我们现在到底看得到什么」）。 */
+{
+  const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
+  let keys = [];
+  if (nodeFs.existsSync(budgetFile)) {
+    try {
+      keys = Object.keys(JSON.parse(nodeFs.readFileSync(budgetFile, "utf8")));
+    } catch {
+      keys = [];
+    }
+  }
+  const wanted = ["renderErrors", "skipReasons", "budgetFloorOver", "budgetIrreducible", "overBySession"];
+  const present = wanted.filter((k) => keys.includes(k));
+  const missing = wanted.filter((k) => !keys.includes(k));
+  add(
+    "观测字段覆盖（C193）",
+    // 只有「一个都没有」才 warn（说明新代码还没跑过任何 fold）；部分落盘是正常进度
+    present.length > 0 ? "ok" : "warn",
+    present.length === wanted.length
+      ? `全部 ${wanted.length} 个字段已落盘（${present.join(", ")}）`
+      : `已落盘 ${present.length}/${wanted.length}${present.length > 0 ? `（${present.join(", ")}）` : ""}；缺：${missing.join(", ")} —— 缺的字段等对应路径（fold / 超预算 / 渲染失败）出现真机样本`,
+  );
+}
+
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
 

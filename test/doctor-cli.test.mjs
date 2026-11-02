@@ -523,3 +523,36 @@ tests["C186 重启后一条命令验收：有 buildId 通过、无 buildId 失�
     nodeFs.rmSync(bad, { recursive: true, force: true });
   }
 };
+
+tests["C193 doctor 必须报「观测字段覆盖」：部分落盘=ok 并列出缺口，一个都没有=warn"] = (t) => {
+  // ① 有 skipReasons、无其余 ⇒ ok，detail 点出缺哪些
+  const partial = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(partial, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 3, none: 3, skipReasons: { "throttled-events": 1 } }),
+      "utf8",
+    );
+    const row = runDoctor(partial).find("观测字段覆盖");
+    t.eq(row.status, "ok", `部分落盘应 ok：${JSON.stringify(row)}`);
+    t.includes(row.detail, "1/5", "必须报已落盘数量");
+    t.includes(row.detail, "renderErrors", "必须点名缺的字段");
+  } finally {
+    nodeFs.rmSync(partial, { recursive: true, force: true });
+  }
+
+  // ② 一个都没有（文件存在但只有旧键）⇒ warn
+  const none = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(none, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 1, none: 1, "over-budget": 0 }),
+      "utf8",
+    );
+    const row = runDoctor(none).find("观测字段覆盖");
+    t.eq(row.status, "warn", `一个都没有应 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "0/5", "必须报 0/5");
+  } finally {
+    nodeFs.rmSync(none, { recursive: true, force: true });
+  }
+};
