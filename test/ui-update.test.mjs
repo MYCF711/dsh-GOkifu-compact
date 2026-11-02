@@ -500,3 +500,29 @@ tests["C259 补账按批：还有剩余时要明说「再点一次继续」（�
   t.eq(all.length, 1, `全补完 ⇒ 只有一行：${JSON.stringify(all)}`);
   t.eq(all.join(" ").includes("再点一次"), false, "补完了就不该再让用户点");
 };
+
+tests["C263 一次点击自动跑多批：合并规则（计数相加 / results 拼接 / due 取最后一批 / 出错即停）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  t.eq(typeof T.mergeBackfill, "function", "__testables 暴露 mergeBackfill");
+
+  const a = { ok: true, due: 7, total: 3, done: 3, folded: 2, failed: 1, results: [{ sessionId: "s1", ok: true }] };
+  const b = { ok: true, due: 4, total: 3, done: 3, folded: 3, failed: 0, results: [{ sessionId: "s2", ok: true }] };
+  const ab = T.mergeBackfill(a, b);
+  t.eq(ab.total, 6, "total 相加");
+  t.eq(ab.done, 6, "done 相加");
+  t.eq(ab.failed, 1, "failed 相加");
+  t.eq(ab.due, 4, "due 取最后一批（服务端每次重算欠账）");
+  t.eq(ab.results.length, 2, "results 拼接");
+  t.eq(ab.ok, true, "两批都成功 ⇒ ok");
+
+  // 第一批之前 acc 是 null ⇒ 直接接住
+  const first = T.mergeBackfill(null, a);
+  t.eq(first.total, 3, "acc=null 时直接用本批");
+  t.eq(Array.isArray(first.results), true, "results 必须是数组");
+
+  // 任何一批报错 ⇒ 合并结果带 error（面板据此停并显示）
+  const bad = T.mergeBackfill(a, { ok: false, code: "backfill-busy", error: "已经有一次补账在跑" });
+  t.eq(bad.ok !== undefined, true, "出错也要返回对象（不许 undefined）");
+  t.includes(String(bad.error), "补账", "错误原因要传下去");
+};
