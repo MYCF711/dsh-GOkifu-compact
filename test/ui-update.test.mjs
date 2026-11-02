@@ -460,6 +460,20 @@ tests["C234 backfillLines：dryRun 报清单、真跑报结果、失败只说原
   t.includes(real[0], "失败 0", `要带失败数：${real[0]}`);
 
   t.eq(T.backfillLines({ error: "engine-missing" })[0], "失败：engine-missing", "服务端错误只陈述原因");
+  // ★ C258：真跑失败时必须点名会话与原因（只写"失败 N"没法处理）
+  const withFails = T.backfillLines({
+    ok: true, total: 3, done: 1, folded: 1, failed: 2,
+    results: [
+      { sessionId: "session-aaa-111", ok: true },
+      { sessionId: "session-bbb-222", ok: false, error: "resume 没有拿到 live agent" },
+      { sessionId: "session-ccc-333", ok: false, error: "timeout" },
+      { sessionId: "session-ddd-444", ok: false, skipped: "dry-run" },
+    ],
+  });
+  t.eq(withFails.length, 3, `1 行汇总 + 2 行失败（skipped 不算失败）：${JSON.stringify(withFails)}`);
+  t.includes(withFails[1], "session-bbb-222", "要点名失败的会话");
+  t.includes(withFails[1], "live agent", "要带失败原因");
+  t.eq(withFails.join(" ").includes("session-ddd-444"), false, "dry-run 的 skipped 不算失败，不许列出来");
   t.eq(T.backfillLines(null).length, 0, "null ⇒ 空（页面显示 —）");
 };
 
