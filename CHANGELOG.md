@@ -5,6 +5,27 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C145 · 审查 P2 两条：`firstWrite` 跳过自愈、旧版本图让 doctor 永久红
+
+**P2-a：`firstWrite` 分支不清理陈旧 md**
+
+C111 的自愈清理只写在**稳态**分支里 ⇒ 「重启后的**第一次** tree 落盘」**不清**陈旧文档，
+而注释里宣称的正是「tree 落盘顺手自愈」。修法：把清理抽成 `pruneStaleNodeDocs(fsPort, nodesDir, graph)`
+（三条护栏：只认 `^n[0-9]+\.md$`、**内存图不可信时不清**、失败静默），**两个分支都调**且只在 `tree` 时调。
+
+测试 **C145 / C145-2**：新 store（走 firstWrite）+ 预置陈旧 `n999.md` ⇒ `tree` 落盘必须清掉；
+**非 tree** 的 firstWrite **不许**清（清理是 tree 专属动作，避免把安全边界扩大）。
+
+**P2-b：旧版本图让 doctor 永久红且无修复出口**
+
+`fromJSON` 对 `version !== GRAPH_VERSION` 直接 throw，doctor 3.3c 原来把它记成「无法解析」⇒ **error 永远消不掉**，
+而它其实**不是损坏**，只是旧格式（该走迁移）。
+
+修法：doctor 把两类分开 —— `unsupported version` ⇒ **warn**，detail 写明「旧版本图（不是损坏，需迁移）」并带原始原因；
+其它解析失败才 error。3.3b（节点文档）遇到旧版本仍然跳过（无法渲染，不假装）。
+
+测试 **C145**（doctor-cli）：`version: 999` 的图 ⇒ `warn` + detail 含「旧版本图」与「unsupported version」。
+
 ### C144 · 补写缺失的节点文档（`graph-audit --repair`，只增不删）
 
 **背景**：C143 修好「delta 重放」口径后，doctor 立刻暴露 **2 个真实缺失**的 `nodes/<id>.md`

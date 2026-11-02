@@ -465,3 +465,39 @@ tests["C142-3 内存图为空（graph.json 读不出时的兜底）绝不许清 
     t.eq(after.join(","), before.join(","), `空图不许清 nodes/（C142 审查 P1-1）：${before.join(",")} → ${after.join(",")}`);
   });
 };
+
+tests["C145 重启后**第一次** tree 落盘也必须自愈（firstWrite 分支此前跳过清理）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 造一个「上次运行留下的」陈旧文档（此时 store 还没写过任何东西 = firstWrite 路径）
+    const paths = sessionPaths(root, "s1");
+    nodeFs.mkdirSync(paths.nodesDir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "n999.md"), "陈旧", "utf8");
+
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    const e = addEdge(g, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "g", worldHash: "W", constraintHash: "C", via: e }).id;
+    settleEdge(g, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "n999.md")), false, "firstWrite + tree 也必须清掉陈旧 md");
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, `${u}.md`)), true, "真实节点必须写出");
+  });
+};
+
+tests["C145-2 非 tree 的 firstWrite 不许清理（避免误删影响性能与安全边界）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    const paths = sessionPaths(root, "s1");
+    nodeFs.mkdirSync(paths.nodesDir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "n999.md"), "陈旧", "utf8");
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g); // 非 tree
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "n999.md")), true, "非 tree 落盘不做清理（清理只在 tree 时）");
+    void u;
+  });
+};

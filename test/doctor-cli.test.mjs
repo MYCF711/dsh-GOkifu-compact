@@ -366,3 +366,22 @@ tests["C140 doctor 必须对结构坏掉的图报 error（悬空边不会被「�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C145 旧版本图（version 不符）必须 warn 而不是 error —— 它不是损坏，别让 doctor 永久红"] = (t) => {
+  const home = makeHome();
+  try {
+    const dir = nodePath.join(home, "chess-context", "sessions", "session-legacy");
+    nodeFs.mkdirSync(dir, { recursive: true });
+    nodeFs.writeFileSync(
+      nodePath.join(dir, "graph.json"),
+      JSON.stringify({ version: 999, nodes: {}, edges: {}, order: [], foldMarks: [] }),
+      "utf8",
+    );
+    const row = runDoctor(home).find("棋谱结构自洽");
+    t.eq(row.status, "warn", `旧版本图应 warn（不是 error）：${JSON.stringify(row)}`);
+    t.includes(row.detail, "旧版本图", "detail 必须点明「旧版本图，不是损坏」");
+    t.includes(row.detail, "unsupported version", "要带出原始原因，便于判断该不该迁移");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

@@ -393,6 +393,7 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
 {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   const bad = [];
+  const legacy = [];
   let scanned = 0;
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -402,8 +403,12 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       let loaded;
       try {
         loaded = loadSessionGraph(graphFile);
-      } catch {
-        bad.push(`${entry.name.slice(0, 16)}: 无法解析`);
+      } catch (error) {
+        // ★ C145（审查 P2）：把「旧版本图」和「真的损坏」分开 ——
+        //   以前两者都记 error，旧版本（version !== GRAPH_VERSION）会让 doctor **永久红且没有修复出口**。
+        const message = String(error?.message ?? error);
+        if (/unsupported version/.test(message)) legacy.push(`${entry.name.slice(0, 16)}: ${message}`);
+        else bad.push(`${entry.name.slice(0, 16)}: 无法解析`);
         continue;
       }
       scanned += 1;
@@ -415,12 +420,14 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   }
   add(
     "棋谱结构自洽（C140）",
-    bad.length > 0 ? "error" : "ok",
+    bad.length > 0 ? "error" : legacy.length > 0 ? "warn" : "ok",
     scanned === 0
       ? "未采集（没有会话图）"
       : bad.length > 0
         ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
-        : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
+        : legacy.length > 0
+          ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（不是损坏，需迁移）：${legacy.slice(0, 3).join(" / ")}`
+          : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
 }
 

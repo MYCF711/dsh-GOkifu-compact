@@ -161,6 +161,29 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
   }
 
   /**
+   * ★ C111 / C142 / C145：清掉「不在图里」的节点文档（陈旧 md）。
+   *
+   * 三条护栏（缺一不可）：
+   *   ① 只处理 `^n[0-9]+\.md$`，其它文件不碰；
+   *   ② **内存图不可信时不清**（节点表为空或 order 为空 —— graph.json 读不出时 engine 会建空图）；
+   *   ③ 失败静默（陈旧文档只是噪音，不该影响落盘）。
+   */
+  function pruneStaleNodeDocs(fsPort, nodesDir, graph) {
+    if (Object.keys(graph?.nodes ?? {}).length === 0) return;
+    if ((graph?.order ?? []).length === 0) return;
+    try {
+      for (const name of fsPort.readdirSync(nodesDir)) {
+        if (!/^n[0-9]+\.md$/.test(name)) continue;
+        const id = name.slice(0, -3);
+        if (graph.nodes[id]) continue;
+        fsPort.rmSync(nodePath.join(nodesDir, name), { force: true });
+      }
+    } catch {
+      /* 清理失败不影响落盘 */
+    }
+  }
+
+  /**
    * 落盘（三层树 + 增量帧）。写序见 `_ORDER`。
    * @returns {{ok:true, baseHash, wroteBaseline:boolean, wroteDelta:boolean} | {ok:false, error:string, dirtyKept:true}}
    */
@@ -204,6 +227,9 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
           if (graph.nodes[nodeId]) port.writeFileSync(nodePath.join(p.nodesDir, `${nodeId}.md`), renderNodeMd(graph, nodeId), "utf8");
         }
         pending.clear();
+        // ★ C145（审查 P2）：`firstWrite` 也要自愈 —— 旧代码只在稳态分支清理，
+        //   于是「重启后的**第一次** tree 落盘」不清理陈旧 md（注释所宣称的自愈并不成立）。
+        if (tree) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else if (tree || pending.size > 0) {
         port.mkdirSync(p.nodesDir, { recursive: true });
@@ -220,18 +246,7 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
         //   graph.json 读不出来时 engine 会静默建空图（只 warn），此时按「不在图里」删除
         //   会把整个 nodes/ 清空（实测 3 个文档全删，而磁盘上的 graph.json 仍有它们）。
         //   判据：节点表非空 **且** order 非空（正常图两者都非空）。
-        if (tree && Object.keys(graph.nodes ?? {}).length > 0 && (graph.order ?? []).length > 0) {
-          try {
-            for (const name of port.readdirSync(p.nodesDir)) {
-              if (!/^n[0-9]+\.md$/.test(name)) continue;
-              const id = name.slice(0, -3);
-              if (graph.nodes[id]) continue;
-              port.rmSync(nodePath.join(p.nodesDir, name), { force: true });
-            }
-          } catch {
-            /* 清理失败不影响落盘（陈旧文档只是噪音，不是错误） */
-          }
-        }
+        if (tree) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else {
         for (const nodeId of dirty.nodes) pending.add(nodeId);
