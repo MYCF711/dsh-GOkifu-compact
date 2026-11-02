@@ -1,30 +1,28 @@
 # dsh-GOkifu-compact · 交接文件
 
-## ✅ 当前状态（滚动更新，2026-11-02 07:1x 本地）
+## ✅ 当前状态（滚动更新，2026-11-02 09:5x 本地）
 
 | 项 | 值 |
 |---|---|
 | 版本 | **1.17.1**（`package.json`；已装到本机并被机器级层接管。`npm publish` / 打 tag **待主人授权** —— `check-maintenance` 只剩这一项预期失败） |
-| 代码 | 见 `git log --oneline`；本块写于 `C123`（`e6655c9`）之后 |
-| 门禁（串行） | 全量 **882 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 4 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **25 会话 0 不自洽** |
-| ⏳ **唯一待办** | **重启 DSH**：`post-restart-check` 仍 `fail 1`（`build.json` 无 `buildId` = 03:01 启动的旧进程）。重启后才会：① `renderErrors` / `skipReasons` / 四个归因字段**首次落盘**；② 新 fold 第一次跑上 C112/C113 的回滚/自愈路径；③ 94 个陈旧 `nodes/*.md` 在各会话下次 fold 时被清掉 |
+| 代码 | 见 `git log --oneline`；本块写于 **C164**（`17a34ba`）之后，共 **164 条 C 轮提交** |
+| 门禁（串行） | 全量 **883 passed / 0 skipped / 0 failed** · bench **415 tokens** / 失败保留 8/8 · handoff-check **FAIL 0 / WARN 5** · doctor **0 错误 / 4 警告** · boundary-audit **0 条** · docs-index **0** · pack-check **无出处 0** · graph-audit **26 会话 0 不自洽** |
+| ⏳ **唯一待办** | **重启 DSH**：`post-restart-check` 仍 `fail 1`（`build.json` 无 `buildId` = 03:01 启动的旧进程）。重启后才会：① `renderErrors` / `skipReasons` / 四个归因字段**首次落盘**；② 新 fold 第一次跑上 C112/C113 的回滚与自愈路径；③ 数量以 `graph-audit` 当次输出为准（当前陈旧 md **0**、节点文档 **4,780 全齐**） |
 | 已知边界 | 第三方 preset（如 `dsh-design-studio:preset-design`）不走棋谱压缩（C94，只登记不覆盖）；`dsh` 的 preset 覆盖/insert id 冲突各有 doctor 检查（C95/C96） |
 | 行为判据 | 规划器随机不变量（C127：结构/区间/门槛/幂等/溢出更宽松；C128：尾部保留不超 retain+maxNode；C129：注入决策随机不变量；C130：历史清单清理随机不变量；C132：随机合并后图不变量；C133：任意写序点失败；C134：fold 抛错原子性；C135：手动 /compact 深度记账；C136：tier-2 失败清 pending 摘要【真 bug】；C137：手动压缩 pending 兜底清理；C138：foldThrash 累计/清零）· 渲染器不变量（C59）· 落盘回滚（C111–C114）· 探针（C90/C91/C104/C105） |
 | 独立审查 | 已跑**两轮**（C142/C143 第一轮；C148 第二轮复审：4 条新 P1 全在诊断层，已修）· 原第一轮：P0 一条已修、**P1 六条已全部处理**（P1-1/P1-3 在 C142，P1-2/P1-4/P1-5/P1-6 在本轮）；剩余 P2 六条已记录 |
 | C146 | 活跃会话的「节点已进图、md 尚未写出」是正常中间态 ⇒ doctor 按 `graph.updatedAt` 2 分钟区分**在途**（不报警）；`applyDirtySnapshot` 过滤「创建后又删除」的 orderAppend（防回放出幽灵节点） |
 | 数据修复 | C144：`graph-audit --repair` 已补写 2 个历史缺失的 `nodes/<id>.md`（只增不删），doctor 回到 **4 警** |
- 已完成一轮（C142）：抓到 **P0 一条（回滚丢未落盘变更）+ P1 六条**，P0 与 P1-1/P1-3 已修（含夹具缺陷）；待做 P1-2/P1-4（doctor/graph-audit 重放 delta）、P1-5（规则路径清 route/usage）、P1-6（C130 保留最新一条） |
 | 文档判据 | 命令/子命令（C86/C125）、检查名（C97/C98）、常量锚（C100/C101）、测试数（C117）、证据数字（C118/C119/C122/C123）、可发现性（C116/C120）、调研文引用（C121）、HANDOFF 版本（C124） |
-| 图体检 | doctor 内建「棋谱结构自洽（C140）」，另可 `node scripts/graph-audit.mjs` 手动跑（只读） |
-| 旧图体检入口 | `node scripts/graph-audit.mjs`（只读；四类不变量逐会话体检，live 24 会话 0 不自洽） |
-| 最新巡检 | `evidence/巡检-第4次-2026-11-02.md`（代码侧 **880 passed / 415 tokens / 0 错 4 警 / 26 会话 0 不自洽**；live 仍旧进程；含「为何停手守夜」三条）；第 3 次见 `evidence/巡检-第3次-2026-11-02.md` |
+| 图体检 | doctor 内建「棋谱结构自洽（C140）」；另可 `node scripts/graph-audit.mjs` 手动跑（只读，四类不变量 + `index.md` 一致性）；缺文档用 `--repair`（只增不删） |
+| 最新巡检 | `evidence/巡检-第4次-2026-11-02.md`（代码侧 **883 passed / 415 tokens / 0 错 4 警 / 26 会话 0 不自洽 / 命令矩阵 12 条 10 绿 2 预期红 / live 完整性 4,780 节点零缺失**；live 仍旧进程；含「为何停手守夜」三条）；第 3 次见 `evidence/巡检-第3次-2026-11-02.md` |
 | 发布核对 | `evidence/发布核对-2026-11-02.md`（本地 **1.17.1** vs registry **1.16.0**；无 `v1.17.*` tag；三步命令 + 逐步回滚；**未执行** publish/tag/push） |
 | 人读总览 | `evidence/持续优化-总览-2026-11-02.md`（120 条 C 轮的 2 分钟版：六条线 + 剩余待办） |
 | 怎么读这份文件 | 本块 = 现状；下面的是**追加日志**（C1 → C124，旧在上、新在下），只用于查「某个改动为什么这么写」。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` → `docs/落盘与回滚不变量.md` |
 
 ---
 
-## 🗒 追加日志（旧在上、新在下；最后更新到 C124）
+## 🗒 追加日志（旧在上、新在下；最后更新到 C164）
 
 
 | 项 | 值 |

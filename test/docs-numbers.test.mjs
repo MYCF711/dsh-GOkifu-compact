@@ -162,3 +162,22 @@ tests["C158 现行文档里的「N passed」必须彼此一致（单一真相，
   const only = [...values][0];
   t.eq(only >= 800, true, `测试数 ${only} 明显偏低（可能忘更新）：${seen.map((x) => x.rel).join(" / ")}`);
 };
+
+tests["C165 HANDOFF 的「当前状态」块不许写坏：每行都是表格行，且行标签不重复"] = (t) => {
+  const text = read("HANDOFF.md");
+  const start = text.indexOf("## ✅ 当前状态");
+  t.eq(start >= 0, true, "HANDOFF 必须有「当前状态」块");
+  const end = text.indexOf(String.fromCharCode(10) + "---", start);
+  t.eq(end > start, true, "状态块后面必须有分隔线");
+  const lines = text.slice(start, end).split(String.fromCharCode(10)).filter((l) => l.trim().length > 0);
+  const seen = new Set();
+  for (const [i, line] of lines.entries()) {
+    if (i <= 1) continue; // 标题 + 空行/表头
+    t.eq(line.startsWith("|"), true, `状态块第 ${i + 1} 行不是表格行（写坏的典型形态）：${line.slice(0, 60)}`);
+    const label = (line.split("|")[1] ?? "").trim();
+    if (label === "" || label.includes("---")) continue; // 分隔行
+    t.eq(seen.has(label), false, `状态块出现重复行标签「${label}」（编辑时把一行拆成了两行）`);
+    seen.add(label);
+  }
+  t.eq(seen.size >= 8, true, `状态块标签数量异常偏少（${seen.size}），可能被截断`);
+};
