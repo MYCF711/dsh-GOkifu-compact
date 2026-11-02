@@ -149,3 +149,16 @@ tests["C152 根目录计划表必须带「已停止更新」横幅（别让它�
   t.includes(head, "HANDOFF.md", "必须指向当前状态的真实出处");
   t.includes(head, "CHANGELOG.md", "必须指向逐条改动记录");
 };
+
+tests["C158 现行文档里的「N passed」必须彼此一致（单一真相，防一处更新一处忘）"] = (t) => {
+  const seen = [];
+  for (const rel of CHECKED_DOCS) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    for (const m of read(rel).matchAll(/(\d+)\s+passed/g)) seen.push({ rel, n: Number(m[1]) });
+  }
+  t.eq(seen.length > 0, true, "至少要有一处现行文档记录测试数");
+  const values = new Set(seen.map((x) => x.n));
+  t.eq(values.size, 1, `现行文档之间的测试数必须一致，实际：${seen.map((x) => x.rel + "=" + x.n).join(" / ")}`);
+  const only = [...values][0];
+  t.eq(only >= 800, true, `测试数 ${only} 明显偏低（可能忘更新）：${seen.map((x) => x.rel).join(" / ")}`);
+};
