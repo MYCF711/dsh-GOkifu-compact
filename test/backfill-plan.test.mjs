@@ -133,3 +133,24 @@ tests["C343 recommendMaxFoldTokens：给出「调到多少能让最大的会话�
   const real = recommendMaxFoldTokens([{ estTokens: 1_146_214 }]);
   t.eq(real.value >= 20000 && real.value <= 800000, true, `建议值必须在配置区间内：${real.value}`);
 };
+
+tests["C368 耗时估算：真机中位/ p90 分位，且超时风险要按 p90 判"] = async (t) => {
+  const { foldDurationStats, estimateSessionRuntime } = await import("../scripts/backfill-plan.mjs");
+  t.eq(typeof foldDurationStats, "function", "必须导出 foldDurationStats");
+
+  const d = foldDurationStats([1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 20000]);
+  t.eq(d.n, 10, "10 个样本");
+  t.eq(d.median, 6000, "中位取第 5 个（0.5×10）");
+  t.eq(d.p90, 20000, "p90 取最后一个");
+  t.eq(foldDurationStats([]).median, null, "空样本 ⇒ null");
+  t.eq(foldDurationStats([0, -1, null]).n, 0, "非法值要过滤");
+
+  // 6 段 × p90 19s = 114s > 90s ⇒ risky
+  const six = estimateSessionRuntime(6, 11746, 19000, 90000);
+  t.eq(six.estMs, 6 * 11746, "估算用中位");
+  t.eq(six.risky, true, "p90 × 段数超时就要标 risky");
+  // 1 段不 risky
+  t.eq(estimateSessionRuntime(1, 11746, 19000, 90000).risky, false, "单段不该 risky");
+  // 没有样本 ⇒ 不估算、也不误报
+  t.eq(estimateSessionRuntime(3, null, null, 90000), { estMs: null, risky: false }, "无样本 ⇒ 不估也不报险");
+};

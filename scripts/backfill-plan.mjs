@@ -155,6 +155,35 @@ export function averageTokensPerEvent(samples) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
+/**
+ * ★ C368：从真机 foldMark.ms 里取「一次折叠要多久」的分位数。纯函数。
+ * 实测（62 个样本）：中位 **11.7s** / p90 **18.8s** / max 34.5s。
+ * @param {number[]} values 毫秒
+ * @returns {{n:number, median:number|null, p90:number|null, max:number|null}}
+ */
+export function foldDurationStats(values) {
+  const ms = (values ?? []).map(Number).filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  if (ms.length === 0) return { n: 0, median: null, p90: null, max: null };
+  const at = (p) => ms[Math.min(ms.length - 1, Math.floor(ms.length * p))];
+  return { n: ms.length, median: at(0.5), p90: at(0.9), max: ms[ms.length - 1] };
+}
+
+/**
+ * ★ C368：估算一个待补会话的**墙钟耗时**，并判断是否可能撞收尾超时。纯函数。
+ * @param {number} chunks
+ * @param {number|null} medianMs
+ * @param {number|null} p90Ms
+ * @param {number} timeoutMs
+ * @returns {{estMs:number|null, risky:boolean}}
+ */
+export function estimateSessionRuntime(chunks, medianMs, p90Ms, timeoutMs) {
+  const n = Math.max(1, Number(chunks) || 1);
+  if (!Number.isFinite(medianMs)) return { estMs: null, risky: false };
+  const estMs = Math.round(n * medianMs);
+  const worst = Number.isFinite(p90Ms) ? n * p90Ms : estMs;
+  return { estMs, risky: worst > timeoutMs };
+}
+
 export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } = {}) {
   const { loadSessionGraph } = await import("./graph-audit.mjs");
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
@@ -180,6 +209,10 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
       tokensPerEvent: Number.isFinite(debt.tokensPerEvent) ? debt.tokensPerEvent : null,
       chunks: planned?.chunks?.length ?? 1,
       // ★ C342：**需要**多少段（不截断）vs **一次最多**给 6 段 —— 前者大于 6 的会话一次补不完
+      _ms: (() => {
+        const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
+        return marks.map((m) => Number(m?.ms)).filter((x) => Number.isFinite(x) && x > 0);
+      })(),
       requiredChunks: (() => {
         const est = Number.isFinite(debt.estTokens) ? debt.estTokens : null;
         const per = Number(debt.tokensPerEvent);
@@ -229,11 +262,24 @@ export async function main(argv = process.argv.slice(2)) {
     `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段` +
       ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,
   );
+  const allMs = rows.flatMap((r) => r._ms ?? []);
+  const dur = foldDurationStats(allMs);
+  const timeoutMs = 90_000; // 与 closeoutTimeoutMs 默认一致
+  const runtimes = rows.map((r) => estimateSessionRuntime(r.chunks, dur.median, dur.p90, timeoutMs));
+  const risky = runtimes.filter((x) => x.risky).length;
+  const totalMin = runtimes.reduce((n, x) => n + (x.estMs ?? 0), 0) / 60000;
   const rec = recommendMaxFoldTokens(rows);
   if (plan.multiPass > 0 && rec !== null) {
     console.log(
       `  ⇒ 建议把 \`closeoutMaxFoldTokens\` 调到 **${rec.value}**` +
         (rec.fits ? `（最大值会话需要 ${rec.needed}）` : `（⚠ 需要 ${rec.needed} 已超上限 ${800000}，最大的那个仍要重复点）`),
+    );
+  }
+  if (dur.n > 0) {
+    console.log(
+      `耗时口径（真机 ${dur.n} 次 fold）：中位 **${(dur.median / 1000).toFixed(1)}s** · p90 ${(dur.p90 / 1000).toFixed(1)}s` +
+        ` ⇒ 全量约 **${totalMin.toFixed(0)} 分钟**墙钟；` +
+        (risky > 0 ? `**${risky} 个会话按 p90 估算会超过 ${timeoutMs / 1000}s 单会话超时**（调大 closeoutTimeoutMs 或 closeoutMaxFoldTokens）` : `没有会话会超时`),
     );
   }
   console.log(
