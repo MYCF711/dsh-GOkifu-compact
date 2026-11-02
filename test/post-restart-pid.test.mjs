@@ -125,3 +125,15 @@ tests["C386 验收命令要顺带给出补账摘要（别让人再跑第二条�
   // 失败要降级，不许把验收整体搞挂
   t.includes(src, "算不出来", "算不出来时要降级提示，而不是抛错");
 };
+
+tests["C405 验收命令顺带带上 doctor 一句话（健康与接管是同一时刻的两个问题）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
+  t.includes(src, "doctor.mjs", "必须调用 doctor（C405）");
+  t.includes(src, "doctor：", "必须打印 doctor 一行");
+  t.eq(src.includes('match(/错误\s*(\d+)\s*\/\s*警告\s*(\d+)/)') || src.includes("错误"), true, "要解析「错误 N / 警告 M」");
+  t.includes(src, "拿不到就不说", "解析不到时不许瞎说");
+};

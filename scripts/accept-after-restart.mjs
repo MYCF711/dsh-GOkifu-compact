@@ -15,7 +15,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { checkPanelCapabilities } from "./post-restart-check.mjs";
 import { repoBuildId } from "../src/rooms/build-stamp.mjs";
 
@@ -252,6 +252,23 @@ export async function main(argv = process.argv.slice(2)) {
   console.log("== 重启后验收（accept-after-restart）==");
   console.log(`  ${result.line}`);
   for (const item of result.todo) console.log(`   · ${item}`);
+  // ★ C405：顺手把 doctor 的一句话也带上。「接管了没有」和「现在健康吗」是同一个时刻的两个问题，
+  //   没道理让人为此再跑第二条命令。拿不到就不说（不猜）。
+  const doctorLine = (() => {
+    try {
+      const r = spawnSync(process.execPath, [nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "doctor.mjs")], {
+        encoding: "utf8",
+        timeout: 60_000,
+        env: { ...process.env, DSH_HOME: home },
+      });
+      const m = String(r.stdout ?? "").match(/错误\s*(\d+)\s*\/\s*警告\s*(\d+)/);
+      return m === null ? null : `错误 ${m[1]} / 警告 ${m[2]}`;
+    } catch {
+      return null;
+    }
+  })();
+  if (doctorLine !== null) console.log(`  doctor：${doctorLine}`);
+
   // ★ C386：验收完了人立刻要问「那现在补账多少、要几次、会不会超时」——
   //   把这三个数并到**同一条命令的输出里**，免得还要另跑 `backfill-plan`。
   try {

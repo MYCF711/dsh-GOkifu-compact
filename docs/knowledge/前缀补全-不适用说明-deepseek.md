@@ -21,3 +21,13 @@
 
 前缀补全的**本质是把一段 assistant 前缀塞进上下文再续写** —— 在无状态 API 下，
 这段前缀同样会被算进输入 token。**它不省 token，只是控制输出形式。**
+
+## 4. 同类能力：FIM Completion（Beta）也不适用（**已核实**，C405）
+
+> <https://api-docs.deepseek.com/guides/fim_completion>（HTTP 200）
+
+官方：FIM（Fill In the Middle）给 **prefix + suffix**，让模型补中间；常用于**内容/代码补全**；
+**max tokens 只有 4K**；需要 `base_url = https://api.deepseek.com/beta`；价目页标注**仅非思考模式**。
+
+对本插件同样**不适用**：我们不写补全，折叠走完整生成。
+值得记的只有两点：① 4K 上限说明它服务的是"补一小段"；② beta 端点与我们无关（同上一条）。
