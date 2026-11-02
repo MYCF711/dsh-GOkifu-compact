@@ -31,3 +31,17 @@ tests["C362 从会话文本抽 usage：只认 JSON 行，且取 data.usage"] = (
   t.eq(usages.length, 1, "只应抽出 1 条合法 usage");
   t.eq(usages[0].cacheReadTokens, 90, "字段要原样带出");
 };
+
+tests["C363 按会话算钱：贵的排前面，且成本记账口径正确"] = async (t) => {
+  const { sessionCosts } = await import("../scripts/cache-rate.mjs");
+  const groups = [
+    { session: "cheap", usages: [{ inputTokens: 1000, cacheReadTokens: 0, outputTokens: 0 }] },
+    { session: "pricey", usages: [{ inputTokens: 1_000_000, cacheReadTokens: 0, outputTokens: 0 }] },
+  ];
+  const rows = sessionCosts(groups);
+  t.eq(rows.map((r) => r.session), ["pricey", "cheap"], "贵的排前面");
+  t.eq(Math.abs(rows[0].cost - 0.15) < 1e-9, true, `1M 未命中应 $0.15，实际 ${rows[0].cost}`);
+  t.eq(Math.abs(rows[1].cost - 1000 * 0.15 / 1e6) < 1e-12, true, "小的按比例");
+  t.eq(sessionCosts([]), [], "空输入空数组");
+  t.eq(sessionCosts([{ session: "x", usages: [] }]).length, 0, "没有请求的会话不占位");
+};
