@@ -27,6 +27,7 @@ import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
+import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
@@ -66,6 +67,26 @@ const THRASH_SEQ = 30;
  * @param {unknown} message
  * @returns {boolean}
  */
+/**
+ * ★ C288：收尾折叠前的**纯判定** —— 这张图的尾巴是不是大到"打了必败"。
+ * 抽成导出函数是为了能单测（私有方法要建实例，测试里反而测不到真行为）。
+ * @param {object} graph
+ * @param {number} [maxTokens]
+ * @returns {{est:number, tail:number}|null} null = 没问题（或估不出来）
+ */
+export function closeoutExceedsLimit(graph, maxTokens = CLOSEOUT_MAX_FOLD_TOKENS) {
+  if (graph === null || typeof graph !== "object") return null;
+  let debt;
+  try {
+    debt = debtOfGraph(graph);
+  } catch {
+    return null;
+  }
+  const est = Number(debt?.estTokens);
+  if (!Number.isFinite(est) || est <= maxTokens) return null;
+  return { est, tail: Number(debt.tail) };
+}
+
 export function isPermanentSummaryError(message) {
   const text = String(message ?? "");
   if (text === "") return false;
@@ -303,6 +324,13 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
 }
 
 /** 预算统计文件的相对位置（相对 graphDir）：`<graphDir>/ledger-budget.json`。 */
+/**
+ * ★ C288：一次性收尾折叠的**输入上限**（估计值，150k tok）。
+ * 超过它就去打模型必被拒绝（上下文超长）—— 实测本机 11/11 个可估欠账都超。
+ * 现在只是**预检跳过 + 留日志**；真正的解是分段折叠（K-15 第二步）。
+ */
+export const CLOSEOUT_MAX_FOLD_TOKENS = 150_000;
+
 export const name = "dsh-gokifu-compact";
 
 /**
@@ -1259,8 +1287,31 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @param {object} session
    * @returns {Promise<object|null>}
    */
+  /**
+   * ★ C288（K-15 的第一步）：**尾巴大到必然超模型窗口时，别去打那个必败的请求**。
+   *   实测（2026-11-02）本机 11/11 个可估欠账都超过 150k tok（最大 1.24M）——
+   *   一次性收尾折叠会被 provider 以「上下文超长」拒绝，白等一个 90s 超时 + 白花一次输入。
+   *   这里只做**预检 + 明确日志**，不写 `g.closeout`（写了会永久挡住以后再补，那更糟）。
+   *   真正的解是分段折叠（K-15 的第二步），那要改折叠区间规划，另案。
+   */
+  #closeoutTooBig(graph) {
+    return closeoutExceedsLimit(graph);
+  }
+
   async #closeoutFold(target, trigger = "archive") {
     const limitMs = this.chess.closeoutTimeoutMs ?? 90_000;
+    {
+      // 预检：太大就别打（省一次必败的模型调用 + 90 秒等待）
+      const id = target?.session?.id ?? target?.id;
+      const tooBig = this.#closeoutTooBig(typeof id === "string" ? this.graphs.get(id) : undefined);
+      if (tooBig !== null) {
+        this.ctx.logger?.warn?.(
+          `chess-context: 归档收尾跳过（尾巴约 ${Math.round(tooBig.est / 1000)}k tok，超过一次性折叠上限 ${Math.round(CLOSEOUT_MAX_FOLD_TOKENS / 1000)}k）` +
+            ` —— 需要分段折叠（K-15）；账会留着，等实现后补`,
+        );
+        return null;
+      }
+    }
     const work = (async () => {
       try {
         return await this.compactIfNeeded(this.#asAgent(target), trigger, undefined);

@@ -2511,3 +2511,32 @@ tests["C245 over-budget 要区分成因：约束/根目标占大半（压不动�
   let s3 = acc(s2, { fallback: "none", level: 1, tokens: 300, unyieldingTokens: 200, overBudgetBy: 0, provenanceCoverage: 1 }, 3);
   if ((s3.overByCause.constraints ?? 0) + (s3.overByCause.content ?? 0) !== 2) throw new Error("预算内不许进 overByCause");
 };
+
+tests["C288 收尾折叠预检：尾巴估值超过上限时不许去打那个必败的模型请求"] = async () => {
+  const { mod } = await load();
+  if (typeof mod.closeoutExceedsLimit !== "function") throw new Error("必须导出纯判定 closeoutExceedsLimit");
+  if (mod.CLOSEOUT_MAX_FOLD_TOKENS !== 150_000) throw new Error(`上限应为 150k，实际 ${mod.CLOSEOUT_MAX_FOLD_TOKENS}`);
+
+  // 1000 tok/事件 × 尾巴 199900 ≈ 2e8 tok ⇒ 远超上限
+  const big = { nodes: { n1: { seq: 200_000 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 100_000 }] };
+  const bigVerdict = mod.closeoutExceedsLimit(big);
+  if (bigVerdict === null) throw new Error("大尾巴必须被判为过大");
+  if (!(bigVerdict.est > mod.CLOSEOUT_MAX_FOLD_TOKENS)) throw new Error(`估值应超上限：${JSON.stringify(bigVerdict)}`);
+  if (!Number.isFinite(bigVerdict.tail)) throw new Error("要带回尾巴事件数（日志要用）");
+
+  // 10 tok/事件 × 尾巴 20 ⇒ 远低于上限
+  const small = { nodes: { n1: { seq: 120 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 1_000 }] };
+  if (mod.closeoutExceedsLimit(small) !== null) throw new Error("小尾巴不该被判为过大");
+
+  // 估不出来（没有历史 fold）⇒ null，不许瞎猜
+  if (mod.closeoutExceedsLimit({ nodes: { n1: { seq: 99_999 } }, foldMarks: [] }) !== null) throw new Error("没有历史 fold ⇒ 判 null");
+  if (mod.closeoutExceedsLimit(null) !== null) throw new Error("null 图 ⇒ null");
+
+  // 源码接线：跳过路径必须写日志、且**不许**写 g.closeout（写了会永久挡住以后补账）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  const block = src.slice(src.indexOf("#closeoutTooBig(graph)"), src.indexOf("async #closeoutFold"));
+  if (!block.includes("closeoutExceedsLimit")) throw new Error("私有方法必须委托给纯判定");
+  const skip = src.slice(src.indexOf("const tooBig = this.#closeoutTooBig"), src.indexOf("const limitMs"));
+  if (skip.includes(".closeout =")) throw new Error("预检路径不许写 g.closeout");
+  if (!src.includes("归档收尾跳过")) throw new Error("跳过时必须写日志说明原因");
+};
