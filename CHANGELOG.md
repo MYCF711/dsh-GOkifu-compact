@@ -5,6 +5,19 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C161 · 命令矩阵：12 条文档命令逐条实跑，退出码为准（10 绿 + 2 预期红）
+
+**为什么**：文档里写着「七道门禁」「verify-install 19/19」，但**没有一处把退出码列出来** ——
+读者无法区分「命令跑过了」和「命令跑绿了」。本轮把 HANDOFF 里点名的 12 条命令**逐条实跑**并记录退出码与末行。
+
+**结果**：
+
+| 绿（exit 0） | 红（exit 1，**都是预期**） |
+|---|---|
+| `test/run.mjs` 882 passed、`bench-repro`、`handoff-check` FAIL 0 / WARN 5、`doctor` 0 错 4 警、`boundary-audit` 0 条、`docs-index-check` 0、`pack-check` 0、`graph-audit` 26 会话 0 不自洽、`verify-install` 19/19、`live-folds` | `post-restart-check` fail 1（`build.json` 无 buildId = 旧进程）、`check-maintenance` 失败 1（1.17.1 无 tag） |
+
+**判读规则（写进巡检）**：这两条红是「状态」不是「回归」；**任何新的非零都要按回归处理**。
+
 ### C160 · 历史清单占位文案不点名内部文件名（模型可见文本的边界）
 
 **发现**：`LEDGER_STUB_TEXT`（旧 `<chess-ledger>` 被折叠后留下的那行占位）写着
