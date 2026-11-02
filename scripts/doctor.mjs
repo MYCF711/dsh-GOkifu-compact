@@ -16,6 +16,7 @@
 
 import nodeFs from "node:fs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
+import { auditGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -385,6 +386,41 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+
+/* ── 3.3c 棋谱结构自洽（C140）──
+   结构坏掉的图会安静地留在磁盘上（validate 只在写盘时告警一行）。这里逐会话体检：
+   悬空边 / 悬空 stateIndex / order 漂移 / foldMark 闭包越界。发现即 error（数据损坏）。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  const bad = [];
+  let scanned = 0;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let graph;
+      try {
+        graph = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      } catch (error) {
+        bad.push(`${entry.name.slice(0, 16)}: 无法解析`);
+        continue;
+      }
+      scanned += 1;
+      const problems = auditGraph(graph);
+      if (problems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${problems[0]}`);
+    }
+  }
+  add(
+    "棋谱结构自洽（C140）",
+    bad.length > 0 ? "error" : "ok",
+    scanned === 0
+      ? "未采集（没有会话图）"
+      : bad.length > 0
+        ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
+        : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
+  );
+}
 
 /* ── 3.3b 节点文档与棋谱一致（C110）──
    热清单省略行会写「见 nodes/<id>.md」。文件缺失 = 空指针（模型会去读，然后 ENOENT）；

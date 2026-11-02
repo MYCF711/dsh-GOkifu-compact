@@ -348,3 +348,21 @@ tests["C110 会话图有节点但缺 nodes/<id>.md ⇒ warn（热清单省略行
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C140 doctor 必须对结构坏掉的图报 error（悬空边不会被「看起来正常」掩盖）"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      // 把第一条边的 to 指向不存在的节点（悬空边）
+      const id = Object.keys(g.edges)[0];
+      if (id) g.edges[id].to = "n999";
+    },
+  });
+  try {
+    const row = runDoctor(home).find("棋谱结构自洽");
+    t.eq(!!row, true, "必须有该检查项");
+    t.eq(row.status, "error", `悬空边必须 error：${JSON.stringify(row)}`);
+    t.includes(row.detail, "不自洽", "要说明有几个会话不自洽");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
