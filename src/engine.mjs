@@ -675,13 +675,25 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    *
    * 节流：同一会话 60 秒内或 token 变化 < 2% 时不重写（避免每步都落盘）。
    */
-  #recordPressure(session, tokens, threshold, trigger) {
+  #recordPressure(session, tokens, threshold, trigger, windowTokens = null) {
     try {
       const now = Date.now();
       const prev = this.ledgerBudget.pressure && typeof this.ledgerBudget.pressure === "object" ? this.ledgerBudget.pressure : null;
       const sameSession = prev !== null && prev.session === session.id;
       const recent = sameSession && now - (Number(prev.at) || 0) < 60_000;
       const barelyMoved = sameSession && Number.isFinite(prev.tokens) && Math.abs(tokens - prev.tokens) < Math.max(1000, prev.tokens * 0.02);
+      // ★ C400：**接近上次就不写**对看板是对的（降噪），但 foldMark 要用它做证据 ⇒
+      //   旧写法会让 foldMark 读到**几十秒前的旧快照**。这里把"数据快照"与"看板提示"分开：
+      //   `pressureForMark` 每次都写，`pressure` 仍受节流影响。
+      this.ledgerBudget.pressureForMark = {
+        tokens: Math.round(tokens),
+        threshold: Math.round(threshold),
+        window: Number.isFinite(windowTokens) ? Math.round(windowTokens) : null,
+        trigger,
+        at: now,
+      };
+      // 节流：这是给 foldMark 用的内存快照，**随下一次账本落盘一起写**（每 ≥1 次 fold 落一次盘）；
+      //   不单独立即刷盘 —— 它只在同一次 fold 里被读一次。
       if (prev !== null && (recent || barelyMoved)) return;
       this.ledgerBudget.pressure = {
         session: session.id,
@@ -1771,7 +1783,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   实测发现 prompt 峰值到了 799,847，而配置阈值按 1M×0.45 应该是 450k ——
       //   两者对不上，就得有证据才能定位（K-22）。
       this._foldDiag = { measuredBefore: measurement.totalTokens, thresholdTokens: spec.thresholdTokens, windowTokens: spec.contextWindow ?? null };
-      this.#recordPressure(session, measurement.totalTokens, spec.thresholdTokens, trigger);
+      this.#recordPressure(session, measurement.totalTokens, spec.thresholdTokens, trigger, spec.contextWindow ?? null);
       if (!forced && measurement.totalTokens < spec.thresholdTokens) return null;
       const prune = this.ctx.get("toolResultPruner");
       if (prune !== undefined) {
@@ -1851,8 +1863,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // ★ C399：**先取后清**。真机（2026-11-03 20:24）实测：C366 的三个字段在新折叠里仍然全是 null，
     //   因为这一行在**构造 foldMark 之前**就把 `_foldDiag` 清了（第三次犯同一个错）。
     //   现在取成局部变量，由它一路传到 foldMark；实例字段只在此处清。
-    const foldDiag = this._foldDiag ?? null;
-    this._foldDiag = undefined;
+    // ★ C400：从账本里取压力快照（由 `#recordPressure` 每次真实写入），
+    //   彻底避开"实例字段先清后读"这个反复三次的坑。
+    const markPressure = this.ledgerBudget?.pressureForMark ?? null;
     st.lastFoldFailureAt = 0;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
@@ -1929,9 +1942,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
-      measuredBefore: foldDiag?.measuredBefore ?? null,
-      thresholdTokens: foldDiag?.thresholdTokens ?? null,
-      windowTokens: foldDiag?.windowTokens ?? null,
+      measuredBefore: markPressure?.tokens ?? null,
+      thresholdTokens: markPressure?.threshold ?? null,
+      windowTokens: markPressure?.window ?? null,
       foldCount: g.foldCount,
       // ★ C398：截断仪器（C317–C321）之前只装在 recordFoldMark 那条路上；自动折叠这里也要记。
       finishReason: summaryFinishReason,

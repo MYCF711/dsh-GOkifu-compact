@@ -2803,11 +2803,10 @@ tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / 
   for (const field of ["measuredBefore", "thresholdTokens", "windowTokens"]) {
     if (!src.includes(field + ": ")) throw new Error(`foldMark 必须记 ${field}（C366）`);
   }
-  // 三要素要在折叠判定处取到（否则永远 null）
-  if (!src.includes("this._foldDiag = { measuredBefore")) throw new Error("必须在判定处取 measuredBefore（C366）");
+  // ★ C400 起：三要素来自 `#recordPressure` 写入的快照（每次都写，不受节流影响）
+  if (!src.includes("this.ledgerBudget.pressureForMark = {")) throw new Error("必须写 pressureForMark 快照（C400）");
   if (!src.includes("spec.contextWindow = info.context.contextWindow")) throw new Error("必须把窗口值带进 spec（C366）");
-  // 成功后要清（否则下一次 fold 会记上一次的数）
-  if (!src.includes("this._foldDiag = undefined;")) throw new Error("成功后必须清掉诊断（C366）");
+  if (!src.includes("markPressure?.window")) throw new Error("foldMark 必须从快照取窗口（C400）");
 };
 
 tests["C367 限流/过载除了事件退避，还要有「最小等待时间」（事件数≠时间）"] = async (t) => {
@@ -2875,16 +2874,15 @@ tests["C398 自动折叠必须记 model 与 finishReason（真机实测两者都
   t.eq(/provider: this\._lastSummaryProvider \?\? null,\s*\n\s*model: this\._lastSummaryModel/.test(block), false, "不许在构造里再读已被清空的字段");
 };
 
-tests["C399 C366 的三个证据字段必须真的落进 foldMark（此前第三次「先清后读」）"] = (t) => {
+tests["C399/C400 三个证据字段必须真的落进 foldMark（不再依赖实例字段跨方法传递）"] = (t) => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
-  t.includes(src, "const foldDiag = this._foldDiag ?? null;", "必须先取成局部变量（C399）");
-  // 清理必须发生在「取值」之后（同一方法内）
-  const takeAt = src.indexOf("const foldDiag = this._foldDiag ?? null;");
-  const clearAt = src.indexOf("this._foldDiag = undefined;", takeAt);
-  t.ok(takeAt >= 0 && clearAt > takeAt, "取值的后面必须紧跟清理（先取后清）");
-  // foldMark 里只能读局部变量，不许再读实例字段
+  // 快照必须在节流的 early-return **之前**写（否则会读到几十秒前的旧值）
+  const snapAt = src.indexOf("this.ledgerBudget.pressureForMark = {");
+  const earlyReturn = src.indexOf("if (prev !== null && (recent || barelyMoved)) return;");
+  t.ok(snapAt >= 0 && earlyReturn > snapAt, "快照必须写在 early-return 之前（C400）");
+  // foldMark 里只读局部 markPressure
   const pushAt = src.indexOf("g.foldMarks.push({");
   const block = src.slice(pushAt, src.indexOf("});", pushAt));
-  t.eq(/this\._foldDiag\?\./.test(block), false, "foldMark 构造里不许再读 this._foldDiag（会被清空）");
-  t.includes(block, "measuredBefore: foldDiag?.measuredBefore", "必须读局部变量");
+  t.includes(block, "measuredBefore: markPressure?.tokens", "foldMark 必须读 markPressure");
+  t.eq(/this\._foldDiag\?/.test(block), false, "不许再读 this._foldDiag（已废弃）");
 };
