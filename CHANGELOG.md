@@ -5,6 +5,9 @@
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
 | C206 | ✅ **新代码在真机上跑出了两次真实折叠**（发布门槛的最后一项满足） |
+| C211 | 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列） |
+| C210 | 归档收尾折叠：**会话被归档时别再留未压缩的尾巴** |
+| C209 | ✅ **1.17.1 已发布到 npm**（本地 tag 已打；git 侧因无共同祖先未动） |
 | C208 | 我造了个重复工具，删掉它（并且把「不许再有第二个」钉成判据） |
 | C207 | 发布文档从「等第一次 fold」改为「折叠路径已验」 |
 | C205 | 把 `release-plan` 接到发布文档里（否则没人知道它存在） |
@@ -296,6 +299,76 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 
 **测试 C206**（doctor-cli）：只有 tier2 的越界 id ⇒ **不许出现该行**；常规 fold 的越界 id ⇒ **必须报**并点名 id。
 
+
+### C211 · 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列）
+
+**现象**：`handoff-check` 的 ⑳ 突然报 `证据 fold 数 28 ≠ 磁盘 29`。
+
+**根因**：那个会话里有人跑了一次**手工压缩**，`recordFoldMark({range:null})` 写了一条
+`{reason:"manual-compress", note:"手工把本局压成 11 个节点的 kifu"}` —— **没有区间、没有 quality/closure**。
+`live-folds` 只数「有区间的折叠」，`consistency-check` 数的是「所有 foldMarks」⇒ 差 1。
+
+**修法（两侧对齐）**：
+
+- `live-folds`：`foldRecord` 增加 `hasRange`；`summary.total` **只数有区间**的，另出 `summary.manual`；
+- `consistency-check`：同样只数有区间的，另出 `manualMarks`；
+- 终端输出明说「另有 N 条手工压缩记录，无区间」。
+
+**现状**：磁盘 28（区间）+ **1（手工）**、证据 28 + manual 1 ⇒ **⑳ 回到 FAIL 0 / WARN 0**。
+顺带发现「有 fold 的会话」从 7 变成 **8**（新增的那个就是手工压缩的会话），六处文档同步到 8。
+
+★ 又一条同族教训：**「计数口径」本身也是真相的一部分** —— 两个工具都在数 `foldMarks.length`，
+但一个心里想的是「折叠事件」、另一个想的是「压缩产物」，差的就是那些**没有区间的记录**。
+
+### C210 · 归档收尾折叠：**会话被归档时别再留未压缩的尾巴**
+
+**用户的提问**：「会话完成后 user 主动归档，是不是应该做一个收尾压缩？不然 kifu 会不完整」——
+**会的，而且之前确实不完整**。
+
+**问题**：归档发生在「上一次 fold 之后」。那一段内容只进了图（节点/边），**没有任何压缩产物**
+（没有摘要、没有 foldMark）。所以一个「做完就归档」的会话，在 kifu 里永远是**最后一段没被压过**。
+
+**做法**：监听宿主 `session/disposed`（会话离开 store），三件事、全部 best-effort：
+
+| 步骤 | 动作 | 失败时 |
+|---|---|---|
+| ① | 立刻 `full` 落盘（节点 / index / 标量一次写全） | 只记日志，归档继续 |
+| ② | 图上记 `closeout: { at, eventsSinceLastFold, folds }` | 同上 |
+| ③ | `closeoutFold`（默认开）且尾巴 ≥ `closeoutMinEvents`（默认 **40**）⇒ 异步跑 `trigger: "archive"` 的折叠 | 硬超时 `closeoutTimeoutMs`（默认 **90s**），超时/报错只记一行 |
+
+**为什么不外扩**：`session/disposed` 是 **void** 事件，不能长期占住归档；归档可能紧接着**移动目录**，
+写盘失败属正常情况、绝不许抛；尾巴太短不压（一次模型调用不值得）。
+
+**新增配置**（三条，进 `SCHEMA` / `PRESET_KEYS` / `engineBlock` 模板）：
+`closeoutFold: true` · `closeoutMinEvents: 40` · `closeoutTimeoutMs: 90000`。
+
+**测试（两条）**：
+1. 归档 ⇒ **真的发起一次收尾折叠**（`compactRegion` 被调用、区间有序）且 `closeout` 记在图上；
+2. 两道保险：尾巴不足 ⇒ 不折叠但**仍记 closeout**；摘要 provider 抛错 ⇒ **disposed 不抛给宿主**、closeout 仍在。
+
+★ 实现中踩的坑（记录）：一开始想断言「foldMark.trigger=archive 落盘」，但 `foldMarks` 只随**基线**写盘、
+普通 flush 走 delta，测试里读回永远是空 —— 改成断言「**折叠真的被发起**（compactRegion 调用）+ closeout 记录」，
+这才是行为本身，而不是某条持久化路径的副作用。
+
+### C209 · ✅ **1.17.1 已发布到 npm**（本地 tag 已打；git 侧因无共同祖先未动）
+
+**执行记录（2026-11-02T05:07Z）**：
+
+| 步骤 | 结果 |
+|---|---|
+| `npm publish` | ✅ `+ dsh-gokifu-compact@1.17.1`（**138 files**，tag `latest`） |
+| registry 生效 | ✅ `npm view dsh-gokifu-compact@1.17.1 version` → **1.17.1**；`dist-tags.latest = 1.17.1`；`time.modified = 05:09:28Z` |
+| **从 registry 装一遍** | ✅ 临时目录 `npm install dsh-gokifu-compact@1.17.1` → 装到 **1.17.1**，`src/rooms/` **18 个模块**齐全 |
+| 本地 `git tag -a v1.17.1` | ✅ 已打（仅本地，未 push） |
+| `git push` / GitHub Release | ⛔ **未执行**：受「禁止 push」约束；且见下 |
+
+**为什么没按「先合并 origin/main 再发」执行**：`git diff HEAD...origin/main` ⇒ **no merge base**。
+远端根提交 `98fb74a`、本地根 `8178fa0` —— 两条**互不相干的历史**（远端那份是脱敏后的另一段：
+`86cf1e7 chore(privacy): 脱敏…`，179 个文件 vs 本地 277 个）。强行 `--allow-unrelated-histories`
+会把两棵树整体对撞，**不是发布前该做的事**。所以：**npm 侧照授权发布；git 侧等主人决定历史怎么收敛。**
+
+★ 这一轮还纠正了一个我自己的坏习惯：**先问「是不是已经有工具了」**（C208 删重复工具），
+以及**别把「合并远端」想当然**（这次差点在没共同祖先的仓库上做合并）。
 
 ### C208 · 我造了个重复工具，删掉它（并且把「不许再有第二个」钉成判据）
 

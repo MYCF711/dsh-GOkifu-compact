@@ -290,6 +290,14 @@ export function readGraph(graphDir, sessionId) {
   return JSON.parse(nodeFs.readFileSync(file, "utf8"));
 }
 
+/** 重放 delta 后读图（foldMarks 常落在增量里，只读基线会漏）——C210 测试用。 */
+export async function readGraphReplayed(graphDir, sessionId) {
+  const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, "_");
+  const file = nodePath.join(graphDir, "sessions", safe, "graph.json");
+  const { loadSessionGraph } = await import("../scripts/graph-audit.mjs");
+  return loadSessionGraph(file).graph;
+}
+
 tests["engine 能加载并构造；注册成 ctx.compaction；auto=true 时注册自动压缩"] = async () => {
   const { Engine } = await load();
   const ctx = makeCtx();
@@ -2143,4 +2151,54 @@ tests["C198 我们自己的 pressure fold 不算「外部折叠」（不能把�
   if (!result) throw new Error("pressure fold 应该发生");
   const stats = engine.getLedgerBudgetStats();
   if (stats.externalFolds !== undefined) throw new Error(`自己的 fold 不许计入 externalFolds，实际 ${stats.externalFolds}`);
+};
+
+tests["C210 归档（session/disposed）必须收尾：记 closeout，并真的发起一次收尾折叠"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c210-closeout");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
+  const session = await p22Session(ctx, "sess-c210");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const callsBefore = (engine.compactCalls ?? []).length;
+
+  await ctx.emitRaw("session/disposed", session);
+  // 收尾折叠是异步的（disposed 是 void 事件）：等它把 compactRegion 调起来
+  for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
+  const calls = engine.compactCalls ?? [];
+  if (calls.length <= callsBefore) throw new Error("归档必须发起一次收尾折叠（compactRegion 没被调用）");
+  const last = calls.at(-1);
+  if (!(Number.isFinite(last.start) && Number.isFinite(last.end) && last.start <= last.end)) {
+    throw new Error(`收尾折叠的区间必须有序：${JSON.stringify(last)}`);
+  }
+
+  const g = await readGraphReplayed(dir, "sess-c210");
+  if (!g.closeout || typeof g.closeout.eventsSinceLastFold !== "number") throw new Error("必须记 closeout（归档时刻 + 距上次 fold 的事件数）");
+  if (g.closeout.eventsSinceLastFold < 5) throw new Error(`closeout 必须记下尾巴事件数，实际 ${g.closeout.eventsSinceLastFold}`);
+};
+
+tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败也绝不抛给宿主"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c210-guard");
+  // ① 尾巴太短（closeoutMinEvents 很大）⇒ 不折叠，但 closeout 仍要记
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 99999 });
+  const session = await p22Session(ctx, "sess-c210-guard");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  await ctx.emitRaw("session/disposed", session);
+  await new Promise((r) => setTimeout(r, 60));
+  const g1 = await readGraphReplayed(dir, "sess-c210-guard");
+  if ((g1.foldMarks ?? []).some((m) => m.trigger === "archive")) throw new Error("尾巴不足时不许折叠");
+  if (!g1.closeout) throw new Error("即便不折叠，closeout 也必须记下来");
+
+  // ② 折叠抛错（provider 炸）⇒ disposed 不允许把异常抛出去
+  const ctx2 = makeCtx({ measureTotal: () => 300_000, failModels: new Set(["group/deepseek-v4.1-flash1017"]) });
+  const engine2 = new Engine(ctx2, { graphDir: nodePath.join(graphDir, "c210-fail"), auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 1, closeoutTimeoutMs: 2000 });
+  const session2 = await p22Session(ctx2, "sess-c210-fail");
+  await ctx2.emitRaw("agent/status", { agent: { session: session2 }, status: "idle" });
+  await ctx2.emitRaw("session/disposed", session2); // 不许 reject / throw
+  await new Promise((r) => setTimeout(r, 80));
+  const g2 = await readGraphReplayed(nodePath.join(graphDir, "c210-fail"), "sess-c210-fail");
+  if (!g2.closeout) throw new Error("失败路径也必须留下 closeout 记录");
 };

@@ -39,6 +39,7 @@ export function foldRecord(sessionId, index, mark) {
     trigger: typeof mark?.trigger === "string" ? mark.trigger : null,
     seqStart: mark?.seqStart ?? null,
     seqEnd: mark?.seqEnd ?? null,
+    hasRange: Number.isFinite(Number(mark?.seqStart)) && Number.isFinite(Number(mark?.seqEnd)),
     summaryChars: mark?.summaryChars ?? null,
     shadowedTokens: shadowed,
     inputTokens: input || null,
@@ -189,7 +190,11 @@ export function closureChainOf(records) {
 }
 
 export function summarizeFolds(records, external = null) {
-  const total = records.length;
+  // ★ C211：`recordFoldMark(range=null)` 这类「手工压缩」记录没有区间，也没有 quality/closure ——
+  //   把它们算进「fold 次数」会让证据与磁盘对不上（实测 28 vs 29）。单列成 manual。
+  const ranged = records.filter((r) => r.hasRange !== false);
+  const manual = records.length - ranged.length;
+  const total = ranged.length;
   const countField = (field) => records.filter((r) => r[field] !== null && r[field] !== undefined).length;
   const triggerCounts = {};
   for (const r of records) if (r.trigger !== null) triggerCounts[r.trigger] = (triggerCounts[r.trigger] ?? 0) + 1;
@@ -205,6 +210,7 @@ export function summarizeFolds(records, external = null) {
   const emptyClosure = closureRecords.filter((r) => (r.closure.nodes ?? 0) === 0 && (r.closure.edges ?? 0) === 0).length;
   return {
     total,
+    manual,
     // ★ C199：宿主直调 compactRegion 的折叠（C198 记账）。它们不在图的 foldMarks 里，
     //   但对「这台机器到底压了多少次」是必须的。
     external,
@@ -381,7 +387,8 @@ export function main(argv = process.argv.slice(2)) {
   );
   console.log(`  闭包链：检查 ${summary.closureChain.checked} 对相邻 fold · 节点级重叠 ${summary.closureChain.offenders.length} 处${summary.closureChain.offenders.length > 0 ? "（" + summary.closureChain.offenders.slice(0, 3).join(" / ") + "）" : ""}`);
   console.log(
-    `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold · ` +
+    `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold` +
+      (summary.manual > 0 ? `（另有 ${summary.manual} 条手工压缩记录，无区间）` : "") + ` · ` +
       `multi-fold(≥3) ${summary.bySession.multiFold} 个 · foldThrash ${summary.thrash.sessions} 个`,
   );
   if (summary.external && Number(summary.external.folds) > 0) {

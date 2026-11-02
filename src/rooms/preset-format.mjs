@@ -115,6 +115,9 @@ export function engineBlock() {
     `    hotLedgerReplace: true`,
     `    transposition: true`,
     `    tier2After: 8`,
+    `    closeoutFold: true       # 归档（session/disposed）时补一次折叠，别留未压缩的尾巴`,
+    `    closeoutMinEvents: 40    # 尾巴至少这么多事件才补（太少不值得一次模型调用）`,
+    `    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续`,
   ];
 }
 
@@ -210,6 +213,9 @@ export const KEY_COMMENTS = {
   hotLedgerReplace: "就地替换旧清单（surface 永远一条）",
   transposition: "置换检测",
   tier2After: "checkpoint 超过该值合并最老的两段",
+  closeoutFold: "归档时补一次收尾折叠（避免 kifu 留尾巴）",
+  closeoutMinEvents: "收尾折叠的最小事件数",
+  closeoutTimeoutMs: "收尾折叠硬超时（ms）",
   graphDir: "棋谱目录；留空 = <DSH_HOME>/chess-context",
   worldHashMaxFiles: "世界状态哈希最多 stat 多少文件",
 };

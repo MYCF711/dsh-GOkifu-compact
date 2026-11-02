@@ -520,6 +520,35 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         }
       }
     });
+
+    // ★ C210：**会话被归档/移出 store**（`session/disposed`）时的收尾。
+    //   用户会「做完就归档」，而在此之前最后一个折点之后的内容只存在于图里、没有任何摘要 ——
+    //   kifu 于是「不完整」：有节点、没有那一段的压缩产物。
+    //
+    //   这里做三件事（全部 best-effort，绝不阻塞归档、绝不抛）：
+    //     ① 立刻 `full` 落盘（节点/index/标量一次性写全，避免归档时文件还欠着）；
+    //     ② 在图上记 `closeout`：归档时刻 + 距上次 fold 的事件数（doctor 据此报「归档时还有尾巴」）；
+    //     ③ 若配置允许（`closeoutFold`，默认开）且尾巴够长，**异步**跑一次 `trigger: "archive"` 的折叠。
+    ctx.on("session/disposed", (session) => {
+      try {
+        this.#flush(session, { full: true });
+      } catch {
+        /* 落盘失败不阻塞归档 */
+      }
+      try {
+        const g = this.#graph(session);
+        const last = (g.foldMarks ?? []).at(-1);
+        const lastSeq = Number(last?.seqEnd);
+        const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, Number(session.seq) - lastSeq) : Number(session.seq);
+        g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length };
+        this.#flush(session, { full: true });
+        if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
+          void this.#closeoutFold(session);
+        }
+      } catch (error) {
+        this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
+      }
+    });
   }
 
   /* ────────────────────────── 热上下文注入 ────────────────────────── */
@@ -834,6 +863,41 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     } catch (error) {
       if (process.env.GOKIFU_DEBUG_C198 === "1") console.error("[C198] record failed:", error);
       /* 记账失败不许影响压缩 */
+    }
+  }
+
+  /**
+   * ★ C210：归档收尾折叠（best-effort）。
+   *
+   * 为什么单独一个方法：`session/disposed` 是 **void** 事件 —— 我们不能 await 太久，
+   * 也不能让模型调用/落盘异常冒到宿主。这里用 `Promise.race` 给一个硬超时，
+   * 超时/失败都只记一行日志，**归档继续**。
+   *
+   * @param {object} session
+   * @returns {Promise<object|null>}
+   */
+  async #closeoutFold(session) {
+    const limitMs = this.chess.closeoutTimeoutMs ?? 90_000;
+    const work = (async () => {
+      try {
+        return await this.compactIfNeeded({ session, options: {} }, "archive", undefined);
+      } catch (error) {
+        this.ctx.logger?.warn?.(`chess-context: 归档收尾折叠失败（不影响归档）：${String(error)}`);
+        return null;
+      }
+    })();
+    let timer = null;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), limitMs);
+      if (typeof timer?.unref === "function") timer.unref();
+    });
+    try {
+      const result = await Promise.race([work, timeout]);
+      if (result === "timeout") this.ctx.logger?.warn?.(`chess-context: 归档收尾折叠超时（${limitMs}ms），已放弃本次收尾`);
+      else if (result !== null && result !== undefined) this.ctx.logger?.info?.("chess-context: 归档收尾折叠完成");
+      return result === "timeout" ? null : result;
+    } finally {
+      if (timer !== null) clearTimeout(timer);
     }
   }
 
@@ -1272,7 +1336,7 @@ const RESOLVE_ORDER = [
   "summaryMode", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens",
   "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
   "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
-  "onLedgerBudget", "transposition", "tier2After", "graphDir", "worldHashMaxFiles",
+  "onLedgerBudget", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "graphDir", "worldHashMaxFiles",
 ];
 
 /** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */

@@ -37,7 +37,7 @@ function resolveHome() {
 /** 磁盘真相：重放 delta 后逐会话统计。 */
 export function scanDisk(home) {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
-  const out = { sessions: 0, foldMarks: 0, nodes: 0, edges: 0, unreadable: 0, deltaOnlyMarks: 0 };
+  const out = { sessions: 0, foldMarks: 0, manualMarks: 0, nodes: 0, edges: 0, unreadable: 0, deltaOnlyMarks: 0 };
   if (!nodeFs.existsSync(sessionsRoot)) return out;
   for (const name of nodeFs.readdirSync(sessionsRoot)) {
     const graphFile = nodePath.join(sessionsRoot, name, "graph.json");
@@ -50,7 +50,12 @@ export function scanDisk(home) {
       out.unreadable += 1;
       continue;
     }
-    out.foldMarks += (replayed.foldMarks ?? []).length;
+    // ★ C211：`recordFoldMark(range=null)` 的手工压缩记录没有区间 ⇒ 不算「区间折叠」，
+    //   否则证据（live-folds 只数有区间的）与磁盘永远差 1。
+    for (const m of replayed.foldMarks ?? []) {
+      if (Number.isFinite(Number(m?.seqStart)) && Number.isFinite(Number(m?.seqEnd))) out.foldMarks += 1;
+      else out.manualMarks += 1;
+    }
     out.nodes += Object.keys(replayed.nodes ?? {}).length;
     out.edges += Object.keys(replayed.edges ?? {}).length;
     // 基线里没有、但重放后有的 foldMark ⇒ 说明「只读基线」的工具会漏（C199 的病根）

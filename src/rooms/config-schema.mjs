@@ -94,6 +94,9 @@ export const SCHEMA = Object.freeze([
   { key: "hotLedgerReplace", type: "boolean", default: true, where: "preset", label: "就地替换旧清单", desc: "热清单就地替换 surface 上的旧节点（surface 永远只有一条）；false=退回追加（长会话会累积）" },
   { key: "transposition", type: "boolean", default: true, where: "preset", label: "置换检测", desc: "置换检测：同一状态再次到达时不新建节点" },
   { key: "tier2After", type: "number", default: 8, where: "preset", range: [0, 100], label: "checkpoint 合并阈值", desc: "checkpoint 超过这么多时合并最老的两段（tier-2）" },
+  { key: "closeoutFold", type: "boolean", default: true, where: "preset", label: "归档收尾折叠", desc: "会话被归档（session/disposed）时补一次折叠，避免 kifu 留有未压缩的尾巴（C210）" },
+  { key: "closeoutMinEvents", type: "number", default: 40, where: "preset", range: [1, 10000], label: "归档收尾最小事件数", desc: "距上次 fold 至少这么多事件才补折叠（太少不值得花一次模型调用）" },
+  { key: "closeoutTimeoutMs", type: "number", default: 90000, where: "preset", range: [1000, 600000], label: "归档收尾超时(ms)", desc: "收尾折叠的硬超时；超时只记日志，归档继续（C210）" },
   { key: "graphDir", type: "string", default: "", where: "engine", desc: "棋谱落盘目录；留空 = <DSH_HOME>/chess-context" },
   { key: "worldHashMaxFiles", type: "number", default: 200, where: "engine", desc: "世界状态哈希最多 stat 多少个文件" },
 ]);
@@ -119,6 +122,9 @@ export const PRESET_KEYS = Object.freeze([
   "hotLedgerReplace",
   "transposition",
   "tier2After",
+  "closeoutFold",
+  "closeoutMinEvents",
+  "closeoutTimeoutMs",
 ]);
 
 /** 透传给官方基类的 11 个同名键。 */
@@ -165,6 +171,9 @@ const LABEL_ORDER = Object.freeze([
   "hotLedgerMarkers",
   "transposition",
   "tier2After",
+  "closeoutFold",
+  "closeoutMinEvents",
+  "closeoutTimeoutMs",
   "summarizationProvider",
   "summarizationModel",
 ]);
@@ -223,6 +232,9 @@ export function resolveConfig(raw = {}) {
     hotLedgerReplace: c.hotLedgerReplace !== false,
     transposition: c.transposition !== false,
     tier2After: num(c.tier2After, describe("tier2After").default),
+    closeoutFold: c.closeoutFold !== false,
+    closeoutMinEvents: num(c.closeoutMinEvents, describe("closeoutMinEvents").default),
+    closeoutTimeoutMs: num(c.closeoutTimeoutMs, describe("closeoutTimeoutMs").default),
     graphDir: str(c.graphDir, describe("graphDir").default),
     worldHashMaxFiles: num(c.worldHashMaxFiles, describe("worldHashMaxFiles").default),
   };
