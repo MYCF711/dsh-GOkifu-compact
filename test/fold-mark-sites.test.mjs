@@ -100,3 +100,16 @@ tests["C113 engine 的回滚必须用 restoreFromSnapshot（不许裸 Object.ass
   t.eq(withoutDirty.length, 0, `不许存在 2 参（不带 dirty）的调用，实际 ${withoutDirty.length} 处`);
   t.eq(/Object\.assign\(g, fromJSON\(/.test(text), false, "不许再出现裸的 Object.assign(g, fromJSON(...)) —— 它会留下陈旧的 delNodes");
 };
+
+tests["C150 repaired 标记必须真的传到落盘层，且每个清理点都带护栏"] = (t) => {
+  const engine = nodeFs.readFileSync(ENGINE, "utf8");
+  t.eq(/repaired:\s*this\.repairedGraphs\.has\(/.test(engine), true, `#flush 必须把 repaired 标记透传给 persist.flush（C149）`);
+
+  const persist = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "kifu-persist.mjs"), "utf8");
+  // 只数**调用点**（`pruneStaleNodeDocs(port`），别把函数定义本身算进去
+  const calls = [...persist.matchAll(/pruneStaleNodeDocs\(port/g)].length;
+  t.eq(calls >= 2, true, `至少应有 2 个清理调用点（firstWrite / 稳态），实际 ${calls}`);
+  const guarded = [...persist.matchAll(/if \(tree && !repaired\) pruneStaleNodeDocs\(port/g)].length;
+  t.eq(guarded, calls, `每个清理点都必须带 "tree && !repaired" 护栏（${guarded}/${calls}）`);
+  t.eq(/repaired = false/.test(persist), true, "flush 的签名必须声明 repaired 选项（默认 false）");
+};

@@ -5,6 +5,22 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C150 · `repaired` 护栏的静态守卫（防止「以后新增清理点忘了带护栏」）
+
+**为什么**：C149 加的 `!repaired` 是**安全前提**，但它是「每个清理点都要写一次」的条件 ——
+以后新增第三个清理点（或重构落盘分支）时非常容易漏。这类漏掉**没有任何运行时症状**，
+只会在「图被重建 + tree 落盘」的罕见窗口里删数据。
+
+**做法**：`fold-mark-sites`（已有「静态审计」系列）新增 **C150**：
+
+1. `src/engine.mjs` 的 `#flush` 必须把 `repaired: this.repairedGraphs.has(…)` 透传给 `persist.flush`；
+2. `src/rooms/kifu-persist.mjs` 里**每个** `pruneStaleNodeDocs(port…)` 调用点都必须写成
+   `if (tree && !repaired) …`（计数比对，定义体不算）；
+3. `flush` 签名必须声明 `repaired = false` 默认值。
+
+★ 实现细节：第一次写这条判据时把**函数定义**也数成了调用点（3 vs 2），
+改成只匹配 `pruneStaleNodeDocs(port` 才是真实调用 —— 判据的"计数口径"本身也要被校对。
+
 ### C149 · 重建出来的图（repaired）绝不许按图清理旧文档
 
 **来源**：第二轮复审在核对 C145 时实测到的一个真实风险 —— 图因「读不出 / 版本不符」被**重建**后，
