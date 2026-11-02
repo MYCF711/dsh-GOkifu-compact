@@ -5,6 +5,26 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C156 · 重启验收清单：把「重启后怎么判断新代码接管」写成 6 步
+
+**背景（本轮复核的关键事实）**：`build.json` 仍是 `startedAt 2026-11-01T19:01:03Z / pid 28464`，
+而当前系统进程列表里已没有 28464（只有 4776 / 35464）—— 但 `ledger-budget.json` 在 **09:19** 仍被更新，
+且**没有**本轮新增字段（`renderErrors` / `skipReasons` / 归因三键）。结论：**插件仍在旧进程里跑**，
+新代码只存在于磁盘。此前所有「已经改好」都只是磁盘状态，**没有任何一条能证明它在跑**。
+
+**做法**：`evidence/重启验收清单-2026-11-02.md`，6 步 + 每步期望 + 5 类症状对照：
+
+| 步 | 判据 |
+|---|---|
+| ① | `post-restart-check`：`fail 0`、`build.json` 出现 **buildId**、`startedAt` 晚于旧值 |
+| ② | `ledger-budget.json` 出现新键：`renderErrors` / `skipReasons` / `budgetFloorOver` / `budgetIrreducible` / `overBySession` |
+| ③ | doctor 0 错误、graph-audit 0 不自洽、boundary 0 条 |
+| ④ | `live-folds`：fold ≥ 21，新增那次 `c=1 / f=1 / openAtEnd=0`，thrash 仍 0 |
+| ⑤ | bench 415 + 失败保留 8/8；handoff-check FAIL 0 |
+| ⑥ | 全套回归 880 passed |
+
+**测试 C156**：清单必须存在、覆盖 6 个关键命令名、写明当前测试数、带日期。
+
 ### C155 · 打包清单必须包含全部运行时文件（新房间漏进白名单 = 用户端直接崩）
 
 **风险**：`package.json` 的 `files` 是一张**手写白名单**。本轮循环新增了房间

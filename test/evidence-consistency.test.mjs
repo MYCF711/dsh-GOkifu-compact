@@ -199,3 +199,12 @@ tests["C154 发布核对文档必须与本地版本一致，且标明是「只�
   t.includes(doc, "只读核对", "必须声明是只读核对（未执行 publish/tag/push）");
   t.eq(/npm publish/.test(doc), true, "必须把发布命令写出来（否则读者不知道差哪一步）");
 };
+
+tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启后没人知道该看什么）"] = (t) => {
+  const doc = read("evidence/重启验收清单-2026-11-02.md");
+  for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
+    t.includes(doc, needle, `清单必须覆盖 ${needle}`);
+  }
+  t.includes(doc, "880 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
+};
