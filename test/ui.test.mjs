@@ -221,3 +221,18 @@ tests["C232 面板的「已修正失败」与 doctor 同口径（同 action 后�
   t.eq(uiMod.countResolvedFailures(null), 0, "坏输入不许抛，返回 0");
   t.eq(uiMod.countResolvedFailures({ edges: {} }), 0, "空图返回 0");
 };
+
+tests["C239 折叠成本估算：价格口径（命中/未命中/输出）与「没数据不编 0」"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+  const est = uiMod.estimateFoldCostUsd;
+  // 官方价（低峰）：未命中 0.15 / 命中 0.003 / 输出 0.6 每 1M
+  t.eq(Math.abs(est({ inputTokens: 1_000_000, cacheReadTokens: 0, outputTokens: 0 }) - 0.15) < 1e-9, true, "100 万未命中 = $0.15");
+  t.eq(Math.abs(est({ inputTokens: 1_000_000, cacheReadTokens: 1_000_000, outputTokens: 0 }) - 0.003) < 1e-9, true, "100 万全命中 = $0.003");
+  t.eq(Math.abs(est({ inputTokens: 0, cacheReadTokens: 0, outputTokens: 1_000_000 }) - 0.6) < 1e-9, true, "100 万输出 = $0.6");
+  // 实测形态：input 231k（其中命中 16k）+ 输出 1k
+  const real = est({ inputTokens: 231443, cacheReadTokens: 16384, outputTokens: 1072 });
+  t.eq(real > 0.03 && real < 0.04, true, `一次真实 fold 应落在 3~4 美分（实际 ${real}）`);
+  t.eq(est(null), null, "没有 usage ⇒ null（页面显示 —，不许编 0）");
+  t.eq(est({ cacheReadTokens: 100 }), null, "缺 inputTokens ⇒ null");
+  t.eq(est({ inputTokens: 100, cacheReadTokens: 999 }), est({ inputTokens: 100, cacheReadTokens: 100 }), "命中数不许超过输入（夹紧）");
+};

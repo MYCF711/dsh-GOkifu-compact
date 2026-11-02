@@ -185,10 +185,12 @@ function refTodayAggregate(home) {
   const from = start.getTime();
   let folds = 0;
   let shadowed = 0;
+  let costUsd = 0;
+  let costKnown = 0;
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
-  if (!nodeFs.existsSync(root)) return { folds, shadowed, sessions: 0, totalSessions, totalFailures };
+  if (!nodeFs.existsSync(root)) return { folds, shadowed, sessions: 0, totalSessions, totalFailures, costUsd, costKnown };
   for (const d of nodeFs.readdirSync(root, { withFileTypes: true })) {
     if (!d.isDirectory()) continue;
     const file = nodePath.join(root, d.name, "graph.json");
@@ -201,13 +203,21 @@ function refTodayAggregate(home) {
         folds += marks.length;
         sessions.add(d.name);
         shadowed += marks.reduce((sum, m) => sum + (m.shadowedTokens ?? 0), 0);
+        // ★ C239：折叠成本估算（官方价目 × 真实 usage）
+        for (const m of marks) {
+          const input = Number(m?.usage?.inputTokens);
+          if (!Number.isFinite(input) || input < 0) continue;
+          const hit = Math.max(0, Math.min(input, Number(m?.usage?.cacheReadTokens) || 0));
+          costUsd += ((input - hit) * 0.15 + hit * 0.003 + Math.max(0, Number(m?.usage?.outputTokens) || 0) * 0.6) / 1e6;
+          costKnown += 1;
+        }
       }
       totalFailures += Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
     } catch {
       /* 坏图跳过 */
     }
   }
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures };
+  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown };
 }
 
 export const tests = {};

@@ -462,3 +462,14 @@ tests["C234 backfillLines：dryRun 报清单、真跑报结果、失败只说原
   t.eq(T.backfillLines({ error: "engine-missing" })[0], "失败：engine-missing", "服务端错误只陈述原因");
   t.eq(T.backfillLines(null).length, 0, "null ⇒ 空（页面显示 —）");
 };
+
+tests["C239 costText：估算成本的显示口径（带覆盖率、没数据给 —）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  t.eq(typeof T.costText, "function", "__testables 暴露 costText");
+  t.eq(T.costText({ costUsd: 1.0634, costKnown: 33 }), "$1.06（33 次有 usage）", "大于 0.1 保留两位");
+  const small = T.costText({ costUsd: 0.0322, costKnown: 1 });
+  t.eq(small.startsWith("$0.032"), true, `小于 0.1 保留三位：${small}`);
+  t.eq(T.costText({ costUsd: 0, costKnown: 0 }), "—", "没有成本 ⇒ —（不编 0）");
+  t.eq(T.costText(null), "—", "null ⇒ —");
+};

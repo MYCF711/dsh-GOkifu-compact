@@ -315,12 +315,30 @@ export function latestGraphFrom(scan) {
 }
 
 /** 今天的 fold 汇总（按 foldMarks.at，不按文件 mtime）。 */
+/**
+ * ★ C239：折叠成本的**估算**（美元）。价目来自 DeepSeek 官方页（2026-11-02 抓取，deepseek-flash，低峰）：
+ *   命中 $0.003 / 未命中 $0.15 / 输出 $0.6（每 1M tokens）。价目会变 ⇒ 这里只给"量级"，页面必须写「估算」。
+ * 判据（本机实测）：fold 的输入几乎不命中（3.4%），输出只占 3.7% —— 所以估算主要看未命中的输入。
+ * @param {{inputTokens?:number, cacheReadTokens?:number, outputTokens?:number}} usage
+ * @returns {number|null} 美元；没有 usage ⇒ null（页面显示 —，不许编 0）
+ */
+export function estimateFoldCostUsd(usage) {
+  const input = Number(usage?.inputTokens);
+  if (!Number.isFinite(input) || input < 0) return null;
+  const hit = Math.max(0, Math.min(input, Number(usage?.cacheReadTokens) || 0));
+  const miss = input - hit;
+  const output = Math.max(0, Number(usage?.outputTokens) || 0);
+  return (miss * 0.15 + hit * 0.003 + output * 0.6) / 1e6;
+}
+
 export function todayAggregateFrom(scan) {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const from = start.getTime();
   let folds = 0;
   let shadowed = 0;
+  let costUsd = 0;
+  let costKnown = 0;
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
@@ -333,10 +351,18 @@ export function todayAggregateFrom(scan) {
       folds += marks.length;
       sessions.add(file.dir);
       shadowed += marks.reduce((sum, mark) => sum + (mark.shadowedTokens ?? 0), 0);
+      for (const mark of marks) {
+        const cost = estimateFoldCostUsd(mark?.usage);
+        if (cost !== null) {
+          costUsd += cost;
+          costKnown += 1;
+        }
+      }
     }
     totalFailures += summary.failures;
   }
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures };
+  // ★ C239：`costUsd` 是**估算**（官方价目 × 真实 usage）；`costKnown` 是有 usage 的 fold 数，供页面标注覆盖率。
+  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown };
 }
 
 /** 一次扫描 + 清缓存，给同一个请求里的两个聚合用。 */
