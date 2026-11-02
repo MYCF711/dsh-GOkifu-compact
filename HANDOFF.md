@@ -8,7 +8,7 @@
 | ✅ **运行实例已接管（真机）** | 面板 **56319** · `POST /gokifu/api {"action":"state"}` → **200** · version **1.17.6** · 心跳 buildId 与磁盘一致 · 能力探针认识 **update + backfill** · 补账干跑 **scanned 94 / due 49** |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**（新增「发布说明漂移」，C355）。全量 **1101 passed / 0 failed**；handoff-check **FAIL 0 / WARN 18**；doctor **0 错 / 13 警**；boundary-audit **0 条** |
-| 真机实测基准 | 命中率 **97.4%**（115 会话 / 27,436 次请求）· 全量花费 ≈ **$63.51**，**最贵 5 个会话占 56%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.7s** / p90 **19.0s** · 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改） |
+| 真机实测基准 | 命中率 **95.8%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$87.83**，**最贵 5 个会话占 66%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.7s** / p90 **19.5s**（70 次样本）· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对） |
 | 补账（待重启执行） | `node scripts/backfill-plan.mjs`：约 **46–47 个欠账 / 10.3M tok / $1.65 / 82 段 / 约 16 分钟**；**3 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 218348` 或调大 `closeoutTimeoutMs`（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册 |
 | 实验室工具（本轮新增） | `session-scan`（逐帧解 zstd 会话）· `cache-rate`（命中率 + `--by-session` 算钱）· `context-curve`（锯齿曲线）· `token-calib`（与官方比例对照）· `release-notes-drift`（发布说明漂移）· `backfill-plan`（钱/点击/耗时） |
