@@ -270,3 +270,24 @@ export const tests = {
     }
   },
 };
+
+/**
+ * ★ C269：卡片「定义了但没摆进布局」是本仓库最容易犯的错 ——
+ *   `backfillCard` 是我手加进 `rightColumn` 的；下一次有人加卡片忘了这一步，面板上看不见任何异常，
+ *   只是**功能凭空消失**。这里用静态断言把「定义 + 摆位」成对钉住。
+ */
+tests["C269 每张右栏卡片都必须既定义、又出现在 rightColumn 里（否则功能静默消失）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  const layout = src.match(/const rightColumn = \[([^\]]*)\]/);
+  t.eq(layout !== null, true, "必须有 rightColumn 布局数组");
+  const placed = layout[1].split(",").map((x) => x.trim()).filter(Boolean);
+
+  for (const card of ["statusCard", "updateCard", "backfillCard", "latestCard", "todayCard"]) {
+    t.eq(new RegExp(`const ${card} =`).test(src), true, `${card} 必须被定义`);
+    t.eq(placed.includes(card), true, `${card} 被定义了却没进 rightColumn —— 面板上看不见它`);
+  }
+  // 反向：布局里不许有不存在的变量（拼错名字 ⇒ 运行时 undefined）
+  for (const name of placed) {
+    t.eq(new RegExp(`const ${name} =`).test(src), true, `rightColumn 里的 ${name} 没有对应定义（拼错了？）`);
+  }
+};
