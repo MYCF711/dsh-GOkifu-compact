@@ -117,6 +117,13 @@ function main() {
     console.log("== migrate-dangling dry-run ==");
     console.log(`root: ${result.root}`);
     console.log(`sessions: ${result.sessions}（affected ${result.affectedSessions}）`);
+    // C278：把「会改哪些会话」列出来 —— 只报 affected 7 用户没法判断该不该 --apply
+    //   （比如其中若有正在用的会话，就该等它结束）。按 residue 降序，最多列 5 个。
+    if (Array.isArray(result.perSession) && result.perSession.length > 0) {
+      const top = [...result.perSession].sort((a, b) => b.residue - a.residue).slice(0, 5);
+      for (const one of top) console.log(`  · ${one.session}: residue ${one.residue}（${one.bytesBefore} bytes）`);
+      if (result.perSession.length > top.length) console.log(`  · …另 ${result.perSession.length - top.length} 个会话`);
+    }
     console.log(`residue（将归档）: ${result.residue}`);
     console.log(`candidates（保留，P6C-1）: ${result.candidates}`);
     console.log(`liveUnsettled: ${result.liveUnsettled}（保留）`);

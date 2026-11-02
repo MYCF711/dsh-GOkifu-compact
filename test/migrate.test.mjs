@@ -794,3 +794,29 @@ Object.assign(tests, {
     }
   },
 });
+
+tests["C278 dry-run 必须说清「会改哪些会话」——只报 affected N 用户没法判断该不该 --apply"] = (t) => {
+  const root = tmpRoot("per-session");
+  try {
+    makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
+    makeSessionDir(root, "sess-b", () => {
+      const g = createGraph({ sessionId: "sess-b" });
+      addUserNode(g, { seq: 1, text: "hi" });
+      return g;
+    });
+    const result = dryRun(root, { now: NOW });
+    t.eq(Array.isArray(result.perSession), true, "dry-run 必须给出 perSession（打印要用）");
+    t.eq(result.perSession.length, result.affectedSessions, "perSession 条数必须等于 affectedSessions");
+    const one = result.perSession.find((x) => x.session === "sess-a");
+    t.eq(!!one, true, "有 residue 的 sess-a 必须在清单里");
+    t.eq(one.residue > 0, true, "要带 residue 条数（用户据此判断改动量）");
+    t.eq(Number.isFinite(one.bytesBefore), true, "要带文件大小");
+
+    // 接线：脚本真的把它打印出来（数据算了不打印 = 用户还是看不到）
+    const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
+    t.includes(src, "result.perSession", "脚本必须用 perSession 打印受影响会话");
+    t.includes(src, "另 ${", "超过 5 个要有「…另 N 个」而不是刷屏");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
