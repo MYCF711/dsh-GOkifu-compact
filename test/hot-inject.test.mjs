@@ -558,7 +558,7 @@ tests["C251 失败增量门槛可配：hotLedgerMinFailureDelta=0 时只按事�
   }
 };
 
-tests["C335 压力提示行：≥80% 才有，且带可执行动作"] = async (t) => {
+tests["C335/C336 压力提示行：≥80% 才有，且只告知状态（不提示做不到的动作）"] = async (t) => {
   const { pressureHintLine } = await import("../src/rooms/hot-inject.mjs");
   t.eq(typeof pressureHintLine, "function", "必须导出 pressureHintLine");
   t.eq(pressureHintLine(null), "", "没有压力 ⇒ 空串（一个字符都不加）");
@@ -566,7 +566,8 @@ tests["C335 压力提示行：≥80% 才有，且带可执行动作"] = async (t
   t.eq(pressureHintLine(80).includes("# 压力 80%"), true, "80% 要出现");
   const hot = pressureHintLine(87.4);
   t.includes(hot, "# 压力 87%", "四舍五入到整数百分比");
-  t.includes(hot, "manual compact", "要给可执行动作");
+  t.includes(hot, "自动触发", "要说明会自动发生（别提示做不到的动作）");
+  t.eq(hot.includes("manual compact"), false, "不许提示模型没有的工具（C336）");
   // 接线：注入路径必须真的用它（不许自己再拼一遍）
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "hot-inject.mjs"), "utf8");
   t.includes(src, "pressureHintLine(pressurePct)", "注入路径必须调用纯函数");

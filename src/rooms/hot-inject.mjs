@@ -94,7 +94,10 @@ export function ledgerDigest(graph, { foldFailures = 0 } = {}) {
 export function pressureHintLine(pressurePct) {
   const pct = Number(pressurePct);
   if (!Number.isFinite(pct) || pct < 80) return "";
-  return `# 压力 ${Math.round(pct)}% —— 想现在压就调 manual compact`;
+  // ★ C336：**别提示做不到的动作**。第一版写的是"想现在压就调 manual compact"，
+  //   但本插件**没有**给模型的手动压缩工具 —— 压缩是自动触发的，`/compact` 是**用户**的命令。
+  //   让模型去调一个不存在的工具 = 制造幻觉动作。这里只**告知状态**。
+  return `# 压力 ${Math.round(pct)}% —— 接近自动折叠阈值（会自动触发，无需动作）`;
 }
 
 export function foldFailureWarning(state) {
