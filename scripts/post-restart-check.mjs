@@ -19,7 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 import nodeFs from "node:fs";
-import { listeningPorts } from "./accept-after-restart.mjs";
+import { listeningPorts, looksLikePanel } from "./accept-after-restart.mjs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
@@ -360,7 +360,7 @@ export async function main(argv = process.argv.slice(2)) {
     const discoverPort = async () => {
       try {
         const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
-        for (const candidate of listeningPorts(out)) {
+        for (const candidate of listeningPorts(out).slice(0, 12)) {
           try {
             const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
               method: "POST",
@@ -370,7 +370,7 @@ export async function main(argv = process.argv.slice(2)) {
             });
             if (!res.ok) continue;
             const json = await res.json();
-            if (json !== null && typeof json === "object" && (json.ok === true || typeof json.installed === "boolean")) return candidate;
+            if (looksLikePanel(json)) return candidate;
           } catch {
             /* 不是面板 */
           }

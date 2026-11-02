@@ -170,7 +170,24 @@ export function listeningPorts(netstatText) {
     const port = Number(m[1]);
     if (Number.isInteger(port) && port > 0) ports.add(port);
   }
-  return [...ports].sort((a, b) => a - b);
+  // ★ C415：**只看高位端口**（面板不会在 80/443/445 这些系统端口），
+  //   否则扫一圈 41 个端口 × 每个几百毫秒 = 整条命令挂住（真机：--dry 跑了 10 分钟没出结果）。
+  return [...ports].filter((p) => p >= 1024 && p <= 65535).sort((a, b) => a - b);
+}
+
+/**
+ * ★ C415：判断一个响应是不是**我们的面板**。纯函数。
+ *
+ * 真机教训（2026-11-03）：扫端口时发现本机有好几个本地服务对**任意 POST**都回 200 ⇒
+ * 只看"状态码 200 + 能解析" 会把别人的服务当成面板，然后报「面板不可达/不认识」。
+ * 面板的 health/state 必须带 `ok:true`，且带 `installed` 或 `presets` 这种只有我们有的字段。
+ * @param {any} json
+ * @returns {boolean}
+ */
+export function looksLikePanel(json) {
+  if (json === null || typeof json !== "object") return false;
+  if (json.ok !== true) return false;
+  return typeof json.installed === "boolean" || Array.isArray(json.presets) || typeof json.profile === "string";
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -195,7 +212,9 @@ export async function main(argv = process.argv.slice(2)) {
   const discoverPort = async () => {
     try {
       const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
-      for (const candidate of listeningPorts(out)) {
+      // ★ C415：给发现一个**总预算**（最多 12 个候选、最多 6 秒），不让验收命令因扫端口而挂住。
+      const deadline = Date.now() + 6000;
+      for (const candidate of listeningPorts(out).slice(0, 12)) {
         try {
           const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
             method: "POST",
@@ -205,10 +224,11 @@ export async function main(argv = process.argv.slice(2)) {
           });
           if (!res.ok) continue;
           const json = await res.json();
-          if (json !== null && typeof json === "object" && (json.ok === true || typeof json.installed === "boolean")) return candidate;
+          if (looksLikePanel(json)) return candidate;
         } catch {
           /* 不是面板：试下一个 */
         }
+        if (Date.now() > deadline) break;
       }
       return null;
     } catch {

@@ -174,3 +174,22 @@ tests["C413 探针正面判定：ok:true + 软错误（registry 不可达）仍�
   t.eq(mod.probePositive({ status: 200, json: null }), false, "非 JSON 不算");
   t.eq(mod.probePositive({ status: 500, json: { ok: true } }), false, "5xx 不算");
 };
+
+tests["C415 面板识别要严：本机有好几个服务对任意 POST 都回 200"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  t.eq(typeof mod.looksLikePanel, "function", "必须导出 looksLikePanel");
+  // 真正的面板
+  t.eq(mod.looksLikePanel({ ok: true, profile: "desktop", installed: true }), true, "面板 health 认得");
+  t.eq(mod.looksLikePanel({ ok: true, presets: [] }), true, "带 presets 也认得");
+  // 别人的服务：200 但长相不同
+  t.eq(mod.looksLikePanel({ ok: true }), false, "只有 ok 不够（本机实测有服务这样回）");
+  t.eq(mod.looksLikePanel({ hello: "world" }), false, "无关 JSON 不认");
+  t.eq(mod.looksLikePanel(null), false, "null 不认");
+  // 端口清单只保留高位端口（避免扫 80/443 等系统服务把命令拖死）
+  const netstat = [
+    "  TCP    0.0.0.0:80      0.0.0.0:0  LISTENING  4",
+    "  TCP    127.0.0.1:56319 0.0.0.0:0  LISTENING  37108",
+    "  TCP    127.0.0.1:443   0.0.0.0:0  LISTENING  4",
+  ].join("\n");
+  t.eq(mod.listeningPorts(netstat), [56319], "只留 >=1024 的高位端口");
+};
