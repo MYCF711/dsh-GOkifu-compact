@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C318 | 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens` |
 | C317 | 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测" |
 | C316 | `closeoutMaxFoldTokens`：六个接线面一次改完（K-17 结案） |
 | C314 | 渲染耗时装进 doctor 当早期预警（不值得改 ≠ 不用管） |
@@ -395,6 +396,24 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C318 · 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens`
+
+C317 按 OpenAI 习惯读 `finish_reason`、把截断定义成 `=== "length"`。从宿主 `app.asar` 挖出真相：
+
+```js
+zStopReason = end_turn | max_tokens | max_turn_requests | refusal | cancelled
+// 使用处：{ stopReason: "end_turn" }
+```
+
+⇒ **字段是 `stopReason`，截断是 `max_tokens`**。按 C317 上线的话，`finish_reason` 永远 `null` ⇒
+doctor 永远报「未采集」—— 一个看起来在工作、实际永远沉默的仪器。
+
+- 引擎优先读 `raw.stopReason` / `raw.stop_reason`，`finish_reason` 系列只作兜底；
+- doctor 截断判定认 `max_tokens` 与 `length`；行标题改成 `stopReason=max_tokens`；
+- 知识库那条从「待核实」升为**已核实**（附 asar 原文片段）。
+
+**教训**：猜字段名 = 造一个沉默的仪器；去运行中的实现里找，比猜快得多。
 
 ### C317 · 摘要截断（`finish_reason="length"`）从"看不见"变成"可观测"
 

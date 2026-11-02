@@ -1407,20 +1407,21 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
           continue;
         }
         known += 1;
-        if (reason === "length") truncated += 1;
+        // ★ C318：宿主口径是 `max_tokens`（zStopReason）；`length` 是 OpenAI 原始口径，两个都算截断
+        if (reason === "max_tokens" || reason === "length") truncated += 1;
       }
     }
   }
   if (total === 0) {
-    add("摘要截断（finish_reason=length）", "warn", "未采集（没有 foldMark）");
+    add("摘要截断（stopReason=max_tokens）", "warn", "未采集（没有 foldMark）");
   } else if (known === 0) {
-    add("摘要截断（finish_reason=length）", "warn", `未采集（${total} 条 foldMark 都没有 finishReason —— C317 之前的不记录）`);
+    add("摘要截断（stopReason=max_tokens）", "warn", `未采集（${total} 条 foldMark 都没有 stopReason —— C317/C318 之前的不记录）`);
   } else {
     add(
       "摘要截断（finish_reason=length）",
       truncated > 0 ? "warn" : "ok",
       `${known} 次有 finishReason 的 fold 里 **${truncated}** 次是 length` +
-        `（官方：这时内容可能被截断 ⇒ 摘要可能丢了约束/死路）` +
+        `（stopReason=max_tokens ⇒ 内容可能被截断，摘要可能丢了约束/死路）` +
         (unknown > 0 ? ` · 另有 ${unknown} 条未采集（C317 之前的 fold）` : ""),
     );
   }

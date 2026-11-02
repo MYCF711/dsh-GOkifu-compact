@@ -1043,8 +1043,8 @@ tests["C317 摘要截断必须可观测：finish_reason=length 要报出来，�
   const truncated = makeHome({
     mutate: (g) => {
       g.foldMarks = [
-        { at: Date.now() - 2000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "length" },
-        { at: Date.now() - 1000, seqStart: 10, seqEnd: 20, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "stop" },
+        { at: Date.now() - 2000, seqStart: 1, seqEnd: 10, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "max_tokens" },
+        { at: Date.now() - 1000, seqStart: 10, seqEnd: 20, trigger: "pressure", shadowedTokens: 1000, summaryChars: 3000, finishReason: "end_turn" },
       ];
     },
   });
@@ -1053,7 +1053,7 @@ tests["C317 摘要截断必须可观测：finish_reason=length 要报出来，�
     t.eq(!!row, true, "必须有这一行");
     t.eq(row.status, "warn", "有截断必须 warn");
     t.includes(String(row.detail), "1", "要点名截断次数");
-    t.includes(String(row.detail), "可能被截断", "要说明后果（官方口径）");
+    t.includes(String(row.detail), "可能被截断", "要说明后果（stopReason=max_tokens）");
   } finally {
     nodeFs.rmSync(truncated, { recursive: true, force: true });
   }

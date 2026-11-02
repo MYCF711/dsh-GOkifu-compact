@@ -27,8 +27,20 @@
   **老 foldMark 没有该字段就明说「未采集」**（C317 之前的不记录，不许当成健康）；
 - 用后即清（与其它 `_lastSummary*` 字段同一套「谁生产谁消费」）。
 
-## 4. 还没验的（**待核实**）
+## 4. 宿主到底用哪个字段（**已核实**：2026-11-02 从 app.asar 里挖出来）
 
-- 宿主到底把 `finish_reason` 放在哪个字段（不同版本可能不同）—— 现在四种形状都试，实测要等重启后第一次 fold；
+宿主的按字面量不是 OpenAI 风格：
+
+```js
+zStopReason = z.union([z.literal("end_turn"), z.literal("max_tokens"),
+                       z.literal("max_turn_requests"), z.literal("refusal"), z.literal("cancelled")])
+// 使用处：{ stopReason: "end_turn" }
+```
+
+⇒ **字段名是 `stopReason`**，**截断是 `stopReason === "max_tokens"`** —— 不是 `finish_reason === "length"`。
+`length` 只是部分 provider 适配层的原始口径，仍作兜底保留。
+
+## 5. 还没验的（**待核实**）
+
 - 截断发生率有多高 —— 本机 56 条 foldMark **全部没有该字段**（都是 C317 之前的），所以现在只能报"未采集"；
 - 提高 `maxTokens` 与"摘要更长"之间的权衡 —— 没有实测对照。

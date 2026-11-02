@@ -1317,8 +1317,17 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   或上下文超限，此时**内容可能被截断**。以前我们完全没读这个字段 ——
     //   被截断的摘要与完整摘要在 foldMark 里长得一模一样（summaryChars 只是短一点）。
     //   防御式读取：宿主不同版本可能把它放在 raw / message / choice 上；读不到就是 null。
+    // ★ C318：宿主的真实字段是 **`stopReason`**（实测 app.asar 里 `zStopReason = end_turn|max_tokens|max_turn_requests|refusal|cancelled`），
+    //   不是 OpenAI 风格的 `finish_reason`。截断判断因此是 **`stopReason === "max_tokens"`**。
+    //   仍然保留了 finish_reason / finishReason 等形状的兜底 —— 万一某些 provider 适配层透传原始值。
     this._lastSummaryFinishReason =
-      raw?.finish_reason ?? raw?.finishReason ?? raw?.choice?.finish_reason ?? raw?.message?.finishReason ?? null;
+      raw?.stopReason ??
+      raw?.stop_reason ??
+      raw?.finish_reason ??
+      raw?.finishReason ??
+      raw?.choice?.finish_reason ??
+      raw?.message?.finishReason ??
+      null;
     this.#markFoldMode(g, mode);
     return {
       summary,
