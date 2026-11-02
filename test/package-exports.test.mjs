@@ -227,3 +227,23 @@ tests["C159 真 tarball 安装形态：解包后 import 子路径必须可用（
     nodeFs.rmSync(tmp, { recursive: true, force: true });
   }
 };
+
+/**
+ * ★ C228：`npx dsh-gokifu-compact doctor` 曾经必 ENOENT —— doctor 那时在 `test/`（不在 `files` 白名单里），
+ * 打包后 CLI 找不到它（docs/方案-持续优化.md 的 B3 / 候选 C-19，1.9.1 迁进 `scripts/` 后修好）。
+ * 但**文档一直写着「⛔ 未修」**，没人复验。这里把修好之后必须成立的四件事钉住。
+ */
+tests["C228 打包后 doctor 必须可达：doctor 在 scripts/、files 含 scripts、旧位置不许复活"] = (t) => {
+  const repo = nodePath.join(HERE, "..");
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(repo, "package.json"), "utf8"));
+  // ① doctor 必须存在且就在 CLI 同目录（scripts/）
+  t.eq(nodeFs.existsSync(nodePath.join(repo, "scripts", "doctor.mjs")), true, "scripts/doctor.mjs 必须存在");
+  // ② 旧位置不许复活（复活 = 又回到「不发包 → 必 ENOENT」）
+  t.eq(nodeFs.existsSync(nodePath.join(repo, "test", "doctor.mjs")), false, "test/doctor.mjs 不许再出现（它不在 files 白名单里）");
+  // ③ files 必须覆盖 scripts/（否则 CLI 的 doctor 目标打不进包）
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  t.eq(files.includes("scripts"), true, `package.json 的 files 必须含 "scripts"（实际：${JSON.stringify(files)}）`);
+  // ④ CLI 必须真的把 doctor 路由到同目录（而不是别处的相对路径）
+  const cli = nodeFs.readFileSync(nodePath.join(repo, "scripts", "cli.mjs"), "utf8");
+  t.includes(cli, 'nodePath.join(HERE, "doctor.mjs")', "scripts/cli.mjs 必须从同目录解析 doctor.mjs");
+};

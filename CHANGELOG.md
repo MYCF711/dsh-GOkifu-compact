@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C228 | 复验一条「文档说未修」的候选：打包后 doctor 其实早就好了 |
 | C227 | 被过滤掉的残留失败必须**显式计数**（omittedResidue 一直是死变量） |
 | C226 | 只有一个节点的路径，任何档位都不渲染（契约 ⑥ 的真根因） |
 | C225 | 给「最小清单」加预算守卫（防止契约行一路把它撑大） |
@@ -310,6 +311,19 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C228 · 复验一条「文档说未修」的候选：打包后 doctor 其实早就好了
+
+`docs/方案-持续优化.md` 的 B3 行一直写着「打包后 `npx dsh-gokifu-compact doctor` 必 ENOENT ——
+⛔ 未修（候选 C-19）」。**去验了，早就修好了**：
+
+- `npm pack` → 解包 → `node package/scripts/cli.mjs doctor` ⇒ **0 错 / 7 警**（157 个文件里含 `scripts/doctor.mjs`）；
+- `scripts/cli.mjs` 从同目录解析 doctor（1.9.1 把 `test/doctor.mjs` 迁进 `scripts/` 时就修了）。
+
+**做法**：文档改成「✅ 已修（C228，2026-11-02 复验）」+ 加四条守卫（`test/package-exports.test.mjs`）：
+doctor 在 `scripts/`、`files` 含 `scripts`、CLI 从同目录解析、**旧位置 `test/doctor.mjs` 不许复活**。
+
+**教训**：候选表里的状态也要有判据 —— 否则「未修」会一直挂着，让下一个人白做一遍。
 
 ### C227 · 被过滤掉的残留失败必须**显式计数**（omittedResidue 一直是死变量）
 
