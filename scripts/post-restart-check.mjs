@@ -36,7 +36,7 @@ export function defaultHome() {
  * 纯评估函数（不读盘，便于单测）：把「戳 + 磁盘构建标识 + 版本 + 预算统计」判成一张检查表。
  * @returns {{ok:boolean, checks:Array<{id:string,name:string,level:"ok"|"warn"|"fail",detail:string}>}}
  */
-export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null } = {}) {
+export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null, latestFold = null } = {}) {
   const checks = [];
   const push = (id, name, level, detail) => checks.push({ id, name, level, detail });
 
@@ -67,6 +67,29 @@ export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", ver
     else if (!hasAttribution) push("budget", "预算归因字段", "warn", `有 ${over} 次 over-budget 但**没有任何归因字段** —— 旧代码仍在跑（等重启）`);
     else push("budget", "预算归因字段", "ok", `${over}/${samples} over-budget，归因字段已出现（floorOver=${budget.budgetFloorOver ?? "—"} / irreducible=${budget.budgetIrreducible ?? "—"} / 来源=${budget.overBySession ? Object.keys(budget.overBySession).length : "—"}）`);
   }
+  // ★ C243：1.17.6 的折叠观测字段。C236/C237 新写了 usage.cacheReadTokens（展示用）与 usage.instructionTokens，
+  //   它们**只在新代码跑过一次 fold 之后**才会出现 —— 正好当"新代码是否接管"的第二重判据。
+  if (latestFold === null || typeof latestFold !== "object") {
+    push("fold-fields", "折叠观测字段（instructionTokens）", "warn", "还没有 foldMark 带 usage —— 等重启后第一次 fold");
+  } else if (Number.isFinite(latestFold?.usage?.instructionTokens)) {
+    push("fold-fields", "折叠观测字段（instructionTokens）", "ok", `最近一次 fold 记了我们的指令 ${latestFold.usage.instructionTokens} tok（C237）`);
+  } else {
+    push(
+      "fold-fields",
+      "折叠观测字段（instructionTokens）",
+      "warn",
+      "最近一次 fold 没有 instructionTokens —— 旧代码仍在跑（等重启），或这次走的是规则摘要（没有模型调用，正常）",
+    );
+  }
+
+  // ★ C243：C219 的「注入动作」（append vs replace）也只在重启后才有数据。
+  {
+    const actions = budget && typeof budget === "object" ? budget.injectActions : null;
+    const keys = actions && typeof actions === "object" ? Object.keys(actions) : [];
+    if (keys.length === 0) push("inject-actions", "注入动作采集（append/replace）", "warn", "还没有 injectActions —— 等重启后第一次注入");
+    else push("inject-actions", "注入动作采集（append/replace）", "ok", keys.map((k) => `${k}=${actions[k]}`).join(" / "));
+  }
+
   return { ok: checks.every((c) => c.level !== "fail"), checks };
 }
 
@@ -109,7 +132,32 @@ export function main(argv = process.argv.slice(2)) {
   } catch {
     budget = null;
   }
-  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget });
+  // 最近一次带 usage 的 foldMark（跨会话取 at 最大的那个）—— 给"折叠观测字段"判据用
+  const latestFold = (() => {
+    let best = null;
+    const root = nodePath.join(home, "chess-context", "sessions");
+    try {
+      for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const file = nodePath.join(root, entry.name, "graph.json");
+        if (!nodeFs.existsSync(file)) continue;
+        let marks;
+        try {
+          marks = JSON.parse(nodeFs.readFileSync(file, "utf8"))?.foldMarks ?? [];
+        } catch {
+          continue; // 坏图跳过，不因一张坏图让整个核对失败
+        }
+        for (const mark of marks) {
+          if (!mark || typeof mark.at !== "number") continue;
+          if (best === null || mark.at > best.at) best = mark;
+        }
+      }
+    } catch {
+      return null;
+    }
+    return best;
+  })();
+  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget, latestFold });
 
   // ④ doctor 0 错误；⑤ boundary-audit 0 findings（两者都是仓库/运行态红线，独立于上面的纯评估）
   let doctor = null;

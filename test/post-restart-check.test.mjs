@@ -49,3 +49,36 @@ tests["C69-3 预算归因：有 over 但无归因字段 ⇒ warn（旧代码）�
   t.eq(byId(empty, "budget").level, "warn", "无样本 ⇒ warn");
   t.eq(evaluatePostRestart({ ...base, budget: null }).ok, true, "没有统计文件不该 fail（warn 即可）");
 };
+
+tests["C243 折叠观测字段 + 注入动作：只在新代码跑过之后才 ok，否则 warn（不是 fail）"] = (t) => {
+  const stamp = { buildId: "b1", version: "1.17.6", startedAt: 1, pid: 1 };
+  const base = { stamp, diskBuildId: "b1", version: "1.17.6", budget: {} };
+
+  // ① 还没有 foldMark ⇒ warn（等等看，不是失败）
+  const noFold = evaluatePostRestart({ ...base });
+  const nf = noFold.checks.find((c) => c.id === "fold-fields");
+  t.eq(nf.level, "warn", "没有 foldMark 只能 warn");
+
+  // ② 老 foldMark（没有 instructionTokens）⇒ warn，且文案要说清两种可能
+  const oldFold = evaluatePostRestart({ ...base, latestFold: { at: 1, usage: { inputTokens: 100 } } });
+  const of = oldFold.checks.find((c) => c.id === "fold-fields");
+  t.eq(of.level, "warn", "老 foldMark 只能 warn");
+  t.includes(of.detail, "规则摘要", "要说明「也可能是规则摘要」——别让人误判成重启没生效");
+
+  // ③ 新 foldMark ⇒ ok（这条是"新代码接管"的第二重证据）
+  const newFold = evaluatePostRestart({ ...base, latestFold: { at: 2, usage: { inputTokens: 100, instructionTokens: 42 } } });
+  const xf = newFold.checks.find((c) => c.id === "fold-fields");
+  t.eq(xf.level, "ok", "有 instructionTokens ⇒ ok");
+  t.includes(xf.detail, "42", "要报出实际数字");
+
+  // ④ 注入动作：没有 ⇒ warn；有 ⇒ ok 并列出计数
+  const noInject = evaluatePostRestart({ ...base });
+  t.eq(noInject.checks.find((c) => c.id === "inject-actions").level, "warn", "没有 injectActions ⇒ warn");
+  const withInject = evaluatePostRestart({ ...base, budget: { injectActions: { append: 5, replace: 1 } } });
+  const wi = withInject.checks.find((c) => c.id === "inject-actions");
+  t.eq(wi.level, "ok", "有 injectActions ⇒ ok");
+  t.includes(wi.detail, "append=5", "要列出 count");
+
+  // ⑤ 这两条不许把整体判成 fail（它们只是"还没到"）
+  t.eq(noFold.ok, true, "只有待观测项时整体仍然是 ok（fail 才算失败）");
+};
