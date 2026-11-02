@@ -8,7 +8,12 @@
  *   · 没有样本 / 没有统计文件 ⇒ warn（允许 —— 不是坏）
  */
 
-import { evaluatePostRestart } from "../scripts/post-restart-check.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { evaluatePostRestart, checkBackfillApi } from "../scripts/post-restart-check.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 export const tests = {};
 
@@ -81,4 +86,18 @@ tests["C243 折叠观测字段 + 注入动作：只在新代码跑过之后才 o
 
   // ⑤ 这两条不许把整体判成 fail（它们只是"还没到"）
   t.eq(noFold.ok, true, "只有待观测项时整体仍然是 ok（fail 才算失败）");
+};
+
+tests["C264 `--api` 招牌检查：旧面板的「未知 action」必须被解释成『还没重启』，其余异常一律 warn"] = async (t) => {
+  t.eq(typeof checkBackfillApi, "function", "必须导出 checkBackfillApi");
+
+  // 指向一个必然不可达的端口 ⇒ warn，且说明里要有地址（不是抛异常）
+  const dead = await checkBackfillApi({ port: 1, timeoutMs: 300 });
+  t.eq(dead.level, "warn", "不可达只能 warn（面板端口变了不等于插件坏）");
+  t.includes(dead.detail, "127.0.0.1:1", "要写明试的是哪个地址");
+
+  // 这条检查**默认不跑**（不发网络请求）—— 只有带 --api 才跑
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "post-restart-check.mjs"), "utf8");
+  t.includes(src, 'argv.includes("--api")', "必须由 --api 显式开启");
+  t.includes(src, "未知 action", "旧面板的「未知 action」要解释成还没重启");
 };

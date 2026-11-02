@@ -117,7 +117,51 @@ function runBoundaryFindings() {
   }
 }
 
-export function main(argv = process.argv.slice(2)) {
+/**
+ * ★ C264：**重启后自动问一次面板**（`backfill` 的 dryRun）—— 不 resume、不调模型，秒回。
+ * 为什么做成可选（`--api`）：这条要连 `127.0.0.1` 的宿主端口，单元测试里不该发网络请求。
+ * 失败一律判 **warn**（面板 API 不可达不等于插件坏了，可能只是端口变了）。
+ * @returns {Promise<{level:string, detail:string}>}
+ */
+export async function checkBackfillApi({ port = 64349, timeoutMs = 3000 } = {}) {
+  const url = `http://127.0.0.1:${port}/gokifu/api`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "backfill", dryRun: true }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return { level: "warn", detail: `面板返回了非 JSON（HTTP ${res.status}）：${text.slice(0, 80)}` };
+    }
+    // 旧版本面板对未知 action 的回应是 `{ error: "未知 action: backfill" }`（连 ok 字段都没有）
+    if (typeof json?.error === "string" && json.error !== "") {
+      return { level: "warn", detail: `面板拒了 dryRun：${json.error}（未知 action ⇒ 运行实例还没更新，重启后才有这个接口）` };
+    }
+    if (json?.ok === false) return { level: "warn", detail: `面板拒了 dryRun：${json.code ?? "未知"}` };
+    const due = Number(json?.due);
+    const scanned = Number(json?.scanned);
+    if (!Number.isFinite(due)) return { level: "warn", detail: "面板返回里没有 due 字段（版本太旧？）" };
+    return {
+      level: due > 0 ? "warn" : "ok",
+      detail: due > 0 ? `欠账 ${due} 个会话（扫了 ${scanned ?? "?"} 个）—— 面板点「补账」或去掉 dryRun 打一次` : `没有欠账（扫了 ${scanned ?? "?"} 个会话）`,
+    };
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    return { level: "warn", detail: `面板 API 不可达（${url}）：${message.slice(0, 80)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
@@ -167,6 +211,13 @@ export function main(argv = process.argv.slice(2)) {
   } catch {
     result.checks.push({ id: "doctor", name: "doctor 0 错误", level: "warn", detail: "doctor 跑不起来（解析失败）" });
   }
+  // ★ C264：`--api` 时问一次面板（默认不发网络请求）
+  if (argv.includes("--api")) {
+    const portArg = getArg("port", "64349");
+    const api = await checkBackfillApi({ port: Number(portArg) || 64349 });
+    result.checks.push({ id: "backfill-api", name: "面板补账接口（dryRun）", level: api.level, detail: api.detail });
+    result.ok = result.checks.every((c) => c.level !== "fail");
+  }
   const findings = runBoundaryFindings();
   result.checks.push({
     id: "boundary",
@@ -188,4 +239,8 @@ export function main(argv = process.argv.slice(2)) {
 }
 
 const invokedDirectly = process.argv[1] !== undefined && nodePath.resolve(process.argv[1]) === nodePath.resolve(fileURLToPath(import.meta.url));
-if (invokedDirectly) process.exitCode = main();
+if (invokedDirectly) {
+  main().then((code) => {
+    process.exitCode = code;
+  });
+}
