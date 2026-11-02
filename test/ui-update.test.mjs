@@ -436,3 +436,29 @@ tests["U5-6 客户端：横幅/状态文案与时间格式，且「重新检查�
   // 检查失败是 host 的正常返回（ok:true + error）：不许走会把 error 当异常的 callApi
   t.notIncludes(src, 'callApi("update"', "检查失败要能显示 —— 不能复用会抛错的 callApi");
 };
+
+tests["C234 backfillLines：dryRun 报清单、真跑报结果、失败只说原因（纯函数）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  t.eq(typeof T.backfillLines, "function", "__testables 暴露 backfillLines");
+
+  const dry = T.backfillLines({
+    dryRun: true,
+    scanned: 44,
+    due: 2,
+    items: [{ sessionId: "session-0ef39d3a-72a0-42fb", tail: 13029 }, { sessionId: "session-1286ce28-dba8-448b", tail: 900 }],
+  });
+  t.includes(dry[0], "欠账 2 个会话", `首行给总数：${dry[0]}`);
+  t.includes(dry[0], "扫了 44 个", `首行给扫描面：${dry[0]}`);
+  t.includes(dry[1], "尾巴 13,029 事件", `逐条要带尾巴大小：${dry[1]}`);
+
+  const empty = T.backfillLines({ dryRun: true, scanned: 44, due: 0, items: [] });
+  t.includes(empty.join(" "), "没有欠账", "零欠账要说清楚，不许留空");
+
+  const real = T.backfillLines({ ok: true, total: 2, done: 2, folded: 1, failed: 0 });
+  t.includes(real[0], "补完 2 / 2", `真跑给结果：${real[0]}`);
+  t.includes(real[0], "失败 0", `要带失败数：${real[0]}`);
+
+  t.eq(T.backfillLines({ error: "engine-missing" })[0], "失败：engine-missing", "服务端错误只陈述原因");
+  t.eq(T.backfillLines(null).length, 0, "null ⇒ 空（页面显示 —）");
+};

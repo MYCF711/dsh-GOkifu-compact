@@ -233,7 +233,9 @@ export const tests = {
     t.includes(CLIENT_SRC, "profileLabel(state, health)", "标题行与状态卡共用同一 profile 来源");
     t.includes(CLIENT_SRC, "styles.headerMeta", "宽屏标题行右侧要有 profile 区（右上方不再空）");
     // 只读 host 字段：不得为此新增接口调用
-    t.eq((CLIENT_SRC.match(/callApi\("(?!state|models|save|defaults)/g) ?? []).length, 0, "不许为 profile 新增 host 接口");
+    // ★ C234：白名单补 `backfill`（补账是面板的真功能，服务端 C216 起就有这个 action；
+    // `update` 走的是自己的 requestUpdate，不经过 callApi；其余新 action 仍会被这条抓住。
+    t.eq((CLIENT_SRC.match(/callApi\("(?!state|models|save|defaults|backfill)/g) ?? []).length, 0, "不许为 profile 新增 host 接口");
   },
 
   "⑨ U4-④ gap 收敛：全站只有 4/8/12/16 四档（以后新加一个 gap 值会被抓）"(t) {

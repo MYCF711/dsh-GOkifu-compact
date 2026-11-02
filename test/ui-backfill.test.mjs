@@ -241,3 +241,14 @@ tests["C216 面板补账：宿主没有 sessionController ⇒ 503 no-session-con
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+/* ───────────────────── ★ C234：面板上的「补账」卡 ───────────────────── */
+
+tests["C234 客户端补账文案：dryRun 报清单、真跑报结果、失败只陈述原因"] = async (t) => {
+  const nodeFs = await import(nodePath.join ? "node:fs" : "node:fs");
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  t.includes(src, "backfillLines", "客户端必须暴露补账文案的纯函数");
+  t.includes(src, 'callApi("backfill"', "按钮要真的打到 backfill action（不是摆设）");
+  t.includes(src, "dryRun: true", "「检查欠账」必须走 dryRun（不 resume、不调模型）");
+  t.includes(src, "补账", "卡片标题");
+};
