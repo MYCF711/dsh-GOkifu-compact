@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C198 | 宿主直接调 `compactRegion` 的折叠**完全不记账**（C196 谜团的答案找到了） |
 | C197 | 把「token 压力 vs 阈值」记进账本（C196 那个疑问从此有数字可查） |
 | C196 | doctor 报「fold 新鲜度」—— 顺带发现一个**需要下一轮查清**的怪现象 |
 | C195 | doctor 报「清单写入率」：2% 不是 bug，是常驻 + 限流的结果 |
@@ -233,6 +234,36 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C198 · 宿主直接调 `compactRegion` 的折叠**完全不记账**（C196 谜团的答案找到了）
+
+**查证过程**（没有猜，逐条对代码）：
+
+1. 本会话有 10 条 foldMark（03:20 之前），之后 **+13,326 事件、0 条新 foldMark**；
+2. 期间 hot-inject 在跑（`ledger-budget` 的 `samples` 一直涨）⇒ **引擎确实挂着这个会话**，不是「没接管」；
+3. 我们的压力 fold 只在 `compactIfNeeded` 里记 `foldMark`；而 `compactRegion`（**宿主压缩走的接口**）
+   以前只在「手动深度」时 `recordFoldMark`，**宿主自动压缩完全不留账**。
+
+⇒ 那些 checkpoint 是**宿主直接调 `compactRegion`** 产生的：折叠真的发生了，账却没记。
+所以「fold 新鲜度 +13,326」不是「没在压」，而是「**压了但看不见**」。
+
+**修法**（C198）：
+
+- `compactRegion` 里判定 `externalCall`（进入时 `_chessActiveRange` 为 null 且不在手动深度里）⇒ 折叠成功后记账；
+- 记进 **`ledger-budget.json`** 而不是图：`externalFolds` 计数 + `lastExternalFold`（区间、`closure`、`boundary`、
+  `quality`、`summaryChars`）—— 图的 `foldMarks` 有自己的字段语义与清理规则，不该被外部折叠混入；
+- 与 tier-2 同口径**消费** `_lastSummary*`（谁生产谁消费）；任何异常都不影响压缩主流程；
+- doctor 新增行「**外部折叠（宿主直调 compactRegion）**」：`N 次 · 最近 a-b q=1/1 openAtEnd=0`。
+
+**踩到的两个坑（都记下来了）**：
+
+1. 先试过「往图里 push foldMark + `flush({tree:true})`」——测试里**读回来永远是空**：
+   `foldMarks` 只随**基线**写盘，而增量帧虽带 `scalars.foldMarks`，tree 落盘路径并不是我预期的那条；
+2. 于是改成记进预算账本 —— **观测数据进观测文件**，比硬塞进图的记账体系更干净。
+
+**测试 C198（两条）**：
+- 宿主直调 ⇒ `externalFolds === 1` 且 `lastExternalFold` 区间/closure/boundary/quality 齐全、pending 摘要被消费；
+- **我们自己的 pressure fold 不许计入 `externalFolds`**（不许把自己记两遍）。
 
 ### C197 · 把「token 压力 vs 阈值」记进账本（C196 那个疑问从此有数字可查）
 

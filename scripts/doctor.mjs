@@ -997,6 +997,25 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       !hasSkipStats || hitRate === null
         ? " · 清单写入=未采集（旧版本没有 skipReasons）"
         : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）`;
+/* ★ C198：宿主直接调用 compactRegion 的折叠（我们的 compactIfNeeded 之外）—— 以前完全不留账。 */
+{
+  const ext = stats && typeof stats === "object" ? Number(stats.externalFolds ?? 0) : 0;
+  const last = stats && typeof stats === "object" && stats.lastExternalFold && typeof stats.lastExternalFold === "object" ? stats.lastExternalFold : null;
+  if (stats === null || stats === undefined) {
+    add("外部折叠（宿主直调 compactRegion）", "warn", "未采集（没有 ledger-budget.json）");
+  } else if (ext === 0) {
+    add("外部折叠（宿主直调 compactRegion）", "ok", "0 次（本次实例内没有宿主直调的折叠，或尚未发生）—— 该字段 C198 起才写");
+  } else {
+    const q = last?.quality ? `q=${last.quality.constraintRecall}/${last.quality.failureRecall}` : "q=—";
+    const b = last?.boundary ? `openAtEnd=${last.boundary.openAtEnd}` : "openAtEnd=—";
+    add(
+      "外部折叠（宿主直调 compactRegion）",
+      "ok",
+      `${ext} 次 · 最近 ${last ? `${last.seqStart}-${last.seqEnd} ${q} ${b} ${new Date(last.at).toISOString()}` : "—"}（这些折叠以前完全不留账，证据里看不到）`,
+    );
+  }
+}
+
 /* ★ C197：token 压力快照 —— 回答「为什么还不 fold」：是没到阈值，还是根本没被调用。 */
 {
   const pressure = stats && typeof stats === "object" && stats.pressure && typeof stats.pressure === "object" ? stats.pressure : null;

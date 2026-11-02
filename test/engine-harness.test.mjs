@@ -2101,3 +2101,46 @@ tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场�
     engine.compactRegion = original;
   }
 };
+
+tests["C198 宿主直接调 compactRegion 也必须记账（trigger=host 进预算账本），否则证据里整段折叠不存在"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c198-external");
+  const ctx = makeCtx({ measureTotal: () => 200_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c198");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const nodes = session.surface.nodes;
+  const startSeq = nodes[1];
+  const endSeq = nodes[nodes.length - 2];
+  // 模拟「摘要已产出」的现场（宿主 compactRegion 内部会设置这些字段）
+  engine._lastSummaryText = "摘要正文：约束 C1、失败 e1";
+  engine._lastSummaryChars = 20;
+  engine._lastSummaryModelText = "摘要正文：约束 C1、失败 e1";
+
+  // 宿主直接调用（不经过 compactIfNeeded / compactNow）
+  await engine.compactRegion(startSeq, endSeq, { session, options: {} }, undefined);
+
+  const stats = engine.getLedgerBudgetStats();
+  if (stats.externalFolds !== 1) throw new Error(`必须记 1 次外部折叠，实际 ${JSON.stringify(stats.externalFolds)}`);
+  const last = stats.lastExternalFold;
+  if (!last) throw new Error("必须留下 lastExternalFold 明细");
+  if (last.seqStart !== startSeq || last.seqEnd !== endSeq) throw new Error(`区间必须一致：${last.seqStart}-${last.seqEnd} vs ${startSeq}-${endSeq}`);
+  if (!last.closure || typeof last.closure.nodes !== "number") throw new Error("必须带 closure（可寻址）");
+  if (!last.boundary || typeof last.boundary.openAtEnd !== "number") throw new Error("必须带 boundary（切点检查）");
+  if (!last.quality || last.quality.constraintRecall !== 1) throw new Error(`必须带 quality（摘要提到 C1 ⇒ 召回 1），实际 ${JSON.stringify(last.quality)}`);
+  if (engine._lastSummaryText !== undefined) throw new Error("pending 摘要必须被消费掉（谁生产谁消费）");
+};
+
+tests["C198 我们自己的 pressure fold 不算「外部折叠」（不能把自己的账记两遍）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c198-internal");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c198b");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("pressure fold 应该发生");
+  const stats = engine.getLedgerBudgetStats();
+  if (stats.externalFolds !== undefined) throw new Error(`自己的 fold 不许计入 externalFolds，实际 ${stats.externalFolds}`);
+};

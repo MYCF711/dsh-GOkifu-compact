@@ -779,14 +779,61 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    */
   async compactRegion(start, end, agent, signal) {
     const prev = this._chessActiveRange ?? null;
+    // ★ C198：**宿主直接调用** `compactRegion`（不走我们的 compactIfNeeded / compactNow）时，
+    //   以前完全不留账 —— live 上表现为「上下文明显在被压（checkpoint 一条条出现），但 foldMarks 一动不动」，
+    //   doctor 的「fold 新鲜度」还会误报「+13,326 事件没 fold」。
+    //   判定：进入时 `_chessActiveRange` 为 null ⇒ 不是我们自己的路径（我们自己的路径会先 set 它）。
+    const externalCall = prev === null && (this._manualCompactDepth ?? 0) === 0;
     this._chessActiveRange = { start, end };
     // 2026-11-01（C14）：手动 `/compact` 走的是 compactNow → compactRegion，不经过 compactIfNeeded，
     // 所以此前**手动压缩没有任何 foldMark / 保真度样本**（覆盖缺口）。这里在手动深度标记生效时记下区间。
     if ((this._manualCompactDepth ?? 0) > 0) this._manualRange = { start, end };
     try {
-      return await super.compactRegion(start, end, agent, signal);
+      const out = await super.compactRegion(start, end, agent, signal);
+      if (externalCall) this.#recordExternalFold(agent, start, end);
+      return out;
     } finally {
       this._chessActiveRange = prev;
+    }
+  }
+
+  /**
+   * ★ C198：给「宿主直接调用 compactRegion」的折叠补一条 foldMark（`trigger: "host"`）。
+   *
+   * 为什么必须记：不记的话，这些折叠在证据里**完全不存在** —— 保真度/边界/闭包/成本都缺样本，
+   * 而 doctor 的「fold 新鲜度」还会显示「很久没 fold」。
+   * 与 tier-2 同口径消费 `_lastSummary*` 字段（谁生产谁消费），失败不影响主流程。
+   */
+  #recordExternalFold(agent, start, end) {
+    try {
+      const session = agent?.session;
+      if (session === null || session === undefined) return;
+      const g = this.#graph(session);
+      const summaryText = this._lastSummaryText ?? "";
+      const summaryChars = this._lastSummaryChars ?? null;
+      const modelText = this._lastSummaryModelText ?? "";
+      this._lastSummaryChars = undefined;
+      this._lastSummaryText = undefined;
+      this._lastSummaryModelText = undefined;
+      const range = { start, end };
+      // ★ C198：记进**预算账本**（与 ledger-budget.json 同源），不写图 —— 图的 foldMarks 走
+      //   基线/增量两条持久化路径，宿主外部折叠不该再往那套记账里塞一条（字段语义/清理规则都不同）。
+      const budget = this.ledgerBudget ?? {};
+      budget.externalFolds = (Number.isFinite(budget.externalFolds) ? budget.externalFolds : 0) + 1;
+      budget.lastExternalFold = {
+        at: Date.now(),
+        session: session.id,
+        seqStart: start,
+        seqEnd: end,
+        summaryChars,
+        closure: foldClosureOf(g, range),
+        boundary: foldBoundaryOf(g, range),
+        quality: summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range, summaryText, modelText }),
+      };
+      this.#persistLedgerBudget();
+    } catch (error) {
+      if (process.env.GOKIFU_DEBUG_C198 === "1") console.error("[C198] record failed:", error);
+      /* 记账失败不许影响压缩 */
     }
   }
 
