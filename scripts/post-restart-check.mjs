@@ -196,7 +196,10 @@ export async function checkPanelCapabilities(
       //   实测（2026-11-02 真机）：重启后 `/gokifu/api` 对**所有** action 回 HTTP 405 + 空体
       //   （插件路由没起来），而旧逻辑"没有『未知 action』字样就算认识" ⇒ 把死路由判成"新代码已接管"。
       //   仪器骗人的第 N 次：判定必须基于**阳性证据**（2xx 且能解析），不是"没有反证"。
-      const positive = res.ok && json !== null && json?.error === undefined;
+      // ★ C389：`error: null` 是**正常**响应（我们的 handler 就是这么写的）。
+      //   旧写法 `error === undefined` 会把 `error:null` 当成反面证据 ⇒ 真机上把能用的 `update` 判成了"不认识"（误报「需要重启」）。
+      const noError = json !== null && (json?.error === undefined || json?.error === null || json?.error === "");
+      const positive = res.ok && noError;
       if (saidUnknown) unknown.push(probe.action);
       else if (positive) known.push(probe.action);
       else unknown.push(probe.action);
@@ -319,11 +322,25 @@ export async function main(argv = process.argv.slice(2)) {
   }
   // ★ C264：`--api` 时问一次面板（默认不发网络请求）
   if (argv.includes("--api")) {
-    const portArg = getArg("port", "64349");
-    const api = await checkBackfillApi({ port: Number(portArg) || 64349 });
+    // ★ C388：端口不能写死 64349。真机事故（2026-11-03）：重启后 GUI 换到 56319，
+    //   而这里还在探 64349 ⇒ 报「面板 API 不可达」，把正常的面板判成了坏的。
+    //   顺序：`--port` 显式指定 > 心跳 `ui-route.json` 里的端口 > 默认 64349。
+    const portArg = getArg("port", "");
+    const heartbeatPort = (() => {
+      try {
+        const file = nodePath.join(home, "chess-context", "ui-route.json");
+        if (!nodeFs.existsSync(file)) return null;
+        const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+        return Number.isFinite(Number(hb?.port)) ? Number(hb.port) : null;
+      } catch {
+        return null;
+      }
+    })();
+    const port = Number(portArg) || heartbeatPort || 64349;
+    const api = await checkBackfillApi({ port });
     result.checks.push({ id: "backfill-api", name: "面板补账接口（dryRun）", level: api.level, detail: api.detail });
     // ★ C294：能力探针 —— 唯一能证明"进程里跑的是新代码"的东西
-    const caps = await checkPanelCapabilities(undefined, { port: Number(portArg) || 64349 });
+    const caps = await checkPanelCapabilities(undefined, { port });
     result.checks.push({ id: "panel-caps", name: "面板能力探针（update / backfill）", level: caps.level, detail: caps.detail });
     result.ok = result.checks.every((c) => c.level !== "fail");
   }

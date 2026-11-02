@@ -2847,3 +2847,15 @@ tests["C382 上下文超长的 400 不是永久错误（官方：超窗直接 40
   // 429/500/503 仍可重试
   t.eq(f("429 Rate Limit Reached"), false, "429 可重试");
 };
+
+tests["C387 摘要「成功但空白」必须抛错（官方：JSON Output 可能只剩空格，finish_reason 仍是 stop）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  // 守卫必须存在，且必须用 trim（只含空格的响应也要判空）
+  t.includes(src, "summarization produced no text summary content", "必须有「没有文本摘要」的抛错");
+  t.includes(src, 'String(block.text ?? "").trim().length > 0', "判空必须用 .trim()（只含空格也算空，C387）");
+  // 抛错必须发生在「用这份摘要去替换历史」之前 —— 否则就是先丢数据再报错
+  const guardAt = src.indexOf("summarization produced no text summary content");
+  const useAt = src.indexOf("const constraintsBlock = extractConstraintsBlock(renderFacts(g));", guardAt);
+  if (useAt < 0) throw new Error("找不到守卫之后的摘要使用点（判据可能已漂移）");
+  t.eq(guardAt < useAt, true, "守卫必须在装配最终摘要之前");
+};

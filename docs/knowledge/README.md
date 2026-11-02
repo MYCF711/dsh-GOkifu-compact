@@ -44,6 +44,7 @@
 | **Anthropic 兼容接口的参数支持面** | [`Anthropic兼容接口-参数支持面-deepseek.md`](./Anthropic兼容接口-参数支持面-deepseek.md) | 官方：`cache_control` **Ignored**（缓存自动生效）、`anthropic-beta`/`anthropic-version` 被忽略、`tool_choice:any` 降级为 auto；`max_tokens` 上限随思考模式/effort 变化 |
 | **Responses API（无状态 + 超窗 400）** | [`Responses API-无状态与超窗400-deepseek.md`](./Responses%20API-无状态与超窗400-deepseek.md) | 官方：`previous_response_id`/`conversation`/`store` 全不支持（**stateless**），`truncation` 不支持 ⇒ **超窗直接 400**；⇒ 折叠是必需品，且该 400 必须按"可恢复"处理（C382） |
 | **Files API / 图片盲区** | [`Files API-图片与成本盲区-deepseek.md`](./Files%20API-%E5%9B%BE%E7%89%87%E4%B8%8E%E6%88%90%E6%9C%AC%E7%9B%B2%E5%8C%BA-deepseek.md) | 官方 Files API 只服务**图片**（`file_id` 复用，规避 48MiB/32MiB 上限）；**我们的 token 估算只数文本** ⇒ 有图的会话估算系统性偏低（已知盲区） |
+| **JSON Output 空内容陷阱** | [`JSON-Output-空内容陷阱-deepseek.md`](./JSON-Output-%E7%A9%BA%E5%86%85%E5%AE%B9%E9%99%B7%E9%98%B1-deepseek.md) | 官方：非 JSON 输出会被**替换成空格**，可能"成功但内容空白"（`finish_reason=stop`）；我们已有 `.trim()` 守卫（C387 已核实） |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |
