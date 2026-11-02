@@ -276,3 +276,19 @@ tests["C260 补账在途闸门：并发真跑必须被拒，且失败后闸门�
   const dryLine = src.slice(src.indexOf('const backfillDryRun'), src.indexOf('if (BACKFILL_GATE.inFlight)'));
   t.includes(dryLine, "backfillDryRun", "dryRun 的判断要在闸门之前");
 };
+
+/* ─────────────── ★ C261：单会话硬超时可设 + 客户端限量 ─────────────── */
+
+tests["C261 补账的硬超时默认 3 分钟——客户端必须限量并传更短的 perItemMs"] = async (t) => {
+  const { DEFAULT_PER_ITEM_MS } = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "rooms", "closeout-backfill.mjs")).href);
+  t.eq(DEFAULT_PER_ITEM_MS >= 60_000, true, "服务端默认每个会话的硬超时是分钟级（这正说明客户端必须限量）");
+
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "perItemMs", "服务端必须接受 perItemMs");
+  t.includes(src, "Math.min(180_000", "perItemMs 必须有上界（不许传 1 小时进来）");
+  t.includes(src, "Math.max(10_000", "perItemMs 必须有下界（不许传 0 让它立刻全失败）");
+
+  const client = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  t.includes(client, "limit: 3", "客户端每次最多 3 个");
+  t.includes(client, "perItemMs: 90_000", "客户端要传 90 秒（与引擎收尾超时一致）");
+};

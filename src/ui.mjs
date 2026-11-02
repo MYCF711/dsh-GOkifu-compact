@@ -1311,7 +1311,12 @@ export function apply(ctx) {
           const home = resolveHome();
           const root = graphRoot({ dshHome: home });
           const minEvents = Number.isFinite(Number(body.minEvents)) ? Number(body.minEvents) : 40;
-          const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Number(body.limit)) : 20;
+          const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.min(20, Number(body.limit))) : 20;
+          // ★ C261：**单个会话的硬超时也要能设**（默认 3 分钟 × 5 个 = 15 分钟挂在一个请求上，
+          //   任何一侧超时都会让用户以为失败）。夹紧到 [10s, 180s]，外部脚本仍可用默认值。
+          const perItemMs = Number.isFinite(Number(body.perItemMs))
+            ? Math.max(10_000, Math.min(180_000, Number(body.perItemMs)))
+            : undefined;
           const dryRun = body.dryRun === true;
           const sessionIds = (() => {
             try {
@@ -1360,6 +1365,7 @@ export function apply(ctx) {
           const report = await backfillArchivedSessions({
             items: listed.items,
             registry: ctx.get("workspaceRegistry"),
+            ...(perItemMs === undefined ? {} : { perItemMs }),
             resolveAgent,
             closeout: (agent) => bridge.closeoutNow(agent, { source: "backfill" }),
           });
