@@ -620,3 +620,41 @@ tests["C196 doctor 必须报「fold 新鲜度」：距上次 fold 的事件数�
     nodeFs.rmSync(empty, { recursive: true, force: true });
   }
 };
+
+tests["C197 doctor 必须报「fold 压力（token/阈值）」：有快照显示百分比与差距，没快照明确写未采集"] = (t) => {
+  const withPressure = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(withPressure, "chess-context", "ledger-budget.json"),
+      JSON.stringify({
+        samples: 1,
+        none: 1,
+        "over-budget": 0,
+        impossible: 0,
+        provenanceMin: 1,
+        pressure: { session: "s1", tokens: 313879, threshold: 450000, remaining: 136121, trigger: "pressure", at: Date.now() - 5000 },
+      }),
+      "utf8",
+    );
+    const row = runDoctor(withPressure).find("fold 压力");
+    t.eq(row.status, "ok", `有快照应 ok：${JSON.stringify(row)}`);
+    t.includes(row.detail, "70%", `必须给百分比：${row.detail}`);
+    t.includes(row.detail, "136,121", "必须给距阈值还差多少（带千分位）");
+  } finally {
+    nodeFs.rmSync(withPressure, { recursive: true, force: true });
+  }
+
+  const without = makeHome();
+  try {
+    nodeFs.writeFileSync(
+      nodePath.join(without, "chess-context", "ledger-budget.json"),
+      JSON.stringify({ samples: 1, none: 1, "over-budget": 0, impossible: 0, provenanceMin: 1 }),
+      "utf8",
+    );
+    const row = runDoctor(without).find("fold 压力");
+    t.eq(row.status, "warn", `无快照应 warn：${JSON.stringify(row)}`);
+    t.includes(row.detail, "未采集", "必须写未采集（不能假装健康）");
+  } finally {
+    nodeFs.rmSync(without, { recursive: true, force: true });
+  }
+};

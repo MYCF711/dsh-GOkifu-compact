@@ -366,6 +366,37 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // ★ A2-2：原子写与失败收敛都在 R01（`persistBudget` 返回 {ok,error}，不抛）。
     this.persist.persistBudget(this.ledgerBudget);
   }
+
+  /**
+   * ★ C197：把「当前 token 压力 vs 触发阈值」记进 `ledger-budget.json`。
+   *
+   * 为什么需要：C196 发现「本会话距上次 fold 已 +13k 事件却没有新 foldMark」，
+   * 但 doctor 看不到**当前 token 数**，无法判断是「还没到阈值」还是「fold 根本没被调用」。
+   * 记下 `tokens / threshold / 距阈值还差多少`，这个疑问下次就有数字可查。
+   *
+   * 节流：同一会话 60 秒内或 token 变化 < 2% 时不重写（避免每步都落盘）。
+   */
+  #recordPressure(session, tokens, threshold, trigger) {
+    try {
+      const now = Date.now();
+      const prev = this.ledgerBudget.pressure && typeof this.ledgerBudget.pressure === "object" ? this.ledgerBudget.pressure : null;
+      const sameSession = prev !== null && prev.session === session.id;
+      const recent = sameSession && now - (Number(prev.at) || 0) < 60_000;
+      const barelyMoved = sameSession && Number.isFinite(prev.tokens) && Math.abs(tokens - prev.tokens) < Math.max(1000, prev.tokens * 0.02);
+      if (prev !== null && (recent || barelyMoved)) return;
+      this.ledgerBudget.pressure = {
+        session: session.id,
+        tokens: Math.round(tokens),
+        threshold: Math.round(threshold),
+        remaining: Math.max(0, Math.round(threshold - tokens)),
+        trigger,
+        at: now,
+      };
+      this.#persistLedgerBudget();
+    } catch {
+      /* 观测失败不许影响压缩 */
+    }
+  }
   /* ────────────────────────── 棋谱状态 ────────────────────────── */
 
   /** 会话的棋谱目录（三层树就长在这里：index.md + nodes/<id>.md + graph.json）。 */
@@ -892,6 +923,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const reserved = session.requestHeader()?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
       // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
       spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
+      // ★ C197：无论是否触发，都记一次「压力快照」（节流在方法内），让 doctor 能回答「还差多少」
+      this.#recordPressure(session, measurement.totalTokens, spec.thresholdTokens, trigger);
       if (measurement.totalTokens < spec.thresholdTokens) return null;
       const prune = this.ctx.get("toolResultPruner");
       if (prune !== undefined) {

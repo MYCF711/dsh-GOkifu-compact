@@ -997,6 +997,25 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       !hasSkipStats || hitRate === null
         ? " · 清单写入=未采集（旧版本没有 skipReasons）"
         : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）`;
+/* ★ C197：token 压力快照 —— 回答「为什么还不 fold」：是没到阈值，还是根本没被调用。 */
+{
+  const pressure = stats && typeof stats === "object" && stats.pressure && typeof stats.pressure === "object" ? stats.pressure : null;
+  if (pressure === null) {
+    add("fold 压力（token / 阈值）", "warn", "未采集（`ledger-budget.json` 里还没有 `pressure` —— 该字段 C197 起才写）");
+  } else {
+    const tokens = Number(pressure.tokens) || 0;
+    const threshold = Number(pressure.threshold) || 0;
+    const pct = threshold > 0 ? Math.round((tokens / threshold) * 100) : 0;
+    const ago = Number.isFinite(pressure.at) ? Math.max(0, Math.round((Date.now() - pressure.at) / 1000)) : null;
+    add(
+      "fold 压力（token / 阈值）",
+      "ok",
+      `${tokens.toLocaleString()} / ${threshold.toLocaleString()}（${pct}%）· 距阈值还差 ${(Number(pressure.remaining) || 0).toLocaleString()} · 触发=${pressure.trigger ?? "—"}` +
+        (ago === null ? "" : ` · ${ago}s 前更新`),
+    );
+  }
+}
+
     add(
       "热清单预算（fallback）",
       impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
