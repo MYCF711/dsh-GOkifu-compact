@@ -1234,6 +1234,21 @@ function scheduleHomePatchHeal(ctx) {
   });
 }
 
+/**
+ * ★ C372：**路由自愈**。真机事故：插件在 GUI 进程里被热重载/卸载后，
+ * `/gokifu/api` 变成 404/405，而没有任何东西会把它装回去。
+ * 这里把注册包成**幂等**的 `ensureUiRoute`：已注册就直接返回；
+ * 卸载（dispose）后重置标志 ⇒ 下一次探测能重新装上。
+ */
+let uiRouteRegistered = false;
+
+export function ensureUiRoute(ctx) {
+  if (uiRouteRegistered) return false;
+  if (!ctx?.webServer || typeof ctx.webServer.register !== "function") return false;
+  apply(ctx);
+  return true;
+}
+
 export function apply(ctx) {
   scheduleHomePatchHeal(ctx);
   // 绑定 0.0.0.0 = 本机之外也能访问。**这不构成放行理由**（task-34）：
@@ -1481,8 +1496,10 @@ export function apply(ctx) {
       mark({ state: "failed", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, error: String(error?.message ?? error).slice(0, 160), ...stampOf() });
       throw error;
     }
+    uiRouteRegistered = true;
     mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
     return () => {
+      uiRouteRegistered = false;
       mark({ state: "closed", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
       if (typeof dispose === "function") dispose();
     };

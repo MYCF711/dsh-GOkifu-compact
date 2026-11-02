@@ -1089,6 +1089,14 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         const session = payload.agent.session;
         const st = this.#runtimeFor(session);
         // ★ A2-3：注入策略全在 R08（hot-inject）。engine 只负责端口注入与预算消费。
+        // ★ C372：**路由自愈**——面板路由被热重载弄丢后，没有任何东西会把它装回去。
+        //   这里每次轮到与模型交互时顺手尝一下（幂等，已注册就直接返回）。
+        try {
+          const ui = await import("./ui.mjs");
+          ui.ensureUiRoute?.(this.ctx);
+        } catch {
+          /* 自愈失败不影响主流程 */
+        }
         const result = decideInjection({
           session,
           graph: this.#graph(session),

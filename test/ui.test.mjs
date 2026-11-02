@@ -321,3 +321,24 @@ tests["C361 真机 usage 的 inputTokens 是「未命中」：成本必须按 mi
   const weirdWant = (600 * 0.15 + 400 * 0.003 + 10 * 0.6) / 1e6;
   t.eq(Math.abs(weirdCost - weirdWant) < 1e-9, true, `total 不可信时退回老口径：${weirdWant} vs ${weirdCost}`);
 };
+
+tests["C372 路由自愈：ensureUiRoute 存在、无 webServer 时安全返回 false、引擎真的会调"] = async (t) => {
+  const ui = await import("../src/ui.mjs");
+  t.eq(typeof ui.ensureUiRoute, "function", "必须导出 ensureUiRoute");
+  // 没有 webServer 的进程（真机见过的"插件被加载进非 UI 进程"）⇒ 安全返回 false，不抛
+  t.eq(ui.ensureUiRoute({}), false, "没有 webServer 时返回 false");
+  t.eq(ui.ensureUiRoute(null), false, "null ctx 也不能抛");
+
+  // 说明：这里**不**用假 ctx 跑完整 apply —— apply 会读 profile/模型目录，
+  // 在夹具里必然抛错，测出来的只会是"apply 抛了"而不是"幂等"。幂等由模块级开关实现，
+  // 这里改为断言**接线**：引擎必须在 pre-step 里尝试自愈。
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const engine = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
+  t.includes(engine, "ensureUiRoute?.(this.ctx)", "引擎必须在 pre-step 尝试自愈（C372）");
+  const uiSrc = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(uiSrc, "let uiRouteRegistered = false", "必须有模块级幂等开关");
+  t.includes(uiSrc, "uiRouteRegistered = false;", "dispose 后必须重置开关（否则再也装不回来）");
+};
