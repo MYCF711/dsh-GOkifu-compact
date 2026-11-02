@@ -5,6 +5,28 @@
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
 
+### C159 · 真 tarball 的安装形态冒烟：`import("dsh-gokifu-compact/graph")` 必须可用
+
+**为什么 C155 不够**：C155 只验证「`npm pack --dry-run` 的清单里有没有文件」——
+它看不到 **`exports` 指向的文件是否真的存在 / 能否被解析**。而用户那边就是
+`npm i` → `import` 两步，任何一步断都是 404。
+
+**做法**（`package-exports` 新增 **C159**，全程离线）：
+
+1. `npm pack --pack-destination <tmp>` 打**真 tarball**；
+2. 解包 → 摆成真实安装形态 `app/node_modules/dsh-gokifu-compact`；
+3. 在**只依赖这个包**的临时 app 里 `import("dsh-gokifu-compact/graph")` 与 `import("…/persist")`，
+   断言两个 `typeof` 都是 `function`。
+
+**结果**：通过 —— **tarball 形态下两条子路径都能解析并拿到真实导出**（包内 129 files / 18 房间）。
+
+**三个 Windows 实现坑（都记下来）**：
+
+1. `tar -xzf <含反斜杠的绝对路径> -C <绝对路径>` 会**静默解到别处**（`tar` 退出码 0 但没有 `package/`）——
+   改成「把 tgz 拷进解包目录 → `tar -xzf pkg.tgz` 用相对名」；
+2. `--strip-components=1` 与 `-C` 组合在 MSYS 下不稳 → 改成「先解出 `package/`，再 `fs.cpSync` 搬到目标」；
+3. 测试标题里塞了带引号的表达式，把 JS 字符串写断了 —— 标题保持纯中文描述。
+
 ### C158 · 现行文档测试数必须彼此一致（一处更新、一处忘的整治）
 
 **发现**：C157 巡检时对比发现，`docs/压缩的重注入契约.md` 与 `docs/发布就绪-2026-11-02.md`

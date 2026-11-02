@@ -188,3 +188,42 @@ tests["C155 打包清单必须包含全部运行时文件（新增房间漏进 f
   // ③ 量级守卫：包内文件数不应异常缩水（历史 128→129）
   t.eq(info.files.length >= 100, true, `包内文件数异常偏少：${info.files.length}`);
 };
+
+tests["C159 真 tarball 安装形态：解包后 import 子路径必须可用（files 漏项在用户端就是 404）"] = (t) => {
+  const REPO = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
+  const tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-tgz-"));
+  try {
+    // ① 打真包（写到临时目录，不污染仓库）
+    const packed = spawnSync(`npm pack --pack-destination "${tmp}"`, { cwd: REPO, encoding: "utf8", shell: true });
+    t.eq(packed.status, 0, `npm pack 必须成功：${String(packed.stderr ?? "").slice(0, 200)}`);
+    const tgz = nodeFs.readdirSync(tmp).find((f) => f.endsWith(".tgz"));
+    t.eq(!!tgz, true, "必须产出 .tgz");
+
+    // ② 解成 tarball 的真实安装形态：app/node_modules/dsh-gokifu-compact
+    const app = nodePath.join(tmp, "app");
+    const mod = nodePath.join(app, "node_modules", "dsh-gokifu-compact");
+    // 先解到临时目录再把 `package/` 搬过去 —— 不用 --strip-components（Windows 下 tar 对 -C 的路径处理不稳）
+    const xdir = nodePath.join(tmp, "x");
+    nodeFs.mkdirSync(xdir, { recursive: true });
+    // tar 在 Windows 下对含反斜杠的绝对路径不稳：把 tgz 拷进解包目录后用**相对名**解
+    nodeFs.copyFileSync(nodePath.join(tmp, tgz), nodePath.join(xdir, "pkg.tgz"));
+    const untar = spawnSync("tar -xzf pkg.tgz", { cwd: xdir, encoding: "utf8", shell: true });
+    t.eq(untar.status, 0, `解包必须成功：${String(untar.stderr ?? "").slice(0, 200)}`);
+    const extracted = nodePath.join(xdir, "package");
+    t.eq(nodeFs.existsSync(nodePath.join(extracted, "package.json")), true, "tarball 里必须有 package/package.json");
+    nodeFs.mkdirSync(nodePath.dirname(mod), { recursive: true });
+    nodeFs.cpSync(extracted, mod, { recursive: true });
+
+    // ③ 在**只依赖这个包**的临时 app 里 import 子路径 —— 缺文件/缺 exports 会在这里炸
+    nodeFs.writeFileSync(nodePath.join(app, "package.json"), JSON.stringify({ name: "app", type: "module", version: "0.0.0" }), "utf8");
+    const probe = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", 'const g = await import("dsh-gokifu-compact/graph"); const p = await import("dsh-gokifu-compact/persist"); console.log(typeof g.fromJSON === "function" && typeof p.createPersistStore === "function" ? "OK" : "BAD");'],
+      { cwd: app, encoding: "utf8" },
+    );
+    t.eq(probe.status, 0, `tarball 形态下 import 必须成功：${String(probe.stderr ?? "").slice(0, 300)} stdout=${String(probe.stdout ?? "").slice(0, 120)}`);
+    t.includes(String(probe.stdout), "OK", `两个子路径都要拿到真实导出（实际输出：${JSON.stringify(String(probe.stdout ?? ""))}）`);
+  } finally {
+    nodeFs.rmSync(tmp, { recursive: true, force: true });
+  }
+};
