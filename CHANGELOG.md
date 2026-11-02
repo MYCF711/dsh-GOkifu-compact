@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C382 | 学了 Responses API：超窗 400 不是永久错误 |
 | C381 | 结论速查补 A23–A27 + 守卫 |
 | C380 | 初始化失败也要能回答「为什么坏了」（兜底路由） |
 | C379 | doctor 指向 backfill-plan（补账要可发现） |
@@ -457,6 +458,18 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C382 · 学了 Responses API：超窗 400 不是永久错误
+
+官方：`previous_response_id`/`conversation`/`store` 全不支持（stateless），`truncation` 也不支持
+—— **超出上下文窗口的请求直接返回 400**。
+
+而我们把所有 400 当永久错误 ⇒ 遇到超窗会退避到上限 + 强制规则摘要，而不是"再折一段"。
+
+- `isPermanentSummaryError()` 先排除超窗文案（context length / context window / too long / too many tokens / exceeds the context）；
+- 测试 `engine-harness` C382：5 种超窗写法非永久；普通 400/401/422 仍永久；429 仍可重试。
+
+**教训**：同一个状态码可以是完全相反的处置方式 —— 400 不是一种错误，是一类。
 
 ### C381 · 结论速查补 A23–A27 + 守卫
 
