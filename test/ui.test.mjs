@@ -260,3 +260,22 @@ tests["C282 图缓存必须 LRU 淘汰，不许「满了就全清」（那是一
   t.includes(src, "lruSet(GRAPH_CACHE, entry.file, cached)", "命中路径必须续命");
   t.eq(src.includes("GRAPH_CACHE.clear()"), false, "不许再有「满了全清」");
 };
+
+tests["C345 折叠成本必须按**实际模型**计价：pro 比 flash 贵 3.3–4.4 倍"] = async (t) => {
+  const { estimateFoldCostUsd, priceForModel, PRICE_USD_PER_MTOK, MODEL_PRICES_USD_PER_MTOK } = await import("../src/ui.mjs");
+  const usage = { inputTokens: 1_000_000, cacheReadTokens: 500_000, outputTokens: 100_000 };
+
+  const flash = estimateFoldCostUsd(usage, "deepseek-flash");
+  const pro = estimateFoldCostUsd(usage, "deepseek-v4-pro");
+  t.eq(pro > flash, true, "pro 必须比 flash 贵");
+  // 手算 flash：(500k miss×0.15 + 500k hit×0.003 + 100k out×0.6)/1M = 0.075+0.0015+0.06
+  t.eq(Math.abs(flash - 0.1365) < 1e-9, true, `flash 手算应为 0.1365，实际 ${flash}`);
+  t.eq(Math.abs(pro - 0.539) < 1e-9, true, `pro 手算应为 0.539，实际 ${pro}`);
+
+  // 认不出 / 不传模型 ⇒ 回落 flash（下限估算），且要能看出"没匹配上"
+  t.eq(priceForModel("some-other-model").matched, false, "认不出必须标 matched=false");
+  t.eq(priceForModel(undefined).miss, PRICE_USD_PER_MTOK.miss, "不传模型回落 flash");
+  t.eq(priceForModel("deepseek-v4-pro").out, 1.98, "pro 输出价 1.98");
+  // 两张表都要有出处
+  t.eq(MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"].miss, 0.66, "pro miss 0.66");
+};

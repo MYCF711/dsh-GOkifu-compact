@@ -1,5 +1,5 @@
 {
-  "total": 753,
+  "total": 754,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -102,7 +102,7 @@
     "ui-perf.test.mjs": 10,
     "ui-security.test.mjs": 25,
     "ui-update.test.mjs": 16,
-    "ui.test.mjs": 4,
+    "ui.test.mjs": 5,
     "unverified-tier.test.mjs": 4,
     "user-patch-heal.test.mjs": 10,
     "user-patch-shadow.test.mjs": 5,

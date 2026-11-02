@@ -324,13 +324,44 @@ export const PRICE_USD_PER_MTOK = Object.freeze({
   out: 0.6, // 输出（低峰）
 });
 
-export function estimateFoldCostUsd(usage) {
+/**
+ * ★ C345：**官方是两个模型、两种价**（2026-11-03 抓 <https://api-docs.deepseek.com/quick_start/pricing>）：
+ *
+ * | 每 1M token（低峰） | deepseek-flash | deepseek-v4-pro |
+ * |---|---|---|
+ * | 输入 cache hit | $0.003 | $0.022 |
+ * | 输入 cache miss | $0.15 | $0.66 |
+ * | 输出 | $0.6 | $1.98 |
+ *
+ * 差别是 **3.3×–4.4×**。此前 `estimateFoldCostUsd` 一律按 flash 算 ——
+ * 如果用户跑的是 pro，面板上的"今日折叠成本"会**低报 4 倍多**。
+ * 低报比不报更糟：它让人以为很便宜。
+ */
+export const MODEL_PRICES_USD_PER_MTOK = Object.freeze({
+  "deepseek-flash": PRICE_USD_PER_MTOK,
+  "deepseek-v4-pro": Object.freeze({ miss: 0.66, hit: 0.022, out: 1.98 }),
+});
+
+/**
+ * 按模型名挑单价。认不出的名字一律回落到 flash（= 下限估算），并在调用方标注"按 flash 估"。
+ * @param {string} [model]
+ * @returns {{miss:number, hit:number, out:number, matched:boolean}}
+ */
+export function priceForModel(model) {
+  const key = String(model ?? "").trim().toLowerCase();
+  if (key.includes("pro")) return { ...MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"], matched: true };
+  if (key.includes("flash")) return { ...PRICE_USD_PER_MTOK, matched: true };
+  return { ...PRICE_USD_PER_MTOK, matched: false };
+}
+
+export function estimateFoldCostUsd(usage, model = usage?.model) {
   const input = Number(usage?.inputTokens);
   if (!Number.isFinite(input) || input < 0) return null;
   const hit = Math.max(0, Math.min(input, Number(usage?.cacheReadTokens) || 0));
   const miss = input - hit;
   const output = Math.max(0, Number(usage?.outputTokens) || 0);
-  const p = PRICE_USD_PER_MTOK;
+  // ★ C345：按**实际模型**计价（认不出回落 flash = 下限估算）
+  const p = priceForModel(model);
   return (miss * p.miss + hit * p.hit + output * p.out) / 1e6;
 }
 
