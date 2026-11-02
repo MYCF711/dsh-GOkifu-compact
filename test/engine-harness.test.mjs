@@ -1999,7 +1999,7 @@ tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usag
   if (engine._lastSummaryModelText !== undefined) throw new Error("模型文本也必须清空");
 };
 
-tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型调用），越界后恢复；overflow 不受限"] = async () => {
+tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型调用），越界后恢复；overflow 前 3 次不受限"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c177-backoff");
   const ctx = makeCtx({ measureTotal: () => 300_000 });
@@ -2049,10 +2049,55 @@ tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型
     } catch {
       threw3 = true;
     }
-    if (!threw3) throw new Error("overflow 必须尝试（不受退避限制）");
+    if (!threw3) throw new Error("overflow 前 3 次必须尝试（C179 起从第 4 次才有上限）");
     if (attempts !== 3) throw new Error(`overflow 应再尝试一次，实际 ${attempts}`);
   } finally {
     engine.compactRegion = original;
   }
 
+};
+
+tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场景不许每步都跑一次模型）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c179-overflow-cap");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c179");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const original = engine.compactRegion.bind(engine);
+  let attempts = 0;
+  engine.compactRegion = async () => {
+    attempts += 1;
+    throw new Error("injected-always-boom");
+  };
+  try {
+    // 连续 3 次 overflow 尝试（前 3 次允许 —— 自救优先）
+    for (let i = 0; i < 3; i += 1) {
+      session.nextSeq();
+      try {
+        await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+      } catch {
+        /* 预期抛错 */
+      }
+    }
+    if (attempts !== 3) throw new Error(`前 3 次 overflow 应各尝试一次（期望 3，实际 ${attempts}）`);
+
+    // 第 4 次（仍在窗口内）：必须直接跳过
+    session.nextSeq();
+    const fourth = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+    if (fourth !== null) throw new Error(`第 4 次 overflow 在窗口内必须返回 null，实际 ${JSON.stringify(fourth)}`);
+    if (attempts !== 3) throw new Error(`第 4 次不许再尝试（应仍为 3，实际 ${attempts}）`);
+
+    // 推进事件越过窗口：允许再试
+    for (let i = 0; i < 300; i += 1) session.nextSeq();
+    try {
+      await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
+    } catch {
+      /* 预期抛错 */
+    }
+    if (attempts !== 4) throw new Error(`越过窗口后应允许再试（期望 4，实际 ${attempts}）`);
+  } finally {
+    engine.compactRegion = original;
+  }
 };
