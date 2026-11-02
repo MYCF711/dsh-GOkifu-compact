@@ -15,8 +15,11 @@ const ROOT = nodePath.resolve(HERE, "..");
 export const tests = {};
 
 tests["C272 门禁清单：六道门一个都不能少，且每道门指向的脚本真实存在"] = (t) => {
-  const ids = GATES.map((g) => g.id).sort();
-  t.eq(ids, ["boundary", "changelog-index", "docs-index", "handoff", "pack", "test"], "门禁清单必须等于这六项");
+  // ★ C273：判分门 6 项 + 参考门 1 项（维护性卡在"需主人授权打 tag/发版"，不能当门禁红）
+  const judged = GATES.filter((g) => g.advisory !== true).map((g) => g.id).sort();
+  const advisory = GATES.filter((g) => g.advisory === true).map((g) => g.id);
+  t.eq(judged, ["boundary", "changelog-index", "docs-index", "handoff", "pack", "test"], "判分门必须等于这六项");
+  t.eq(advisory, ["maintenance"], "参考门目前只有维护性检查一项（卡在授权上的那些）");
 
   for (const gate of GATES) {
     const rel = gate.script.startsWith("test/") ? gate.script : nodePath.join("scripts", gate.script);
@@ -27,6 +30,10 @@ tests["C272 门禁清单：六道门一个都不能少，且每道门指向的�
   // pack 是唯一可跳过的（慢 + 需要磁盘），跳过得有显式理由字段
   const optional = GATES.filter((g) => g.optional === true).map((g) => g.id);
   t.eq(optional, ["pack"], "只有 pack 允许被 --no-pack 跳过");
+  // 参考门永远不许影响退出码（否则"没发版"会把门禁钉死成红）
+  for (const gate of GATES.filter((g) => g.advisory === true)) {
+    t.eq(gate.optional === true, false, `${gate.id} 是参考门，不该同时是 optional（语义要分清）`);
+  }
 };
 
 tests["C272 package.json 暴露 gate 命令（不然没人知道有这条）"] = (t) => {

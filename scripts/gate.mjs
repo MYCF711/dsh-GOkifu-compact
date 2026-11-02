@@ -1,16 +1,20 @@
 /**
- * gate.mjs —— **一条命令跑完所有门禁**（C272）
+ * gate.mjs —— **一条命令跑完所有门禁**（C272 / C273）
  *
  * 为什么要有它：合并/交付前要跑的东西散在六个脚本里（测试、越权审计、文档索引、CHANGELOG 索引、
  * 交接检查、打包可复现），每一步的命令和判据都在不同文件里。人手跑必然漏——
  * 本会话就漏过一次「文档里的测试数没跟着更新」。
  *
+ * 两类门：
+ *   · **判分门**（judged）—— 失败即门禁红，退出码 1；
+ *   · **参考门**（advisory）—— 只报告不判分。用于"卡在需要主人授权"的那些（打 tag / 发版）：
+ *     它们不能让门禁永远红，但必须在同一条输出里出现，否则没人看见。
+ *
  * 用法：
  *   node scripts/gate.mjs              # 全跑
- *   node scripts/gate.mjs --no-pack    # 跳过 npm pack（慢，且需要网络/磁盘）
- *   node scripts/gate.mjs --quiet      # 只打印汇总（子进程输出收起来）
+ *   node scripts/gate.mjs --no-pack    # 跳过 npm pack（慢，且需要磁盘）
  *
- * 退出码：全部通过 0；任一失败 1（并逐条列出失败的门）。
+ * 退出码：判分门全部通过 0；任一判分门失败 1。
  */
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,9 +23,12 @@ import { spawnSync } from "node:child_process";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
 /**
  * 门禁清单（顺序 = 从便宜到贵；失败时先看到便宜的那几条，反馈更快）。
- * `expect` = 通过时该步的输出特征；匹配不到也算失败（防止"命令退出 0 但其实没跑"）。
+ * `expect` = 通过时该步的输出特征（正则），也可以是 `(out) => ({ ok, note })`。
+ * 光有退出码 0 不算过 —— 否则"命令没报错但什么都没检查"会被当成绿。
  */
 export const GATES = Object.freeze([
   { id: "boundary", name: "越权审计 0 条", script: "boundary-audit.mjs", expect: /越界线索 0 条/ },
@@ -43,50 +50,76 @@ export const GATES = Object.freeze([
   // 从仓库根跑：部分测试按 CWD 解析路径（在 test/ 下跑会 ENOENT）
   { id: "test", name: "全量测试全绿", script: "test/run.mjs", expect: /0 failed/ },
   { id: "pack", name: "打包内容可从任意 commit 复现", script: "pack-check.mjs", expect: /打包内容全部有出处/, optional: true },
+  {
+    id: "maintenance",
+    name: "维护性（版本 / tag / 发版）—— 仅供参考，不算门禁",
+    script: "check-maintenance.mjs",
+    // ★ C273：这条卡在**需要主人授权**（打 tag / npm publish）上，不能当门禁红；
+    //   但必须在同一条命令的输出里出现，否则"没发版"永远没人看见。
+    advisory: true,
+    ignoreExit: true,
+    expect: /通过 \d+/,
+  },
 ]);
 
+function scriptPathOf(gate) {
+  return gate.script.startsWith("test/")
+    ? nodePath.join(ROOT, "test", "run.mjs")
+    : nodePath.join(ROOT, "scripts", gate.script);
+}
+
 function runOne(gate) {
-  const cwd = gate.dir === "test" ? nodePath.join(ROOT, "test") : ROOT;
-  // 一律从仓库根跑（部分测试按 CWD 解析相对路径，在 test/ 下跑会 ENOENT）
-  const script = gate.script.startsWith("test/") ? nodePath.join(ROOT, "test", "run.mjs") : nodePath.join(ROOT, "scripts", gate.script);
   const started = Date.now();
-  const res = spawnSync(process.execPath, [script, ...(gate.args ?? [])], {
+  const res = spawnSync(process.execPath, [scriptPathOf(gate), ...(gate.args ?? [])], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
   const ms = Date.now() - started;
-  const stdout = String(res.stdout ?? "");
-  const stderr = String(res.stderr ?? "");
-  const out = `${stdout}\n${stderr}`;
-  // 期望值可以是正则（默认）也可以是函数（返回 {ok, note}）——有的门"非 0 退出"本身就是结论
+  const out = `${String(res.stdout ?? "")}\n${String(res.stderr ?? "")}`;
   const verdict = typeof gate.expect === "function" ? gate.expect(out) : { ok: gate.expect.test(out), note: undefined };
   const ok = verdict.ok === true && (res.status === 0 || gate.ignoreExit === true);
   return { ...gate, ok, note: verdict.note, ms, status: res.status, out };
 }
 
+/** 参考门的结论行：把"通过 N · 警告 M · 失败 K"和第一条 ✗ 摘出来。 */
+function advisorySummary(out) {
+  const plain = out.replace(ANSI, "");
+  const stat = (plain.match(/通过\s+\d+\s*·\s*警告\s+\d+\s*·\s*失败\s+\d+/) ?? [])[0];
+  if (stat === undefined) return null;
+  const bad = (plain.match(/✗[^\n]*/) ?? plain.match(/![^\n]*/) ?? [])[0];
+  return bad === undefined ? stat.trim() : `${stat.trim()} · ${bad.trim()}`;
+}
+
 export function main(argv = process.argv.slice(2)) {
   const skipPack = argv.includes("--no-pack");
-  const quiet = argv.includes("--quiet");
   const gates = GATES.filter((g) => !(skipPack && g.optional));
 
   const results = [];
   for (const gate of gates) {
     const r = runOne(gate);
     results.push(r);
-    const mark = r.ok ? "✓" : "✗";
-    process.stdout.write(`  ${mark} ${r.name}（${(r.ms / 1000).toFixed(1)}s）\n`);
+    const mark = r.advisory === true ? "—" : r.ok ? "✓" : "✗";
+    process.stdout.write(`  ${mark} ${r.name}（${(r.ms / 1000).toFixed(1)}s）${r.advisory !== true && r.note ? ` — ${r.note}` : ""}\n`);
+    if (r.advisory === true) {
+      const summary = advisorySummary(r.out);
+      if (summary !== null) process.stdout.write(`     ↳ ${summary}\n`);
+      continue;
+    }
     if (!r.ok) {
       // 失败时把子进程的输出尾部贴出来 —— 否则"为什么红"还要再跑一遍才知道
-      const tail = r.out.trim().split("\n").slice(-12).join("\n");
+      const tail = r.out.replace(ANSI, "").trim().split("\n").slice(-12).join("\n");
       process.stdout.write(`     ↳ exit=${r.status}\n${tail.replace(/^/gm, "     ")}\n`);
     }
   }
 
-  const failed = results.filter((r) => !r.ok);
+  const judged = results.filter((r) => r.advisory !== true);
+  const failed = judged.filter((r) => r.ok !== true);
+  const advisory = results.filter((r) => r.advisory === true);
   const total = results.reduce((sum, r) => sum + r.ms, 0);
   process.stdout.write(
-    `\n${failed.length === 0 ? "✅" : "❌"} 门禁 ${results.length - failed.length}/${results.length} 通过，用时 ${(total / 1000).toFixed(1)}s` +
+    `\n${failed.length === 0 ? "✅" : "❌"} 门禁 ${judged.length - failed.length}/${judged.length} 通过，用时 ${(total / 1000).toFixed(1)}s` +
+      (advisory.length > 0 ? `（另有 ${advisory.length} 条仅供参考）` : "") +
       (skipPack ? "（已跳过 pack）" : "") +
       "\n",
   );
