@@ -2226,3 +2226,30 @@ tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/com
   if (Object.prototype.hasOwnProperty.call(engine.compactRegion, "prototype")) throw new Error("compactRegion 也必须是 bound function");
   if (typeof engine.compactIfNeeded !== "function") throw new Error("compactIfNeeded 仍必须可调用");
 };
+
+tests["C215 就算整个对象被换成代理：入口方法也能按 ctx 反查真身（不再抛 Receiver must be an instance）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c215-proxy");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c215");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  // 模拟「宿主持有的是代理对象」：只有 ctx，方法来自原型
+  const proxyLike = { ctx, compactNow: Engine.prototype.compactNow, compactRegion: Engine.prototype.compactRegion };
+  // ① 原型方法 + 外来 this ⇒ 必须转调真身而不是抛私有品牌错误
+  await proxyLike.compactNow.call(proxyLike, { session, options: {} }, undefined, "cmd-proxy");
+  const nodes = session.surface.nodes;
+  await proxyLike.compactRegion.call(proxyLike, nodes[1], nodes[nodes.length - 1], { session, options: {} }, undefined);
+
+  // ② 真身仍可用（guard 不能把正常路径带坏）—— 已经折过，返回 null 也算正常，**不许抛**
+  const again = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!(again === null || again === undefined || typeof again === "object")) throw new Error(`真身调用必须返回对象或 null，实际 ${typeof again}`);
+  // ③ 没有 ctx 登记的陌生 this：回退到原样执行（guard 不许凭空造 owner）
+  const stranger = { ctx: {} };
+  const owner = Object.getPrototypeOf(Engine.prototype);
+  if (typeof owner?.compactNow === "function") {
+    // 桩基类可调用；关键是「不因为 guard 抛异常」
+    await Engine.prototype.compactNow.call(stranger, { session, options: {} }, undefined, "cmd-stranger");
+  }
+};

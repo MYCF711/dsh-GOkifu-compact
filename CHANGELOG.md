@@ -5,6 +5,7 @@
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
 | C206 | ✅ **新代码在真机上跑出了两次真实折叠**（发布门槛的最后一项满足） |
+| C215 | 再补一层：整个对象被换成代理时也能按 `ctx` 反查真身 |
 | C214 | 手动 `/compact` 必炸、自动 fold 正常 —— 原因是「方法被摘下来调」 |
 | C213 | 探针：压缩引擎那一组到底挂了谁（`probe-compaction-wiring.mjs`） |
 | C212 | 真机事故：手动 `/compact` 抛「Receiver must be an instance of class… |
@@ -236,7 +237,11 @@
 原因：`command-compact` 调 `ctx.compaction.compactNow(...)` 时 `this` 不是引擎实例（方法被摘下/经代理转调），
 `super.compactNow(...)` 的私有品牌检查直接抛。自动路径是我们自己 `this.compactIfNeeded(...)`，所以从不触发。
 
-修法：构造时把 `compactNow` / `compactRegion` / `compactIfNeeded` **绑定到自身**。
+修法（两层）：
+
+1. **C214**：构造时把 `compactNow` / `compactRegion` / `compactIfNeeded` **绑定到自身**（方法被摘下来调也安全）；
+2. **C215**：入口方法按 `ctx` 反查真身（`ENGINE_BY_CTX`）—— 整个对象被换成代理时也能转调真身。
+
 升到 1.17.4，**重启后生效**。
 
 ## 1.17.3（2026-11-02）
@@ -346,6 +351,25 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 
 **测试 C206**（doctor-cli）：只有 tier2 的越界 id ⇒ **不许出现该行**；常规 fold 的越界 id ⇒ **必须报**并点名 id。
 
+
+### C215 · 再补一层：整个对象被换成代理时也能按 `ctx` 反查真身
+
+C214 的 `bind` 解决了「**方法**被摘下来调」。但还有一种更狠的：宿主持有的是**整个对象**
+（代理 / `{ctx, compactNow(){…}}` 这类），`this` 依然不是引擎 —— 私有字段的 brand check 照样抛。
+
+**做法**（回退路，不改正常路径）：模块级 `ENGINE_BY_CTX = new WeakMap()`，构造时登记 `ctx → 引擎`；
+三个入口（`compactNow` / `compactRegion` / `compactIfNeeded`）第一行反查：
+
+```js
+const owner = ENGINE_BY_CTX.get(this?.ctx);
+if (owner !== undefined && owner !== this) return owner.compactNow(agent, signal, sourceCommandId);
+```
+
+- `ctx` 没登记（陌生对象）⇒ 原样执行，**不凭空造 owner**；
+- 正常路径不变（`owner === this` 时零开销）。
+
+**测试 C215**：用「只有 ctx、方法取自原型」的代理对象调用 `compactNow` / `compactRegion` ⇒ 不抛、走真身；
+真身随后调用仍返回对象或 `null`（guard 不许把正常路径带坏）；没有登记的陌生 `this` 也不抛。
 
 ### C214 · 手动 `/compact` 必炸、自动 fold 正常 —— 原因是「方法被摘下来调」
 

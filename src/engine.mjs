@@ -284,6 +284,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   constructor(ctx, config = {}) {
     super(ctx, pickBase(config));
     this.chess = resolveChess(config);
+    if (ctx !== null && typeof ctx === "object") {
+      try {
+        ENGINE_BY_CTX.set(ctx, this);
+      } catch {
+        /* WeakMap 只接受对象；ctx 异常时忽略（不影响压缩） */
+      }
+    }
 
     // ★ C214（真机复现：手动 `/compact` 必炸、自动 fold 正常）：
     //   手动走 `ctx.compaction.compactNow(...)`，如果**调用方把方法摘下来再调用**
@@ -819,6 +826,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * 这里在事务入口设置、finally 恢复（prev 支持嵌套）。
    */
   async compactRegion(start, end, agent, signal) {
+    const ownerRegion = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerRegion !== undefined && ownerRegion !== this) return ownerRegion.compactRegion(start, end, agent, signal);
     const prev = this._chessActiveRange ?? null;
     // ★ C198：**宿主直接调用** `compactRegion`（不走我们的 compactIfNeeded / compactNow）时，
     //   以前完全不留账 —— live 上表现为「上下文明显在被压（checkpoint 一条条出现），但 foldMarks 一动不动」，
@@ -922,6 +931,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *     `name` / `code` / `cause` / `stack` 全部保留（宿主按 code 分类，不按 message）。
    */
   async compactNow(agent, signal, sourceCommandId) {
+    const ownerNow = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerNow !== undefined && ownerNow !== this) return ownerNow.compactNow(agent, signal, sourceCommandId);
     this._manualCompactDepth = (this._manualCompactDepth ?? 0) + 1;
     try {
       const result = await super.compactNow(agent, signal, sourceCommandId);
@@ -993,6 +1004,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   /* ─────────────────── 触发策略：growth-gated 增量 fold ─────────────────── */
 
   async compactIfNeeded(agent, trigger, signal) {
+    const ownerNeeded = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal);
     const session = agent.session;
     const target = routedTarget(session);
     if (target === undefined) return null;
@@ -1342,6 +1355,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 }
 
 /* ────────────────────────────── 辅助 ────────────────────────────── */
+
+/**
+ * ★ C215：`ctx` → 真正的引擎实例。
+ *
+ * 为什么需要：C214 用 bind 解决了「方法被摘下来调」，但如果宿主/包装器把**整个对象**换成代理
+ * （`{ctx, compactNow(){…}}` 或 Proxy），`this` 依然不是引擎 —— 私有字段的 brand check 仍会抛
+ * `Receiver must be an instance of class …`。
+ * 这里留一条**回退路**：入口方法开头用 `ctx` 反查真身，真身不等于 `this` 就转调真身。
+ */
+const ENGINE_BY_CTX = new WeakMap();
 
 /** resolveChess 的键序（与 A2-4 之前逐键同序；`onLedgerBudget` 是 engine 的注入位，不进 SCHEMA）。 */
 const RESOLVE_ORDER = [
