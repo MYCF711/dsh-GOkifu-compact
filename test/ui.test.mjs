@@ -369,3 +369,13 @@ tests["C380 初始化失败必须留一条兜底路由（面板要能回答「�
   // 没有 webServer 的进程：安全返回 false
   t.eq(ui.registerFallbackRoute({}, new Error("x")), false, "没有 webServer 不抛，返回 false");
 };
+
+tests["C396 没有 web 端口的进程不许覆盖心跳（真机：无服务进程把 56319 写成了 null）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, 'payload?.state === "open" && (payload?.port === null', "必须在无端口时不写 open 心跳（C396）");
+  t.includes(src, "return;", "不写就要早退，不许落到 writeFileSync");
+};

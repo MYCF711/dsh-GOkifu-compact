@@ -117,6 +117,23 @@ export function listeningPidOf(netstatText, port) {
   return null;
 }
 
+/**
+ * ★ C395：**字段级陈旧探针**。能力探针只能证明"认不认识某个 action"，
+ * 但我们发布的新东西经常是**新字段**（如 `today.truncated`）。它没出现时，面板看起来一切正常，
+ * 而你却不知道"是没生效还是没数据"。这里把最新字段列成清单直接查。
+ *
+ * @param {any} stateJson 面板 `{"action":"state"}` 的返回
+ * @returns {{ok:boolean, missing:string[]}}
+ */
+export function panelFieldProbe(stateJson) {
+  const missing = [];
+  if (stateJson === null || typeof stateJson !== "object") return { ok: false, missing: ["state 本身不可用"] };
+  const today = stateJson.today;
+  if (today === null || typeof today !== "object") missing.push("today");
+  else if (!Number.isFinite(today.truncated)) missing.push("today.truncated");
+  return { ok: missing.length === 0, missing };
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
@@ -203,7 +220,24 @@ export async function main(argv = process.argv.slice(2)) {
     if (disk === null || heartbeat === null) return { ok: null, disk, heartbeat };
     return { ok: String(disk) === String(heartbeat), disk, heartbeat };
   })();
+  // ★ C395：字段级探针（面板跑的代码是否已含最新字段）
+  const fieldProbe = await (async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "state" }),
+      });
+      return panelFieldProbe(await res.json());
+    } catch {
+      return null;
+    }
+  })();
   const result = verdictOf({ caps, backfill, ...evidence, buildOk: build.ok });
+  if (fieldProbe !== null && !fieldProbe.ok) {
+    result.todo.push(`面板代码比磁盘旧：缺字段 ${fieldProbe.missing.join(" / ")}（需重载或重启才能看到新数据）`);
+    if (result.verdict === "ready") result.verdict = "partial";
+  }
   const ownerNote =
     ownerPid === null || heartbeatPid === null
       ? ""

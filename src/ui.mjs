@@ -1560,8 +1560,13 @@ function applyInner(ctx) {
   //   GET 404 / POST 405，而 doctor、测试、门禁全都绿 —— 面板静默死掉，没人发现。
   //   所以注册时写一份心跳、**卸载时标记关闭**，doctor 读它就能说「面板在某时刻被卸载了，重启恢复」。
   const heartbeat = routeHeartbeatFile();
+  // ★ C396：**无端口的进程不许覆盖心跳**。真机事故（2026-11-03）：
+  //   一个没有 web 服务的进程（pid 14088、port null）把正在服务 56319 的心跳写成了空 ⇒
+  //   所有"读心跳取端口"的工具（accept-after-restart / post-restart-check / doctor）全部读到无效值。
+  //   规则：`state:"open"` 且拿不到端口 ⇒ **不写**（它反正不在服务）；其它状态照写。
   const mark = (payload) => {
     try {
+      if (payload?.state === "open" && (payload?.port === null || payload?.port === undefined)) return;
       nodeFs.writeFileSync(heartbeat, JSON.stringify(payload), "utf8");
     } catch {
       /* 心跳写不了不影响路由本身 */
