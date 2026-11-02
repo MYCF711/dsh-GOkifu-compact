@@ -25,6 +25,7 @@ export const tests = {};
 const CHECKED_DOCS = ["README.md", "docs/压缩的职责边界.md", "docs/压缩的重注入契约.md", "docs/发布就绪-2026-11-02.md"];
 
 const read = (rel) => nodeFs.readFileSync(nodePath.join(REPO, rel), "utf8");
+import { existingIndex, parseEntries, renderIndex } from "../scripts/changelog-index.mjs";
 
 tests["C100-1 文档「boundary-audit N 条规则」必须等于 RULES.length"] = (t) => {
   let seen = 0;
@@ -180,4 +181,14 @@ tests["C165 HANDOFF 的「当前状态」块不许写坏：每行都是表格行
     seen.add(label);
   }
   t.eq(seen.size >= 8, true, `状态块标签数量异常偏少（${seen.size}），可能被截断`);
+};
+
+tests["C169 CHANGELOG 的 C 轮索引必须与正文一致（170 条靠它导航）"] = (t) => {
+  const text = read("CHANGELOG.md");
+  const entries = parseEntries(text);
+  t.eq(entries.length >= 150, true, `条目数异常偏少（${entries.length}），可能解析出了问题`);
+  const have = existingIndex(text);
+  t.eq(have !== null, true, "CHANGELOG 必须有 C 轮索引块（tools：node scripts/changelog-index.mjs --write）");
+  const want = renderIndex(entries);
+  t.eq(have === want, true, "索引与正文不一致 —— 先跑 node scripts/changelog-index.mjs --write");
 };
