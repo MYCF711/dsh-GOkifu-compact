@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C255 | 面板补齐归档收尾等 5 个旋钮（能力存在 ≠ 用户拿得到） |
 | C254 | 两套 preset 渲染器漂了一处：`firstFoldRatio` 没有注释 |
 | C253 | 三个「没人读」的配置键其实是宿主在读（别当死键删） |
 | C252 | 修掉自己埋的不一致：UI 标签表里多了一个引擎键 |
@@ -334,6 +335,17 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C255 · 面板补齐归档收尾等 5 个旋钮（能力存在 ≠ 用户拿得到）
+
+面板表单 `FIELDS` 只有 14 项，而 preset 有 20 项 —— **六个键在面板里改不了**，
+其中三个正是 1.17.2/1.17.6 做的**归档收尾**：`closeoutFold` / `closeoutMinEvents` / `closeoutTimeoutMs`。
+功能、文档、发布说明都写了，用户却只能手改 yaml。
+
+- 补进 `FIELDS`（带正确的 kind / step / min / max）：上述三个 + `firstFoldRatio` + `headroomTokens`
+  （`tier2After` 其实早已在面板里，是我核对时的正则漏读，已在进度页更正）；
+- `closeoutTimeoutMs` 的 label 一开始多写了一个空格，被既有的「中文字段名与 client.js 的 FIELDS label 一致」
+  测试当场抓出 —— 那条守卫本来就在，很好用。
 
 ### C254 · 两套 preset 渲染器漂了一处：`firstFoldRatio` 没有注释
 
