@@ -113,3 +113,17 @@ tests["C150 repaired 标记必须真的传到落盘层，且每个清理点都�
   t.eq(guarded, calls, `每个清理点都必须带 "tree && !repaired" 护栏（${guarded}/${calls}）`);
   t.eq(/repaired = false/.test(persist), true, "flush 的签名必须声明 repaired 选项（默认 false）");
 };
+
+tests["C183 脚本侧读图必须走 loadSessionGraph（不许再出现 fromJSON(读 graph.json) 的裸用法）"] = (t) => {
+  const scriptsDir = nodePath.join(HERE, "..", "scripts");
+  const offenders = [];
+  for (const name of nodeFs.readdirSync(scriptsDir)) {
+    if (!name.endsWith(".mjs")) continue;
+    const text = nodeFs.readFileSync(nodePath.join(scriptsDir, name), "utf8");
+    // 允许 graph-audit.mjs（它**就是** loader 本身）
+    if (name === "graph-audit.mjs") continue;
+    // 裸用法：fromJSON(nodeFs.readFileSync(... graph.json ...))
+    if (/fromJSON\(\s*nodeFs\.readFileSync\(/.test(text)) offenders.push(name);
+  }
+  t.eq(offenders.length, 0, `这些脚本还在直读 graph.json 基线（应改用 loadSessionGraph）：${offenders.join(", ")}`);
+};

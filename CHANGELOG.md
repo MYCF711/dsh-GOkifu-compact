@@ -2,6 +2,8 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C184 | 「只读基线」的最后三个残留（静态守卫钉死） |
+| C183 | 门禁自己在读「过期的图」：handoff-check 的 5 条 warn 是假的 |
 | C182 | `verify-graphs --strict` 在 live 上误报退化图（又是「不重放 delta」） |
 | C181 | 发布可执行性实测：已登录、dry-run 通过 —— 但**仍不建议现在发** |
 | C180 | 「树新鲜度」是假警报（C146 同族：活跃会话里 index 落后是常态） |
@@ -192,6 +194,45 @@
 
 > 主题：**装完重启就生效，用户永远不需要跑命令。**
 > 事故背景：1.17.0 装到已存在 preset 快照的 profile 上时，GUI 写回的用户层 patch 会盖掉引擎（C26 只加了检测）。
+
+### C184 · 「只读基线」的最后三个残留（静态守卫钉死）
+
+**发现**：C183 修完 doctor / handoff-check 后，写了一条静态守卫（脚本里不许再出现
+`fromJSON(nodeFs.readFileSync(…graph.json…))` 的裸用法），它立刻抓出**另外三个**读基线的地方：
+
+| 脚本 | 影响 |
+|---|---|
+| `scripts/overbudget-report.mjs` | 超预算报告的行数与档位分布系统性偏低（fold 后新增的边看不到） |
+| `scripts/ledger-calibration.mjs` | 标定样本偏少（同一原因） |
+| `scripts/compare-models.mjs` | 模型 A/B 对比读的是基线，两边样本口径都会漏 |
+
+三处全部改走 `loadSessionGraph()`。
+
+**守卫 C183**：脚本目录（除 `graph-audit.mjs` 自身）**不允许**再出现裸用法，出现即红。
+现在「从磁盘读图」只有两个入口：`loadSessionGraph`（脚本侧）与 `persist.load`（运行侧）。
+
+**修后实跑**：`overbudget-report`（live，27 会话）—— **超预算 3/27**，档位 `L3=13 L0=6 L2=4 L1=1 L5=3`。
+
+### C183 · 门禁自己在读「过期的图」：handoff-check 的 5 条 warn 是假的
+
+**发现**：审计「谁还在读 `graph.json` 基线」时发现 **handoff-check**（七道门禁之一）与 doctor 的
+**棋谱库聚合**都只做 `fromJSON(基线)`，**不重放 delta**：
+
+- `handoff-check`：它的 12 项检查（预算样本 / 分项占用 / fold 保真度 / 出处覆盖…）全在读**fold 之后的增量之前的图**；
+- doctor 的「棋谱库」聚合：节点/边数系统性偏低，自环率也会被扭曲。
+
+**修复**：两处都改走 `loadSessionGraph()`（基线 + 重放 delta），与运行时 `load` / doctor 3.3b/3.3c / graph-audit 同口径。
+
+**结果（live 当次）**：
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| `handoff-check` | FAIL 0 / **WARN 5** | **FAIL 0 / WARN 0** |
+| doctor「棋谱库」 | agent 节点数偏低 | **27 会话 / 4,999 个 agent 节点** |
+
+⇒ 那 5 条 warn **不是产品问题，是尺子读错了数据** —— 与 C143/C151/C173/C182 同一条根因的第五次显形。
+
+★ 现在「从磁盘读图」的实现只剩**一个入口**：`loadSessionGraph`（脚本侧）与 `persist.load`（运行侧）。
 
 ### C182 · `verify-graphs --strict` 在 live 上误报退化图（又是「不重放 delta」）
 

@@ -16,6 +16,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadSessionGraph } from "./graph-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -66,7 +67,7 @@ export function collectCalibration(home, { budget = 500 } = {}) {
     if (!nodeFs.existsSync(file)) continue;
     let graph;
     try {
-      graph = fromJSON(nodeFs.readFileSync(file, "utf8"));
+      graph = loadSessionGraph(file).graph;
     } catch {
       unreadable += 1;
       continue;

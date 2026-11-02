@@ -336,7 +336,8 @@ if (nodeFs.existsSync(chessRoot)) {
     const mtime = nodeFs.statSync(f).mtimeMs;
     newestFlush = Math.max(newestFlush, mtime);
     try {
-      const g = fromJSON(nodeFs.readFileSync(f, "utf8"));
+      // ★ C183：聚合统计同样要重放 delta（否则节点/边数系统性偏低，自环率也会被扭曲）
+      const g = loadSessionGraph(f).graph;
       {
         const es = Object.values(g.edges ?? {});
         const ns = Object.keys(g.nodes ?? {}).length;

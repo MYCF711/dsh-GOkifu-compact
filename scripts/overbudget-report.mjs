@@ -18,6 +18,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadSessionGraph } from "./graph-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -62,7 +63,7 @@ export function scanOverBudget(home, { budget = 500 } = {}) {
     result.sessions += 1;
     let graph;
     try {
-      graph = fromJSON(nodeFs.readFileSync(graphFile, "utf8"));
+      graph = loadSessionGraph(graphFile).graph;
     } catch {
       result.unreadable += 1;
       continue;

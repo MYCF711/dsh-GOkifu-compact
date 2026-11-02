@@ -341,7 +341,9 @@ function main() {
   for (const dir of dirs) {
     let graph;
     try {
-      graph = fromJSON(nodeFs.readFileSync(nodePath.join(dir, "graph.json"), "utf8"));
+      // ★ C183：必须重放 delta —— 这是七道门禁之一，读基线会让「证据数字」系统性偏低
+      //   （fold 之后新增的节点/边全在 delta 里）。与运行时 load / doctor / graph-audit 同口径。
+      graph = loadSessionGraph(nodePath.join(dir, "graph.json")).graph;
     } catch (error) {
       reports.push({ session: nodePath.basename(dir), error: String(error?.message ?? error), checks: [] });
       continue;
