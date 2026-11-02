@@ -4,6 +4,7 @@
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
+| C203 | 把 C200 的三方核对接进 handoff-check（一条命令容易忘跑） |
 | C202 | `docs/读图口径-唯一真相.md`：把五条事故沉淀成一条规则 |
 | C201 | 训练有素地怀疑「上一次运行留下的垃圾」（一次假失败的自证） |
 | C199 | `live-folds` 也在读基线（第五次同族），并把宿主外部折叠并入证据 |
@@ -268,6 +269,31 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 **测试 C200**：造一个 1 条 foldMark 的 home ⇒ 磁盘必须数到 1；证据不等于 1 时 `ok=false`
 且问题描述里必须出现可执行提示（`--write` / 不一致 / ≠）。
 
+
+### C203 · 把 C200 的三方核对接进 handoff-check（一条命令容易忘跑）
+
+**问题**：C200 的 `consistency-check` 是一条**独立命令** —— 如果没人记得跑，它就形同不存在。
+而「证据与真相不一致」正是**会误导发布决策**的那类问题。
+
+**修法**：`handoff-check`（七道门禁之一）末尾追加一个**伪会话报告**：
+
+```
+✓ (全局：证据↔磁盘)
+```
+
+- 检查名 **⑳证据与磁盘一致**；
+- `fail`：磁盘 foldMark 数 ≠ 证据 `summary.total`（且原因不是「证据过期」）；
+- `warn`：能解释为「证据过期，跑 `--write` 即可」；
+- 核对本身出错（读不到）：`warn` 并写明「核对没跑成」，**不静默通过**。
+
+**踩到的坑**：`sessionsRoot` 是 `<home>/chess-context/sessions`，我第一版把
+`dirname(sessionsRoot)` 当 home ⇒ 磁盘数变 **0**、`ledger-budget.json` 读不出、门禁当场红。
+正确是 **两级 dirname**。
+
+**当前 live**：`✓ (全局：证据↔磁盘)` —— 磁盘 26 条 = 证据 26 次，`FAIL 0 / WARN 0`。
+
+**判据 C203**（`fold-mark-sites` 静态守卫）：handoff-check 必须 import `consistency-check`、
+必须出现 `⑳证据与磁盘一致`、且「不一致」分支必须是 **`"fail"`**（不许软成 warn）。
 
 ### C202 · `docs/读图口径-唯一真相.md`：把五条事故沉淀成一条规则
 

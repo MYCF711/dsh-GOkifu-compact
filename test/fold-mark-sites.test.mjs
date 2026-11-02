@@ -133,3 +133,10 @@ tests["C201 测试运行器必须在开跑前清掉 .harness 临时目录（中�
   t.includes(runner, '.harness', "run.mjs 必须提到 .harness");
   t.eq(/rmSync\(\s*harness/.test(runner), true, "run.mjs 必须在开跑前 rmSync(.harness)");
 };
+
+tests["C203 handoff-check 必须内建「证据↔磁盘一致」核对（否则 C200 那条命令容易忘跑）"] = (t) => {
+  const text = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "handoff-check.mjs"), "utf8");
+  t.includes(text, "consistency-check.mjs", "必须 import consistency-check");
+  t.includes(text, "⑳证据与磁盘一致", "必须把这个检查挂进门禁");
+  t.eq(/level = mismatch\.length > 0 \? "fail"/.test(text), true, "不一致必须是 fail（不是 softly warn）");
+};

@@ -40,6 +40,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { check as consistencyCheck } from "./consistency-check.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -349,6 +350,33 @@ function main() {
       continue;
     }
     reports.push({ session: nodePath.basename(dir), result: checkGraph(graph, { treeDir: dir }) });
+  }
+
+  // ★ C203：把 C200 的「磁盘↔证据」三方核对接进门禁 —— 此前它只是单独一条命令，容易忘跑。
+  //   不一致 = fail（证据与真相不符会误导发布决策）；证据过期但能解释 = warn。
+  try {
+    const home = nodePath.dirname(nodePath.dirname(sessionsRoot)); // sessionsRoot = <home>/chess-context/sessions
+    const result = consistencyCheck({ home });
+    const mismatch = result.problems.filter((x) => !x.includes("--write"));
+    const stale = result.problems.filter((x) => x.includes("--write"));
+    const level = mismatch.length > 0 ? "fail" : stale.length > 0 ? "warn" : "ok";
+    reports.push({
+      session: "(全局：证据↔磁盘)",
+      result: {
+        checks: [
+          {
+            name: "⑳证据与磁盘一致",
+            level,
+            detail:
+              level === "ok"
+                ? `磁盘 ${result.disk.foldMarks} 条 foldMark = 证据 ${result.evidence.evidenceTotal} 次`
+                : result.problems.join("；"),
+          },
+        ],
+      },
+    });
+  } catch (error) {
+    reports.push({ session: "(全局：证据↔磁盘)", result: { checks: [{ name: "⑳证据与磁盘一致", level: "warn", detail: `核对没跑成：${String(error?.message ?? error).slice(0, 120)}` }] } });
   }
 
   const flat = reports.flatMap((r) => r.result?.checks ?? []);
