@@ -41,3 +41,18 @@ tests["C249 生成器是纯函数：同样输入两次结果完全一致（可�
   const { SCHEMA } = await loadSchema();
   t.eq(table.renderConfigTable(SCHEMA), table.renderConfigTable(SCHEMA), "同一份 schema 生成两次必须逐字节相同");
 };
+
+tests["C250 CLI 与打包：`config` 子命令必须可达，且总表随包发布"] = async (t) => {
+  const nodeFsL = nodeFs;
+  const cli = nodeFsL.readFileSync(nodePath.join(ROOT, "scripts", "cli.mjs"), "utf8");
+  t.includes(cli, 'command === "config"', "cli.mjs 必须认识 config 子命令");
+  t.includes(cli, 'nodePath.join(HERE, "config-table.mjs")', "config 必须路由到同目录的 config-table.mjs（不是 test/ 下的东西）");
+  t.includes(cli, "dsh-gokifu-compact config [--write]", "帮助文本必须列出 config");
+
+  // 打包白名单：docs 与 scripts 都得在，否则装好的用户既没有表也跑不了生成器
+  const pkg = JSON.parse(nodeFsL.readFileSync(nodePath.join(ROOT, "package.json"), "utf8"));
+  t.eq(pkg.files.includes("docs"), true, "files 必须含 docs（配置总表随包发）");
+  t.eq(pkg.files.includes("scripts"), true, "files 必须含 scripts（config-table.mjs 随包发）");
+  t.eq(nodeFsL.existsSync(nodePath.join(ROOT, "docs", "配置总表.md")), true, "总表文件必须存在");
+  t.eq(nodeFsL.existsSync(nodePath.join(ROOT, "scripts", "config-table.mjs")), true, "生成器必须存在");
+};
