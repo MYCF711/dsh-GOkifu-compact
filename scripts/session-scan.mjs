@@ -100,7 +100,18 @@ export function ledgerStats(text) {
   };
 }
 
-/** 在 DSH_HOME 下按会话 id 前缀找 `session.v4.jsonl.zstd`。 */
+/**
+ * ★ C406：数图片块。官方 Vision：图片自动缩放到 约 1300×1300 像素 ⇒ **每张上限 1024 token**（C392）。
+ * 我们的 `estimateTokens()` 只数文本 ⇒ 这里至少把"盲区有多大"量出来。
+ * @param {string} text
+ * @returns {{images:number, maxImageTokens:number}}
+ */
+export function imageStats(text) {
+  const images = (String(text ?? "").match(/"type"\s*:\s*"image"/g) ?? []).length;
+  return { images, maxImageTokens: images * 1024 };
+}
+
+/** 在 DSH_HOME 下按会话 id 前缀找/** 在 DSH_HOME 下按会话 id 前缀找 `session.v4.jsonl.zstd`。 */
 export function findSessionFile(home, prefix) {
   const root = nodePath.join(home, "sessions");
   if (!nodeFs.existsSync(root)) return null;
@@ -137,6 +148,10 @@ export function main(argv = process.argv.slice(2)) {
   }
   console.log(`== 会话扫描 · ${nodePath.basename(nodePath.dirname(file))} ==`);
   console.log(`  帧 ${frames}（解压成功 ${okFrames}）· 解压后 ${(text.length / 1e6).toFixed(1)} MB`);
+  const img = imageStats(text);
+  if (img.images > 0) {
+    console.log(`  图片块 **${img.images}** 个 ⇒ 上限 约 **${img.maxImageTokens.toLocaleString()}** token（每张 ≤1024，C392）—— 这部分不进我们的文本估算`);
+  }
   console.log(
     `  清单消息 **${stats.ledgers}** 份（疑似占位 ${stats.placeholderLike}）· 最大 ${stats.maxChars} 字 · 中位 ${stats.medianChars} 字 · 合计 ${stats.totalChars} 字`,
   );

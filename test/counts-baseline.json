@@ -1,5 +1,5 @@
 {
-  "total": 806,
+  "total": 807,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -93,7 +93,7 @@
     "rooms.test.mjs": 1,
     "run-skip.test.mjs": 0,
     "selfloop.test.mjs": 1,
-    "session-scan.test.mjs": 2,
+    "session-scan.test.mjs": 3,
     "test-counts.test.mjs": 2,
     "test-gate.test.mjs": 0,
     "tewari-perf.test.mjs": 7,

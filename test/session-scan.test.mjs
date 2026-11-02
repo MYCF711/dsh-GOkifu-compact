@@ -41,3 +41,18 @@ tests["C359 清单统计只认真注入（source.kind=chess-context），别把�
   t.eq(ledgerStats("").ledgers, 0, "空文本 0 份");
   t.eq(ledgerStats("不是 JSON 但提到 <chess-ledger>").unparsable, 1, "不可解析的行单独计数");
 };
+
+tests["C406 图片统计：数 image 块并给出 token 上限（每张 ≤1024，C392）"] = async (t) => {
+  const { imageStats } = await import("../scripts/session-scan.mjs");
+  t.eq(typeof imageStats, "function", "必须导出 imageStats");
+  const text = [
+    JSON.stringify({ data: { content: [{ type: "image", source: {} }, { type: "text", text: "x" }] } }),
+    JSON.stringify({ data: { content: [{ type: "image" }] } }),
+    '{"type":"text"}',
+  ].join("\n");
+  const s = imageStats(text);
+  t.eq(s.images, 2, "应数到 2 个图片块");
+  t.eq(s.maxImageTokens, 2048, "上限 = 张数 × 1024");
+  t.eq(imageStats("").images, 0, "空文本 0 个");
+  t.eq(imageStats("没有图片").maxImageTokens, 0, "无图 ⇒ 0 token");
+};
