@@ -340,3 +340,17 @@ tests["C416 欠账清单要短缓存（干跑→真补会连着扫两遍 90+ 个
   // 键要含参数，否则换 limit 会拿到旧清单
   t.includes(src, "const cacheKey = `${minEvents}:${limit}`", "缓存键必须包含 minEvents 与 limit");
 };
+
+tests["C417 补账响应必须回显「真正生效的参数」（未知参数会被静默忽略）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "const applied = {", "必须构造 applied（C417）");
+  t.includes(src, "applied }", "dryRun 响应必须带上 applied");
+  t.includes(src, "silently ignored", "注释要写清为什么（官方：未知参数被静默忽略）");
+  // applied 里要能看出"筛选到底生效没"
+  t.includes(src, "selected: picked.length", "applied 必须含 selected（实际选中几个）");
+  t.includes(src, "limit: wantedIds === null ? limit : picked.length", "指定了 id 时 limit 应反映实际数量");
+};

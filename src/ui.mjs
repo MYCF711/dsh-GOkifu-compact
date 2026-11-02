@@ -1472,6 +1472,16 @@ function applyInner(ctx) {
           if (wantedIds !== null && picked.length === 0) {
             return sendJson(res, 400, { ok: false, error: "指定的 sessionIds 都不在待补清单里（先用 dryRun 看清单）", due: listed.due });
           }
+          // ★ C417：**回显实际生效的参数**。官方 Responses API 文档写得很直白：
+          //   「Unsupported parameters are silently ignored and do not cause errors」。我们自己的接口䕺也一样 ——
+          //   参数没生效时调用方不可能从响应里看出来（C408 那次就差点静默跑 20 个）。
+          //   并一份 `applied` 回去，“你要的”和“真正生效的”一目了然。
+          const applied = {
+            sessionIds: wantedIds,
+            limit: wantedIds === null ? limit : picked.length,
+            minEvents,
+            selected: picked.length,
+          };
           if (dryRun) {
             // ★ C392：干跑要**提前告诉你哪几个会超时**。
             //   真机 p90 19s × 6 段 = 114s > `closeoutTimeoutMs`（90s）—— 点下去才发现白跑，
@@ -1507,7 +1517,7 @@ function applyInner(ctx) {
                 return [];
               }
             })();
-            return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: picked, warnings });
+            return sendJson(res, 200, { ok: true, dryRun: true, scanned: listed.scanned, due: listed.due, items: picked, warnings, applied });
           }
           const controller = ctx.get("sessionController");
           const resolveAgent =

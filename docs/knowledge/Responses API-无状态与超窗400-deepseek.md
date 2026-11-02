@@ -28,3 +28,13 @@
 
 - 宿主实际走的是哪种格式（Chat / Responses / Anthropic）——三种格式的超窗报错文案我们不都见过；
 - 超窗 400 时宿主的 `finishReason` 会不会也给 `max-tokens`（若给，我们的截断仪器会重复计数）。
+
+## 4. 一条常被忽略的官方约定（**已核实**，C417）
+
+> **Unsupported parameters are silently ignored and do not cause errors**, so existing Responses API clients can connect without modification.
+
+同页还写明 `prompt_cache_key` / `prompt_cache_retention` **不支持**（缓存自动管理）。
+
+**对本插件的启发**：**"未知参数被静默忽略"是行业默认行为**，我们自己的 `/gokifu/api` 也一样。
+所以补账接口现在会**回显 `applied`**（实际生效的 sessionIds / limit / minEvents / 选中数）——
+调用方能看出"我要求的"和"真正生效的"是否一致，而不是靠猜。
