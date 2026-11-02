@@ -21,6 +21,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { GRAPH_VERSION, fromJSON, countResolvedFailures } from "../src/rooms/kifu-model.mjs";
+import { measureLedgerTimings } from "../src/rooms/ledger.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
 import { selectSessionLogs } from "./log-window.mjs";
 import { accumulateCacheUsage, createCacheUsage, summarizeCacheUsage } from "./cache-usage.mjs";
@@ -1374,6 +1375,43 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       heavy > samples.length / 2 ? "warn" : "ok",
       `${samples.length} 次 fold：中位 **${median.toFixed(1)}×**、最大 ${sorted.at(-1).toFixed(1)}×；` +
         `${heavy} 次超过 3× —— 输出账单里有一部分不是摘要（多半是 thinking 的 reasoning_content，按输出价计费）`,
+    );
+  }
+}
+
+/* ★ C314：热清单渲染的**实测耗时**（取最大的那个会话）。
+   为什么值得报：C313 证明慢在拼字符串（95%），而不是查图 —— 既然改不动，
+   那就**把它变成早期预警**：一旦最大会话的渲染超过阈值，这里就会变色，
+   不必等到"用户觉得卡"才发现。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let biggest = null;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        g = loadSessionGraph(file).graph;
+      } catch {
+        continue;
+      }
+      const nodes = Object.keys(g?.nodes ?? {}).length;
+      if (biggest === null || nodes > biggest.nodes) biggest = { nodes, g, name: entry.name };
+    }
+  }
+  if (biggest === null) {
+    add("热清单渲染耗时（最大会话）", "warn", "未采集（没有可读的会话图）");
+  } else {
+    const ms = Math.round(measureLedgerTimings(biggest.g, { reps: 3 }).total * 10) / 10;
+    const level = ms >= 100 ? "warn" : "ok";
+    add(
+      "热清单渲染耗时（最大会话）",
+      level,
+      `${biggest.name.slice(0, 18)}（${biggest.nodes} 节点）单次 **${ms} ms**` +
+        ` —— 每步注入都付这个钱；C313 实测慢在拼字符串（查图只占 5%），` +
+        (ms >= 100 ? "已经到该管的时候了（见 K-16）" : "当前还不值得优化（K-16 的触发线是 100 ms）"),
     );
   }
 }

@@ -1022,3 +1022,18 @@ tests["C304 fold 输出效率：要报出「输出 token 远大于摘要本身�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C314 doctor 要报「最大会话的渲染耗时」，并与 K-16 的结论对上"] = (t) => {
+  const home = makeHome({});
+  try {
+    const row = runDoctor(home).find("热清单渲染耗时");
+    t.eq(!!row, true, "必须有这一行");
+    if (String(row.detail).includes("未采集") === false) {
+      t.includes(String(row.detail), "ms", "要给出毫秒数");
+      t.includes(String(row.detail), "拼字符串", "要说明 C313 的结论（慢在拼字符串）");
+      t.includes(String(row.detail), "K-16", "要指向候选 K-16");
+    }
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
