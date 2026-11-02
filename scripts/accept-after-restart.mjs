@@ -95,7 +95,19 @@ export async function main(argv = process.argv.slice(2)) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
   };
-  const port = Number(getArg("port", "64349")) || 64349;
+  // ★ C332：优先用**面板自己写的心跳**里的端口 —— 真机上可能同时有多个 DSH 进程，
+  //   硬编码端口会探到别人身上（实测：心跳写着 pid 19540，而 64349 是另一个进程）。
+  const heartbeatPort = (() => {
+    try {
+      const file = nodePath.join(process.env.DSH_HOME ?? "", "chess-context", "ui-route.json");
+      if (!nodeFs.existsSync(file)) return null;
+      const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+      return Number.isFinite(Number(hb?.port)) ? Number(hb.port) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const port = Number(getArg("port", "")) || heartbeatPort || 64349;
   const home = getArg("home", process.env.DSH_HOME ?? "");
   const caps = await checkPanelCapabilities(undefined, { port });
 

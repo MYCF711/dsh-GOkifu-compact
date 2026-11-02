@@ -1379,6 +1379,38 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+/* ★ C332：面板路由的心跳。真机教训（2026-11-02）：插件实例被热重载/卸载后，
+   `/gokifu/api` 变成 GET 404 / POST 405，而 doctor、全量测试、门禁**全是绿的** ——
+   面板静默死掉几十分钟没人发现。UI 侧在注册时写心跳、卸载时标 closed，这里只读文件、不探网。 */
+{
+  const heartbeat = nodePath.join(home, "chess-context", "ui-route.json");
+  if (!nodeFs.existsSync(heartbeat)) {
+    add("面板路由心跳", "warn", "未采集（没有 ui-route.json —— C332 之前启动的实例不会写；重启后才有）");
+  } else {
+    let hb = null;
+    try {
+      hb = JSON.parse(nodeFs.readFileSync(heartbeat, "utf8"));
+    } catch {
+      hb = null;
+    }
+    if (hb === null || typeof hb !== "object") {
+      add("面板路由心跳", "warn", "心跳文件解析失败（内容不是 JSON）");
+    } else {
+      const at = Number.isFinite(hb.at) ? new Date(hb.at).toISOString() : "?";
+      const minutes = Number.isFinite(hb.at) ? Math.round((Date.now() - hb.at) / 60000) : null;
+      if (hb.state === "closed") {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 面板在 ${at} **被卸载**（热重载或退出）—— \`/gokifu/api\` 现在大概率不可达，**重启才能恢复**`,
+        );
+      } else {
+        add("面板路由心跳", "ok", `面板路由已注册（${at}${minutes === null ? "" : `，${minutes} 分钟前`}，pid ${hb.pid ?? "?"}）`);
+      }
+    }
+  }
+}
+
 /* ★ C317：摘要被截断（finish_reason="length"）—— 官方文档说这时**内容可能被截断**，
    而被截断的摘要在 foldMark 里与完整的几乎一样（只是 summaryChars 短些）。
    只在采集到 finishReason 的 fold 上统计；老 foldMark 没有该字段就明说"未采集"。 */

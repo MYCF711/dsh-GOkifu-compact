@@ -1402,7 +1402,38 @@ export function apply(ctx) {
       }
     },
   };
-  ctx.effect(() => ctx.webServer.register(route), "gokifu-ui: /gokifu/api");
+  // ★ C332：路由**心跳**。真机教训（2026-11-02）：插件实例被热重载/卸载后，`/gokifu/api` 变成
+  //   GET 404 / POST 405，而 doctor、测试、门禁全都绿 —— 面板静默死掉，没人发现。
+  //   所以注册时写一份心跳、**卸载时标记关闭**，doctor 读它就能说「面板在某时刻被卸载了，重启恢复」。
+  const heartbeat = routeHeartbeatFile();
+  const mark = (payload) => {
+    try {
+      nodeFs.writeFileSync(heartbeat, JSON.stringify(payload), "utf8");
+    } catch {
+      /* 心跳写不了不影响路由本身 */
+    }
+  };
+  // 端口也记下来：真机上可能同时有多个 DSH 进程，光凭 pid 分不清"面板注册在哪个端口"。
+  const portOf = (ctx) => {
+    const p = ctx?.webServer?.port ?? ctx?.webServer?.server?.address?.()?.port;
+    return Number.isFinite(Number(p)) ? Number(p) : null;
+  };
+  mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx) });
+  ctx.effect(() => {
+    const dispose = ctx.webServer.register(route);
+    return () => {
+      mark({ state: "closed", at: Date.now(), pid: process.pid, port: portOf(ctx) });
+      if (typeof dispose === "function") dispose();
+    };
+  }, "gokifu-ui: /gokifu/api");
+}
+
+/**
+ * ★ C332：路由心跳文件的位置（与棋谱同根，便于 doctor 只读不探网）。
+ * @returns {string}
+ */
+export function routeHeartbeatFile(home = resolveHome()) {
+  return nodePath.join(home, "chess-context", "ui-route.json");
 }
 
 function readVersion() {

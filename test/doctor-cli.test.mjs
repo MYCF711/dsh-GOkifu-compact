@@ -26,7 +26,7 @@ const REPO = nodePath.join(HERE, "..");
 export const tests = {};
 
 /** 造最小 home；`mutate(graph)` 可在落盘前改图。 */
-function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null, foreignPatches = null } = {}) {
+function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null, foreignPatches = null, uiRoute = null } = {}) {
   const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-doctor-"));
   const dir = nodePath.join(root, "chess-context", "sessions", "session-doctor-1");
   nodeFs.mkdirSync(dir, { recursive: true });
@@ -39,6 +39,10 @@ function makeHome({ mutate = null, ledgerBudget = null, foreignPatch = null, for
   nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(g), "utf8");
   if (ledgerBudget !== null) {
     nodeFs.writeFileSync(nodePath.join(root, "chess-context", "ledger-budget.json"), JSON.stringify(ledgerBudget, null, 2), "utf8");
+  }
+  // ★ C332：路由心跳夹具（面板是否注册/被卸载）
+  if (uiRoute !== null) {
+    nodeFs.writeFileSync(nodePath.join(root, "chess-context", "ui-route.json"), JSON.stringify(uiRoute), "utf8");
   }
   const patches = foreignPatches !== null ? foreignPatches : foreignPatch !== null ? [foreignPatch] : [];
   if (patches.length > 0) {
@@ -1071,5 +1075,42 @@ tests["C317 摘要截断必须可观测：finish_reason=length 要报出来，�
     t.includes(String(row.detail), "C317", "要说明是哪一轮开始才记录");
   } finally {
     nodeFs.rmSync(legacy, { recursive: true, force: true });
+  }
+};
+
+tests["C332 面板路由心跳：closed 必须警告「被卸载，重启恢复」，open 才是 ok"] = (t) => {
+  // ① closed（真机事故的形状：热重载/卸载后路由 404，而门禁全绿）
+  const closedHome = makeHome({
+    uiRoute: { state: "closed", at: Date.now() - 60000, pid: 123 },
+  });
+  try {
+    const row = runDoctor(closedHome).find("面板路由心跳");
+    t.eq(!!row, true, "必须有这一行");
+    t.eq(row.status, "warn", "被卸载必须 warn");
+    t.includes(String(row.detail), "重启", "要告诉人重启才能恢复");
+  } finally {
+    nodeFs.rmSync(closedHome, { recursive: true, force: true });
+  }
+
+  // ② open
+  const openHome = makeHome({
+    uiRoute: { state: "open", at: Date.now(), pid: 456 },
+  });
+  try {
+    const row = runDoctor(openHome).find("面板路由心跳");
+    t.eq(row.status, "ok", "注册中应为 ok");
+    t.includes(String(row.detail), "已注册", "要说清是已注册");
+  } finally {
+    nodeFs.rmSync(openHome, { recursive: true, force: true });
+  }
+
+  // ③ 没有心跳文件 ⇒ 未采集（不许当成健康）
+  const bare = makeHome({});
+  try {
+    const row = runDoctor(bare).find("面板路由心跳");
+    t.eq(row.status, "warn", "没心跳要 warn");
+    t.includes(String(row.detail), "未采集", "要明说未采集");
+  } finally {
+    nodeFs.rmSync(bare, { recursive: true, force: true });
   }
 };
