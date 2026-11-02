@@ -978,3 +978,20 @@ tests["C284 缓存命中行要带官方口径（尽力而为 / 秒级构建 / �
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C298 分段折完的会话要在 closeout 上留数，doctor 才不会把它读成「没折过」"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      // 一条 closeout，没有 archive foldMark，但记了分段折了 3 段
+      g.closeout = { at: Date.now() - 1000, eventsSinceLastFold: 12000, folds: 5, source: "archive", chunkedFolded: 3, chunkedChunks: 6 };
+    },
+  });
+  try {
+    const row = runDoctor(home).find("归档收尾");
+    t.eq(!!row, true, "必须有归档收尾这一行");
+    t.eq(row.status, "ok", `记了 closeout 就不该是 warn：${JSON.stringify(row)}`);
+    t.includes(String(row.detail), "分段折完", `要点明是分段折完的：${row.detail}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

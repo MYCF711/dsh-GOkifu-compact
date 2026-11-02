@@ -995,7 +995,27 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source };
       this.#flush(session, { full: true });
       if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
-        void this.#closeoutFold(session, source);
+        // ★ C298：分段收尾**不进 foldMarks**（走 compactRegion ⇒ 只记 ledger-budget.externalFolds），
+        //   所以收尾账里 `folds` 永远停在折之前。这里等它跑完把"分段折了几段"补记到 closeout 上，
+        //   否则 doctor/审计只会看到"记了 closeout 但没折过"，把已经折完的会话误报成欠账。
+        const sessionId = session.id;
+        void this.#closeoutFold(session, source).then((result) => {
+          if (result === null || result === undefined || result.tier !== "chunked") return;
+          if (!(Number(result.folded) > 0)) return;
+          try {
+            const live = this.graphs.get(sessionId);
+            if (live === undefined || live === null) return;
+            live.closeout = {
+              ...(live.closeout ?? {}),
+              chunkedFolded: Number(result.folded),
+              chunkedChunks: Number(result.chunks),
+              chunkedAt: Date.now(),
+            };
+            this.#flush(session, { full: true });
+          } catch {
+            /* 记账失败不影响归档 */
+          }
+        });
       }
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);

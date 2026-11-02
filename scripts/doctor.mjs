@@ -936,7 +936,11 @@ add(
   const recent = withCloseout
     .sort((a, b) => Number(b.closeout?.at ?? 0) - Number(a.closeout?.at ?? 0))
     .slice(0, 3)
-    .map((x) => `${String(x.session).slice(0, 18)}: 尾巴 ${x.closeout.eventsSinceLastFold} 事件 · ${x.closeout.source ?? "?"} · ${x.archiveFold ? "已补折" : "未补折"}`)
+    .map(
+      (x) =>
+        `${String(x.session).slice(0, 18)}: 尾巴 ${x.closeout.eventsSinceLastFold} 事件 · ${x.closeout.source ?? "?"} · ` +
+        `${x.archiveFold ? "已补折" : Number(x.closeout?.chunkedFolded) > 0 ? `分段折了 ${x.closeout.chunkedFolded} 段` : "未补折"}`,
+    )
     .join(" · ");
   if (missingCloseout.length > 0) {
     add(
@@ -971,6 +975,10 @@ add(
         return 0;
       }
     })();
+    // ★ C298：分段折完的会话会在 `closeout.chunkedFolded` 上留数（引擎回写的）；单列出来，
+    //   否则"记了 closeout 却没有 archive fold"会一直被读成"没折过"。
+    const chunkedSessions = closeouts.filter((x) => Number(x?.closeout?.chunkedFolded) > 0).length;
+    const chunkedText = chunkedSessions > 0 ? ` · 其中 ${chunkedSessions} 个是**分段折完的**（closeout.chunkedFolded > 0）` : "";
     const externalText = externalFolds > 0 ? ` · 另有 ${externalFolds} 次外部/分段折叠（不入 foldMarks，见 C289/C292）` : "";
     const sourceText = ` · 来源 ${Object.entries(bySource)
       .sort((a, b) => b[1] - a[1])
@@ -978,8 +986,9 @@ add(
       .join(" / ")}`;
     add(
       "归档收尾（closeout）",
-      withArchiveFold.length > 0 ? "ok" : "warn",
-      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${externalText}${sourceText} —— ${recent}`,
+      // ★ C298：分段折完的会话也算"折过了"（它们不进 foldMarks，只留 closeout.chunkedFolded）
+      withArchiveFold.length > 0 || chunkedSessions > 0 ? "ok" : "warn",
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${chunkedText}${externalText}${sourceText} —— ${recent}`,
     );
   }
 }
