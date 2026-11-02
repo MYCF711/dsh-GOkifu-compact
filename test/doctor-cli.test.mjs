@@ -960,3 +960,21 @@ tests["C280 doctor 不许假装知道越界方向：没采集方向就说没采�
     nodeFs.rmSync(bad, { recursive: true, force: true });
   }
 };
+
+tests["C284 缓存命中行要带官方口径（尽力而为 / 秒级构建 / 几小时到几天清空）"] = (t) => {
+  const home = makeHome({});
+  try {
+    const row = runDoctor(home).find("上下文缓存命中");
+    // 夹具里没有会话日志 ⇒ 可能是「未采集」；这里只要求：采集到的时候必须带口径
+    if (row !== undefined && String(row.detail).includes("未采集") === false) {
+      t.includes(String(row.detail), "尽力而为", "必须写明官方说的「尽力而为、不保证 100%」");
+      t.includes(String(row.detail), "秒级", "必须写明构建耗时秒级（否则会被当成接口慢）");
+      t.includes(String(row.detail), "自动清空", "必须写明闲置会自动清空");
+    }
+    // 源码接线断言：文案必须存在（数据缺失时也不许把这套口径删掉）
+    const src = nodeFs.readFileSync(nodePath.join(REPO, "scripts", "doctor.mjs"), "utf8");
+    t.includes(src, "尽力而为", "doctor 源码里必须有官方口径那段");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

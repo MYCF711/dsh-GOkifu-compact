@@ -1143,7 +1143,10 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     add(
       "上下文缓存命中（缓存读 / 计费输入）",
       c.ratioMedian !== null && c.ratioMedian < 0.5 ? "warn" : "ok",
-      `${c.calls} 次调用 · 缓存读 ${c.cacheTokens} tok / 计费输入 ${c.inputTokens} tok（占比 ${pct(c.savedShare)}）· 单次命中率中位 ${pct(c.ratioMedian)}（最低 ${pct(c.ratioMin)}）· 缓存断点 ${c.breaks} 次（较上一次骤降 >30pp）`,
+      `${c.calls} 次调用 · 缓存读 ${c.cacheTokens} tok / 计费输入 ${c.inputTokens} tok（占比 ${pct(c.savedShare)}）· 单次命中率中位 ${pct(c.ratioMedian)}（最低 ${pct(c.ratioMin)}）· 缓存断点 ${c.breaks} 次（较上一次骤降 >30pp）` +
+        // ★ C284：官方原文——缓存是"尽力而为，不保证 100% 命中"，构建耗时秒级、闲置几小时到几天自动清空。
+        //   说清楚这几句，才不会有人去追 100%（那是达不到的），也不会把秒级构建当成"接口慢"。
+        " · 官方口径：尽力而为、不保证 100%；构建耗时秒级；闲置几小时到几天自动清空",
     );
   }
 }
