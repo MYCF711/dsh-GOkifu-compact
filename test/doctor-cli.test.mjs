@@ -1226,3 +1226,15 @@ tests["C356 fold 成本行必须说明是「单次花费」（无状态 API 下�
   t.includes(src, "无状态", "要说明无状态 API 每轮重发历史");
   t.includes(src, "每轮", "要说明收益是每轮复利");
 };
+
+tests["C371 心跳失败态必须点名（不许把「注册失败」读成「已注册」）"] = (t) => {
+  const home = makeHome({ uiRoute: { state: "failed", at: Date.now(), pid: 7, hasWebServer: true, error: "register threw" } });
+  try {
+    const row = runDoctor(home).find("面板路由心跳");
+    t.eq(row.status, "warn", "failed 必须 warn");
+    t.includes(String(row.detail), "注册失败", "要点明是注册失败");
+    t.includes(String(row.detail), "register threw", "要带出错误摘要");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};

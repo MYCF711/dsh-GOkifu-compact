@@ -1470,9 +1470,18 @@ export function apply(ctx) {
   //   心跳写着 open、buildId 也对，但那个 pid 根本没监听端口，面板自然不可达。
   //   不记这一位，doctor 会把"注册了"读成"能访问"。
   const hasWebServer = Boolean(ctx?.webServer && typeof ctx.webServer.register === "function");
-  mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
+  // ★ C371：心跳**不能先于真正注册**。上一版在 `register()` **之前**就写 `state:"open"` ——
+  //   真机上真的遇到了：心跳写着 open、doctor 报"已注册"，而 `/gokifu/api` 实测 **405（路由不存在）**。
+  //   现在：注册**成功之后**才写 open；抛错写 `state:"failed"` 并带错误摘要。
   ctx.effect(() => {
-    const dispose = ctx.webServer.register(route);
+    let dispose = null;
+    try {
+      dispose = ctx.webServer.register(route);
+    } catch (error) {
+      mark({ state: "failed", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, error: String(error?.message ?? error).slice(0, 160), ...stampOf() });
+      throw error;
+    }
+    mark({ state: "open", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
     return () => {
       mark({ state: "closed", at: Date.now(), pid: process.pid, port: portOf(ctx), hasWebServer, ...stampOf() });
       if (typeof dispose === "function") dispose();

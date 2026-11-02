@@ -1510,7 +1510,13 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     } else {
       const at = Number.isFinite(hb.at) ? new Date(hb.at).toISOString() : "?";
       const minutes = Number.isFinite(hb.at) ? Math.round((Date.now() - hb.at) / 60000) : null;
-      if (hb.state === "closed") {
+      if (hb.state === "failed") {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 面板路由**注册失败**（${at}，pid ${hb.pid ?? "?"}）：${hb.error ?? "无错误信息"} ⇒ 面板不可用，需查看宿主日志`,
+        );
+      } else if (hb.state === "closed") {
         add(
           "面板路由心跳",
           "warn",
