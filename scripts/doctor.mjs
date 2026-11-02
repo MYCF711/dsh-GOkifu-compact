@@ -474,6 +474,9 @@ if (nodeFs.existsSync(chessRoot)) {
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
 
+// ★ C230：抗干扰度的累加器（3.3c 里逐会话累加，报告在该块之后）
+const interference = { total: 0, resolved: 0, worst: [] };
+
 /* ── 3.3c 棋谱结构自洽（C140）──
    结构坏掉的图会安静地留在磁盘上（validate 只在写盘时告警一行）。这里逐会话体检：
    悬空边 / 悬空 stateIndex / order 漂移 / foldMark 闭包越界。发现即 error（数据损坏）。 */
@@ -511,6 +514,30 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
         continue;
       }
       scanned += 1;
+      // ★ C230：失败边里「后来同一 action 跑通过」的占比（与热清单的 ↑later-ok 同口径）
+      {
+        const seqEnd = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+        const all = Object.values(loaded.graph?.edges ?? {});
+        const fails = all.filter((e) => e?.result === "failure" && typeof e.action === "string" && e.action !== "");
+        const okAt = new Map();
+        for (const e of all) {
+          if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+          const at = seqEnd(e);
+          if (!Number.isFinite(at)) continue;
+          const prev = okAt.get(e.action);
+          if (prev === undefined || at > prev) okAt.set(e.action, at);
+        }
+        let resolved = 0;
+        for (const e of fails) {
+          const at = okAt.get(e.action);
+          if (at !== undefined && Number.isFinite(seqEnd(e)) && at > seqEnd(e)) resolved += 1;
+        }
+        interference.total += fails.length;
+        interference.resolved += resolved;
+        if (fails.length >= 5 && resolved / fails.length > 0.5) {
+          interference.worst.push(`${entry.name.slice(0, 16)}(${resolved}/${fails.length})`);
+        }
+      }
       // ★ C142（审查 P1-3）：悬空 stateIndex 只能在**原始 JSON** 上查（fromJSON 会重建）
       // ★ C143（审查 P1-4）：结构检查也必须在**重放 delta 之后**的图上做
       const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
@@ -542,6 +569,23 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
             ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
             : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
+}
+
+
+{
+  const { total, resolved } = interference;
+  const share = total > 0 ? resolved / total : 0;
+  if (total === 0) {
+    add("热清单抗干扰（已修正失败占比）", "warn", "未采集（本轮没有扫到任何失败边）");
+  } else {
+    const pct = Math.round(share * 100);
+    add(
+      "热清单抗干扰（已修正失败占比）",
+      share > 0.5 ? "warn" : "ok",
+      `${resolved}/${total} 条失败边背后的命令**后来跑通过**（${pct}%）—— 这些行仍会出现在 LEARNED 里（契约要求不丢失败记忆），但它们的判别价值最低` +
+        (interference.worst.length > 0 ? `；占比 ≥50% 的会话：${interference.worst.slice(0, 3).join(" / ")}` : ""),
+    );
+  }
 }
 
 /* ── 3.3b 节点文档与棋谱一致（C110）──

@@ -94,6 +94,29 @@ tests["C221 没有 ledger-budget.json 时，依赖它的检查也必须现身（
   }
 };
 
+tests["C230 热清单抗干扰：后来同命令跑通的失败边要计入占比（≥50% 才 warn）"] = (t) => {
+  // 这是 K-6 的第一个指标：不猜「哪行无关」，只数**可证明已被自己修正**的失败边。
+  const home = makeHome({
+    mutate: (g) => {
+      // 造 2 条失败边：e1 后来同 action 跑通（算 resolved），e2 没跑通
+      const seed = addEdge(g, { from: g.rootUserNodeIds[0], intent: "跑测试 A", action: "bash(npm test)", evidence: { start: 10, end: 11 } });
+      settleEdge(g, seed, { result: "failure", errorSnippet: "exit 1" });
+      const later = addEdge(g, { from: g.rootUserNodeIds[0], intent: "又跑一次", action: "bash(npm test)", evidence: { start: 20, end: 21 } });
+      settleEdge(g, later, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+      const other = addEdge(g, { from: g.rootUserNodeIds[0], intent: "跑测试 B", action: "bash(npm run lint)", evidence: { start: 30, end: 31 } });
+      settleEdge(g, other, { result: "failure", errorSnippet: "exit 2" });
+    },
+  });
+  try {
+    const row = runDoctor(home).find("热清单抗干扰");
+    t.eq(!!row, true, "必须有一项「热清单抗干扰」检查");
+    t.eq(String(row.detail).includes("1/2"), true, `应数出 1/2 条已修正（实际：${row.detail}`);
+    t.eq(row.status, "ok", `50% 以下不算问题（实际：${JSON.stringify(row)}`);
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
 tests["C220 上下文缓存命中：没有会话日志 ⇒ 未采集（warn），不许报 ok"] = (t) => {
   const home = makeHome({});
   try {
