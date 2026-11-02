@@ -17,7 +17,7 @@
  */
 
 import { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } from "./graph-fixtures.mjs";
-import { renderLedger } from "../src/rooms/ledger.mjs";
+import { estimateTokens, renderLedger } from "../src/rooms/ledger.mjs";
 import { RULES } from "../scripts/boundary-audit.mjs";
 
 export const tests = {};
@@ -136,4 +136,31 @@ tests["C59 渲染不变量：随机图 × 5 档预算（根/约束在、账目�
   // 覆盖性断言：生成器必须真的把「超预算」与「省略分支」跑到，否则属性测试会退化成恒真
   t.eq(sawOverBudget > 0, true, "本轮必须至少渲染出一次 over-budget");
   t.eq(sawOmitted > 0, true, "本轮必须至少命中一次失败边省略");
+};
+
+tests["C175 极端负载：2,000 条失败边 × 300 字报错 —— 不崩、不超硬上限、耗时受控、宽字符安全"] = (t) => {
+  const g = createGraph({ sessionId: "s" });
+  const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+  let prev = u;
+  for (let i = 0; i < 2000; i += 1) {
+    const action = i % 3 === 0 ? `bash(npm run step-${i} -- --verbose)` : `bash(cmd${i})`;
+    const e = addEdge(g, { from: prev, intent: `第 ${i} 步`, action, evidence: { start: i * 3 + 2, end: i * 3 + 3 } });
+    // 300 字左右的报错，且混入宽字符（CJK/全角），检验裁剪不按字节乱切
+    const snippet = `失败原因 ${i}：` + "端口被占用、依赖缺失、权限不足；".repeat(12);
+    settleEdge(g, e, { to: null, result: "failure", errorSnippet: snippet.slice(0, 300) });
+    prev = addUserNodeId(g, { seq: i * 3 + 4, text: `继续 ${i}` });
+  }
+  const started = Date.now();
+  const out = renderLedger(g, { maxTokens: 500, tailFailures: 20 });
+  const ms = Date.now() - started;
+  t.eq(typeof out.text === "string", true, "必须返回 text");
+  t.eq(ms < 5000, true, `2,000 条失败边的渲染耗时 ${ms}ms 异常偏慢`);
+  // 硬上限：token 估算不应严重越界（允许少量结构开销）
+  const tokens = estimateTokens(out.text);
+  t.eq(tokens <= 500 * 2, true, `渲染结果 ${tokens} tokens 明显超出硬上限（maxTokens=500）`);
+  // 宽字符安全：不许出现被劈开的替换符
+  t.eq(out.text.includes(String.fromCharCode(0xfffd)), false, "裁剪不许产生 U+FFFD 替换符（宽字符被劈开）");
+  t.eq(out.text.length > 0, true, "必须有内容（不许因为量大就整段丢弃）");
+  t.eq(typeof out.overBudgetBy === "number", true, "必须如实报告超预算的额度（overBudgetBy）");
+  t.eq(out.budgetMax, 500, "必须回传实际生效的预算上限");
 };
