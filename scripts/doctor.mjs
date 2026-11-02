@@ -438,6 +438,7 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   let scanned = 0;
   let missingAll = 0;
+  let inFlightAll = 0;
   let orphanAll = 0;
   const worst = [];
   if (nodeFs.existsSync(sessionsRoot)) {
@@ -458,11 +459,17 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
       const nodesDir = nodePath.join(dir, "nodes");
       const files = nodeFs.existsSync(nodesDir) ? nodeFs.readdirSync(nodesDir) : [];
       const stats = nodeDocStats({ graphNodes: Object.keys(graph.nodes ?? {}), files });
-      missingAll += stats.missing.length;
-      orphanAll += stats.orphan.length;
-      if (stats.missing.length > 0 && worst.length < 3) {
-        worst.push(`${entry.name.slice(0, 16)}:${stats.missing.length}`);
+      // ★ C146（C143 的真实副作用）：delta 重放后能看到「刚建、md 还没写出」的节点 ——
+      //   nodes/*.md 是**节流写出**的（pending 攒到下一次落盘才写），活跃会话里这会持续出现。
+      //   所以：图在最近 2 分钟内更新过（会话仍在跑）⇒ 记为**在途**，不报警；
+      //   只有「图已静止」却仍缺文档，才是真正的空指针风险。
+      const fresh = Date.now() - (Number(graph.updatedAt) || 0) < 120_000;
+      if (fresh) inFlightAll += stats.missing.length;
+      else {
+        missingAll += stats.missing.length;
+        if (stats.missing.length > 0 && worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${stats.missing.length}`);
       }
+      orphanAll += stats.orphan.length;
     }
   }
   const verdict = missingAll > 0
@@ -472,7 +479,7 @@ add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.jso
         detail:
           scanned === 0
             ? "未采集（没有会话图）"
-            : `${scanned} 个会话的节点文档齐全${orphanAll > 0 ? `；${orphanAll} 个陈旧 md（节点已不在图里，仅计数）` : ""}`,
+            : `${scanned} 个会话的节点文档齐全${inFlightAll > 0 ? `（${inFlightAll} 个在途：会话仍在写，md 按落盘节流延迟写出）` : ""}${orphanAll > 0 ? `；${orphanAll} 个陈旧 md（节点已不在图里，仅计数）` : ""}`,
       };
   add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
 }

@@ -26,6 +26,7 @@ import {
   settleEdge,
   toJSON,
 } from "./graph-fixtures.mjs";
+import { applyDelta } from "../src/rooms/kifu-model.mjs";
 import { createPersistStore, createFsPort } from "../src/rooms/kifu-persist.mjs";
 import nodeFs from "node:fs";
 import nodeOs from "node:os";
@@ -149,4 +150,23 @@ tests["C142-2 端到端：快照带 pending 节点 ⇒ 回滚 + 落盘 + load �
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["C146 快照里「创建后又删除」的节点不许进 orderAppend（否则重放出幽灵节点）"] = (t) => {
+  const { g } = build();
+  const created = addUserNode(g, { seq: 70, text: "临时节点" }).id;
+  const dirtyWithCreate = peekDirty(g);
+  t.eq(dirtyWithCreate.orderAppend.includes(created), true, "夹具前提：创建后 orderAppend 里有它");
+
+  // 构造「创建后又删除」：delNodes 有它、orderAppend 也有它
+  const snapshot = { ...dirtyWithCreate, delNodes: [...dirtyWithCreate.delNodes, created] };
+  const restored = restoreFromSnapshot(g, toJSON(g), snapshot);
+  t.eq(peekDirty(restored).orderAppend.includes(created), false, `已删节点不许进 orderAppend（C146）：${JSON.stringify(peekDirty(restored).orderAppend)}`);
+
+  // 端到端：把这份 delta 回放到一张干净图上，order 里不许留下幽灵
+  const delta = deltaFromDirty(restored, peekDirty(restored));
+  const target = build().g;
+  applyDelta(target, delta);
+  const ghosts = target.order.filter((id) => !target.nodes[id]);
+  t.eq(ghosts.length, 0, `回放后 order 不许有幽灵节点：${ghosts.join(",")}`);
 };

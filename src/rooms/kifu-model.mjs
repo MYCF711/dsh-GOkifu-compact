@@ -1077,7 +1077,10 @@ export function applyDirtySnapshot(g, snapshot) {
   for (const id of snapshot.edges ?? []) d.edges.add(id);
   for (const id of snapshot.delNodes ?? []) d.delNodes.add(id);
   for (const id of snapshot.delEdges ?? []) d.delEdges.add(id);
-  for (const id of snapshot.orderAppend ?? []) d.orderAppend.push(id);
+  // ★ C146：「创建后又删除」的节点不能进 orderAppend —— `applyDelta` 先删后追加，
+  //   会把已删节点**重新推回 order**（幽灵节点）。所以在源头按 delNodes 过滤。
+  const deleted = new Set(snapshot.delNodes ?? []);
+  for (const id of snapshot.orderAppend ?? []) if (!deleted.has(id)) d.orderAppend.push(id);
   for (const id of snapshot.orderDrop ?? []) d.orderDrop.push(id);
   return g;
 }

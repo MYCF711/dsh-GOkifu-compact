@@ -321,11 +321,12 @@ tests["C110 会话图有节点但缺 nodes/<id>.md ⇒ warn（热清单省略行
   const sid = "session-c110";
   const dir = nodePath.join(home, "chess-context", "sessions", sid);
   nodeFs.mkdirSync(nodePath.join(dir, "nodes"), { recursive: true });
-  nodeFs.writeFileSync(
-    nodePath.join(dir, "graph.json"),
-    JSON.stringify({ nodes: { n1: { id: "n1", seq: 1 } }, edges: {}, order: ["n1"], foldMarks: [] }),
-    "utf8",
-  );
+  // 用**合法图**（有 version；否则 fromJSON 直接抛，doctor 会跳过该会话 —— 见 C146）
+  const legacyGraph = createGraph({ sessionId: "session-c110" });
+  const uid = addUserNodeId(legacyGraph, { seq: 1, text: "把测试跑绿" });
+  legacyGraph.updatedAt = Date.now() - 3_600_000; // 一小时前 = 会话已静止 ⇒ 缺文档是真问题
+  nodeFs.writeFileSync(nodePath.join(dir, "graph.json"), toJSON(legacyGraph), "utf8");
+  void uid;
   try {
     const row = runDoctor(home).find("节点文档与棋谱一致");
     t.eq(!!row, true, "必须有该检查项");
@@ -381,6 +382,21 @@ tests["C145 旧版本图（version 不符）必须 warn 而不是 error —— �
     t.eq(row.status, "warn", `旧版本图应 warn（不是 error）：${JSON.stringify(row)}`);
     t.includes(row.detail, "旧版本图", "detail 必须点明「旧版本图，不是损坏」");
     t.includes(row.detail, "unsupported version", "要带出原始原因，便于判断该不该迁移");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
+
+tests["C146 活跃会话里「刚建的节点还没写出 md」必须算在途，不许报警（delta 重放后才看得见）"] = (t) => {
+  const home = makeHome({
+    mutate: (g) => {
+      g.updatedAt = Date.now(); // 图刚更新 = 会话仍在跑
+    },
+  });
+  try {
+    const row = runDoctor(home).find("节点文档与棋谱一致");
+    t.eq(row.status, "ok", `活跃会话的在途文档不许报警：${JSON.stringify(row)}`);
+    t.includes(row.detail, "在途", "detail 必须说明「在途」而不是假装齐全");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
