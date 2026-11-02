@@ -190,3 +190,12 @@ tests["C123 可引用数字表的「算术自洽」：均值与比例必须能�
   const ratio = 804 / 10419;
   t.eq(Math.abs(ratio - 1 / 13) < 0.005, true, `804/10419 = ${ratio.toFixed(4)}，与「1/13 = ${(1 / 13).toFixed(4)}」差距过大`);
 };
+
+tests["C154 发布核对文档必须与本地版本一致，且标明是「只读核对」"] = (t) => {
+  const pkg = JSON.parse(read("package.json"));
+  const doc = read("evidence/发布核对-2026-11-02.md");
+  t.includes(doc, pkg.version, `发布核对必须写当前本地版本 ${pkg.version}（改版本后忘了更新会红）`);
+  t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
+  t.includes(doc, "只读核对", "必须声明是只读核对（未执行 publish/tag/push）");
+  t.eq(/npm publish/.test(doc), true, "必须把发布命令写出来（否则读者不知道差哪一步）");
+};
