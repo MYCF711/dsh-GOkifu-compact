@@ -205,7 +205,7 @@ tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启�
   for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
     t.includes(doc, needle, `清单必须覆盖 ${needle}`);
   }
-  t.includes(doc, "885 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.includes(doc, "886 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
   t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
 };
 
@@ -228,4 +228,38 @@ tests["C167 调研文里的 live 数字与测试数必须跟 HANDOFF / live-fold
   t.eq(!!docLive, true, "调研文必须写 live fold 次数与会话数");
   t.eq(Number(docLive[1]), total, `调研文的 fold 次数 ${docLive[1]} 与证据 ${total} 不一致`);
   t.eq(Number(docLive[2]), sessions, `调研文的会话数 ${docLive[2]} 与证据 ${sessions} 不一致`);
+};
+
+tests["C172 「2 分钟总览」必须与 CHANGELOG / HANDOFF / live-folds.json 同步（此前无人守）"] = (t) => {
+  const overview = read("evidence/持续优化-总览-2026-11-02.md");
+  const changelog = read("CHANGELOG.md");
+  const handoff = read("HANDOFF.md");
+  const json = JSON.parse(read("evidence/live-folds.json"));
+
+  // ① 条目数与编号数：CHANGELOG 历史上有同编号补充条目（C5/C26/C36）与一个缺号（C40），
+  //    所以「条数」与「编号数」必须分开写、分开校验 —— 只写一个数必然对不上。
+  const headers = [...changelog.matchAll(/^### (C\d+)/gm)].map((m) => Number(m[1].slice(1)));
+  const distinct = new Set(headers).size;
+  const claimed = overview.match(/\*\*(\d+) 条条目 \/ (\d+) 个编号\*\*/);
+  t.eq(!!claimed, true, "总览必须写「N 条条目 / M 个编号」");
+  t.eq(Number(claimed[1]), headers.length, `总览写 ${claimed[1]} 条条目，CHANGELOG 实际 ${headers.length}`);
+  t.eq(Number(claimed[2]), distinct, `总览写 ${claimed[2]} 个编号，CHANGELOG 实际 ${distinct}`);
+
+  // ② 覆盖区间：总览标题里的 C1–C<n> 必须等于 CHANGELOG 的最大编号
+  const maxC = Math.max(...headers);
+  const range = overview.match(/C1[–-]C(\d+)/);
+  t.eq(!!range, true, "总览标题必须写覆盖区间 C1–C<n>");
+  t.eq(Number(range[1]), maxC, `总览写到 C${range[1]}，CHANGELOG 最大是 C${maxC}`);
+
+  // ③ 测试数：与 HANDOFF 同源
+  const handoffPassed = handoff.match(/全量 \*\*(\d+) passed/);
+  const overviewPassed = overview.match(/\*\*(\d+) passed/);
+  t.eq(!!overviewPassed, true, "总览必须写测试数");
+  t.eq(overviewPassed[1], handoffPassed[1], `总览 ${overviewPassed[1]} vs HANDOFF ${handoffPassed[1]} 不一致`);
+
+  // ④ live fold：与证据 JSON 同源
+  const live = overview.match(/\*\*(\d+) 次 fold \/ (\d+) 会话\*\*/);
+  t.eq(!!live, true, "总览必须写 live fold 次数与会话数");
+  t.eq(Number(live[1]), json.summary.total, `总览 fold ${live[1]} vs 证据 ${json.summary.total}`);
+  t.eq(Number(live[2]), json.summary.bySession.sessionsWithFolds, `总览会话 ${live[2]} vs 证据 ${json.summary.bySession.sessionsWithFolds}`);
 };
