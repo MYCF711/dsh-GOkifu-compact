@@ -628,7 +628,21 @@ tests["C287 大尾巴要提前提醒：估算超过 150k tok 的会话可能超�
   });
   const bigLine = lines.find((l) => l.includes("big-tail-session"));
   const smallLine = lines.find((l) => l.includes("small-one"));
-  t.includes(bigLine, "可能超出模型窗口", `大尾巴要警告：${bigLine}`);
+  t.includes(bigLine, "会分成多段折", `大尾巴要说明会分段折（C289 之后不再是会失败）：${bigLine}`);
   t.includes(bigLine, "1213k tok", `要报估算量级：${bigLine}`);
   t.eq(smallLine.includes("⚠"), false, `小尾巴不该警告：${smallLine}`);
+};
+
+tests["C290 文案必须跟得上 C289：超大尾巴是「自动分段折」，不再写「会失败」"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  const lines = T.backfillLines({
+    ok: true, dryRun: true, scanned: 44, due: 1,
+    items: [{ sessionId: "big", tail: 13_000, estTokens: 1_200_000 }],
+  });
+  const joined = lines.join(" ");
+  t.includes(joined, "自动分段折叠", "汇总里要说明会自动分段");
+  t.includes(joined, "每段 ≤150k tok", "要给出单段上限");
+  t.includes(joined, "再点一次", "装不下要说可以再点一次继续");
+  t.eq(joined.includes("会失败"), false, "C289 之后不许再说「会失败」——那是旧行为的说法");
 };
