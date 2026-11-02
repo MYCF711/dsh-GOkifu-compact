@@ -26,7 +26,7 @@ import { peekDirty, restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNo
 import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
-import { planFold, isCheckpointSource } from "./rooms/fold-planner.mjs";
+import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { renderFacts, danglingStats } from "./rooms/ledger.mjs";
 import { measureFoldQuality } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
@@ -1069,6 +1069,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   }
 
   #selectRange(session, measurement, g, spec, overflow) {
+    // ★ C189：规划器是**按下标**走的（retain 尾部、checkpoint 起点、工具对边界都用 index），
+    //   所以传进去的两个数组必须**按 seq 升序**、且逐位对齐。
+    //   C187 已在 live 上证明「surface 顺序 ≠ seq 顺序」会发生 —— 若照原样传，
+    //   主力 fold 也会算出反向区间或折错尾巴（不只是 tier-2）。
     const planned = planFold({
       surfaceNodes: session.surface.nodes,
       pricedNodes: measurement.nodes,
@@ -1081,7 +1085,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       balancedAfter: (seq) => toolPairingBalancedAfter(session, seq),
     });
     if (planned.range === null) this.ctx.logger?.debug?.(`chess-context: 本次不 fold（${planned.reason}）`);
-    return planned.range;
+    // ★ C189：规划器按**下标**工作，而 surface 顺序不保证按 seq 递增（C187 在 live 上证明过）。
+    //   主 fold 也走同一条规划器 ⇒ 这里做最后一道防线：区间反向就交换并留一行日志，
+    //   绝不让 `seqStart > seqEnd` 的 foldMark 落到磁盘（doctor「结构自洽」会红）。
+    const range = normalizeRange(planned.range);
+    if (range !== null && range.reversed === true) {
+      this.ctx.logger?.warn?.(
+        `chess-context: 折叠区间反向（surface 顺序与 seq 顺序不一致）—— 已交换为 ${range.start}–${range.end}`,
+      );
+    }
+    return range;
   }
 
   /**

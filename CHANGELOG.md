@@ -3,6 +3,7 @@
 | 轮次 | 一句话 |
 |---|---|
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
+| C189 | 主力 fold 也有同一个反向区间风险（C187 的姊妹洞） |
 | C188 | 我自己在 live 上踩了一个坑：改写 `graph.json` 会让 delta 失效 |
 | C186 | 重启验收收敛成**一条命令**（`scripts/after-restart.mjs`） |
 | C185 | 四个诊断工具对同一份 live 数据给出一致数字（同 loader 的实证） |
@@ -224,6 +225,25 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 
 ★ 这条是**只有真机数据才暴露**的缺陷：夹具一直是「surface 顺序 = seq 顺序」，所以推进到第 150 轮才看到。
 
+
+### C189 · 主力 fold 也有同一个反向区间风险（C187 的姊妹洞）
+
+**推理链**：C187 修的是 tier-2；但 **主力 fold 走的是同一个下标驱动的规划器** `planFold`
+（保留尾巴按 index 倒推、checkpoint 起点按 `indexOf`、工具对边界按 index 前后找）。
+只要 surface 顺序与 seq 顺序不一致，主力 fold 同样可能返回 `start > end`。
+
+**修法**（纯函数 + 最后一道防线）：
+
+1. `fold-planner` 新增 `normalizeRange(range)`：区间反向 ⇒ 交换并标 `reversed: true`，其余字段原样保留；
+2. `engine.#selectRange` 用它包住规划结果，反向时记一行 warn 并返回自愈后的区间 ——
+   **`seqStart > seqEnd` 的 foldMark 不可能落盘**。
+
+**测试 C189**：`{start:900,end:100}` → `{start:100,end:900,reversed:true}` 且 `shadowedTokens` 不变；
+正常区间原样返回（不新增字段）；`null` 原样；单点不算反向。
+
+★ 实现时试过「先按 seq 排序再喂规划器」，**被 C62 的连续折叠不变量否掉了**（`measurement.nodes`
+与 `surface.nodes` 是按下标对齐的，重排会改变 shadowedTokens 与保留尾巴 ⇒ 第三次 fold 重扫已折区域）。
+结论：**在边界上自愈，而不是改动规划器的输入**。
 
 ### C188 · 我自己在 live 上踩了一个坑：改写 `graph.json` 会让 delta 失效
 

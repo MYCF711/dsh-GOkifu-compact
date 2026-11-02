@@ -14,7 +14,7 @@
  * 只测**纯函数**，不碰 fs、不调模型。
  */
 
-import { planFold } from "../src/rooms/fold-planner.mjs";
+import { normalizeRange, planFold } from "../src/rooms/fold-planner.mjs";
 
 export const tests = {};
 
@@ -211,4 +211,16 @@ tests["C174 规划器在 1,500 节点量级：必须给出合法区间、尾部�
   // overflow 模式：尾部保留为 0 ⇒ 区间必须直接吃到末尾
   const ovf = planFold({ surfaceNodes, pricedNodes, eventAt: (seq) => eventAt.get(seq), retainTokens: 6000, minFoldTokens: 1000, overflow: true });
   if (ovf.reason === "ok") t.eq(ovf.range.end >= N - 1, true, `overflow 区间应接近末尾，实际 end=${ovf.range.end}`);
+};
+
+tests["C189 反向区间必须被 normalizeRange 自愈（surface 顺序 ≠ seq 顺序时不让坏 foldMark 落盘）"] = (t) => {
+  const bad = normalizeRange({ start: 900, end: 100, shadowedTokens: 42 });
+  t.eq([bad.start, bad.end], [100, 900], "反向区间必须交换");
+  t.eq(bad.reversed, true, "必须标记 reversed（调用方据此记日志）");
+  t.eq(bad.shadowedTokens, 42, "其余字段必须原样保留");
+
+  const ok = normalizeRange({ start: 100, end: 900 });
+  t.eq(ok, { start: 100, end: 900 }, "正常区间原样返回（不新增字段）");
+  t.eq(normalizeRange(null), null, "null 原样返回");
+  t.eq(normalizeRange({ start: 5, end: 5 }).reversed, undefined, "单点区间不算反向");
 };
