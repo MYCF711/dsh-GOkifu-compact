@@ -187,7 +187,7 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
    * 落盘（三层树 + 增量帧）。写序见 `_ORDER`。
    * @returns {{ok:true, baseHash, wroteBaseline:boolean, wroteDelta:boolean} | {ok:false, error:string, dirtyKept:true}}
    */
-  function flush({ id, cwd } = {}, graph, { tree = false, full = false } = {}) {
+  function flush({ id, cwd } = {}, graph, { tree = false, full = false, repaired = false } = {}) {
     const key = String(id ?? "session");
     const p = sessionPaths(root, key);
     let wroteBaseline = false;
@@ -229,7 +229,9 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
         pending.clear();
         // ★ C145（审查 P2）：`firstWrite` 也要自愈 —— 旧代码只在稳态分支清理，
         //   于是「重启后的**第一次** tree 落盘」不清理陈旧 md（注释所宣称的自愈并不成立）。
-        if (tree) pruneStaleNodeDocs(port, p.nodesDir, graph);
+        // ★ C149（复审 P2 的延伸）：**repaired 时绝不清** —— 图刚因「读不出/版本不符」被重建，
+        //   内存里只有新建的少量节点，按「不在图里」删会把旧图真实的 nodes/*.md 全删。
+        if (tree && !repaired) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else if (tree || pending.size > 0) {
         port.mkdirSync(p.nodesDir, { recursive: true });
@@ -246,7 +248,8 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
         //   graph.json 读不出来时 engine 会静默建空图（只 warn），此时按「不在图里」删除
         //   会把整个 nodes/ 清空（实测 3 个文档全删，而磁盘上的 graph.json 仍有它们）。
         //   判据：节点表非空 **且** order 非空（正常图两者都非空）。
-        if (tree) pruneStaleNodeDocs(port, p.nodesDir, graph);
+        // ★ C149：repaired 时跳过（见下）
+        if (tree && !repaired) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else {
         for (const nodeId of dirty.nodes) pending.add(nodeId);

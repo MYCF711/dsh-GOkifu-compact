@@ -291,6 +291,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       /* ignore */
     }
     this.graphs = new Map();
+    /** ★ C149：这些会话的图是「读不出/版本不符 → 重建」出来的，落盘时不做按图清理。 */
+    this.repairedGraphs = new Set();
     /** 三层文件树已写过的会话（2000 边时 4000 文件会卡事件循环，只首次与 fold 后写） */
     /** debounce 写入的定时器；缺这一行会让每次「有变化」的事件都抛 TypeError（实测：落盘 debounce 完全失效）。 */
     this.flushTimers = new Map();
@@ -369,6 +371,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // ★ A2-2 行为变更①：读不出/版本不符不再静默建空图 —— R01 返回 repaired + 原因，这里打一行 warn。
     const loaded = this.persist.load({ id: key, cwd: session.cwd });
     if (loaded.repaired) {
+      this.repairedGraphs.add(key);
       this.ctx.logger?.warn?.(`chess-context: 棋谱读不出或版本不符，已新建空图（${loaded.repairedReason}）：${this.#graphPath(session)}`);
     }
     g = loaded.graph;
@@ -423,7 +426,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   #flush(session, { tree = false, full = false } = {}) {
     const g = this.#graph(session);
     // ★ A2-2 行为变更②：写序/字节全在 R01；失败返回 {ok:false} 且 **dirty 不清**，这里打一行 warn。
-    const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full });
+    // ★ C149：把「本会话的图是刚重建出来的」告诉落盘方 —— 那种图上做「按图清理」会删掉旧图的真实文档。
+    const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full, repaired: this.repairedGraphs.has(session.id) });
     if (!result.ok) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${result.error}`);
     }

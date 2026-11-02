@@ -501,3 +501,34 @@ tests["C145-2 非 tree 的 firstWrite 不许清理（避免误删影响性能与
     void u;
   });
 };
+
+tests["C149 图是「重建」出来的（repaired）时，tree 落盘绝不许按图清理（会删旧图真实文档）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 先落一版真实图：n1(user) + n2(agent) —— 两个文档
+    const real = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(real, { seq: 1, text: "a" });
+    const e = addEdge(real, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(real, { seq: 4, goal: "g", worldHash: "W", constraintHash: "C", via: e }).id;
+    settleEdge(real, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, real, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    const before = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(before.length, 2, `夹具前提：两个节点文档，实际 ${before.join(",")}`);
+
+    // 重建图只有 n1（新图从 n1 开始编号）；旧图的 n2 必须在 repaired 落盘时不被动
+    const rebuilt = createGraph({ sessionId: "s1" });
+    addUserNodeId(rebuilt, { seq: 9, text: "重建后的第一个节点" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true, repaired: true });
+    t.eq(r.ok, true, "落盘本身应成功");
+    const after = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(after.includes("n2.md"), true, `repaired 落盘不许删旧图的 n2.md（实际剩：${after.join(",")}）`);
+
+    // 反向：非 repaired 的 tree 落盘必须清理（否则自愈功能失效）
+    const cleaned = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true });
+    t.eq(cleaned.ok, true, "正常落盘应成功");
+    const final = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(final.includes("n2.md"), false, `非 repaired 时必须清理不在图里的文档，实际 ${final.join(",")}`);
+  });
+};
