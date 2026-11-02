@@ -78,6 +78,38 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
 }
 
 /**
+ * ★ C341：把补账排成**批次**（每轮最多 N 段）—— 把"13 轮"变成"第一轮补哪几个"。
+ *
+ * 贪心装箱：按段数从大到小放，装不下就开新批。这样大尾巴先补、批次数也接近最少。
+ * 注意：这是**建议顺序**，不是调度器 —— 面板的实际分批由宿主那边控制。
+ *
+ * @param {Array<{sessionId:string, chunks:number}>} rows
+ * @param {{maxChunksPerRound?: number}} [options]
+ * @returns {Array<{round:number, sessions:string[], chunks:number}>}
+ */
+export function planRounds(rows, { maxChunksPerRound = 6 } = {}) {
+  const cap = Math.max(1, Number(maxChunksPerRound) || 6);
+  const items = (rows ?? [])
+    .map((row) => ({ sessionId: String(row?.sessionId ?? "?"), chunks: Math.max(1, Number(row?.chunks) || 1) }))
+    .sort((a, b) => b.chunks - a.chunks || a.sessionId.localeCompare(b.sessionId));
+  const rounds = [];
+  for (const item of items) {
+    let placed = false;
+    for (const round of rounds) {
+      if (round.chunks + item.chunks <= cap) {
+        round.sessions.push(item.sessionId);
+        round.chunks += item.chunks;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) rounds.push({ round: rounds.length + 1, sessions: [item.sessionId], chunks: item.chunks });
+  }
+  return rounds;
+}
+
+/**
+ * 扫一遍会话目录/**
  * 扫一遍会话目录，给每个欠账算尾巴/估算/段数（读图走 loadSessionGraph，脚本侧硬规矩 C183）。
  * @param {string} home
  * @param {{maxTokens?: number}} [options]
@@ -150,6 +182,13 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段`);
   }
   if (rows.length > 12) console.log(`  · …另 ${rows.length - 12} 个`);
+  const rounds = planRounds(rows);
+  console.log(`
+—— 建议批次（每轮最多 6 段）——`);
+  for (const round of rounds.slice(0, 6)) {
+    console.log(`  第 ${round.round} 轮：${round.chunks} 段 · ${round.sessions.join(" / ")}`);
+  }
+  if (rounds.length > 6) console.log(`  …共 ${rounds.length} 轮`);
   console.log(
     `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段 ⇒ **约 ${plan.rounds} 轮**（每轮最多 6 段）` +
       ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,

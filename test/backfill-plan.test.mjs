@@ -58,3 +58,33 @@ tests["C340 零 fold 的会话用全局均值粗估，且必须与精确估计�
   t.eq(noRough.unknown, 1, "没有均值时必须老实说估不出");
   t.eq(noRough.rough, 0, "不许凭空粗估");
 };
+
+tests["C341 planRounds：按段数贪心装箱，每轮不超上限，大尾巴先补"] = async (t) => {
+  const { planRounds } = await import("../scripts/backfill-plan.mjs");
+  t.eq(typeof planRounds, "function", "必须导出 planRounds");
+
+  const rounds = planRounds(
+    [
+      { sessionId: "big1", chunks: 6 },
+      { sessionId: "big2", chunks: 6 },
+      { sessionId: "s3", chunks: 3 },
+      { sessionId: "s3b", chunks: 3 },
+      { sessionId: "tiny", chunks: 1 },
+    ],
+    { maxChunksPerRound: 6 },
+  );
+  // 每轮都不许超上限
+  for (const round of rounds) t.eq(round.chunks <= 6, true, `第 ${round.round} 轮超上限：${round.chunks}`);
+  // 6 段的独占一轮（装不下别的）
+  t.eq(rounds[0].sessions, ["big1"], "最大的先补且独占一轮");
+  t.eq(rounds[1].sessions, ["big2"], "第二大也独占");
+  // 3+3 能合成一轮
+  t.eq(rounds[2].sessions.sort(), ["s3", "s3b"], "两个 3 段应合成一轮");
+  // 所有会话都被排进去，一个不丢
+  const all = rounds.flatMap((r) => r.sessions).sort();
+  t.eq(all, ["big1", "big2", "s3", "s3b", "tiny"], "不许漏掉任何会话");
+  // 轮次编号连续
+  t.eq(rounds.map((r) => r.round), rounds.map((_, i) => i + 1), "轮次编号要连续");
+  // 空输入
+  t.eq(planRounds([]), [], "空输入 ⇒ 空批次");
+};
