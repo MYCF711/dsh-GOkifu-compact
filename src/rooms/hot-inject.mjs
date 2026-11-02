@@ -240,7 +240,12 @@ export function decideInjection({
     const lostToFold = existing === null && state.lastLedgerDigest === digest && state.lastLedgerFailureCount !== undefined;
     // 告警不走限流：它出现的那一刻就是必须被看见的那一刻。
     if (!lostToFold && warning === "") {
-      if (typeof state.lastLedgerInjectSeq === "number" && session.seq - state.lastLedgerInjectSeq < INJECT_MIN_EVENTS) {
+      // ★ C248：间隔可配（默认 40 = 旧行为）。见 config-schema 里 `hotLedgerMinEvents` 的说明。
+      const minEvents = (() => {
+        const raw = Number(config?.hotLedgerMinEvents);
+        return Number.isFinite(raw) && raw >= 1 ? Math.min(500, Math.trunc(raw)) : INJECT_MIN_EVENTS;
+      })();
+      if (typeof state.lastLedgerInjectSeq === "number" && session.seq - state.lastLedgerInjectSeq < minEvents) {
         return { decision, action: "skip", reason: "throttled-events" };
       }
       if (typeof state.lastLedgerFailureCount === "number" && ledger.failureCount < state.lastLedgerFailureCount + INJECT_MIN_FAILURE_DELTA) {

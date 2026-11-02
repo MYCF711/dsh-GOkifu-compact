@@ -511,3 +511,25 @@ tests["C130 历史清单清理的随机化不变量：只动旧 chess-context，
   }
   t.eq(elidedTotal > 0, true, "随机样本必须至少发生一次清理（否则判据空转）");
 };
+
+tests["C248 注入节流间隔可配：hotLedgerMinEvents 生效（默认 40 = 旧行为）"] = (t) => {
+  // 场景：刚注入过、只过了 10 个事件，且失败边没变多 ⇒ 默认配置下跳过（throttled-events）
+  const build = () => {
+    const g = graphWithFailure();
+    const st = makeState();
+    const session = makeSession({ id: "s-throttle", seq: 100 });
+    const seeded = run(session, g, { ...st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(g).length });
+    return { g, session, st, seeded };
+  };
+  const a = build();
+  t.eq(a.seeded.action, "skip", "默认配置（40 事件）下、只过 10 个事件 ⇒ 跳过");
+
+  const b = build();
+  const loose = run(b.session, b.g, { ...b.st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(b.g).length }, { config: { ...CONFIG, hotLedgerMinEvents: 5 } });
+  t.eq(loose.action !== "skip" || loose.reason !== "throttled-events", true, "把间隔改成 5 之后，10 个事件就不该再被节流挡下");
+
+  // 非法值不许把行为改成"每步都写"：0 / -1 / NaN ⇒ 回落到默认 40
+  const c = build();
+  const bad = run(c.session, c.g, { ...c.st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(c.g).length }, { config: { ...CONFIG, hotLedgerMinEvents: 0 } });
+  t.eq(bad.reason, "throttled-events", "非法值（0）必须回落到默认 40，不许变成每步注入");
+};

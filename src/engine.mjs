@@ -1754,7 +1754,7 @@ const ENGINE_BY_CTX = new WeakMap();
 const RESOLVE_ORDER = [
   "summaryMode", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens",
   "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
-  "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
+  "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
   "onLedgerBudget", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "graphDir", "worldHashMaxFiles",
 ];
 

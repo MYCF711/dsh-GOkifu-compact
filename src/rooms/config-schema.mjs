@@ -75,6 +75,11 @@ export const SCHEMA = Object.freeze([
   { key: "minFoldTokens", type: "number", default: 8000, where: "preset", range: [0, 1000000], label: "最小 fold 量（tokens）", desc: "被遮蔽内容少于这么多 token 就不 fold（摘要本身要花钱）" },
   { key: "hotLedger", type: "boolean", default: true, where: "preset", label: "热清单", desc: "每轮注入失败清单（热上下文）" },
   { key: "hotLedgerMaxTokens", type: "number", default: 500, where: "preset", range: [0, 20000], label: "热清单预算（tokens）", desc: "失败清单的 token 上限" },
+  // ★ C248：注入节流原来写死 40 个事件（`INJECT_MIN_EVENTS`），用户改不了。
+  //   实测 2654 次渲染里只有 21 次真的写了清单（0.8%），其中 2514 次是 `throttled-failures` ——
+  //   「失败边没多 5 条就不刷新」意味着**位置变了也不刷新**。这是缓存与新鲜度的取舍，
+  //   所以把它**交给用户调**（越小越新、越费缓存），默认仍是 40（与旧行为逐字节一致）。
+  { key: "hotLedgerMinEvents", type: "number", default: 40, where: "engine", range: [1, 500], label: "清单刷新间隔（事件）", desc: "两次注入至少隔多少事件；越小位置越新，但改写清单会让前缀缓存失效" },
   {
     key: "hotLedgerMarkers",
     type: "enum",
@@ -167,6 +172,7 @@ const LABEL_ORDER = Object.freeze([
   "maxTokens",
   "hotLedger",
   "hotLedgerMaxTokens",
+  "hotLedgerMinEvents",
   "hotLedgerReplace",
   "hotLedgerMarkers",
   "transposition",
@@ -227,6 +233,8 @@ export function resolveConfig(raw = {}) {
     minFoldTokens: num(c.minFoldTokens, describe("minFoldTokens").default),
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
+    // ★ C248：注入节流间隔（默认 40 = 旧行为）
+    hotLedgerMinEvents: num(c.hotLedgerMinEvents, describe("hotLedgerMinEvents").default),
     hotLedgerMarkers: describe("hotLedgerMarkers").values.includes(c.hotLedgerMarkers) ? c.hotLedgerMarkers : describe("hotLedgerMarkers").default,
     hotLedgerTraceRoot: str(c.hotLedgerTraceRoot, describe("hotLedgerTraceRoot").default),
     hotLedgerReplace: c.hotLedgerReplace !== false,
