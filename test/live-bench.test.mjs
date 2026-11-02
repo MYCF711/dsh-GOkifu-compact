@@ -42,3 +42,17 @@ tests["C376 仓库里的基准文档存在，且开头声明「自动生成」"]
   t.includes(text, "live-bench.mjs", "必须写明生成命令");
   t.includes(text, "命中率", "至少要有命中率这一节");
 };
+
+tests["C377 HANDOFF 必须指向生成物，且数字与它一致（防再次手抄漂移）"] = (t) => {
+  const handoff = nodeFs.readFileSync(nodePath.join(HERE, "..", "HANDOFF.md"), "utf8");
+  t.includes(handoff, "真机基准-自动生成.md", "HANDOFF 必须指向生成的基准文档（而不是自己抄数字）");
+  t.includes(handoff, "生成物", "要说明那是生成物");
+
+  if (!nodeFs.existsSync(DOC)) return;
+  const bench = nodeFs.readFileSync(DOC, "utf8");
+  // 从生成物里取命中率与全量花费，HANDOFF 里必须出现同样的数字
+  const hit = bench.match(/\*\*(\d+\.\d)%\*\*（分母/);
+  const cost = bench.match(/全量估算 \| \*\*\$(\d+\.\d\d)\*\*/);
+  if (hit) t.includes(handoff, `${hit[1]}%`, `HANDOFF 的命中率必须与生成物一致（${hit[1]}%）`);
+  if (cost) t.includes(handoff, `$${cost[1]}`, `HANDOFF 的全量花费必须与生成物一致（$${cost[1]}）`);
+};
