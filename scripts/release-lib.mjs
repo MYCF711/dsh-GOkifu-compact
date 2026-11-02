@@ -256,3 +256,33 @@ export function isOnlyBinNormalization(aText, bText) {
   }
   return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
 }
+
+/**
+ * ★ C324：把「待补的 tag」算成**可以照抄的命令**。
+ *
+ * 由来：维护检查原来只会说「补 tag：git tag <tag> <commit>」—— 可 `<commit>` 是哪一条？
+ * 用户得自己翻历史。而「发版」是本工具唯一一件**必须交给主人拍板**的事（C273），
+ * 那就更该把命令准备到"复制粘贴就能跑"的程度。
+ *
+ * @param {{versions?: string[], tags?: string[], lookup?: (v: string) => string|null}} input
+ * @returns {{version: string, tag: string, commit: string|null, command: string}[]}
+ */
+export function pendingTagCommands({ versions = [], tags = [], lookup = () => null } = {}) {
+  const tagSet = new Set(tags)
+  const out = []
+  for (const version of versions) {
+    const tag = `v${version}`
+    if (tagSet.has(tag)) continue
+    const commit = lookup(version)
+    out.push({
+      version,
+      tag,
+      commit: commit ?? null,
+      command:
+        commit === null || commit === undefined
+          ? `# 找不到 ${tag} 对应的提交（package.json 在该版本上没被改过？）`
+          : `git tag -a ${tag} ${String(commit).slice(0, 12)} -m "release ${tag}" && git push origin ${tag}`,
+    })
+  }
+  return out
+}

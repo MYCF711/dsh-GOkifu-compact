@@ -18,7 +18,7 @@
 import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
-import { classifyRemote } from "./release-lib.mjs"
+import { classifyRemote, pendingTagCommands } from "./release-lib.mjs"
 
 const ROOT = resolve(process.argv[2] ?? ".")
 const results = []
@@ -144,6 +144,7 @@ function parseSemver(s) {
   const m = String(s).match(/^v?(\d+)\.(\d+)\.(\d+)$/)
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
 }
+
 const from = parseSemver(lastTag ?? "")
 const to = parseSemver(currentTag)
 if (from && to) {
@@ -159,6 +160,37 @@ if (from && to) {
        "没有跳过版本（中间每个版本都打了 tag）",
        `这几个版本只 commit 没打 tag：${missing.join(" / ")} —— 用户拿不到中间任何一版，也说不清自己在哪版上出的问题`,
        "补 tag：git tag <tag> <commit>（补历史版本是可以的，不改代码）")
+}
+
+// ── ⑥.5 把待补 tag 算成可照抄的命令（C324）────────────────────────────
+// 「发版」是唯一必须交给主人拍板的事（C273）。既然要人做，就把命令准备到"复制就能跑"。
+{
+  const pendingVersions = []
+  if (!tags.includes(currentTag)) pendingVersions.push(String(version))
+  const fromS = parseSemver(lastTag ?? "")
+  const toS = parseSemver(currentTag)
+  if (fromS && toS && fromS[0] === toS[0] && fromS[1] === toS[1] && toS[2] - fromS[2] > 1) {
+    for (let p = fromS[2] + 1; p < toS[2]; p++) {
+      const v = `${fromS[0]}.${fromS[1]}.${p}`
+      if (!tags.includes(`v${v}`)) pendingVersions.push(v)
+    }
+  }
+  const lookup = (v) => {
+    // package.json 里该版本第一次出现的那条提交
+    const out = git(["log", "--reverse", "--format=%H", "-S", `"version": "${v}"`, "--", "package.json"])
+    if (!out) return null
+    const firstLine = out.split("\n")[0].trim()
+    return firstLine === "" ? null : firstLine
+  }
+  const todo = pendingTagCommands({ versions: pendingVersions, tags, lookup })
+  if (todo.length > 0) {
+    warn(false,
+         `待补 tag 共 ${todo.length} 个（命令已备好，照抄即可）`,
+         todo.map((t) => `${t.tag} → ${t.commit === null ? "?" : t.commit.slice(0, 12)}`).join(" · "),
+         todo.map((t) => t.command).join("\n       "))
+  } else {
+    ok(true, "没有待补的 tag", "", "")
+  }
 }
 
 // ── ⑦ release.mjs 必须打 annotated tag ───────────────────────────────

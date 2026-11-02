@@ -17,6 +17,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { pendingTagCommands } from "../scripts/release-lib.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.resolve(HERE, "..");
@@ -55,7 +56,8 @@ function runCheck(root) {
   return { status: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
-const SUMMARY_OK = "通过 9 · 警告 0 · 失败 0";
+// ★ C324 起多了一行「待补的 tag」（干净夹具上它是 pass）⇒ 通过数 9 → 10
+const SUMMARY_OK = "通过 10 · 警告 0 · 失败 0";
 
 export const tests = {};
 
@@ -64,7 +66,7 @@ tests["check-maintenance 基线：干净夹具必须 9/0"] = (t) => {
   try {
     const r = runCheck(root);
     t.eq(r.status, 0, `干净夹具应 exit 0，实际 ${r.status}\n${r.out}`);
-    t.includes(r.out, SUMMARY_OK, "基线必须是 9 通过 / 0 警告 / 0 失败");
+    t.includes(r.out, SUMMARY_OK, "基线必须是 10 通过 / 0 警告 / 0 失败（C324 多一行待补 tag）");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
@@ -81,7 +83,7 @@ tests["check-maintenance 回归：脏 evidence/bench-2000.json 必须仍是 9/0�
     t.eq(raw.split("\0")[0].slice(3), "evidence/bench-2000.json", "porcelain -z 的首条路径必须完整");
     const r = runCheck(root);
     t.eq(r.status, 0, `脏 evidence/ 不得判红（旧实现会 exit 1），实际 ${r.status}\n${r.out}`);
-    t.includes(r.out, SUMMARY_OK, "脏 evidence/ 时仍应是 9/0");
+    t.includes(r.out, SUMMARY_OK, "脏 evidence/ 时仍应是 10/0");
     t.ok(!r.out.includes("vidence/"), "输出里不许出现被多切一字符的 `vidence/`");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
@@ -114,4 +116,27 @@ tests["check-maintenance 回归：git checkout -- evidence/ 之后回到 9/0"] =
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+// ── C324：待补 tag 的命令必须能照抄 ──────────────────────────────────
+// 发版是唯一必须交给主人拍板的事（C273）。既然把命令交出去，就必须保证命令本身是对的。
+
+tests["C324 pendingTagCommands：没 tag 的才出命令，且命令里带 commit 与 push"] = (t) => {
+  const todo = pendingTagCommands({
+    versions: ["1.17.4", "1.17.5", "1.17.6"],
+    tags: ["v1.17.5"],
+    lookup: (v) => (v === "1.17.6" ? "abcdef1234567890" : "ffff00001111"),
+  });
+  t.eq(todo.map((x) => x.tag), ["v1.17.4", "v1.17.6"], "已有 tag 的版本不许再出命令");
+  const v6 = todo.find((x) => x.tag === "v1.17.6");
+  t.includes(v6.command, "git tag -a v1.17.6 abcdef123456", "必须是 annotated tag + 短 sha");
+  t.includes(v6.command, "git push origin v1.17.6", "打完要推，否则远端还是没有");
+};
+
+tests["C324 找不到对应提交时，要给一句能看懂的说明而不是半条坏命令"] = (t) => {
+  const todo = pendingTagCommands({ versions: ["9.9.9"], tags: [], lookup: () => null });
+  t.eq(todo.length, 1, "没 tag 就要列出来");
+  t.eq(todo[0].commit, null, "commit 必须是 null");
+  t.includes(todo[0].command, "找不到", "要说明找不到，而不是给出会失败的 git 命令");
+  t.eq(todo[0].command.startsWith("git tag"), false, "不许给出假的 git 命令");
 };
