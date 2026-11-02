@@ -487,3 +487,16 @@ tests["C239 costText：估算成本的显示口径（带覆盖率、没数据给
   t.eq(T.costText({ costUsd: 0, costKnown: 0 }), "—", "没有成本 ⇒ —（不编 0）");
   t.eq(T.costText(null), "—", "null ⇒ —");
 };
+
+tests["C259 补账按批：还有剩余时要明说「再点一次继续」（别让用户以为一次就该补完）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  const partial = T.backfillLines({ ok: true, due: 12, total: 5, done: 5, folded: 4, failed: 0, results: [] });
+  t.eq(partial.length, 2, `一批 5/12 ⇒ 两行：${JSON.stringify(partial)}`);
+  t.includes(partial[1], "还有 7 个", `要算剩余：${partial[1]}`);
+  t.includes(partial[1], "再点一次", "要告诉用户怎么继续");
+
+  const all = T.backfillLines({ ok: true, due: 5, total: 5, done: 5, folded: 5, failed: 0, results: [] });
+  t.eq(all.length, 1, `全补完 ⇒ 只有一行：${JSON.stringify(all)}`);
+  t.eq(all.join(" ").includes("再点一次"), false, "补完了就不该再让用户点");
+};
