@@ -62,3 +62,20 @@ tests["C331 验收判定：全部阳性时判 ready"] = async (t) => {
   t.eq(r.verdict, "ready", `全阳性必须 ready：${JSON.stringify(r)}`);
   t.includes(r.line, "欠账 3", "要带出欠账数");
 };
+
+tests["C338 端口属主与心跳 pid 对不上时要说清楚（多进程环境的真相）"] = async (t) => {
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  t.eq(typeof mod.listeningPidOf, "function", "必须导出 listeningPidOf");
+
+  // Windows netstat 真实片段（注意首列是协议名，本地地址在第 2 列，pid 在末列）
+  const sample = [
+    "  TCP    127.0.0.1:64349        0.0.0.0:0              LISTENING       24944",
+    "  TCP    127.0.0.1:60037        0.0.0.0:0              LISTENING       10048",
+    "  TCP    127.0.0.1:64349        127.0.0.1:52000        ESTABLISHED     24944",
+  ].join("\n");
+  t.eq(mod.listeningPidOf(sample, 64349), 24944, "要挑出监听该端口的 pid");
+  t.eq(mod.listeningPidOf(sample, 60037), 10048, "另一个端口也要对");
+  t.eq(mod.listeningPidOf(sample, 12345), null, "没有就 null");
+  // 只认 LISTENING（ESTABLISHED 那行不许算）
+  t.eq(mod.listeningPidOf("  TCP    127.0.0.1:9999  0.0.0.0:0  ESTABLISHED  777", 9999), null, "非 LISTENING 不算");
+};

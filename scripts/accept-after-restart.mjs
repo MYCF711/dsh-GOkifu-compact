@@ -15,6 +15,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { checkPanelCapabilities } from "./post-restart-check.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +91,31 @@ export function scanEvidence(sessionsRoot) {
   return out;
 }
 
+/**
+ * ★ C338：从 `netstat -ano` 文本里找出**监听某端口的进程 pid**。
+ *
+ * 为什么需要：真机上同时有多个 DSH 进程 —— 心跳写着"面板注册在 pid 23748"，
+ * 而真正在服务 64349 的是 **pid 24944**。不把这两个对上，验收结论会一直含糊
+ * （"注册了但访问不到"到底是谁的问题？）。
+ *
+ * @param {string} netstatText
+ * @param {number} port
+ * @returns {number|null}
+ */
+export function listeningPidOf(netstatText, port) {
+  const wanted = `:${port}`;
+  for (const line of String(netstatText ?? "").split("\n")) {
+    if (!/LISTENING/i.test(line)) continue;
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5) continue;
+    const local = cols[1];
+    if (!local.endsWith(wanted)) continue;
+    const pid = Number(cols[cols.length - 1]);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+  }
+  return null;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const getArg = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
@@ -109,6 +135,25 @@ export async function main(argv = process.argv.slice(2)) {
   })();
   const port = Number(getArg("port", "")) || heartbeatPort || 64349;
   const home = getArg("home", process.env.DSH_HOME ?? "");
+  // ★ C338：端口属主 vs 心跳 pid —— 真机上这俩经常不是同一个进程
+  const heartbeatPid = (() => {
+    try {
+      const file = nodePath.join(home, "chess-context", "ui-route.json");
+      if (!nodeFs.existsSync(file)) return null;
+      const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+      return Number.isInteger(Number(hb?.pid)) ? Number(hb.pid) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const ownerPid = (() => {
+    try {
+      const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15000 });
+      return listeningPidOf(out, port);
+    } catch {
+      return null;
+    }
+  })();
   const caps = await checkPanelCapabilities(undefined, { port });
 
   let backfill = { reachable: false, due: null, error: null };
@@ -139,6 +184,13 @@ export async function main(argv = process.argv.slice(2)) {
   const evidence = sessionsRoot === "" ? { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0 } } : scanEvidence(sessionsRoot);
 
   const result = verdictOf({ caps, backfill, ...evidence, buildOk: true });
+  const ownerNote =
+    ownerPid === null || heartbeatPid === null
+      ? ""
+      : ownerPid === heartbeatPid
+        ? `（端口 ${port} 与心跳是同一进程 ${ownerPid}）`
+        : `（**端口 ${port} 属 pid ${ownerPid}，而心跳来自 pid ${heartbeatPid}** —— 插件没注册到 GUI 进程里）`;
+  if (ownerNote !== "") result.line = `${result.line} ${ownerNote}`;
   if (argv.includes("--json")) {
     console.log(JSON.stringify({ caps, backfill, ...evidence, ...result }, null, 2));
     return result.verdict === "stale" ? 1 : 0;
