@@ -2676,3 +2676,19 @@ tests["C319 摘要终止原因必须从 assembler.finish 读（raw 是块数组�
   }
   if (!src.includes("finishRaw?.kind")) throw new Error("要归一化 { kind } 形状");
 };
+
+tests["C321 finishReason 必须真的落进 foldMarks（doctor 读的是那里，不是 ledger-budget）"] = () => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  // ① foldMark 里必须有这个字段
+  const markStart = src.indexOf("const mark = {");
+  const markEnd = src.indexOf("};", markStart);
+  const markBody = src.slice(markStart, markEnd);
+  if (!markBody.includes("finishReason,")) throw new Error("foldMark 必须带 finishReason（C321）");
+  // ② 必须先取值再清（清早了等于永远 null）
+  const take = src.indexOf("const finishReason = this._lastSummaryFinishReason ?? null;");
+  if (take < 0) throw new Error("要先取成局部变量再清（C321）");
+  // take 之后、mark 之前必须有一次清理（谁生产谁消费），且 take 本身在 mark 之前
+  const clearBetween = src.indexOf("this._lastSummaryFinishReason = undefined;", take);
+  if (!(take < markStart)) throw new Error("取值必须在构造 foldMark 之前");
+  if (clearBetween < 0 || clearBetween > markStart) throw new Error("取值与构造之间要有一次清理（防泄漏到下一次 fold）");
+};

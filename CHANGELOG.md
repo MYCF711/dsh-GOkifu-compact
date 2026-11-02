@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C321 | 第五次：字段写对了，写错了地方（`ledger-budget` vs `foldMarks`） |
 | C320 | 截断判定吃掉三种拼法（`max-tokens` / `max_tokens` / `length`） |
 | C319 | 又错一层：`raw` 是块数组，终止原因要从 `assembler.finish` 读 |
 | C318 | 上一轮字段名猜错了：宿主用的是 `stopReason` / `max_tokens` |
@@ -398,6 +399,18 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C321 · 第五次：字段写对了，写错了地方（`ledger-budget` vs `foldMarks`）
+
+C317~C320 理清了"读什么 / 在哪读 / 几种拼法"，然后发现：`finishReason` 被写进了
+**`ledger-budget.lastExternalFold`**，而 `doctor` 读的是 **`foldMarks[]`** —— 仪器第五次静默。
+更隐蔽的是 `recordFoldMark` 里字段在**清理语句之后**才读 ⇒ 就算写进 foldMark 也永远 `null`。
+
+- `finishReason` 写进 `foldMark`（doctor 读的那里）；`recordFoldMark` 里**先取局部变量再清**；
+- 守卫 `engine-harness` C321：foldMark 必须含 `finishReason`；取值早于构造，两者之间要有清理。
+
+**五轮教训**：一条仪器要同时满足四件事才算装好 —— **读对名字、读对载体、认全拼法、写进被读的地方**
+（外加"别在清理之后读"）。少一件 = 静默。
 
 ### C320 · 截断判定吃掉三种拼法（`max-tokens` / `max_tokens` / `length`）
 

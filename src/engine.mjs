@@ -1593,9 +1593,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const summaryText = this._lastSummaryText ?? "";
     const summaryChars = this._lastSummaryChars ?? null;
     const modelText = this._lastSummaryModelText ?? "";
+    // ★ C321：先取出来再清（顺序错了就等于永远记 null —— 这类"清早了"最难看出来）
+    const finishReason = this._lastSummaryFinishReason ?? null;
     this._lastSummaryChars = undefined;
     this._lastSummaryText = undefined;
     this._lastSummaryModelText = undefined;
+    this._lastSummaryFinishReason = undefined;
     const quality = summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range, summaryText, modelText });
     const mark = {
       at: Date.now(),
@@ -1607,6 +1610,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // C31：切点是否落在工具调用中间（正常应为 0）
       boundary: foldBoundaryOf(g, range),
       summaryChars,
+      // ★ C321：**终止原因写进 foldMark**（C317~C320 一路查下来才发现：之前只写进了
+      //   `ledger-budget.lastExternalFold`，而 doctor 读的是 `foldMarks[]` —— 仪器又一次静默）。
+      finishReason,
       quality,
     };
     if (Number.isFinite(shadowedTokens)) mark.shadowedTokens = shadowedTokens;
