@@ -526,3 +526,22 @@ tests["C263 一次点击自动跑多批：合并规则（计数相加 / results 
   t.eq(bad.ok !== undefined, true, "出错也要返回对象（不许 undefined）");
   t.includes(String(bad.error), "补账", "错误原因要传下去");
 };
+
+tests["C267 面板显示「上次摘要」：规则兜底必须一眼看出来（不是模型）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  t.eq(typeof T.summaryRouteText, "function", "__testables 暴露 summaryRouteText");
+
+  // 规则摘要的哨兵（engine.summarize 的规则分支就是这么记的）
+  const rules = T.summaryRouteText({ provider: "chess-context", model: "rules" });
+  t.includes(rules.value, "规则", `规则摘要要显式显示：${rules.value}`);
+  t.includes(rules.hint, "没有调用模型", "要说明它没花模型调用");
+
+  // 模型路径：只显示短名（别把 group/xxx 整串塞进指标）
+  const model = T.summaryRouteText({ provider: "magpie", model: "group/deepseek-v4.1-flash1017" });
+  t.eq(model.value, "deepseek-v4.1-flash1017", `取最后一段：${model.value}`);
+  t.includes(model.hint, "magpie", "hint 里带 provider");
+
+  t.eq(T.summaryRouteText(null).value, "—", "没有数据 ⇒ —");
+  t.eq(T.summaryRouteText({ model: "" }).value, "未知", "只有空 model ⇒ 未知（不许编）");
+};
