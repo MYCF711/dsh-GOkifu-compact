@@ -66,3 +66,13 @@ tests["C393 HANDOFF 不许再写着「跑的是旧代码 / 需重启」——真
   t.includes(head, "due 49", "要带出补账干跑的真实数字（49）");
   t.includes(head, "唯一待办", "必须保留唯一待办（C124）");
 };
+
+tests["C407 重启验收清单必须带「第二轮」现状快照（列清哪些字段还没生效）"] = (t) => {
+  const doc = nodeFs.readFileSync(nodePath.join(HERE, "..", "evidence", "重启验收清单-2026-11-02.md"), "utf8");
+  t.includes(doc, "第二轮（2026-11-03", "必须有第二张快照（否则又是一张过期地图）");
+  for (const field of ["today.truncated", "update.relation", "foldMark.usage.model", "foldMark.finishReason", "measuredBefore"]) {
+    t.includes(doc, field, `快照必须点名 ${field} 的状态`);
+  }
+  t.includes(doc, "accept-after-restart.mjs", "必须给出第一条件命令");
+  t.includes(doc, "折叠证据字段", "必须指向 doctor 那行作为仪器链的判据");
+};
