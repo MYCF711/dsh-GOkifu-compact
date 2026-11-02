@@ -183,6 +183,40 @@ export function isPermanentSummaryError(message) {
     || /invalid api key/i.test(text);
 }
 
+/**
+ * ★ C350：把摘要错误分成**退避档位**用的几类。
+ *
+ * 官方口径（`quick_start/error_codes`）：429 是"放慢节奏"、500/503 是"稍后重试" ——
+ * 它们**都不该用同一档退避**：限流时立刻重试等于继续撞墙，过载时该早一点再试。
+ *
+ * @param {unknown} message
+ * @returns {"permanent"|"rate-limit"|"overload"|"timeout"|"other"}
+ */
+export function classifySummaryError(message) {
+  const text = String(message ?? "");
+  if (text === "") return "other";
+  if (isPermanentSummaryError(text)) return "permanent";
+  if (/(^|[^0-9])429([^0-9]|$)/.test(text) || /rate limit/i.test(text)) return "rate-limit";
+  if (/(^|[^0-9])(500|503)([^0-9]|$)/.test(text) || /overload|server error/i.test(text)) return "overload";
+  if (/timeout|timed out|aborted|etimedout/i.test(text)) return "timeout";
+  return "other";
+}
+
+/**
+ * ★ C350：按类别给退避参数（事件数口径 —— 我们只数事件，没有时间轴）。
+ * - rate-limit：基数不变但**上限翻倍**（限流时重试越快越糟）
+ * - overload：基数抬高（"稍后重试"要真的等一会儿）
+ * - 其它：与原来完全一致（不改变既有行为，避免回归）
+ * @param {string} kind
+ * @param {{base?: number, cap?: number}} [defaults]
+ * @returns {{base:number, cap:number}}
+ */
+export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
+  if (kind === "rate-limit") return { base, cap: cap * 2 };
+  if (kind === "overload") return { base: Math.round(base * 2), cap };
+  return { base, cap };
+}
+
 const FOLD_RETRY_BASE_SEQ = 30;
 const FOLD_RETRY_CAP_SEQ = 480;
 
@@ -1639,7 +1673,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const failures = stBackoff.foldFailures ?? 0;
       const overflow = trigger === "context-overflow";
       if (failures > 0 && (!overflow || failures >= 3)) {
-        const wait = Math.min(FOLD_RETRY_BASE_SEQ * 2 ** Math.min(failures - 1, 6), FOLD_RETRY_CAP_SEQ);
+        // ★ C350：按上次错误类别分档（rate-limit ⇒ 上限翻倍；overload ⇒ 基数抬高）
+        const profile = retryBackoffFor(stBackoff.lastFoldErrorKind ?? "other", {
+          base: FOLD_RETRY_BASE_SEQ,
+          cap: FOLD_RETRY_CAP_SEQ,
+        });
+        const wait = Math.min(profile.base * 2 ** Math.min(failures - 1, 6), profile.cap);
         const since = session.seq - (stBackoff.lastFoldFailureSeq ?? 0);
         if (since < wait) return null;
       }
@@ -1729,7 +1768,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       restore();
       st.foldFailures += 1;
       st.lastFoldFailureSeq = session.seq;
-      st.lastFoldError = String(error?.message ?? error).slice(0, 180);
+      st.lastFoldError = String(error?.message ?? error).slice(0, 180); st.lastFoldErrorKind = classifySummaryError(st.lastFoldError); // C350
       this.#flush(session, { tree: true });
       // ★ C242（K-13）：永久性错误 ⇒ ①退避顶到上限（别每 30 个事件白试一次）
       //   ②下次折叠强制走规则摘要（压缩不能因此不落地）。
@@ -1752,6 +1791,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     st.foldFailures = 0;
     st.lastFoldFailureSeq = 0;
     st.lastFoldError = "";
+    st.lastFoldErrorKind = null;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
     //   隔得太近说明上一次回收的空间立刻又满了（典型原因：压完没缩小、或会话本身在灌数据）。

@@ -2763,3 +2763,36 @@ tests["C349 永久错误判定：400/401/402/422 永久；429/500/503 官方说�
   // 空值
   if (f("") !== false || f(null) !== false) throw new Error("空值必须 false");
 };
+
+tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基数抬高、超时保持原样"] = async () => {
+  const { mod } = await load();
+  const cls = mod.classifySummaryError;
+  const backoff = mod.retryBackoffFor;
+  if (typeof cls !== "function" || typeof backoff !== "function") throw new Error("必须导出 classifySummaryError / retryBackoffFor");
+
+  // 分类
+  const cases = [
+    ["429 Rate Limit Reached", "rate-limit"],
+    ["503 Server Overloaded", "overload"],
+    ["500 Server Error", "overload"],
+    ["request timeout after 90000ms", "timeout"],
+    ["422 Invalid Parameters", "permanent"],
+    ["400 invalid format", "permanent"],
+    ["something odd happened", "other"],
+  ];
+  for (const [msg, want] of cases) {
+    const got = cls(msg);
+    if (got !== want) throw new Error(`${msg} 应分类为 ${want}，实际 ${got}`);
+  }
+
+  // 分档：限流 ⇒ 上限翻倍；过载 ⇒ 基数抬高；其它 ⇒ 与默认一致
+  const base = { base: 30, cap: 480 };
+  const rl = backoff("rate-limit", base);
+  if (rl.cap !== 960 || rl.base !== 30) throw new Error(`限流档应 {30,960}，实际 ${JSON.stringify(rl)}`);
+  const ov = backoff("overload", base);
+  if (ov.base !== 60 || ov.cap !== 480) throw new Error(`过载档应 {60,480}，实际 ${JSON.stringify(ov)}`);
+  for (const kind of ["timeout", "other", "permanent", null]) {
+    const d = backoff(kind, base);
+    if (d.base !== 30 || d.cap !== 480) throw new Error(`${kind} 不该改变默认退避：${JSON.stringify(d)}`);
+  }
+};
