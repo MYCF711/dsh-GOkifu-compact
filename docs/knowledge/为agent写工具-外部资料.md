@@ -39,3 +39,11 @@
 
 > 工具的返回值是**给模型看的产品界面**：少塞没用的、塞了要能指路、别只给机器 id。
 > 我们做对了两件（省略行带指引、错误带处置），**第三件（消解 id）还没做**。
+
+## 5. 补充（2026-11-02 已核实）：截断必须**可见**
+
+原文强调「If you choose to truncate responses, be sure to steer agents with helpful instructions」。
+本仓库今天就抓到一个反面例子：`renderLedger` 算出了 `omittedResidue`（被过滤掉的「无终点残留失败」条数），
+**但从没写进输出** —— 模型读到 `LEARNED (1 failed attempts)` 会认为那就是全部，实际还有 N 条没出现。
+C227 补了一行：`# 另有 N 条无终点残留（rewash 历史，未展开；全文 graph.json）`。
+⇒ 判据（以后照这个查）：**任何被过滤/截断的集合，输出里必须有一行"还有多少、去哪看"。**

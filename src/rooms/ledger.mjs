@@ -915,6 +915,13 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     // 残留省略不单独站一行（每行都是 token）：renderFacts 里有 DANGLING_RESIDUE 计数，热清单只求不展示。
     if (failures.length) {
       tailLines.push(`LEARNED (${failures.length} failed attempts):`);
+      // ★ C227：`omittedResidue` 以前**算了但没人用** —— 残留失败（to=null、rewash 历史）被静默丢掉，
+      //   模型读「LEARNED (5 failed attempts)」会以为这就是全部（实际还有 20 条没出现）。
+      //   本仓库的规矩是「静默省略比多花 token 更危险」（见 C-17 那段注释），所以给一行计数 + 指针，
+      //   不展开内容。残留本来就不构成「哪一步失败了」，展开反而是噪声。
+      if (omittedResidue > 0) {
+        tailLines.push(`# 另有 ${omittedResidue} 条无终点残留（rewash 历史，未展开；全文 graph.json）`);
+      }
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
       // ★ P6a（2026-10-30）：TRACE 只给**相对路径**（`sessions/<sid>/index.md`）。

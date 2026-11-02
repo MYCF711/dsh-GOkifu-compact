@@ -55,6 +55,23 @@ function mkGraph(edges = []) {
   return g;
 }
 
+tests["C227 残留失败必须显式计数（omittedResidue 以前算了没人用）"] = (t) => {
+  // 事故：`renderLedger` 算了 `omittedResidue` 却**从来没用过** ——
+  // 「无终点」的 rewash 残留失败被静默丢掉，模型读「LEARNED (1 failed attempts)」会以为那就是全部。
+  // 本仓库的规矩是「静默省略比多花 token 更危险」，所以补一行计数 + 指针（不展开内容）。
+  const now = Date.now();
+  const old = now - 60 * 60 * 1000;
+  // 残留 = 已结算（不是 untested）且 to=null 且已过 10 分钟 —— 见 classifyDangling
+  const residue = mkEdge({ id: "e9", to: null, result: "failure", ts: old });
+  const g = mkGraph([mkEdge({ id: "e1" }), residue]);
+  const out = renderLedger(g, { now, maxTokens: 500 });
+  t.includes(out.text, "无终点残留", "残留失败必须有一行计数（否则模型以为清单是全量）");
+  t.includes(out.text, "1 条", "要给出条数");
+  // 零成本：没有残留时不许出这行
+  const clean = renderLedger(mkGraph([mkEdge()]), { now, maxTokens: 500 });
+  t.eq(clean.text.includes("无终点残留"), false, "没有残留时不许出这行");
+};
+
 tests["A 出处（seq）在任何降级档位都保留"] = (t) => {
   const edge = mkEdge();
   for (const level of [0, 1, 2, 3, 4, 5]) {
