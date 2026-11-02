@@ -28,6 +28,24 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
 
 /** 只读本地 home（默认为 $DSH_HOME 或 ~/.dsh）。 */
+/**
+ * ★ C293：pid 还活着吗？
+ * @param {number} pid
+ * @returns {boolean|null} null = 无法判断（pid 不合法 / 平台不支持）
+ */
+export function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    process.kill(pid, 0); // 只探测，不发信号
+    return true;
+  } catch (error) {
+    // EPERM = 进程存在但没权限（也算活着）；ESRCH = 不存在
+    if (error && error.code === "EPERM") return true;
+    if (error && error.code === "ESRCH") return false;
+    return null;
+  }
+}
+
 export function defaultHome() {
   return process.env.DSH_HOME && process.env.DSH_HOME.trim() !== "" ? process.env.DSH_HOME : nodePath.join(nodeOs.homedir(), ".dsh");
 }
@@ -43,7 +61,20 @@ export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", ver
   if (stamp === null || typeof stamp !== "object") {
     push("stamp", "build.json 存在", "fail", "没有 build.json —— 插件没在本次进程里写过启动戳");
   } else {
-    push("stamp", "build.json 存在", "ok", `启动于 ${Number.isFinite(stamp.startedAt) ? new Date(stamp.startedAt).toISOString() : "?"}（pid ${stamp.pid ?? "?"}）`);
+    // ★ C293：先确认「这个 pid 还活着」。
+    //   实测（2026-11-02）：build.json 写着 pid 37616 / startedAt 12:30:05Z，
+    //   而该进程**早已不存在** —— 启动戳是**已死进程**留下的，拿它当"运行实例就绪时间"会把人带沟里。
+    const pidValue = Number(stamp.pid);
+    const alive = pidAlive(pidValue);
+    push(
+      "stamp",
+      "build.json 存在",
+      alive === false ? "warn" : "ok",
+      alive === false
+        ? `⚠ 启动戳里的 pid ${pidValue} **已经不存在** —— 这份 stamp 是已退出的进程留下的，` +
+            `「启动于 …」不可信；判断代码是否生效请看下面的 buildId 与面板能力探针`
+        : `启动于 ${Number.isFinite(stamp.startedAt) ? new Date(stamp.startedAt).toISOString() : "?"}（pid ${stamp.pid ?? "?"}）`,
+    );
     const running = typeof stamp.buildId === "string" ? stamp.buildId : "unknown";
     if (running === "unknown") {
       push("buildid", "buildId 与磁盘一致", "fail", `戳里没有 buildId（旧进程写的）—— 磁盘 ${diskBuildId}；**重启后才会写**`);
