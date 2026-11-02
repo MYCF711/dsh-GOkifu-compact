@@ -2208,6 +2208,21 @@ tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败�
   if (!g2.closeout) throw new Error("失败路径也必须留下 closeout 记录");
 };
 
+tests["C222 K-2 已否决：工具结果清理不许挪到每一步（只在 overflow / fold 前）"] = async () => {
+  // 否决依据（docs/knowledge/进度.md 第 6 轮）：本会话实测 tool/result 501 条、单条中位 576 字符、
+  // 最大 23.8k、**0 条 ≥25k** —— 压力在条数不在单条；而 C220 证明 97% 的输入走缓存命中，
+  // 提前裁只会破坏前缀缓存，得不偿失。这条守卫防止"以后有人觉得该每步都裁"再犯一次。
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  const calls = [...src.split("pruneSession(").slice(1)];
+  const viaPrune = calls.filter((m) => src.slice(Math.max(0, m.index - 60), m.index).includes("prune."));
+  if (viaPrune.length !== 2) throw new Error(`pruneSession 只允许在 overflow 与 fold 前各调一次，实际 ${viaPrune.length} 次`);
+  const start = src.indexOf("#bindLedger() {");
+  const end = src.indexOf(String.fromCharCode(10) + "  #", start + 10);
+  if (start < 0 || end < 0) throw new Error("找不到 #bindLedger 的边界（守卫失效要修守卫，不是删守卫）");
+  const ledgerBody = src.slice(start, end);
+  if (ledgerBody.includes("pruneSession")) throw new Error("每步注入路径里不许清理工具结果（K-2 已否决）");
+};
+
 tests["C216 GUI 归档不发 session/disposed：必须认 workspace 域的 durable 写入（domain/changed）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-archive");
