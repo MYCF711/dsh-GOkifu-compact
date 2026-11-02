@@ -13,6 +13,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
+const ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
 
@@ -90,4 +91,29 @@ tests["C125 被纳入检查的每份文档都必须存在（列表本身不许�
   for (const rel of USER_DOCS) {
     t.eq(nodeFs.existsSync(nodePath.join(REPO, rel)), true, `USER_DOCS 里的 ${rel} 不存在（要么文档改名，要么列表过期）`);
   }
+};
+
+tests["C310 文档里写的 `node test|scripts/xxx.mjs` 必须真的存在（路径拼错=照抄就报错）"] = (t) => {
+  // 口径：只看**当前**文档（README / QUICKSTART / HANDOFF / docs/README / docs/knowledge/*）。
+  //   历史方案与审计稿（docs/方案-*、docs/现状审计-*、docs/草稿-*）是**冻结的记录**，
+  //   里面写着当时的路径是正常的 —— 改它们等于篡改历史，不该被这条门逼着改。
+  const files = ["README.md", "QUICKSTART.md", "HANDOFF.md", "docs/README.md"];
+  const kbDir = nodePath.join(ROOT, "docs", "knowledge");
+  if (nodeFs.existsSync(kbDir)) {
+    for (const n of nodeFs.readdirSync(kbDir)) if (n.endsWith(".md")) files.push(`docs/knowledge/${n}`);
+  }
+  const missing = [];
+  let checked = 0;
+  for (const rel of files) {
+    const full = nodePath.join(ROOT, rel);
+    if (!nodeFs.existsSync(full)) continue;
+    const text = nodeFs.readFileSync(full, "utf8");
+    for (const m of text.matchAll(/node\s+((?:test|scripts)\/[A-Za-z0-9_./-]+\.mjs)/g)) {
+      checked += 1;
+      if (!nodeFs.existsSync(nodePath.join(ROOT, m[1]))) missing.push(`${rel} → ${m[1]}`);
+    }
+  }
+  t.eq(missing, [], `当前文档里引用了不存在的脚本：${missing.join("; ")}`);
+  // 防"永远绿"：当前文档里本来就该有若干条这样的命令
+  t.eq(checked >= 5, true, `只扫到 ${checked} 条 node 命令 —— 正则大概失配了`);
 };

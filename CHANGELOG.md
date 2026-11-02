@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C310 | 文档里的脚本路径必须真的存在（HANDOFF 的 `test/doctor.mjs` 拼错了） |
 | C309 | `planChunkedCloseout`：把「要不要分段」和「怎么切」接成可测的一条链 |
 | C308 | 发了包用户拿得到吗：打包白名单的静态守卫 |
 | C307 | 结论速查补 A14–A21（本轮验出的八条「别重走」） |
@@ -388,6 +389,16 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C310 · 文档里的脚本路径必须真的存在（HANDOFF 的 `test/doctor.mjs` 拼错了）
+
+C277 守住 CLI 子命令，但**文件路径**没人守。扫描当前文档抓到 `HANDOFF.md → node test/doctor.mjs`
+（实际是 `scripts/doctor.mjs`），照抄就是 `Cannot find module`。
+
+- `docs-commands` C310：当前文档里每处 `node test|scripts/xxx.mjs` 都必须能解析到文件；
+- **口径收窄**（第一版踩坑）：只扫 README / QUICKSTART / HANDOFF / docs/README / docs/knowledge/*；
+  历史方案与审计稿是**冻结记录**，里面写当时的路径是正常的，改它们等于篡改历史；
+- 加"至少扫到 5 条命令"防正则失配的假绿。
 
 ### C309 · `planChunkedCloseout`：把「要不要分段」和「怎么切」接成可测的一条链
 

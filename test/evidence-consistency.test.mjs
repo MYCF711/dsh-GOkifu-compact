@@ -205,7 +205,7 @@ tests["C156 重启验收清单必须存在且覆盖关键判据（否则重启�
   for (const needle of ["post-restart-check", "buildId", "doctor", "graph-audit", "live-folds", "boundary-audit"]) {
     t.includes(doc, needle, `清单必须覆盖 ${needle}`);
   }
-  t.includes(doc, "1042 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
+  t.includes(doc, "1043 passed", "清单里的全量测试数必须写当前值（改数字要同步）");
   t.eq(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/.test(doc), true, "必须带日期");
 };
 
@@ -272,7 +272,7 @@ tests["C295 重启验收清单必须带「现状快照」+ 能力探针（否则
   t.includes(doc, "backfill", "能力探针要包含 backfill");
   t.includes(doc, "不可信", "要提醒启动时间戳不可信（C293）");
   // 快照里必须写当前测试数（改数字要同步）
-  t.includes(doc, "1042 passed", "快照里的全量测试数必须写当前值");
+  t.includes(doc, "1043 passed", "快照里的全量测试数必须写当前值");
 };
 
 tests["C305 进度页现状摘要必须与实测同步（门禁门数、测试数、欠账花费、判据入口）"] = (t) => {
@@ -280,7 +280,7 @@ tests["C305 进度页现状摘要必须与实测同步（门禁门数、测试�
   const head = doc.slice(0, doc.indexOf("\n## 第"));
   t.includes(head, "npm run gate", "必须指向唯一验证入口");
   t.includes(head, "4 参考门", "参考门数量要写对（C303 起是 4 条）");
-  t.includes(head, "1042 passed", "全量测试数必须是当前值");
+  t.includes(head, "1043 passed", "全量测试数必须是当前值");
   t.includes(head, "$0.83", "欠账花费要写实测值");
   t.includes(head, "别看启动时间戳", "必须提醒启动戳不可信（C293）");
   // C304 的结论要保留：输出不是摘要，但不值得专门优化
