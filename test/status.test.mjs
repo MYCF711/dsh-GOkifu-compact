@@ -32,3 +32,17 @@ tests["C422 renderStatus：有数据时格式正确（含 gate 内测试的负�
   t.eq(get("补账"), "48 个欠账 · $1.63 · 约 3 次点击", "补账格式");
   t.eq(get("真机基准"), "命中 95.1% · 全量 $115.08", "基准格式");
 };
+
+tests["C423 status 必须可发现：package.json 有脚本，HANDOFF/README 都指向它"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const root = nodePath.join(here, "..");
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(root, "package.json"), "utf8"));
+  t.eq(pkg.scripts?.status, "node scripts/status.mjs", "package.json 必须有 status 脚本");
+  for (const f of ["HANDOFF.md", "README.md"]) {
+    const text = nodeFs.readFileSync(nodePath.join(root, f), "utf8");
+    t.includes(text, "npm run status", `${f} 必须指向 npm run status（工具必须可发现）`);
+  }
+};

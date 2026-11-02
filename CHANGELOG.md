@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C423 | 把 status 做成 npm run status，并写进 HANDOFF/README |
 | C422 | 新增 status：一条命令看完门禁/测试/doctor/面板/补账/基准 |
 | C421 | 发布说明漂移加反向检查（引用了不存在的编号） |
 | C420 | 面板显示 warnings 与 applied（算了不显示=没算） |
@@ -495,6 +496,18 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C423 · 把 status 做成 npm run status，并写进 HANDOFF/README
+
+`status.mjs`（C422）做完了，但它只在 `scripts/` 里——**用户不会去那里找命令**。
+按我们自己的教训："不可发现的工具等于没有工具"。
+
+- `package.json` 增加 **`npm run status`**；
+- **HANDOFF** 增加一行「一条命令看现状」；
+- **README** 的「装完没反应 / 压缩没触发？」那段改成：重启后第一条命令建议是 `npm run status`（六行结论），要细节再跑 doctor；
+- 守卫 `status` C423：`package.json` 必须有该脚本，**HANDOFF 与 README 都必须出现 `npm run status`**。
+
+**教训**：**做完工具只是第一步，把它放到用户"会看的那一行"才算交付。**
 
 ### C422 · 新增 status：一条命令看完门禁/测试/doctor/面板/补账/基准
 

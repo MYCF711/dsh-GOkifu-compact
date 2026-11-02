@@ -217,7 +217,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 和摘要本身。典型形状是**锯齿**：涨到阈值（窗口 45%）→ 压到约 20% → 再涨。如果你看到「只涨不降」，
 先跑 `npx dsh-gokifu-compact doctor` 看压缩是不是在失败（`compaction/end` 的错误会直接列出来）。
 
-**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。重启后跑 `npx dsh-gokifu-compact doctor`
+**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。在源码仓库里，重启后第一条命令建议是 `npm run status` —— 它会一次给出「门禁 / 全量测试 / doctor / 面板能力 / 补账规模 / 真机基准」六行结论（C422）。要细节再跑 `npx dsh-gokifu-compact doctor`
 （在源码仓库里是 `node scripts/doctor.mjs`），它会告诉你四件事：装没装上、摘要模型能不能解析、
 最近的压缩成功/失败、棋谱与树健不健康。
 

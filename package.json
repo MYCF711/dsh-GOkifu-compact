@@ -44,6 +44,7 @@
   ],
   "scripts": {
     "gate": "node scripts/gate.mjs",
+    "status": "node scripts/status.mjs",
     "test": "node test/run.mjs",
     "evidence": "node test/evidence.mjs",
     "check:maintenance": "node scripts/check-maintenance.mjs",
