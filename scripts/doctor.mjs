@@ -1521,7 +1521,17 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     } else {
       const at = Number.isFinite(hb.at) ? new Date(hb.at).toISOString() : "?";
       const minutes = Number.isFinite(hb.at) ? Math.round((Date.now() - hb.at) / 60000) : null;
-      if (hb.state === "failed") {
+      // ★ C397：心跳被「无 web 服务的进程」覆盖。真机（2026-11-03）：pid 14088 把服务中的 56319
+      //   写成了 `port:null / version:"unknown"` ⇒ 所有"读心跳取端口/buildId"的工具全部失效。
+      //   这里直接把这个形状点名（旧代码仍会覆盖；C396 修复需重启生效）。
+      if (hb.state === "open" && (hb.port === null || hb.port === undefined) && (hb.version === "unknown" || hb.version === null)) {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 心跳来自**没有 web 服务的进程**（pid ${hb.pid ?? "?"}，port=null，version=unknown）—— ` +
+            `它覆盖了真正在服务的那份心跳 ⇒ 端口/buildId 不可用。C396 修复需**重启**才生效`,
+        );
+      } else if (hb.state === "failed") {
         add(
           "面板路由心跳",
           "warn",

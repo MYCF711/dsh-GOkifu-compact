@@ -1251,3 +1251,27 @@ tests["C379 补账要「可发现」：doctor 必须指向 backfill-plan（金�
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
 };
+
+tests["C397 心跳被「无 web 服务进程」覆盖时要点名（端口/buildId 不可用）"] = async (t) => {
+  const home = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 14088, port: null, hasWebServer: true, version: "unknown", buildId: "unknown" } });
+  try {
+    const row = runDoctor(home).find("面板路由心跳");
+    t.eq(row.status, "warn", "必须 warn");
+    t.includes(String(row.detail), "没有 web 服务", "要点名是无 web 服务的进程");
+    t.includes(String(row.detail), "覆盖", "要说明它覆盖了真正在服务的那个");
+    t.includes(String(row.detail), "重启", "要说明 C396 修复需重启生效");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
+  // 正常心跳（有端口、有 version）不许被误报成被覆盖
+  const { repoBuildId } = await import("../src/rooms/build-stamp.mjs");
+  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, port: 56319, hasWebServer: true, version: "1.17.6", buildId: repoBuildId() } });
+  try {
+    const row = runDoctor(okHome).find("面板路由心跳");
+    t.eq(row.status, "ok", "正常心跳应为 ok");
+    t.eq(String(row.detail).includes("没有 web 服务"), false, "正常心跳不许出现误报");
+  } finally {
+    nodeFs.rmSync(okHome, { recursive: true, force: true });
+  }
+};

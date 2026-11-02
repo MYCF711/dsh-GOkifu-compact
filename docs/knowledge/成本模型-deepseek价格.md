@@ -234,3 +234,18 @@
 **方法备忘**：用 `session-scan` 解帧 → 按 `time <= foldMark.at` 累加各事件 `data.content` 的字符数 → 按 C351 比例换算 token。
 
 **下一步**：直接在请求时同时记下 `measure()` 与宿主 usage + 面上消息数（需重启），才能彻底定义它。
+
+## 官方 Change Log 的版本时间线（**已核实**，C397）
+
+> 来源：<https://api-docs.deepseek.com/updates>（HTTP 200，抓取 2026-11-03）
+
+| 日期 | 事件 |
+|---|---|
+| 2026-10-17 | 开放 **in-house Search API** |
+| 2026-09-10 | DeepSeek-V4 |
+| 2026-08-21 | V4-Flash-Vision-Exp（多模态） |
+| 2026-08-13 | V4-Pro GA |
+| 2026-07-31 | V4-Flash 正式发布 |
+| 2026-04-24 | V4（Pro/Flash）上线 |
+
+与我们相关的只有一条：**视觉能力在 Flash 上**（`deepseek-v4-flash-vision-exp`），与价目表里"旧名退役但请求仍按 Flash 计价"一致。
