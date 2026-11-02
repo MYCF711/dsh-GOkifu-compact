@@ -285,6 +285,18 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     super(ctx, pickBase(config));
     this.chess = resolveChess(config);
 
+    // ★ C214（真机复现：手动 `/compact` 必炸、自动 fold 正常）：
+    //   手动走 `ctx.compaction.compactNow(...)`，如果**调用方把方法摘下来再调用**
+    //   （`const fn = engine.compactNow; fn(...)`）或换了 receiver，`this` 就不是引擎实例，
+    //   于是 `super.compactNow(...)` 的私有品牌检查直接抛
+    //   `Receiver must be an instance of class ChessCompactionEngine`。
+    //   自动路径由我们自己调用，所以从不触发 —— 这正是「只有手动坏」的原因。
+    //   修法：三个公开入口在构造时**绑定到本实例**，摘下来调用也仍指向真身。
+    for (const name of ["compactNow", "compactRegion", "compactIfNeeded"]) {
+      const fn = this[name];
+      if (typeof fn === "function") this[name] = fn.bind(this);
+    }
+
     // ★ A2-2：落盘层交给 R01（kifu-persist）。engine 只留 graphs 缓存、debounce 定时器与日志。
     this.persist = createPersistStore({
       port: createFsPort(nodeFs),

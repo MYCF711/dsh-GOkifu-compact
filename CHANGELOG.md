@@ -5,6 +5,7 @@
 | C187 | live 抓到真缺陷：tier-2 合并写出**反向区间**（`seqStart > seqEnd`） |
 | C200 | 把「证据 ↔ 源数据」交叉核对固化成一条命令（五次同族事故的止损） |
 | C206 | ✅ **新代码在真机上跑出了两次真实折叠**（发布门槛的最后一项满足） |
+| C214 | 手动 `/compact` 必炸、自动 fold 正常 —— 原因是「方法被摘下来调」 |
 | C213 | 探针：压缩引擎那一组到底挂了谁（`probe-compaction-wiring.mjs`） |
 | C212 | 真机事故：手动 `/compact` 抛「Receiver must be an instance of class… |
 | C211 | 手工压缩让「证据 vs 磁盘」差了 1（把无区间记录单列） |
@@ -219,6 +220,25 @@
 
 # 更新记录
 
+## 1.17.4（2026-11-02）
+
+> **修一个真机必现的故障**：重启后手动 `/compact` 必定失败（自动 fold 正常）。
+
+### 修复 · 手动压缩入口被「摘下来调」就崩（C214）
+
+日志证据（同一次重启、同一个会话、同一个引擎实例）：
+
+| 时间 | 类型 | 结果 |
+|---|---|---|
+| 06:27:23Z | **manual** | ❌ `Receiver must be an instance of class ChessCompactionEngine` |
+| 06:28:52Z | auto | ✅ 成功 |
+
+原因：`command-compact` 调 `ctx.compaction.compactNow(...)` 时 `this` 不是引擎实例（方法被摘下/经代理转调），
+`super.compactNow(...)` 的私有品牌检查直接抛。自动路径是我们自己 `this.compactIfNeeded(...)`，所以从不触发。
+
+修法：构造时把 `compactNow` / `compactRegion` / `compactIfNeeded` **绑定到自身**。
+升到 1.17.4，**重启后生效**。
+
 ## 1.17.3（2026-11-02）
 
 > 与 1.17.2 内容相同。**我曾误判「1.17.2 上传失败」** —— 实际只是 registry/CDN 传播延迟：
@@ -326,6 +346,31 @@ DSH_HOME="D:\DeepSeek Harness\home" node scripts/consistency-check.mjs   # 或 -
 
 **测试 C206**（doctor-cli）：只有 tier2 的越界 id ⇒ **不许出现该行**；常规 fold 的越界 id ⇒ **必须报**并点名 id。
 
+
+### C214 · 手动 `/compact` 必炸、自动 fold 正常 —— 原因是「方法被摘下来调」
+
+**重启后用户报「不能手动压缩」，日志给出决定性对比（同一次重启、同一个会话、同一个引擎实例）**：
+
+| 时间 | 类型 | 结果 |
+|---|---|---|
+| 14:27:23 | **manual**（有 `sourceCommandId`） | ❌ `Receiver must be an instance of class ChessCompactionEngine` |
+| 14:28:52 | auto | ✅ 成功 |
+
+⇒ 上一轮的两个假设里，**「安装期类身份短暂不一致」被排除**（那会连自动一起坏）。
+真正原因：**手动路径的调用方式** —— `command-compact` 调 `ctx.compaction.compactNow(...)` 时
+`this` 不是引擎实例（把方法摘下来调 / 经代理转调）；自动路径是我们自己 `this.compactIfNeeded(...)`，所以从不触发。
+
+**修复**：构造时把三个公开入口绑定到自身：
+
+```js
+for (const name of ["compactNow", "compactRegion", "compactIfNeeded"]) this[name] = this[name].bind(this);
+```
+
+- 摘下来调用仍指向真身 ⇒ `super.compactNow(...)` 的私有品牌检查能过；
+- 对「包装器复制方法引用」同样有效（复制到的是绑定版本）；
+- **测试 C214**：摘方法调用不许抛；绑定后两个入口必须是 bound function（没有 `prototype`）。
+
+**验证**：重启后执行一次 `/compact` —— 应成功并留下 `trigger: "manual"` 的 foldMark。
 
 ### C213 · 探针：压缩引擎那一组到底挂了谁（`probe-compaction-wiring.mjs`）
 

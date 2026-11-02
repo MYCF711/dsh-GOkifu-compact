@@ -2202,3 +2202,27 @@ tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败�
   const g2 = await readGraphReplayed(nodePath.join(graphDir, "c210-fail"), "sess-c210-fail");
   if (!g2.closeout) throw new Error("失败路径也必须留下 closeout 记录");
 };
+
+tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/compactRegion 在构造时就绑定到实例"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c214-bind");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  const session = await p22Session(ctx, "sess-c214");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  // ① 摘下来的方法（模拟 command-compact 之类把函数拿走再调）
+  const detachedNow = engine.compactNow;
+  const detachedRegion = engine.compactRegion;
+  if (detachedNow !== undefined) {
+    // 桩基类 compactNow 返回 null；关键是「不许抛 Receiver must be an instance…」
+    await detachedNow({ session, options: {} }, undefined, "cmd-test");
+  }
+  const nodes = session.surface.nodes;
+  await detachedRegion(nodes[1], nodes[nodes.length - 1], { session, options: {} }, undefined);
+
+  // ② bind 之后，方法不再是「未绑定」状态：调用它不需要靠调用方给 this
+  if (Object.prototype.hasOwnProperty.call(engine.compactNow, "prototype")) throw new Error("绑定后的 compactNow 不该是普通函数（应是 bound function）");
+  if (Object.prototype.hasOwnProperty.call(engine.compactRegion, "prototype")) throw new Error("compactRegion 也必须是 bound function");
+  if (typeof engine.compactIfNeeded !== "function") throw new Error("compactIfNeeded 仍必须可调用");
+};
