@@ -9,6 +9,8 @@
  */
 
 import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
+import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
+import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
 
 export const tests = {};
 
@@ -200,4 +202,24 @@ tests["Q-9 被置换合并吞掉的节点 id 不算幻觉（C105）"] = (t) => {
   t.eq(fake.unknown.includes("n999"), true, "不存在的 id 仍必须报");
   // 越界探针对合并 id 也不该报（它已不在图里，归幻觉 / 合并两处，不重复）
   t.eq(findOutOfRangeIds(graph, { start: 1, end: 10 }, "n9").outOfRange.length, 0, "合并 id 不许在越界探针里重复报");
+};
+
+tests["C194 反向区间传进 foldClosureOf / foldBoundaryOf 也必须算对（不能报「覆盖 0 / 重叠 0」）"] = (t) => {
+  const g = createGraph({ sessionId: "s" });
+  const n1 = addUserNodeId(g, { seq: 100, text: "目标" });
+  const e = addEdge(g, { from: n1, intent: "步骤", action: "bash(x)", evidence: { start: 120, end: 121 } });
+  const n2 = addAgentNode(g, { seq: 121, goal: "结果", worldHash: "W", constraintHash: "C", via: e }).id;
+  settleEdge(g, e, { to: n2, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+
+  const forward = foldClosureOf(g, { start: 100, end: 121 });
+  const reversed = foldClosureOf(g, { start: 121, end: 100 });
+  t.eq(forward.preGraph, false, "正向区间应在本图内");
+  t.eq(reversed.nodes, forward.nodes, `反向区间的节点数必须与正向一致（实际 ${reversed.nodes} vs ${forward.nodes}）`);
+  t.eq(reversed.edges, forward.edges, "反向区间的边数也必须一致");
+  t.eq(reversed.nodes > 0, true, "反向区间不许报「覆盖 0 个节点」");
+
+  const bForward = foldBoundaryOf(g, { start: 100, end: 121 });
+  const bReversed = foldBoundaryOf(g, { start: 121, end: 100 });
+  t.eq(bReversed.overlapping, bForward.overlapping, `反向区间的重叠边数必须一致（${bReversed.overlapping} vs ${bForward.overlapping}）`);
+  t.eq(bReversed.openAtEnd, bForward.openAtEnd, "openAtEnd 也必须一致");
 };

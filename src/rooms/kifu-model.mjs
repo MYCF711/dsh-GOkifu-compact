@@ -289,7 +289,12 @@ export function failureEdges(g) {
 export function foldClosureOf(graph, range) {
   if (graph === null || typeof graph !== "object") return null;
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
-  const inRange = (seq) => Number.isFinite(seq) && seq >= range.start && seq <= range.end;
+  // ★ C194：区间方向自愈（C187/C189 的同一类风险）。若传进来的区间是反的（`start > end`），
+  //   旧的 `seq >= start && seq <= end` 恒为 false ⇒ 闭包会报「覆盖 0 个节点/边」，
+  //   看起来像「折了个空区间」，而真相是**区间反了**。这里先归一再判断。
+  const lo = Math.min(range.start, range.end);
+  const hi = Math.max(range.start, range.end);
+  const inRange = (seq) => Number.isFinite(seq) && seq >= lo && seq <= hi;
   const nodeIds = [];
   for (const id of graph.order ?? []) {
     const node = graph.nodes?.[id];
@@ -301,7 +306,7 @@ export function foldClosureOf(graph, range) {
     const start = typeof ev === "number" ? ev : Number(ev?.start);
     const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-    if (end >= range.start && start <= range.end) edgeIds.push(edge.id);
+    if (end >= lo && start <= hi) edgeIds.push(edge.id);  // ★ C194：归一后的区间
   }
   const byId = (a, b) => Number(String(a).slice(1)) - Number(String(b).slice(1));
   nodeIds.sort(byId);
@@ -315,7 +320,7 @@ export function foldClosureOf(graph, range) {
     if (Number.isFinite(seq) && (minNodeSeq === null || seq < minNodeSeq)) minNodeSeq = seq;
   }
   const graphNodes = (graph.order ?? []).filter((id) => graph.nodes?.[id] !== undefined).length;
-  const preGraph = nodeIds.length === 0 && (minNodeSeq === null || range.end < minNodeSeq);
+  const preGraph = nodeIds.length === 0 && (minNodeSeq === null || hi < minNodeSeq);
   return {
     nodes: nodeIds.length,
     edges: edgeIds.length,
@@ -343,6 +348,9 @@ export function foldClosureOf(graph, range) {
 export function foldBoundaryOf(graph, range) {
   if (graph === null || typeof graph !== "object") return null;
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
+  // ★ C194：同上 —— 反向区间会让「重叠边统计」恒为 0，看起来像「切得完美」，必须归一。
+  const rangeLo = Math.min(range.start, range.end);
+  const rangeHi = Math.max(range.start, range.end);
   let overlapping = 0;
   let openAtEnd = 0;
   let unsettled = 0;
@@ -351,7 +359,7 @@ export function foldBoundaryOf(graph, range) {
     const start = typeof ev === "number" ? ev : Number(ev?.start);
     const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-    if (end < range.start || start > range.end) continue;
+    if (end < rangeLo || start > rangeHi) continue;
     overlapping += 1;
     if (edge.result === "unverified" || edge.result === "untested") unsettled += 1;
     // 证据区间跨过 fold 终点 = 切点落在一次工具调用中间（正常应为 0）

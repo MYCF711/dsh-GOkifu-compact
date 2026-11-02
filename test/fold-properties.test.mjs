@@ -66,14 +66,18 @@ tests["C60 闭包不变量：计数=暴力扫描、首尾=min/max id、preGraph 
       const closure = foldClosureOf(g, range);
       if (closure.nodes > 0) sawClosureWithNodes = true;
       const where = `seed=${seed} range=${range.start}-${range.end}`;
+      // ★ C194：区间方向**归一**后判定（`start > end` 在历史数据里真实存在 —— C187 的 tier-2 记录）。
+      //   归一语义下，反向区间与正向区间必须给出**完全相同**的计数。
+      const lo = Math.min(range.start, range.end);
+      const hi = Math.max(range.start, range.end);
       const wantNodes = (g.order ?? []).filter((id) => {
         const s = Number(g.nodes[id]?.seq);
-        return Number.isFinite(s) && s >= range.start && s <= range.end;
+        return Number.isFinite(s) && s >= lo && s <= hi;
       });
       const wantEdges = Object.values(g.edges).filter((e) => {
         const s = Number(e.evidence?.start);
         const en = Number(e.evidence?.end ?? s);
-        return Number.isFinite(s) && Number.isFinite(en) && en >= range.start && s <= range.end;
+        return Number.isFinite(s) && Number.isFinite(en) && en >= lo && s <= hi;
       });
       t.eq(closure.nodes, wantNodes.length, `${where}：节点计数`);
       t.eq(closure.edges, wantEdges.length, `${where}：边计数`);
@@ -84,7 +88,7 @@ tests["C60 闭包不变量：计数=暴力扫描、首尾=min/max id、preGraph 
       t.eq(closure.firstEdge, sortedEdges[0] ?? null, `${where}：firstEdge`);
       t.eq(closure.lastEdge, sortedEdges.at(-1) ?? null, `${where}：lastEdge`);
       t.eq(closure.graphNodes, (g.order ?? []).filter((id) => g.nodes?.[id] !== undefined).length, `${where}：graphNodes`);
-      const wantPreGraph = wantNodes.length === 0 && (nodeSeqs.length === 0 || range.end < minNodeSeq);
+      const wantPreGraph = wantNodes.length === 0 && (nodeSeqs.length === 0 || hi < minNodeSeq);
       t.eq(closure.preGraph, wantPreGraph, `${where}：preGraph 语义`);
     }
     t.eq(foldClosureOf(g, null), null, "null 区间 ⇒ null");
