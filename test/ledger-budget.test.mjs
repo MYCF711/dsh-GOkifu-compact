@@ -168,6 +168,20 @@ function heavyGraph({ constraints = 6, failures = 2, sessionId = "fx-floor" } = 
   return g;
 }
 
+tests["C225 最小清单必须**保持最小**：≤120 tokens（C223/C224 往里加了 4 行，防止继续膨胀）"] = (t) => {
+  // 背景：C223 加了 `# path:`、C224 又加了 ROOT USER / OPTIONS / UNVERIFIED 三类契约行。
+  // 每一条都有正当理由，但**下限会一路抬上去** —— 这条守卫把"最小清单"钉在一个数上：
+  // 加了东西后超预算就红，逼下一个人先回答「这条真比别处省吗」。
+  const g = createGraph({ sessionId: "fx-minimal-budget" });
+  addUserNodeId(g, { seq: 1, text: "把测试跑绿，别改 public API" });
+  addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  for (let i = 0; i < 5; i += 1) addAgentNode(g, { seq: 3 + i, goal: `步骤 ${i}`, worldHash: `W${i + 2}`, constraintHash: "C1" });
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  t.eq(led.minimal, true, "仍是最小清单形态");
+  t.eq(led.tokens <= 120, true, `最小清单必须 ≤120 tokens（实际 ${led.tokens}）—— 超了就先想清楚这条行值不值`);
+  t.eq(led.fallback, "none", `最小清单不该超预算（实际 ${led.fallback}）`);
+};
+
 tests["T-5 最小清单（C67）：renderMinimalLedger 必须标 minimal:true，且指标层能读到"] = (t) => {
   const g = createGraph({ sessionId: "fx-minimal" });
   const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
