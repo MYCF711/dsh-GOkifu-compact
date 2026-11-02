@@ -829,6 +829,52 @@ add(
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
       `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
 );
+/* ★ C348：**思考模式默认开着**（官方《Thinking Mode》：默认 enabled、默认 effort=high）。
+   摘要请求也会带上思考 ⇒ 输出 token 里有一部分是推理。这块要**看得见**，否则
+   "一次 fold 输出 3k token" 会被读成"摘要写了 3k 字"。宿主的 usage 里本来就有 `reasoningTokens`。 */
+{
+  let out = 0;
+  let reasoning = 0;
+  let seen = 0;
+  const graphRoot2 = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(graphRoot2)) {
+    for (const entry of nodeFs.readdirSync(graphRoot2, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot2, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadSessionGraph(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        const usage = mark?.usage;
+        if (!usage || typeof usage !== "object") continue;
+        const o = Number(usage.outputTokens);
+        if (!Number.isFinite(o) || o <= 0) continue;
+        out += o;
+        seen += 1;
+        const r = Number(usage.reasoningTokens);
+        if (Number.isFinite(r) && r > 0) reasoning += r;
+      }
+    }
+  }
+  if (seen === 0) {
+    add("fold 输出里的推理占比", "warn", "未采集（没有带 outputTokens 的 fold usage）");
+  } else if (reasoning === 0) {
+    add("fold 输出里的推理占比", "ok", `${seen} 条 fold · 输出合计 ${out} tok · **没有 reasoningTokens**（思考模式关闭，或宿主没上报）`);
+  } else {
+    const pct = Math.round((reasoning / out) * 100);
+    add(
+      "fold 输出里的推理占比",
+      pct >= 50 ? "warn" : "ok",
+      `${seen} 条 fold · 输出 ${out} tok 其中**推理 ${reasoning} tok（${pct}%）**` +
+        (pct >= 50 ? " —— 一半以上的\"输出\"其实是思考（默认 effort=high）；想省钱要靠宿主把这个环节的思考关掉" : ""),
+    );
+  }
+}
+
 /* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
    我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
    所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。 */

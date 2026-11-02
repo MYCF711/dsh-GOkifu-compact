@@ -36,6 +36,7 @@
 | **宿主的归档信号** | [`宿主归档信号-domain.changed.md`](./宿主归档信号-domain.changed.md) | asar 原文：`{domain,table:"",key:"",operation:"put",value}`，**一次写入发一次且落盘后**、监听器抛错被吞；宿主自己的过滤口径与我们的 `archivedIdsFromChange` 逐字一致 |
 | **主动性上下文整理（Focus）** | [`主动性上下文整理-Focus.md`](./主动性上下文整理-Focus.md) | 论文（arXiv 2601.07190）：让 **agent 自己决定**何时把经验收进 Knowledge 块并 prune 原始历史；SWE-bench Lite 5 例、token −22.7%、准确率不变、平均 6 次自主压缩 ⇒ 我们的折叠是**被动**的，缺"决定权"表面 |
 | **前缀缓存单元（持久化规则）** | [`前缀缓存单元-持久化规则-deepseek.md`](./前缀缓存单元-持久化规则-deepseek.md) | 官方：命中要匹配**完整的前缀单元**，单元在**请求边界**（用户输入末/模型输出末）、公共前缀、固定 token 间隔三处持久化；⇒ 我们"清单没变就不重写"（identical 144 次）**同时是缓存友好的** |
+| **思考模式（默认开启）** | [`思考模式-默认开启-deepseek.md`](./思考模式-默认开启-deepseek.md) | 官方：思考模式**默认 enabled、默认 effort=high**，`reasoning.effort=none` 才关；宿主 usage 有 `reasoningTokens`。真机 58 条 fold **没有** reasoningTokens ⇒ 本机未上报，成本暂无低估 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |
 | **KV 缓存单元语义（DeepSeek）** | [`上下文缓存-单元语义-deepseek.md`](./上下文缓存-单元语义-deepseek.md) | 命中要**整段匹配已落盘的单元**；所以「改哪里」比「改多少」更决定成本 —— 改尾部几乎免费 |

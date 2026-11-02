@@ -1184,3 +1184,35 @@ tests["C347 成本口径：没有 model 的 fold 必须点出来（否则成本�
     nodeFs.rmSync(withModel, { recursive: true, force: true });
   }
 };
+
+tests["C348 推理占比：有一半以上是思考时必须警告（默认 effort=high 的钱不能装作是正文）"] = (t) => {
+  const withReasoning = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [
+        { at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", usage: { inputTokens: 900, outputTokens: 1000, reasoningTokens: 700 } },
+      ];
+    },
+  });
+  try {
+    const row = runDoctor(withReasoning).find("fold 输出里的推理占比");
+    t.eq(!!row, true, "必须有这一行");
+    t.eq(row.status, "warn", "推理占 70% 要 warn");
+    t.includes(String(row.detail), "70%", "要给出百分比");
+  } finally {
+    nodeFs.rmSync(withReasoning, { recursive: true, force: true });
+  }
+
+  // 没有 reasoningTokens ⇒ ok，并明说"没上报/关着"（不许当成 0 隐藏）
+  const noReasoning = makeHome({
+    mutate: (g) => {
+      g.foldMarks = [{ at: Date.now(), seqStart: 1, seqEnd: 2, trigger: "pressure", usage: { inputTokens: 900, outputTokens: 500 } }];
+    },
+  });
+  try {
+    const row = runDoctor(noReasoning).find("fold 输出里的推理占比");
+    t.eq(row.status, "ok", "没有推理字段应为 ok");
+    t.includes(String(row.detail), "reasoningTokens", "要说明没上报这个字段");
+  } finally {
+    nodeFs.rmSync(noReasoning, { recursive: true, force: true });
+  }
+};
