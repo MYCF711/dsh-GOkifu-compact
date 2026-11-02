@@ -1,5 +1,5 @@
 {
-  "total": 817,
+  "total": 818,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -107,7 +107,7 @@
     "ui-models.test.mjs": 7,
     "ui-perf.test.mjs": 10,
     "ui-security.test.mjs": 25,
-    "ui-update.test.mjs": 17,
+    "ui-update.test.mjs": 18,
     "ui.test.mjs": 10,
     "unverified-tier.test.mjs": 4,
     "user-patch-heal.test.mjs": 10,

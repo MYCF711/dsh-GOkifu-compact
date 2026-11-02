@@ -665,3 +665,25 @@ tests["C394 `hasUpdate:false` 有三种原因，必须用 relation 区分（ahea
   const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
   t.includes(src, "value.relation = versionRelation(", "update 必须设置 relation（C394）");
 };
+
+tests["C420 面板必须显示 warnings 与 applied（算了不显示=没算；参数被忽略要看得见）"] = async (t) => {
+  const { mod } = loadClientBundle();
+  const T = mod.__testables;
+  // dryRun 带 warnings ⇒ 必须出现在文案里
+  const withWarn = T.backfillLines({
+    dryRun: true, due: 2, scanned: 3,
+    items: [{ sessionId: "s1", tail: 100, estTokens: 200000 }],
+    warnings: ["3 个会话按 p90 估算会超过 90s 单会话超时"],
+  });
+  t.eq(withWarn.some((l) => l.includes("90s")), true, "warnings 必须被渲染（C420）");
+  // 带 applied（指定了 id）⇒ 要说明只处理指定的那些
+  const withApplied = T.backfillLines({
+    dryRun: true, due: 5, scanned: 5,
+    items: [{ sessionId: "s1", tail: 100 }],
+    applied: { sessionIds: ["s1"], selected: 1, limit: 1, minEvents: 40 },
+  });
+  t.eq(withApplied.some((l) => l.includes("只处理你指定的 1 个会话")), true, "applied 必须被渲染");
+  // 没有这些字段时不许凭空加行
+  const plain = T.backfillLines({ dryRun: true, due: 0, scanned: 1, items: [] });
+  t.eq(plain.some((l) => l.includes("⚠") || l.includes("只处理你指定的")), false, "没有字段就不许多渲染");
+};
