@@ -31,7 +31,7 @@
 ## 二 · 复跑证据（全部可重跑）
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context
+cd <WORKSPACE>/projects/dsh-chess-context
 node test/run.mjs              # 94 passed, 0 failed（原 87 + 新增 7）
 node test/verify-install.mjs   # 13/13 全过
 node test/real-modules.mjs     # 4/4 全过（真实 @deepseek-ai 包）
@@ -95,7 +95,7 @@ node test/build-tree.mjs "D:/DeepSeek Harness/home/chess-context/sessions/sessio
 > 与事故文档 §2.2 的分布**逐项一致**（226 / 3 成功 / 139 / 80 / 2 / 1 / 1）。
 > 注：文档里「80」「2」是事件数；若按字符串出现次数数（错误原文会在多处被引用）是 85 和 13 —— 两个数都对，口径不同。
 
-### 3.2 magpie `usage.jsonl`（`C:\Users\Administrator\.config\magpie\usage.jsonl`，10,312,222 字节）
+### 3.2 magpie `usage.jsonl`（`<HOME>\.config\magpie\usage.jsonl`，10,312,222 字节）
 
 | 项 | 数值 |
 |---|---:|
@@ -116,7 +116,7 @@ node test/build-tree.mjs "D:/DeepSeek Harness/home/chess-context/sessions/sessio
 重启后一条命令验收（只读，不改任何数据）：
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context && node test/verify-graphs.mjs
+cd <WORKSPACE>/projects/dsh-chess-context && node test/verify-graphs.mjs
 ```
 
 判据：

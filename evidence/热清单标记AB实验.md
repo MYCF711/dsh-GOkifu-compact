@@ -142,7 +142,7 @@
 ## 五 · 复跑
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context
+cd <WORKSPACE>/projects/dsh-chess-context
 node test/ab-render.mjs                  # 实验 1 的三个臂
 node test/ab-render.mjs --scenario=trap  # 实验 2 的两个臂（另有 terse 档）
 node test/run.mjs markers                # 9 项标记契约测试

@@ -232,13 +232,13 @@ tests["A7 MSYS 风格 /d/… 在 Windows 上按 D:/… 解析（不许变成 D:\
     t.skip("本机非 Windows");
     return;
   }
-  const got = resolveSpecPath("/d/主工作区/projects", "E:\\base");
-  t.eq(got, "D:\\主工作区\\projects", "盘符形式");
+  const got = resolveSpecPath("/d/workspace/projects", "E:\\base");
+  t.eq(got, "D:\\workspace\\projects", "盘符形式");
 };
 
 tests["A8 toLinkSpec：绝对路径 + 正斜杠（写回 package.json 的既有契约）"] = (t) => {
-  const spec = toLinkSpec("D:\\主工作区\\projects\\x");
-  t.eq(spec, "link:D:/主工作区/projects/x", "形式");
+  const spec = toLinkSpec("D:\\workspace\\projects\\x");
+  t.eq(spec, "link:D:/workspace/projects/x", "形式");
   t.ok(!spec.includes("\\"), "不许留反斜杠");
   t.ok(nodePath.isAbsolute(spec.slice("link:".length)), "路径部分必须是绝对路径");
 };

@@ -20,7 +20,7 @@
  *   ⑥ 运行期证据：<DSH_HOME>/chess-context/sessions 下有 graph.json（说明 keeper 真跑过）
  *
  * ⚠ ② 的历史坑：旧版只判 `Boolean(pkg.dependencies[PKG])` —— 字符串在就算过。
- *   profile 里写的是 `link:D:/主工作区/projects/dsh-gokifu-compact`（该目录不存在），
+ *   profile 里写的是 `link:D:/workspace/projects/dsh-gokifu-compact`（该目录不存在），
  *   于是「目标不存在」也报 ✓。判定必须落到**解析后的真实目标**，见 scripts/link-path.mjs。
  *
  * 用法：node test/verify-install.mjs [--profile desktop] [--preset personal-assistant]

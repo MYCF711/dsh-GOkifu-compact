@@ -187,7 +187,7 @@ node scripts/cli.mjs install --dry-run
 node scripts/check-maintenance.mjs
 
 # 从 asar 取官方包对照
-node /d/主工作区/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
+node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
 
 # 打包自检（test/·tmp/·harness 命中必须 0）
 npm pack --dry-run --json

@@ -9,7 +9,7 @@
 
 > **取证方式**：所有源码结论来自对 `D:\DeepSeek Harness\resources\app.asar` 的只读导出。
 > 逐字引用的行号 = 包内 `lib/index.js` 的行号（导出件与 asar 内文件 `diff` 一致，已核）。
-> 导出件在 `D:\主工作区\tmp\context-plugin\asar-extract\`，复现命令见附录 A。
+> 导出件在 `<WORKSPACE>\tmp\context-plugin\asar-extract\`，复现命令见附录 A。
 > 材料清单里的 `tmp/context-plugin/docs/dsh-compaction.lib.index.js`（seam 175 行）与
 > `dsh-compaction-basic.lib.index.js`（1027 行）与 asar 内文件**逐字节相同**（`diff -q` 无输出）。
 
@@ -1137,7 +1137,7 @@ function summaryText(blocks) {
 改完必须核对（patch 打不中只 warn，不报错）：
 ```bash
 # 用 Desktop 包装器 dump 组合结果，确认 compaction group 里只剩你的行
-"/d/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd" --profile desktop --dump-config > /d/主工作区/tmp/dump.yml
+"/d/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd" --profile desktop --dump-config > <WORKSPACE>/tmp/dump.yml
 ```
 
 > 注意 `--dump-config` 报告的是「配置出的组合」；被兼容性策略拒绝的行仍会出现（app-boot README:54）。
@@ -1172,7 +1172,7 @@ sessions/
       return `--${(readable.replace(/^-+/, "") || "root").slice(0, 251)}--`;
   }
   ```
-  `D:\主工作区` → `--D-~4E3B~5DE5~4F5C~533A--`（与实测一致）。
+  `<WORKSPACE>` → `--D-~4E3B~5DE5~4F5C~533A--`（与实测一致）。
 - 会话目录名 = `sessionDir(root, cwd, id) = join(projectDir(root,cwd), encodeSegment(id))`（914-917）；`encodeSegment` 对 `[A-Za-z0-9._-]` 保留原字符，其它（含 `~`）变 `~XXXX`（853-871）。
 - 文件名 = `session.v4.jsonl.zstd`；`SESSION_FORMAT_VERSION = 4`（`dsh-session/lib/index.js:56`）；压缩时后缀 `.jsonl.zstd`，`compression:'none'` 时 `.jsonl`（persistence README:62-69）。
 
@@ -1235,7 +1235,7 @@ sessions/
 
 ## 附录 A · 证据文件与复现命令
 
-**导出件（只读副本，已与 asar 内文件 diff 一致）**，位于 `D:\主工作区\tmp\context-plugin\asar-extract\`：
+**导出件（只读副本，已与 asar 内文件 diff 一致）**，位于 `<WORKSPACE>\tmp\context-plugin\asar-extract\`：
 
 | 文件 | 对应 asar 路径 |
 |---|---|
@@ -1265,20 +1265,20 @@ sessions/
 
 ```bash
 # 1) 列文件
-node /d/主工作区/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
+node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
 
 # 2) 取单个文件
-node /d/主工作区/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" \
+node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" \
   "dsh/node_modules/@deepseek-ai/dsh-compaction-basic/lib/index.js"
 
 # 3) 全量扫事件名（agent/session）
-node /d/主工作区/tmp/context-plugin/scan-hooks.mjs "D:\DeepSeek Harness\resources\app.asar"
+node <WORKSPACE>/tmp/context-plugin/scan-hooks.mjs "D:\DeepSeek Harness\resources\app.asar"
 
 # 4) 全量扫 session.append 的事件类型
-node /d/主工作区/tmp/context-plugin/scan-append.mjs "D:\DeepSeek Harness\resources\app.asar"
+node <WORKSPACE>/tmp/context-plugin/scan-append.mjs "D:\DeepSeek Harness\resources\app.asar"
 
 # 5) 查某个词在哪出现过（带行号）
-node /d/主工作区/tmp/context-plugin/scan-word.mjs "D:\DeepSeek Harness\resources\app.asar" "applyEntryPatches"
+node <WORKSPACE>/tmp/context-plugin/scan-word.mjs "D:\DeepSeek Harness\resources\app.asar" "applyEntryPatches"
 
 # 6) 数 zstd 帧（不解压）
 node -e 'const b=require("fs").readFileSync(process.argv[1]);const m=Buffer.from([0x28,0xb5,0x2f,0xfd]);let i=-1,n=0;while((i=b.indexOf(m,i+1))!==-1)n++;console.log("frames~",n)' \

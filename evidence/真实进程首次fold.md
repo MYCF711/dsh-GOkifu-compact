@@ -7,7 +7,7 @@
 ## 一 · 怎么做到的
 
 1. 给 `profiles/headless` 加一个 **junction**：`profiles/headless/node_modules/dsh-gokifu-compact` →
-   `D:\主工作区\projects\dsh-chess-context`（指向仓库本体；实测 `ln -s` 在 Windows 上会**复制**目录，
+   `<WORKSPACE>\projects\dsh-chess-context`（指向仓库本体；实测 `ln -s` 在 Windows 上会**复制**目录，
    必须用 `New-Item -ItemType Junction`，否则测的是旧副本 —— 第一次跑就是这么被骗的）。
 2. 用 `--patch` 叠一层临时 overlay：关掉 `compaction-basic` / `compaction-tool-result-pruner`，
    插入 `dsh-gokifu-compact`，把 `thresholdRatio` 压到 0.002（1M 窗口 ⇒ 2000 token 触发）、

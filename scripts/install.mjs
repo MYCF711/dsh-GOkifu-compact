@@ -40,7 +40,7 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
  * 安装源目录 —— 只能来自**可靠事实**（脚本自己所在的真实目录），不许从包名猜目录名。
  *
  * 为什么写这段：v0.4.0 改名那次，profile 里被写成
- * `link:D:/主工作区/projects/dsh-gokifu-compact` —— 那是**跟着包名猜出来的目录**，
+ * `link:D:/workspace/projects/dsh-gokifu-compact` —— 那是**跟着包名猜出来的目录**，
  * 真实目录一直叫 `dsh-chess-context`。重装时 pnpm 对不存在的 link 目标只打一行 WARN，
  * **退出码 0、且不建任何链接** ⇒「重装即坏」是静默的（本轮实测见 docs/草稿 §S10a 证据）。
  * realpath 同时解决两件事：从 junction 里跑（安装态）时拿回真身；路径大小写被规范化。

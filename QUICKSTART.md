@@ -14,7 +14,7 @@
 ### 1. 确认插件已加载
 
 ```bash
-cd "D:/主工作区/repos/dsh-GOkifu-compact"
+cd "<WORKSPACE>/repos/dsh-GOkifu-compact"
 node test/verify-install.mjs
 ```
 
@@ -136,7 +136,7 @@ node test/replay-verify.mjs     # 用你当前会话的真实日志回放，看�
 
 | 东西 | 路径 |
 |---|---|
-| 插件源码 | `D:\主工作区\projects\dsh-gokifu-compact` |
+| 插件源码 | `<WORKSPACE>\projects\dsh-gokifu-compact` |
 | 棋谱数据 | `<DSH_HOME>\chess-context\sessions\<sessionId>\graph.json` |
 | 人读视图 | 同目录 `graph.md`（只在 idle / fold 后更新） |
 | 证据 | 项目 `evidence/`（13 个文件，每个 .md + .json） |

@@ -13,7 +13,7 @@
 | 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1286ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
 | 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
-| 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add D:/主工作区/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
+| 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add <WORKSPACE>/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
 | 未验证 | 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
 
 
@@ -47,17 +47,17 @@
 
 ### 已了结的旧账（2026-11-01 复核，别再当待办）
 
-- **P6-C 真实 apply 已经执行了**（旧版本文件写「仍未执行」，是错的）：`D:\主工作区\tmp\dsh-gokifu-compact\LIVE-APPLY-2026-10-31T14-20-18-959Z.log`
+- **P6-C 真实 apply 已经执行了**（旧版本文件写「仍未执行」，是错的）：`<WORKSPACE>\tmp\dsh-gokifu-compact\LIVE-APPLY-2026-10-31T14-20-18-959Z.log`
   → preflight **exit 0**（176 会话 / 30,341,323 B）→ dry-run → `--apply` → `migrate verify … "ok": true`、
   **`archived=6219 deleted=6219 sessions=48`**、`[exit 0]`（2026-10-31 22:20 本地）。整目录备份在
-  `D:\主工作区\tmp\dsh-gokifu-compact\live-apply-backup-2026-10-31T14-20-18-959Z\`。
+  `<WORKSPACE>\tmp\dsh-gokifu-compact\live-apply-backup-2026-10-31T14-20-18-959Z\`。
   **没做完的是「重启后读日志验收」** —— 而 11-01 的 home 重建让那一步**永久不可复现**。
 - **S1b（清理 2 张历史自环图）可关**：对上述归档快照实测 `test/rewash-selfloop.mjs` dry-run
   = **176 个 graph.json / 0 个含自环 / 全库自环 0 / 37,194 = 0.0%**（点名的两张图仍在，但已无自环）。
 
 ## 新版 DSH 适配（0.2.1-rc.5）—— 装回去之前必读
 
-> 完整方案（逐行源码实测）：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\compat-deploy.md`。
+> 完整方案（逐行源码实测）：`<WORKSPACE>\gokifu-2026-11-01\compat-deploy.md`。
 > 本节只留结论与顺序，别整段抄。
 
 **三道版本闸（缺一不可，全在宿主 `dsh-app-boot` 里）**
@@ -81,7 +81,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
    若要用旧包，走官方 `dsh plugin --profile desktop allow-version <pkg@ver> --dsh-version <exact> --accept-risk`。
 2. **装 bundle —— `dsh plugin add` 就是官方 install 通道**
    ```bash
-   dsh plugin --profile desktop add "D:\主工作区\repos\dsh-GOkifu-compact"
+   dsh plugin --profile desktop add "<WORKSPACE>\repos\dsh-GOkifu-compact"
    ```
    **机制更正（1.13.0 实测，别再按旧笔记走 Web 页面）**：`dsh plugin add` **不只是转发 pnpm** ——
    成功后它会调 `reconcile()`（`dsh-plugin-manager/lib/types/operations.js:96-124`），把「本次新增的依赖
@@ -109,7 +109,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 
 1. **「安装态与 preset 必须同源」，而手加的 `link:` 会被插件管理器抹掉**：2026-10-31 22:02:22 DSH 插件管理器重写
    `profile/package.json` 时是**按自己的托管清单重建**，把插件 `cli.mjs install` 手加的 `link:` 依赖与 bundle 项一起丢了
-   （现场备份 `D:\主工作区\.trash\2026-10-31\live-profile-before-gokifu-reinstall\package.json`），而 preset 还指着它
+   （现场备份 `<WORKSPACE>\.trash\2026-10-31\live-profile-before-gokifu-reinstall\package.json`），而 preset 还指着它
    ⇒ 所有相关 resume 报 `gokifu-compact (dsh-gokifu-compact): never started (gateway/internal)`。
    **⇒ 必须走官方通道装，不要只手改 package.json。**
 2. **引擎名必须写 `dsh-gokifu-compact/engine`**，不能写包根：包根 `exports["."]` → `src/ui.mjs` 是 UI host，
@@ -126,11 +126,11 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 ## 测试用 DSH 实例（W-C · 1.13.0 建成，这是本轮最重要的能力）
 
 > 目的：以后**任何**「装回去到底行不行」的验证，都在这个**独立实例**上做，不再拿生产 home 冒险。
-> 细节与逐条证据：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\test-instance.md`。
+> 细节与逐条证据：`<WORKSPACE>\gokifu-2026-11-01\test-instance.md`。
 
 | 项 | 值 |
 |---|---|
-| 测试 home | **`E:\Documents\deepseek-harness\dsh-test-home`**（独立 `DSH_HOME`，与生产 `D:\DeepSeek Harness\home` 完全隔离） |
+| 测试 home | **`<DSH_HOME>\dsh-test-home`**（独立 `DSH_HOME`，与生产 `D:\DeepSeek Harness\home` 完全隔离） |
 | 端口 | **62619**（生产是 62618）⇒ 两个实例可同时跑 |
 | profile | `web`（自动创建），已装 `dsh-gokifu-compact` + 自建 preset bundle，二者都在 `dsh.profile.bundles` 里 |
 | 起停 | 起：`dsh --profile web --host 127.0.0.1 --port 62619 --no-open`；停：`netstat -ano \| grep LISTENING \| grep :62619` 拿 PID 后 `taskkill //PID <PID> //T //F` |
@@ -268,7 +268,7 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 | GitHub | https://github.com/MYCF711/dsh-GOkifu-compact |
 | npm | `dsh-gokifu-compact@1.7.0`（`dsh plugin --profile <name> add dsh-gokifu-compact`）|
 | 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.8.0 |
-| 本地路径 | `D:\主工作区\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
+| 本地路径 | `<WORKSPACE>\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
 | 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `dsh-GOkifu-compact` |
 | 运行期生效 | ✅ 10:0x 已重启：GUI 里**第一次真实 fold 成功**（遮蔽 440,847 tok → surface 1391→373，面板 81%→约 16%）|
 
@@ -437,7 +437,7 @@ sessions/<sessionId>/
 ## 怎么验证 / 装 / 回滚
 
 ```bash
-cd D:/主工作区/projects/dsh-chess-context
+cd <WORKSPACE>/projects/dsh-chess-context
 
 # 验证（当前 v1.3.5 工作区）
 node test/run.mjs            # 118 passed
