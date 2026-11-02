@@ -572,3 +572,32 @@ tests["C335/C336 压力提示行：≥80% 才有，且只告知状态（不提�
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "hot-inject.mjs"), "utf8");
   t.includes(src, "pressureHintLine(pressurePct)", "注入路径必须调用纯函数");
 };
+
+tests["C360 追加前要收缩历史：旧清单换成占位，常驻清单收敛到 1~2 份"] = (t) => {
+  const g = graphWithFailure();
+  const session = makeSession();
+  const state = {};
+  // 先正常注入一次，拿到一条真清单
+  const first = decideInjection({ session, graph: g, state, config: CONFIG, sessionDir: "D:/tmp/s", decision: makeDecision([{ id: "x" }]), payloadMessages: [{ id: "x" }], createUserMessage, onBudget: () => {}, onLog: () => {} });
+  if (first?.decision) commitAppend(session, first);
+
+  // 人为再塞两条"旧格式"清单（模拟历史残留：内容 >200 字，source 同类）
+  for (let i = 0; i < 2; i += 1) {
+    session.push(createUserMessage({ content: [{ type: "text", text: `<chess-ledger>\nROOT USER: ${"填充".repeat(120)}${i}\nCURRENT PATH: n1\n</chess-ledger>` }], source: { kind: "chess-context", form: "ledger" } }));
+  }
+  // 制造"清单被 fold 压掉"的情形：surface 上没有清单 ⇒ existing 为 null
+  session.surface.nodes = session.surface.nodes.filter((seq) => {
+    const ev = session.eventAt(seq);
+    return ev?.data?.source?.kind !== "chess-context";
+  });
+
+  const state2 = { ...state, lastLedgerDigest: "different-digest", lastLedgerFailureCount: 0, lastLedgerInjectSeq: -1000 };
+  const second = decideInjection({ session, graph: g, state: state2, config: CONFIG, sessionDir: "D:/tmp/s", decision: makeDecision([{ id: "y" }]), payloadMessages: [{ id: "y" }], createUserMessage, onBudget: () => {}, onLog: () => {} });
+  if (second?.decision) commitAppend(session, second);
+
+  const live = session.surface.nodes
+    .map((seq) => session.eventAt(seq))
+    .filter((ev) => ev?.type === "user/message" && ev?.data?.source?.kind === "chess-context")
+    .filter((ev) => !/已省略|占位|elided/.test(messageTextOf(ev)));
+  t.eq(live.length <= 2, true, `常驻真清单应 ≤2 份，实际 ${live.length}`);
+};

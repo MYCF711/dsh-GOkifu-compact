@@ -296,6 +296,18 @@ export function decideInjection({
     //   · 反过来，若在开头插一条新消息，等于把后面所有单元全部作废。
     //   这也是 C220 实测「断点只占 2.6%」的原因：我们改的是尾部。
     //   文档：docs/knowledge/上下文缓存-单元语义-deepseek.md
+    // ★ C360：**追加前先收缩历史**。`findLedgerNode` 只认**最后一条**清单，
+    //   所以当它返回 null（清单被 fold 压掉、或上一版是旧格式）时，旧清单会一直留在 surface 上 ——
+    //   实测一个会话残留 17 份真清单（修正口径后），而清理只在会话开头跑一次（`legacyElided`）。
+    //   ⇒ 走到"追加"这条路时，顺手把更早的清单换成占位（保留最后一条），让常驻份数收敛到 1~2。
+    if (existing === null && config.hotLedgerReplace) {
+      try {
+        elideLegacyLedgers(session, { createUserMessage });
+      } catch {
+        /* 清理失败不影响本次注入 */
+      }
+    }
+
     if (existing && config.hotLedgerReplace) {
       try {
         session.append("user/message", message, {
