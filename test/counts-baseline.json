@@ -1,5 +1,5 @@
 {
-  "total": 789,
+  "total": 790,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -25,7 +25,7 @@
     "docs-index-check.test.mjs": 4,
     "docs-numbers.test.mjs": 12,
     "doctor-cli.test.mjs": 44,
-    "engine-harness.test.mjs": 88,
+    "engine-harness.test.mjs": 89,
     "engine-retry-assembler.test.mjs": 2,
     "evidence-consistency.test.mjs": 20,
     "facts-prompt.test.mjs": 4,

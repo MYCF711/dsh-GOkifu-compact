@@ -176,6 +176,11 @@ export function isPermanentSummaryError(message) {
   //   400 请求格式错 / 401 鉴权失败 / 402 余额不足 / **422 参数非法** ⇒ **都是永久的**，重试没用；
   //   429 限流 / 500 服务错 / 503 过载 ⇒ 官方明说"稍后重试"，**不能**判成永久。
   //   旧版漏了 422（"invalid parameters"），遇到会白白重试到上限。
+  // ★ C382：**「上下文超长」的 400 不是永久错误**。官方 Responses API 文档明说：
+  //   `truncation 不支持 —— Requests exceeding the context window return a 400 error`。
+  //   这种 400 的正确反应是「再折一段」，而不是"永久失败 + 退避到上限"。
+  //   实测里它可能以 400 / invalid_request_error / "context length" / "too long" 等形式出现。
+  if (/context[ _-]?length|context window|maximum context|too many tokens|too long|exceeds? the context/i.test(text)) return false;
   if (/(^|[^0-9])(429|500|503)([^0-9]|$)/.test(text)) return false; // 先排除可重试的，防误伤
   return /(^|[^0-9])(400|401|402|422)([^0-9]|$)/.test(text)
     || /invalid format/i.test(text)

@@ -2826,3 +2826,24 @@ tests["C367 限流/过载除了事件退避，还要有「最小等待时间」�
   if (!src.includes("const minDelay = retryMinDelayMs(")) throw new Error("退避判定必须调用 retryMinDelayMs（C367）");
   if (!src.includes("st.lastFoldFailureAt = Date.now()")) throw new Error("失败时必须记时间戳（C367）");
 };
+
+tests["C382 上下文超长的 400 不是永久错误（官方：超窗直接 400，没有 truncation）"] = async (t) => {
+  const { mod } = await load();
+  const f = mod.isPermanentSummaryError;
+  // 官方措辞与常见变体：都必须判"可恢复"
+  for (const msg of [
+    "400 This model's maximum context length is 1000000 tokens",
+    "400 Error: context window exceeded",
+    "invalid_request_error: prompt is too long",
+    "Exceeds the context window",
+    "too many tokens in request",
+  ]) {
+    t.eq(f(msg), false, `上下文超长不该判永久：${msg}`);
+  }
+  // 真正的永久错误仍然永久（别被上面放宽成全部非永久）
+  t.eq(f("400 invalid format"), true, "普通 400 仍是永久");
+  t.eq(f("401 Authentication Fails"), true, "401 永久");
+  t.eq(f("422 Invalid Parameters"), true, "422 永久");
+  // 429/500/503 仍可重试
+  t.eq(f("429 Rate Limit Reached"), false, "429 可重试");
+};
