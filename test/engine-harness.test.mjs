@@ -2496,3 +2496,18 @@ tests["C244 over-budget 必须按档位归因（落在 L5 = 设计内，落在 L
   const clamped = acc({}, { fallback: "over-budget", level: 9, overBudgetBy: 1, provenanceCoverage: 1 }, 5);
   if (!clamped.overByLevel.L5) throw new Error("level 必须夹紧到 0..5");
 };
+
+tests["C245 over-budget 要区分成因：约束/根目标占大半（压不动）vs 内容占大头（还能压）"] = async () => {
+  const { mod } = await load();
+  const acc = mod.accumulateLedgerBudget;
+  // 579 tok 里 unyielding 260 ⇒ 45% ⇒ 约束占大头
+  let s1 = acc({}, { fallback: "over-budget", level: 4, tokens: 579, unyieldingTokens: 260, overBudgetBy: 79, provenanceCoverage: 1 }, 1);
+  if (s1.overByCause?.constraints !== 1) throw new Error(`应记为 constraints，实际 ${JSON.stringify(s1.overByCause)}`);
+  // unyielding 只占 10% ⇒ 内容占大头（这份还有压缩空间）
+  let s2 = acc(s1, { fallback: "over-budget", level: 5, tokens: 600, unyieldingTokens: 60, overBudgetBy: 100, provenanceCoverage: 1 }, 2);
+  if (s2.overByCause?.content !== 1) throw new Error(`应记为 content，实际 ${JSON.stringify(s2.overByCause)}`);
+  if (s2.overByCause.constraints !== 1) throw new Error("两类要分别累计，不许互相覆盖");
+  // 预算内的渲染不记
+  let s3 = acc(s2, { fallback: "none", level: 1, tokens: 300, unyieldingTokens: 200, overBudgetBy: 0, provenanceCoverage: 1 }, 3);
+  if ((s3.overByCause.constraints ?? 0) + (s3.overByCause.content ?? 0) !== 2) throw new Error("预算内不许进 overByCause");
+};

@@ -910,6 +910,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       shown = failures.slice(-10);
       omitted = failures.length - shown.length;
     }
+
     const tailLines = [];
     // ★ P6-A：被排除的残留必须**说一句**（不能静默消失）。一行、带计数，模型知道「有东西被省了」。
     // 残留省略不单独站一行（每行都是 token）：renderFacts 里有 DANGLING_RESIDUE 计数，热清单只求不展示。

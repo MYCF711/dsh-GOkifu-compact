@@ -1183,6 +1183,13 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
               .map(([k, v]) => `${k}=${v}`)
               .join(" / ")}`
           : "") +
+        // ★ C245：超预算的**成因**（约束/根目标不可裁 vs 可压缩内容占大头）
+        (stats.overByCause && typeof stats.overByCause === "object" && Object.keys(stats.overByCause).length > 0
+          ? ` · 成因 ${Object.entries(stats.overByCause)
+              .sort((a, b) => Number(b[1]) - Number(a[1]))
+              .map(([k, n]) => (k === "constraints" ? `约束占大头=${n}` : `内容占大头=${n}`))
+              .join(" / ")}`
+          : "") +
         // ★ C244：over-budget 的**档位分布** —— 落在 L5 说明已是最省一份（设计内），落在 L0–L3 说明还有空间。
         (stats.overByLevel && typeof stats.overByLevel === "object" && Object.keys(stats.overByLevel).length > 0
           ? ` · 超预算档位 ${Object.entries(stats.overByLevel)

@@ -230,6 +230,21 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
     target.traceDropped = (Number.isFinite(target.traceDropped) ? target.traceDropped : 0) + 1;
   }
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
+  // ★ C245：**over-budget 按成因归因**：超预算到底是「约束/根目标逐字保留那段就占了大半」，
+  //   还是「失败边等可压缩内容占大头」？实测（session-1e82afca，579 tok / 预算 500）：
+  //   CONSTRAINTS 198 + markers 图例 43 + ROOT 19 ⇒ 不可裁部分已占 45%，失败边只有 230。
+  //   这两类的处置完全不同：前者只能改预算或改约束长度，后者才有"再压一点"的空间。
+  if (
+    metrics.fallback === "over-budget" &&
+    Number.isFinite(metrics.tokens) &&
+    metrics.tokens > 0 &&
+    Number.isFinite(metrics.unyieldingTokens)
+  ) {
+    const by = target.overByCause && typeof target.overByCause === "object" ? { ...target.overByCause } : {};
+    const cause = metrics.unyieldingTokens / metrics.tokens >= 0.4 ? "constraints" : "content";
+    by[cause] = (Number.isFinite(by[cause]) ? by[cause] : 0) + 1;
+    target.overByCause = by;
+  }
   // ★ C244：**over-budget 按档位归因**。此前 1005 次超预算里只有 174 次有归因（floorOver 86 + irreducible 88），
   //   剩下 831 次「不知道为什么超」—— 而档位能直接回答：落在 L5（已是最省一份）就是设计内，
   //   落在 L0–L3 就说明还有压缩空间。一个字段把 831 次从"未知"变成"已知"。
