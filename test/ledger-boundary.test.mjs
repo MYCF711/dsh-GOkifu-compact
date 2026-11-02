@@ -55,6 +55,32 @@ function mkGraph(edges = []) {
   return g;
 }
 
+tests["C231 已修正的失败必须排在段末（低判别价值的不占最前）"] = (t) => {
+  // 依据 Lost in the Middle (TACL 2023)：中段最容易被漏读。
+  // LEARNED 里判别价值最低的是「同一条 action 后来自己跑通了」的边 —— 不删，但沉底。
+  const now = Date.now();
+  const stale = mkEdge({ id: "e1", action: "bash(npm test)", intent: "跑测试", evidence: { start: 10, end: 12 }, ts: now - 5000 });
+  const fixed = mkEdge({ id: "e2", action: "bash(npm run build)", intent: "跑构建", evidence: { start: 20, end: 22 }, ts: now - 4000 });
+  const laterOk = {
+    id: "e3",
+    from: "n2",
+    to: "n2",
+    intent: "再跑一次构建",
+    action: "bash(npm run build)",
+    result: "success",
+    evidence: { start: 30, end: 32 },
+    verify: { kind: "exit", summary: "exit 0" },
+    ts: now - 3000,
+  };
+  const g = mkGraph([stale, fixed, laterOk]);
+  const out = renderLedger(g, { now, maxTokens: 500 });
+  const rows = out.text.split(String.fromCharCode(10)).filter((line) => /^- e\d+ /.test(line));
+  t.eq(rows.length, 2, `两条失败边都要在（实际 ${rows.length}）：${JSON.stringify(rows)}`);
+  t.eq(rows[0].includes("e1"), true, `未修正的必须排最前：${rows[0]}`);
+  t.eq(rows[1].includes("e2"), true, `已修正的必须沉底：${rows[1]}`);
+  t.includes(out.text, "later-ok", "沉底不代表藏起来 —— 仍要标出「后来跑通了」");
+};
+
 tests["C227 残留失败必须显式计数（omittedResidue 以前算了没人用）"] = (t) => {
   // 事故：`renderLedger` 算了 `omittedResidue` 却**从来没用过** ——
   // 「无终点」的 rewash 残留失败被静默丢掉，模型读「LEARNED (1 failed attempts)」会以为那就是全部。

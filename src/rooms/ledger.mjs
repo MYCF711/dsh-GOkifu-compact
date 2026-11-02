@@ -957,7 +957,13 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
           `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} / nodes/<id>.md`,
         );
       }
-      for (const e of shown) {
+      // ★ C231（K-6 主体）：**已修正的失败沉底**。
+      //   依据（Lost in the Middle，TACL 2023）：中段最容易被漏读 —— 而 LEARNED 里判别价值最低的，
+      //   正是「同一条 action 后来自己跑通了」的那些边（数量见 doctor 的抗干扰度）。它们**一条都不删**
+      //   （契约要求不丢失败记忆），只是排到段末，让「还没被自己修正过」的留在最前面。
+      //   排序稳定 ⇒ 两组内部仍按原顺序（老的在前），不引入新语义。
+      const orderedShown = [...shown].sort((a, b) => (laterSuccessOf(a, successEdges) ? 1 : 0) - (laterSuccessOf(b, successEdges) ? 1 : 0));
+      for (const e of orderedShown) {
         tailLines.push(
           renderFailureLine(
             e,
