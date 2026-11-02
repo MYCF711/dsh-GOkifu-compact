@@ -40,3 +40,15 @@ tests["C272 package.json 暴露 gate 命令（不然没人知道有这条）"] =
   const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(ROOT, "package.json"), "utf8"));
   t.eq(pkg.scripts.gate, "node scripts/gate.mjs", "npm run gate 必须指向 scripts/gate.mjs");
 };
+
+tests["C275 三处「怎么验证」的文档都要指向 npm run gate（否则命令存在但没人知道）"] = (t) => {
+  const files = [
+    ["HANDOFF.md", "HANDOFF"],
+    [nodePath.join("docs", "knowledge", "进度.md"), "进度页"],
+    [nodePath.join("evidence", "重启验收清单-2026-11-02.md"), "重启验收清单"],
+  ];
+  for (const [rel, label] of files) {
+    const text = nodeFs.readFileSync(nodePath.join(ROOT, rel), "utf8");
+    t.includes(text, "npm run gate", `${label} 必须指向 npm run gate（唯一入口）`);
+  }
+};
