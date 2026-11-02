@@ -85,6 +85,18 @@ export function ledgerDigest(graph, { foldFailures = 0 } = {}) {
  * 热清单里的「压缩失效」告警行。
  * 只有当前确实连续失败时才出现（成功一次就清零）—— 它是状态，不是历史账本。
  */
+/**
+ * ★ C335：压力提示行（≥80% 才有，否则空串）。抽成纯函数是为了**能单测格式**，
+ * 不用造一个完整的注入夹具。
+ * @param {number|null} pressurePct
+ * @returns {string}
+ */
+export function pressureHintLine(pressurePct) {
+  const pct = Number(pressurePct);
+  if (!Number.isFinite(pct) || pct < 80) return "";
+  return `# 压力 ${Math.round(pct)}% —— 想现在压就调 manual compact`;
+}
+
 export function foldFailureWarning(state) {
   if (typeof state?.foldFailures !== "number" || state.foldFailures <= 0) return "";
   const err = String(state.lastFoldError ?? "").replace(/\s+/g, " ").trim().slice(0, 150);
@@ -184,6 +196,10 @@ export function decideInjection({
   createUserMessage,
   onBudget = () => {},
   onLog = () => {},
+  // ★ C335：上下文压力百分比（0–100）。≥80 时在清单前加**一行**提示 ——
+  //   启发来自 Focus 论文（agent 自主决定何时整理上下文）：把"要不要提前压"从不可见变成可决策。
+  //   默认 null ⇒ 一行都不加，既有渲染与预算**零变化**（这也是不改 renderLedger 的原因）。
+  pressurePct = null,
 }) {
   const log = (level, line) => {
     try {
@@ -227,7 +243,11 @@ export function decideInjection({
       /* 预算统计失败不许影响注入 */
     }
 
-    const ledgerText = warning === "" ? ledger.text : `${warning}\n${ledger.text}`;
+    // ★ C335：压力 ≥80% 时加一行（约 20 token）。**不加**到 renderLedger 里，是为了让默认路径
+    //   （没有压力信息 / 压力不高）一个字符都不变 —— 既有的 token 预算断言全部不受影响。
+    const pressureLine = pressureHintLine(pressurePct);
+    const head = [warning, pressureLine].filter((line) => line !== "").join("\n");
+    const ledgerText = head === "" ? ledger.text : `${head}\n${ledger.text}`;
     if (!ledgerText) return { decision, action: "skip", reason: "empty" };
 
     const digest = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0 });

@@ -1111,6 +1111,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           createUserMessage,
           onBudget: (ledger, s) => this.consumeLedgerBudget(ledger, s),
           onLog: (level, line) => ctx.logger?.[level]?.(line),
+          // ★ C335：把"现在离阈值多近"交给渲染层（≥80% 才加一行提示；拿不到就 null）
+          pressurePct: (() => {
+            const p = this.ledgerBudget?.pressure;
+            const tokens = Number(p?.tokens);
+            const threshold = Number(p?.threshold);
+            return Number.isFinite(tokens) && Number.isFinite(threshold) && threshold > 0
+              ? (tokens / threshold) * 100
+              : null;
+          })(),
         });
         // ★ C90：渲染/注入抛错时 decideInjection 只写日志 —— 这里记进统计，doctor 才看得见
         if (injectionErrorDelta(result) === 1) {

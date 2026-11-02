@@ -1,5 +1,5 @@
 {
-  "total": 745,
+  "total": 746,
   "files": {
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
@@ -38,7 +38,7 @@
     "graph-fixtures.test.mjs": 5,
     "graph-invariants.test.mjs": 1,
     "handoff-check.test.mjs": 22,
-    "hot-inject.test.mjs": 5,
+    "hot-inject.test.mjs": 6,
     "index-fingerprint.test.mjs": 2,
     "install-link.test.mjs": 29,
     "install-revert.test.mjs": 5,

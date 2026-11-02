@@ -20,6 +20,10 @@ import {
   ledgerDigest,
   messageText,
 } from "../src/rooms/hot-inject.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 import { addUserNodeId, addEdge, addAgentNode, settleEdge, createGraph } from "./graph-fixtures.mjs";
 import { failureEdges, sha } from "../src/rooms/kifu-model.mjs";
 import { renderLedger } from "../src/rooms/ledger.mjs";
@@ -552,4 +556,18 @@ tests["C251 失败增量门槛可配：hotLedgerMinFailureDelta=0 时只按事�
     const r = run(session, g, seed(), { config: { ...CONFIG, hotLedgerMinFailureDelta: bad } });
     t.eq(r.reason, "throttled-failures", `非法值 ${String(bad)} 必须回落到 5`);
   }
+};
+
+tests["C335 压力提示行：≥80% 才有，且带可执行动作"] = async (t) => {
+  const { pressureHintLine } = await import("../src/rooms/hot-inject.mjs");
+  t.eq(typeof pressureHintLine, "function", "必须导出 pressureHintLine");
+  t.eq(pressureHintLine(null), "", "没有压力 ⇒ 空串（一个字符都不加）");
+  t.eq(pressureHintLine(79), "", "79% 不加（阈值 80）");
+  t.eq(pressureHintLine(80).includes("# 压力 80%"), true, "80% 要出现");
+  const hot = pressureHintLine(87.4);
+  t.includes(hot, "# 压力 87%", "四舍五入到整数百分比");
+  t.includes(hot, "manual compact", "要给可执行动作");
+  // 接线：注入路径必须真的用它（不许自己再拼一遍）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "hot-inject.mjs"), "utf8");
+  t.includes(src, "pressureHintLine(pressurePct)", "注入路径必须调用纯函数");
 };
