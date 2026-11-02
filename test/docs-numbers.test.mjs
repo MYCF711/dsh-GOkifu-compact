@@ -192,3 +192,25 @@ tests["C169 CHANGELOG 的 C 轮索引必须与正文一致（170 条靠它导航
   const want = renderIndex(entries);
   t.eq(have === want, true, "索引与正文不一致 —— 先跑 node scripts/changelog-index.mjs --write");
 };
+
+tests["C190 现行文档不许写死「包内 N files/个文件」（包会随新增文件变化，写死必漂移）"] = (t) => {
+  const files = [
+    "README.md",
+    "docs/压缩的职责边界.md",
+    "docs/压缩的重注入契约.md",
+    "docs/发布就绪-2026-11-02.md",
+    "evidence/持续优化-总览-2026-11-02.md",
+    "evidence/巡检-第4次-2026-11-02.md",
+  ];
+  const offenders = [];
+  const re = new RegExp("包内.{0,14}?(\d+)\s*(?:files|个文件)");
+  for (const rel of files) {
+    if (!nodeFs.existsSync(nodePath.join(REPO, rel))) continue;
+    for (const line of read(rel).split(String.fromCharCode(10))) {
+      if (!re.test(line)) continue;
+      if (/第 ?3 ?次|终验|C81|巡检-第3次/.test(line)) continue; // 历史快照允许
+      offenders.push(`${rel}: ${line.trim().slice(0, 60)}`);
+    }
+  }
+  t.eq(offenders.length, 0, `现行文档写死了包内文件数（改为「以 pack-check 当次输出为准」）：${offenders.join(" / ")}`);
+};
