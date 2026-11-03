@@ -5,6 +5,9 @@
  * 而那个会话有 163 节点 / 尾巴 1205 事件、foldMarks 为 0 ⇒ **尝试过一次就永远不会再补**。
  */
 import { closeoutSettles, debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const tests = {};
 
@@ -40,4 +43,12 @@ tests["C476 debtOfGraph 真的会因此重新算账（真机会话的形状）"]
   // 真折过一次之后就不再欠
   const done = debtOfGraph({ ...graph, closeout: { ...graph.closeout, folded: 1 } });
   t.eq(done.due, false, "折完之后不再欠");
+};
+
+tests["C477 引擎补账与账本必须共用同一条判据（同一个坑不能在两处各挖一个）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.eq(src.includes("closeoutSettles"), true, "引擎必须导入并使用 closeoutSettles");
+  // 旧判据「有 closeout 就跳过」不许再出现（那正是 C476/C477 的病根）
+  const bad = /if \(g\.closeout !== undefined\) return;/;
+  t.eq(bad.test(src), false, "「有 closeout 就跳过补账」的旧判据必须删掉");
 };

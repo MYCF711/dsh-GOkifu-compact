@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C477 | 引擎补账改用同一条判据：同一个坑不能在两处各挖一个 |
 | C476 | 有 closeout 不等于账结清：失败与未知原因要重新计入欠账 |
 | C475 | doctor 报会话改用界面上的中文名（保留短 id） |
 | C474 | 收尾折叠：「没折」必须带原因（nothing-to-fold 太笼统） |
@@ -549,6 +550,42 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C477 · 引擎补账改用同一条判据：同一个坑不能在两处各挖一个
+
+**C476 修的是账本那一侧。这一轮去查引擎那一侧，发现同一句判据被抄了一份，而且抄错了。**
+
+### 一、同一个坑，另一处
+
+```js
+// #backfillIfPending —— 会话被重新打开时补账
+if (g.closeout !== undefined) return;   // 已经收过尾（或刚补过）
+```
+
+⇒ 归档时**失败过一次**的会话，重开也**永远不再补**。
+
+### 二、改法（C477）
+
+引擎改用 `closeoutSettles(g.closeout)` —— **与账本共用同一条规则**（C476 的纯函数）。
+
+加了守卫：`if (g.closeout !== undefined) return;` 这句**不许再出现**，防止哪天顺手写回去。
+
+### 三、外部知识（①）：这件事有标准答案
+
+Kubernetes Job 文档（<https://kubernetes.io/docs/concepts/workloads/controllers/job/>，HTTP 200）逐字：
+
+> "**once at least one Pod has terminated with success** and all Pods are terminated, then the Job is **completed with success**."
+
+失败只消耗 `.spec.backoffLimit` 这个**重试预算**，不会把 Job 变成已完成。
+一个成熟系统对「尝试」与「完成」的区分，和 C476/C477 是同一个道理。
+
+### 四、测试
+
+`closeoutSettles` 之外加一条**守卫**：引擎必须导入并使用它，且旧的「有 closeout 就跳过」必须不存在。
+
+### 五、教训
+
+**判据只该有一个出口。** 同一条业务规则复制到两处，就一定会出现「修了一处、另一处还在放行」。
 
 ### C476 · 有 closeout 不等于账结清：失败与未知原因要重新计入欠账
 

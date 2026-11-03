@@ -27,7 +27,7 @@ import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
-import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
+import { debtOfGraph, closeoutSettles } from "./rooms/closeout-backfill.mjs";
 import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
@@ -1071,7 +1071,10 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (this.chess.closeoutFold === false) return; // 用户关了收尾折叠：这笔账留着，不假装补过
     const g = this.graphs.get(id);
     if (g === undefined) return; // 没处理过它的事件：不凭空建图
-    if (g.closeout !== undefined) return; // 已经收过尾（或刚补过）
+    // ★ C477：判据与 `debtOfGraph` **共用一条规则** —— "有 closeout"不等于"收尾成功"。
+    //   真机（2026-11-03）：归档时写过 `folded:0 + nothing-to-fold`，导致此后重开该会话也永远
+    //   不会再补（引擎这边同一个坑；C476 只修了账本那一侧）。
+    if (closeoutSettles(g.closeout)) return;
     const last = (g.foldMarks ?? []).at(-1);
     const lastSeq = Number(last?.seqEnd);
     const endSeq = Number(session.seq);
