@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C476 | 有 closeout 不等于账结清：失败与未知原因要重新计入欠账 |
 | C475 | doctor 报会话改用界面上的中文名（保留短 id） |
 | C474 | 收尾折叠：「没折」必须带原因（nothing-to-fold 太笼统） |
 | C473 | 逐会话表改成生成物；三条守卫不再 pin 死会变的数值 |
@@ -548,6 +549,48 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C476 · 有 closeout 不等于账结清：失败与未知原因要重新计入欠账
+
+**上一轮那个「163 节点怎么会没东西可折」追到底了 —— 不是没内容，是"尝试过"被记成了"解决了"。**
+
+### 一、证据
+
+```
+debtOfGraph(b4664e8f) → { tail: 1205, closedOut: true, folded: false, due: false }
+```
+
+判据原文：`closedOut = graph.closeout !== undefined`。
+
+于是这条链是：
+
+1. 归档 → 写 `closeout`（`foldAttempted:true, folded:0, foldNote:"nothing-to-fold"`）；
+2. ⇒ `closedOut: true` ⇒ `due: false`；
+3. ⇒ **这笔账永远不会再被补**，尽管它 163 节点 / 200 边 / 尾巴 1205 事件、一次都没折过。
+
+**"试过"被当成了"做成"，系统于是安静地放弃了一件它没解决的事。**
+
+### 二、改法（C476）
+
+`closeoutSettles(closeout)` —— 只有这些算结清：
+
+| 情形 | 结清？ |
+|---|---|
+| `folded > 0` / `chunkedFolded > 0` | ✅ |
+| `nothing-to-fold:below-min-tokens` / `:empty` | ✅（真没内容） |
+| `foldError` / `:timeout` / `:planner-null` / `:no-target` | ❌ 重新计入欠账 |
+| 老记录（`nothing-to-fold` 但没有原因） | ❌ 保守当未结清（宁可多补一次） |
+| 老 closeout（C466 之前，没有 `foldAttempted`） | ✅ 保持原语义，避免一次性翻出历史 |
+
+验证：那个会话现在 `due: true`，重开它时补账路径就能接手。
+
+### 三、测试
+
+4 条：结清判据、失败/未知原因不结清、老记录兼容、`debtOfGraph` 端到端（真机会话形状）。
+
+### 四、教训
+
+**「试过了」和「做成了」在数据里必须是两个值。** 合成一个，就等于给系统装了一个"安静放弃"的开关。
 
 ### C475 · doctor 报会话改用界面上的中文名（保留短 id）
 

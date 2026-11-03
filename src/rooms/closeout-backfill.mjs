@@ -38,6 +38,41 @@ export const DEFAULT_PER_ITEM_MS = 180_000;
  * @param {{minEvents?: number}} [options]
  * @returns {{maxSeq:number, lastFoldSeq:number|null, tail:number, closedOut:boolean, folded:boolean, due:boolean}}
  */
+/**
+ * ★ C476：**`closeout` 存在 ≠ 这笔账结清了。**
+ *
+ * 真机（2026-11-03「发布代码仓库并公开」）：归档后 `closeout` 写下了
+ * `{source:"archive", foldAttempted:true, folded:0, foldNote:"nothing-to-fold"}`，
+ * 于是 `due: false` —— 而那个会话有 **163 节点 / 200 条边、foldMarks 为 0、尾巴 1205 事件**。
+ * 结果是：**只要尝试过一次（哪怕失败了），这笔账就永远不会再被补**。
+ *
+ * 判据改成"看结局"：
+ *   · `folded > 0` / `chunkedFolded > 0` ⇒ 结清；
+ *   · `foldNote: "nothing-to-fold:<reason>"` ⇒ 只有 reason 属于**真没内容**那一类才算结清；
+ *   · 老记录（没有 reason，也没有 foldAttempted）⇒ 保持原语义（结清），不然会把历史欠账一次性翻出来；
+ *   · `foldError` / `timeout` / `planner-null` / `no-target` ⇒ **未结清**，重开该会话时还能补。
+ *
+ * @param {object|null|undefined} closeout
+ * @returns {boolean}
+ */
+export function closeoutSettles(closeout) {
+  if (closeout === null || closeout === undefined || typeof closeout !== "object") return false;
+  if (Number(closeout.folded) > 0 || Number(closeout.chunkedFolded) > 0) return true;
+  if (typeof closeout.foldError === "string" && closeout.foldError !== "") return false;
+  const note = String(closeout.foldNote ?? "");
+  if (note.startsWith("nothing-to-fold:")) {
+    // ★ C474 起才写原因；这些原因意味着"确实没东西可折"，结清
+    const reason = note.slice("nothing-to-fold:".length).trim();
+    return ["below-min-tokens", "empty", "nothing-to-fold"].includes(reason);
+  }
+  if (note === "nothing-to-fold") {
+    // 老记录：只说"没东西可折"却给不出原因 ⇒ 保守当**未结清**（宁可多补一次）
+    return false;
+  }
+  if (closeout.foldAttempted === true) return false; // 试过但结局不清
+  return true; // 老 closeout（C466 之前写的）：保持原语义
+}
+
 export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
   const last = marks.filter((mark) => Number.isFinite(Number(mark?.seqEnd))).at(-1);
@@ -48,7 +83,8 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
     if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
   }
   const tail = lastFoldSeq === null ? maxSeq : Math.max(0, maxSeq - lastFoldSeq);
-  const closedOut = graph?.closeout !== undefined && graph?.closeout !== null;
+  // ★ C476：不是"有 closeout 就算结清"，而是**看结局**（见 closeoutSettles）
+  const closedOut = closeoutSettles(graph?.closeout);
   // 有没有一条真正由收尾触发的折叠（archive / backfill）—— 只有 closeout 记录不算折过。
   // ★ C299：**分段收尾不进 foldMarks**（走 compactRegion），只留 `closeout.chunkedFolded`；
   //   不把它算进来，已经折完的会话会被当成"没折过"（与 doctor 的判断口径分裂）。
