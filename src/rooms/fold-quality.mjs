@@ -187,6 +187,48 @@ export function findOutOfRangeIds(graph, range, summaryText) {
   return { checked: seen.size, outOfRange: [...earlier, ...later], earlier, later };
 }
 
+/**
+ * ★ C458：把摘要里**折叠时还不存在**的实体 id 替换成占位符（确定性修复，不靠提示词）。
+ *
+ * 由来：C455 把「只能引用事实块里出现过的 id」写进了提示词，规则从分支挪成无条件。
+ * **重启后第一次折叠仍然编了 34 个**，而且是 `n3634,n3635,n3636,n3637` 这样的连续编号 ——
+ * 正是那条规则明禁的写法。⇒ 提示词挡不住，必须有代码层兜底。
+ *
+ * 判据：id 在图里**存在**、且它的位置**不晚于折叠区间**（span.end ≤ range.end）才保留；
+ * 其余（图里没有 / 晚于本次折叠）一律替换成 `n?` / `e?`。
+ * 这样 checkpoint 里不会出现指不到、或指向"未来"的编号；具体丢了几个记在 `removed` 里，由 foldMark 带走。
+ *
+ * @param {string} text
+ * @param {object} graph
+ * @param {{start:number,end:number}|null} range 为空时**不做处理**（无法判定"晚不晚"）
+ * @returns {{text:string, removed:string[], checked:number}}
+ */
+export function sanitizeSummaryIds(text, graph, range) {
+  const src = String(text ?? "");
+  if (range === null || range === undefined || !Number.isFinite(range.end)) return { text: src, removed: [], checked: 0 };
+  const removed = [];
+  let checked = 0;
+  const out = src.replace(/[en][0-9]{1,4}/g, (id, offset) => {
+    const before = offset > 0 ? src[offset - 1] : "";
+    const after = src[offset + id.length] ?? "";
+    if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) return id; // 不是独立 id（比如文件名里的一段）
+    checked += 1;
+    const isEdge = id[0] === "e";
+    const obj = isEdge ? graph?.edges?.[id] : graph?.nodes?.[id];
+    if (obj === null || obj === undefined) {
+      removed.push(id);
+      return isEdge ? "e?" : "n?";
+    }
+    const span = isEdge ? evidenceSpan(obj) : Number.isFinite(obj.seq) ? { start: obj.seq, end: obj.seq } : null;
+    if (span !== null && span.end > range.end) {
+      removed.push(id);
+      return isEdge ? "e?" : "n?";
+    }
+    return id;
+  });
+  return { text: out, removed, checked };
+}
+
 export function measureFoldQuality({
   graph,
   range = null,

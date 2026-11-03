@@ -38,7 +38,7 @@ import {
   runChunkedCloseout,
 } from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
-import { measureFoldQuality } from "./rooms/fold-quality.mjs";
+import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
@@ -1396,6 +1396,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
     this._lastSummaryChars = summary.reduce((n, b) => n + String(b.text ?? "").length, 0);
     this._lastSummaryText = summary.map((b) => String(b.text ?? "")).join("\n");
+    // ★ C458：**提示词挡不住的东西用代码挡**。C455 把「只能引用事实块里的 id」写成无条件规则，
+    //   重启后第一次折叠仍然编了 34 个（连续编号 n3634,n3635,… —— 正是明禁的写法）。
+    //   这里把「折叠时还不存在 / 图里没有」的 id 换成 n? / e?：checkpoint 不再指向不存在的实体。
+    {
+      const cleaned = sanitizeSummaryIds(this._lastSummaryText ?? "", g, range);
+      this._lastSummaryText = cleaned.text;
+      this._lastSummarySanitized = cleaned.removed.length > 0 ? cleaned.removed : [];
+    }
     this._lastSummaryModelText = modelText;
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
@@ -1965,6 +1973,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const summaryChars = this._lastSummaryChars ?? null;
     const summaryText = this._lastSummaryText ?? "";
     const modelText = this._lastSummaryModelText ?? "";
+    // ★ C458：被清洗掉的 id 要进 foldMark —— 否则"改了没有"只能靠人翻日志。
+    const sanitizedIds = this._lastSummarySanitized ?? [];
+    this._lastSummarySanitized = undefined;
     this._lastSummaryChars = undefined;
     this._lastSummaryText = undefined;
     this._lastSummaryModelText = undefined;
@@ -2015,6 +2026,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       trigger,
       shadowedTokens: range.shadowedTokens,
       totalAfter: after.totalTokens,
+      // ★ C458：这次摘要有几个 id 被清洗成 n? / e?（>0 说明模型仍在编编号，提示词不够）
+      sanitizedIds: sanitizedIds.length,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
       measuredBefore: markPressure?.tokens ?? null,
       thresholdTokens: markPressure?.threshold ?? null,

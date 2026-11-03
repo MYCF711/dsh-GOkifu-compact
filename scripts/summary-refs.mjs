@@ -131,7 +131,21 @@ function main(argv) {
   const since = sinceArg === null ? null : Number(sinceArg);
   const sessionsRoot = path.join(home, "chess-context", "sessions");
   const marks = collectFoldMarks(sessionsRoot);
-  const cur = summarizeRefs(marks, { since });
+  const all = summarizeRefs(marks);
+
+  // ★ C457：**有基线就必须按基线的时间点过滤**。第一版把 `--since` 做成手动参数，
+  //   于是"比基线"变成了"全量比全量" —— 而全量里本来就含着基线那 85 条，
+  //   比例永远在 22%~24% 之间原地打转，看起来像"改了没用"，其实根本没测到新折叠。
+  //   （这是自己用出来的 bug：重启后第一次跑，输出"基线之后的新折叠 85 条"，而新折叠是 0 条。）
+  let baselineSince = null;
+  try {
+    const base = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
+    if (Number.isFinite(base?.since)) baselineSince = base.since;
+  } catch {
+    baselineSince = null;
+  }
+  const effectiveSince = since !== null ? since : argv.includes("--all") ? null : baselineSince;
+  const cur = effectiveSince === null ? all : summarizeRefs(marks, { since: effectiveSince });
 
   // 基线
   let baseline = null;
@@ -141,7 +155,12 @@ function main(argv) {
     baseline = null;
   }
 
-  console.log("== 摘要引用探针（C456） ==");
+  console.log("== 摘要引用探针（C456/C457） ==");
+  if (effectiveSince !== null) {
+    console.log(`  只看 ${new Date(effectiveSince).toISOString()} 之后的折叠（基线自动过滤；要看全量加 --all）`);
+  } else {
+    console.log("  ⚠ 全量统计（含基线之前的历史折叠）—— 判断「改了有没有用」请看基线之后的部分");
+  }
   console.log(`  fold ${cur.folds} 条 · 有 quality 的 ${cur.withQuality} 条（只有它们能判方向）`);
   console.log(`  · 引用了**更晚**实体：${cur.later} 个 id，分布在 ${cur.foldsWithLater} 条折叠${Object.keys(cur.byTrigger).length > 0 ? `（${JSON.stringify(cur.byTrigger)}）` : ""}`);
   console.log(`  · 图里根本没有的 id（编造/旧编号）：${cur.unknown} 个，分布在 ${cur.foldsWithUnknown} 条折叠`);
@@ -149,6 +168,12 @@ function main(argv) {
   if (cur.examples.later.length > 0) console.log(`  例子（更晚）：${cur.examples.later.slice(0, 4).join(" | ")}`);
   const cmp = compareWithBaseline(cur, baseline);
   console.log(`  ${cmp.line}`);
+  if (effectiveSince !== null && cur.withQuality === 0) {
+    console.log("  ⇒ 基线之后**还没有新的折叠**：现在下任何结论都太早（重启后先让会话跑出几次 fold）");
+  }
+  if (effectiveSince !== null) {
+    console.log(`  （全量口径：${all.folds} 条 fold / ${all.withQuality} 条有 quality / 带更晚实体 ${all.foldsWithLater} 条，仅供对照）`);
+  }
 
   if (argv.includes("--write")) {
     const snapshot = { at: Date.now(), since: Math.max(cur.newestAt ?? 0, Date.now()), ...cur };

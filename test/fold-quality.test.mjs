@@ -8,7 +8,7 @@
  *   3. 空集返回 1（不是 0 —— 「没有可丢的」不等于「全丢了」）。
  */
 
-import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics } from "../src/rooms/fold-quality.mjs";
+import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics, sanitizeSummaryIds } from "../src/rooms/fold-quality.mjs";
 import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
 import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
 import { pathToFileURL } from "node:url";
@@ -251,4 +251,35 @@ tests["C280 越界必须分方向存下来（earlier=回溯合法 / later=编造
     q.outOfRangeEarlier.length + q.outOfRangeLater.length,
     "合并数组 = earlier + later（向后兼容老消费者）",
   );
+};
+
+/* ───────── C458：编造/越界 id 的确定性清洗（提示词挡不住时用代码挡） ───────── */
+
+tests["C458 sanitize：图里没有的 id、晚于折叠区间的 id 都要换成 n? / e?"] = (t) => {
+  const graph = {
+    nodes: { n1: { seq: 5 }, n2: { seq: 50 } },
+    edges: { e1: { id: "e1", evidence: { start: 6, end: 7 } } },
+  };
+  const range = { start: 1, end: 20 };
+  const got = sanitizeSummaryIds("路径 n1 → n2（在 seq 50）；边 e1；另一个 e99；还有 n1。", graph, range);
+  t.includes(got.text, "n1", "区间之内的真 id 保留");
+  t.includes(got.text, "e1", "区间之内的真边保留");
+  t.includes(got.text, "n?", "晚于区间的 n2 必须被清洗（它会指向'未来'）");
+  t.includes(got.text, "e?", "图里没有的 e99 必须被清洗");
+  t.eq(got.removed.sort().join(","), "e99,n2", "被清洗的 id 要能点名（否则没人知道改了什么）");
+};
+
+tests["C458 sanitize：不是独立 id 的片段不许动（文件名/十六进制里也有 n1e2 这种串）"] = (t) => {
+  const graph = { nodes: { n1: { seq: 5 } }, edges: {} };
+  const got = sanitizeSummaryIds("见 /tmp/n99e2.json 与 n1，另 n_1、xn9y 都不是 id。", graph, { start: 1, end: 20 });
+  t.includes(got.text, "n99e2.json", "文件名里的串不许改");
+  t.includes(got.text, "xn9y", "被字母包住的不是 id");
+  t.includes(got.text, "n1", "独立的真 id 保留");
+};
+
+tests["C458 sanitize：range 为空时**不做处理**（判不了'晚不晚'，宁可不动）"] = (t) => {
+  const graph = { nodes: { n1: { seq: 5 } }, edges: {} };
+  const text = "引用 n9 与 n1";
+  t.eq(sanitizeSummaryIds(text, graph, null).text, text, "没有区间 ⇒ 原样返回");
+  t.eq(sanitizeSummaryIds(text, graph, null).removed.length, 0, "也不许虚报'清洗了几个'");
 };

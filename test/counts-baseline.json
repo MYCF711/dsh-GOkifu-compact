@@ -1,5 +1,5 @@
 {
-  "total": 875,
+  "total": 878,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -38,7 +38,7 @@
     "fold-mark-sites.test.mjs": 8,
     "fold-planner-properties.test.mjs": 8,
     "fold-properties.test.mjs": 3,
-    "fold-quality.test.mjs": 14,
+    "fold-quality.test.mjs": 17,
     "gate.test.mjs": 3,
     "graph-audit.test.mjs": 8,
     "graph-exemptions.test.mjs": 0,
