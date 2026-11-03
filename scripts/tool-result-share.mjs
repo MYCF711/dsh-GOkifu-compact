@@ -19,8 +19,33 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 
-/** 粗略 token 估算：中英混排下 1 token ≈ 3.6 字符（与本仓库 token-calib 的口径同量级）。 */
-export const CHARS_PER_TOKEN = 3.6;
+/**
+ * ★ C483：token 估算改用**官方比例**（不再是拍脑袋的 3.6 字符/token）。
+ *
+ * 来源 <https://api-docs.deepseek.com/zh-cn/quick_start/token_usage>（HTTP 200，2026-11-03 复核）逐字：
+ *   "1 个英文字符 ≈ **0.3 个 token**。"
+ *   "1 个中文字符 ≈ **0.6 个 token**。"
+ * 并注明"不同模型的分词不同 … 每一次实际处理 token 数量以模型返回为准"。
+ */
+export const LATIN_TOKENS_PER_CHAR = 0.3;
+export const CJK_TOKENS_PER_CHAR = 0.6;
+
+/** CJK 字符（含中文标点与全角符号）。 */
+const CJK = /[　-〿㐀-䶿一-鿿豈-﫿＀-￯]/;
+
+/**
+ * 按官方比例估算 token：中英分开算。
+ * @param {string} text
+ * @returns {number}
+ */
+export function estimateTokensByOfficialRatio(text) {
+  const body = String(text ?? "");
+  if (body === "") return 0;
+  let cjk = 0;
+  for (const ch of body) if (CJK.test(ch)) cjk += 1;
+  const latin = body.length - cjk;
+  return Math.round(latin * LATIN_TOKENS_PER_CHAR + cjk * CJK_TOKENS_PER_CHAR);
+}
 
 /**
  * 从一段文本里取「工具结果」与「其它消息」的字数（纯函数，便于单测）。
@@ -106,6 +131,9 @@ export function summarizeOverlap(events, edges) {
     rememberedChars,
     prunableChars: Math.max(0, base.toolChars - rememberedChars),
     prunableShare: base.toolChars > 0 ? Math.max(0, base.toolChars - rememberedChars) / base.toolChars : null,
+    // ★ C483：同时给"按官方比例折算的 token"——字符数不能直接当成本看
+    toolTokens: estimateTokensByOfficialRatio("x".repeat(base.toolChars)),
+    prunableTokens: estimateTokensByOfficialRatio("x".repeat(Math.max(0, base.toolChars - rememberedChars))),
   };
 }
 
@@ -187,8 +215,8 @@ export function main(argv = process.argv.slice(2), { home = process.env.DSH_HOME
     const share = r.toolShare === null ? "—" : `${(r.toolShare * 100).toFixed(1)}%`;
     const pShare = r.prunableShare === null ? "—" : `${(r.prunableShare * 100).toFixed(1)}%`;
     console.log(
-      `  · ${r.session}  工具结果 ${fmt(r.toolChars)} 字符（占 ${share}）· 已被图记住 ${fmt(r.rememberedChars)}` +
-        ` · **可安全清掉上限** ${fmt(r.prunableChars)} 字符（占工具结果 ${pShare}）`,
+      `  · ${r.session}  工具结果 ${fmt(r.toolChars)} 字符 ≈ **${fmt(r.toolTokens)} tok**（占 ${share}）` +
+        ` · 已被图记住 ${fmt(r.rememberedChars)} 字符 · **可清上限** ${fmt(r.prunableChars)} 字符 ≈ **${fmt(r.prunableTokens)} tok**（占工具结果 ${pShare}）`,
     );
   }
   const withData = rows.filter((r) => r.toolShare !== null);

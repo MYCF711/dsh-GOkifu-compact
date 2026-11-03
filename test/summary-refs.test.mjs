@@ -106,3 +106,18 @@ tests["C482 「跑过清洗」要能证明：sanitizeRan 或替换数>0；空转
   t.eq(r.unconfirmedWithLater, 1, "而它确实带更晚实体 —— 正是真机那条的样子");
   t.eq(r.unprotectedFolds, 1, "sanitizeRan:false 明确没跑的，算未保护而不是未确认");
 };
+
+tests["C483 按官方比例估算 token：中英分开算（0.3 / 0.6）"] = async (t) => {
+  const m = await import("../scripts/tool-result-share.mjs");
+  t.eq(m.estimateTokensByOfficialRatio("hello world"), 3, "11 个英文字符 × 0.3 ≈ 3");
+  t.eq(m.estimateTokensByOfficialRatio("上下文压缩"), 3, "5 个中文字符 × 0.6 = 3");
+  t.eq(m.estimateTokensByOfficialRatio(""), 0, "空串 0");
+  const mixed = m.estimateTokensByOfficialRatio("bash 输出 ok");
+  t.eq(mixed > 0, true, "混排也要算得出来");
+  // 同样的字符数，中文比英文贵一倍 —— 这是官方口径的直接后果
+  t.eq(
+    m.estimateTokensByOfficialRatio("中中中中中") > m.estimateTokensByOfficialRatio("aaaaa"),
+    true,
+    "5 个中文应比 5 个英文贵",
+  );
+};

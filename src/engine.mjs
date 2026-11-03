@@ -1447,6 +1447,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   真机 c0a5847a 那次：`sanitizedIds: 0`，但 quality 里仍列出 20 个「更晚实体」——
       //   说明那次 **range 是 null，清洗直接返回了原文本**（checked=0），却被记成 0 个改动。
       this._lastSummarySanitizeChecked = Number(cleaned.checked) || 0;
+      // ★ C483：把**用的哪个 range** 也记下来。C482 只能看出"清洗没动手"，
+      //   看不出"是 range 为空"还是"文本里真没有 id"——下一次直接看这个字段。
+      this._lastSummarySanitizeRange =
+        range === null || range === undefined || !Number.isFinite(range.end) ? null : `${range.start}-${range.end}`;
     }
     this._lastSummaryModelText = modelText;
     this._lastSummaryProvider = used.provider;
@@ -2105,6 +2109,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C482：「检查过没毛病」与「根本没检查」必须分开（checked=0 说明 range 为空，清洗是空转）
       sanitizeChecked: Number(this._lastSummarySanitizeChecked) || 0,
       sanitizeRan: (Number(this._lastSummarySanitizeChecked) || 0) > 0,
+      sanitizeRange: this._lastSummarySanitizeRange ?? null,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
       measuredBefore: markPressure?.tokens ?? null,
       thresholdTokens: markPressure?.threshold ?? null,

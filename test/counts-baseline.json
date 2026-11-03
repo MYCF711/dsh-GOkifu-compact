@@ -1,5 +1,5 @@
 {
-  "total": 921,
+  "total": 922,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -110,7 +110,7 @@
     "session-label.test.mjs": 2,
     "session-scan.test.mjs": 3,
     "status.test.mjs": 10,
-    "summary-refs.test.mjs": 7,
+    "summary-refs.test.mjs": 8,
     "syntax.test.mjs": 1,
     "test-counts.test.mjs": 2,
     "test-gate.test.mjs": 0,
