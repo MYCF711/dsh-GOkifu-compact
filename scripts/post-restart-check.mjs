@@ -230,7 +230,15 @@ export async function checkPanelCapabilities(
     }
   }
   if (unknown.length === 0) {
-    return { level: "ok", detail: `面板认识全部 ${known.length} 个新 action（${known.join(" / ")}）⇒ 跑的是新代码`, known, unknown };
+    // ★ C440：这条只能说"认识这些 action"，**不能**说"跑的是最新代码" ——
+    //   真机上面板确实认识 update/backfill，但 `today.truncated` / `update.relation` 还是缺的。
+    //   字段级最新要看 `accept-after-restart` 的字段探针（C395）。
+    return {
+      level: "ok",
+      detail: `面板认识全部 ${known.length} 个新 action（${known.join(" / ")}）—— 这只说明动作层到了，**字段级是否最新请看 accept-after-restart**`,
+      known,
+      unknown,
+    };
   }
   // 全部拿不到阳性响应（如路由 405）⇒ 这不是"旧代码"，是**面板根本没起来**
   if (known.length === 0 && lastFailure !== null) {
