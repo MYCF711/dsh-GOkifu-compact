@@ -67,3 +67,15 @@ tests["C478 补账计划要区分「从没试过」与「试过没成」（处�
   const done = m.debtAttemptState({ closeout: { folded: 2 } });
   t.eq(done.retried, false, "真折成了 ⇒ 不算'试过没成'");
 };
+
+tests["C493 只压了一部分不算结清（partial），否则没压的那段永远消失"] = (t) => {
+  t.eq(closeoutSettles({ folded: 1, partial: true }), false, "partial ⇒ 未结清");
+  t.eq(closeoutSettles({ folded: 1, partial: false }), true, "明确非 partial ⇒ 结清");
+  const r = debtOfGraph({
+    nodes: { n1: { seq: 1 }, n2: { seq: 9000 } },
+    foldMarks: [{ seqEnd: 5000, trigger: "archive-offline" }],
+    closeout: { folded: 1, partial: true, offlineUncoveredTail: { start: 5001, end: 9000, events: 4000 } },
+  });
+  t.eq(r.due, true, "还有 4000 事件没压 ⇒ 仍然 due");
+  t.eq(r.tail, 4000, "尾巴就是没压的那段");
+};

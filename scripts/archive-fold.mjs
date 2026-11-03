@@ -35,6 +35,55 @@ import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 export const DEFAULT_MODELS = Object.freeze(["deepseek-flash"]);
 export const DEFAULT_BASE_URL = "http://127.0.0.1:3425/v1";
 
+/**
+ * ★ C494：**用 DSH 的默认模型**，不是脚本自己挑一个。
+ *
+ * 由来（用户原话）：「压缩能调用 DSH 的默认模型就应该调用啊，为什么用离线压缩」——
+ * 说得对：模型不该由我们用脚本另选。DSH 的默认模型写在 profile 的
+ * `cordis.patch.yml` 里（条目 `agent-default-model`），我们照它来。
+ *
+ * 注意区分两件事，别混：
+ *   · **模型**：这里解决 —— 读 profile 配置，拿 `agent-default-model.model`；
+ *   · **可折区间**：离线要读日志才有 —— 归档后宿主的 session surface 已经没了，
+ *     `compactIfNeeded` 拿不到区间（`no-foldable-span`），这跟用哪个模型无关。
+ *
+ * @param {string} home DSH_HOME
+ * @returns {{provider:string|null, model:string|null, source:string}}
+ */
+export function readDefaultModel(home) {
+  const profilesDir = path.join(home, "profiles");
+  let entries = [];
+  try {
+    entries = fs.readdirSync(profilesDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return { provider: null, model: null, source: "no-profiles" };
+  }
+  for (const name of entries) {
+    const file = path.join(profilesDir, name, "cordis.patch.yml");
+    if (!fs.existsSync(file)) continue;
+    const text = fs.readFileSync(file, "utf8");
+    // 只认 `- id: agent-default-model` 那一块里的 provider/model（简单逐行解析，避免引 yaml 依赖）
+    const lines = text.split(/\r?\n/);
+    let inBlock = false;
+    let provider = null;
+    let model = null;
+    for (const line of lines) {
+      if (/^-\s*id:\s*agent-default-model/.test(line.trim())) {
+        inBlock = true;
+        continue;
+      }
+      if (inBlock && /^-\s*id:/.test(line.trim())) break;
+      if (!inBlock) continue;
+      const pm = /^\s*provider:\s*(.+)$/.exec(line);
+      if (pm !== null) provider = pm[1].trim().replace(/^["']|["']$/g, "");
+      const mm = /^\s*model:\s*(.+)$/.exec(line);
+      if (mm !== null) model = mm[1].trim().replace(/^["']|["']$/g, "");
+    }
+    if (model !== null) return { provider, model, source: `profiles/${name}/cordis.patch.yml` };
+  }
+  return { provider: null, model: null, source: "agent-default-model-not-found" };
+}
+
 /* ────────────────────────── 纯函数 ────────────────────────── */
 
 /**
@@ -48,23 +97,41 @@ export const DEFAULT_BASE_URL = "http://127.0.0.1:3425/v1";
  * @param {{maxChars?:number}} [options]
  * @returns {{messages:Array<{role:string, text:string}>, chars:number, dropped:number}}
  */
-export function collectMessages(events, { maxChars = 60_000 } = {}) {
+export function collectMessages(events, { maxChars = 60_000, fromSeq = null } = {}) {
   const picked = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (e === null || typeof e !== "object") continue;
     if (e.type !== "user/message" && e.type !== "assistant/message") continue;
+    // ★ C493：分段离线时**从头往后**取（`fromSeq` 之后），与"尾巴优先"是两种取法
+    if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
     const text = plainText(e.data?.message?.content ?? e.data?.content);
     if (text.trim() === "") continue;
     picked.push({ role: e.type === "user/message" ? "user" : "assistant", text, seq: Number(e.seq) || null });
   }
-  // 从**最近**往前取，直到预算用完（尾部最相关；早期内容已经在既有棋谱里）
+  if (fromSeq !== null) {
+    // ★ C493：**从头往后**装（分段模式）。装到预算为止，剩下的留给下一段。
+    const out = [];
+    let chars = 0;
+    let dropped = 0;
+    for (let i = 0; i < picked.length; i += 1) {
+      const m = picked[i];
+      if (chars + m.text.length > maxChars) {
+        dropped = picked.length - i; // 后面还有这么多条没装进去
+        break;
+      }
+      out.push(m);
+      chars += m.text.length;
+    }
+    return { messages: out, chars, dropped };
+  }
+  // 默认：从**最近**往前取，直到预算用完（尾部最相关；早期内容已经在既有棋谱里）
   const out = [];
   let chars = 0;
   let dropped = 0;
   for (let i = picked.length - 1; i >= 0; i -= 1) {
     const m = picked[i];
     if (chars + m.text.length > maxChars) {
-      dropped = i + 1; // 剩下的更早消息都没放进去
+      dropped = i + 1;
       break;
     }
     out.push(m);
@@ -268,7 +335,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 2;
   }
   const write = argv.includes("--write");
-  const model = get("model", env.ARCHIVE_FOLD_MODEL ?? DEFAULT_MODELS[0]);
+  // ★ C494：默认跟 DSH 走（`agent-default-model`），脚本不再自选模型
+  const dshDefault = readDefaultModel(home);
+  const model = get("model", env.ARCHIVE_FOLD_MODEL ?? dshDefault.model ?? DEFAULT_MODELS[0]);
+  console.log(`  模型来源：${env.ARCHIVE_FOLD_MODEL ? "环境变量 ARCHIVE_FOLD_MODEL" : dshDefault.model ? dshDefault.source : "内置兜底"}（${model}）`);
   const baseUrl = get("base", env.MAGPIE_BASE_URL ?? DEFAULT_BASE_URL);
   const apiKey = env.MAGPIE_API_KEY ?? "";
   const maxChars = Number(get("max-chars", 60_000));
@@ -318,9 +388,16 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       continue;
     }
     const events = readSessionEvents(logFile);
-    const { messages, chars, dropped } = collectMessages(events, { maxChars });
-    const rangeStart = debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
+    const rangeStart0 = debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
     const rangeEnd = debt.maxSeq;
+    // ★ C493：`--chunks N` 分段覆盖（**从头往后**），默认 1 段 = 只压尾部（与 C491 行为一致）
+    const maxChunks = Math.max(1, Number(get("chunks", 1)) || 1);
+    console.log(`== ${dir.slice(0, 16)} ==`);
+    let cursor = rangeStart0;
+    for (let chunkNo = 1; chunkNo <= maxChunks; chunkNo += 1) {
+    const rangeStart = cursor;
+    if (rangeEnd < rangeStart) break;
+    const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 ? rangeStart : null });
     // ★ C491：**记录真正覆盖的区间**。预算只装得下尾部若干条消息，
     //   若把 `seqEnd` 写成整个欠账区间的末尾，等于宣称"这段都压过了" —— 剩下的就再也看不见了。
     // ★ C491：**没有可做区间就别写**。真机踩过：`--session` 强制重跑一个已结清的会话，
@@ -330,11 +407,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       continue;
     }
     const seqs = messages.map((m) => m.seq);
-    const { start, end } = coverageOf({ rangeStart, rangeEnd, seqs });
+    const cov = coverageOf({ rangeStart, rangeEnd, seqs });
+    // ★ C493：分段模式下"这一段"就是从 rangeStart 起的连续段 —— 第一帧可能比它晚 3 个 seq
+    //   （中间是工具结果），不该因此报"前段未覆盖"。
+    const start = maxChunks > 1 ? rangeStart : cov.start;
+    const end = cov.end;
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages });
-    console.log(`== ${dir.slice(0, 16)} ==`);
-    const { uncoveredHead, uncoveredTail } = coverageOf({ rangeStart, rangeEnd, seqs });
+    const uncoveredHead = Math.max(0, start - rangeStart);
+    const uncoveredTail = Math.max(0, rangeEnd - end);
     console.log(
       `  段 ${start}-${end}（欠账区间 ${rangeStart}-${rangeEnd}` +
         `${uncoveredHead > 0 ? `，**前段 ${rangeStart}-${start - 1} 未覆盖（${uncoveredHead} 事件）**` : ""}` +
@@ -348,12 +429,23 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     console.log(`  输入合计 ${prompt.length} 字符（≈${estInTok} tok）· 估价 ≈ $${estCost.toFixed(4)} · 模型 ${model}`);
     if (!write) {
       console.log("  （干跑：加 --write 才会真的调用模型并写回）");
+      // ★ C493：干跑也要推进游标，否则分段模式会把同一段打印 N 遍
+      cursor = end + 1;
+      if (end >= rangeEnd) break;
       continue;
     }
     const startedAt = Date.now();
     let result;
     try {
-      result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: 1600, timeoutMs: Number(get("timeout", 180_000)) });
+      const maxTokensArg = Number(get("max-tokens", 4000));
+      result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: maxTokensArg, timeoutMs: Number(get("timeout", 180_000)) });
+      // ★ C494：有些上游**忽略** `thinking:{type:"disabled"}`（真机：wps-lingxi 那路），
+      //   reasoning 会把 max_tokens 吃光、`content` 回 null。这里自动**放大预算重试一次**。
+      if ((result.text ?? "") === "" && result.finish === "length") {
+        const bigger = maxTokensArg * 4;
+        console.log(`  ↻ 被推理吃光（finish=length），放大到 ${bigger} 重试一次`);
+        result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: bigger, timeoutMs: Number(get("timeout", 180_000)) });
+      }
     } catch (error) {
       console.log(`  ✗ 模型调用失败：${String(error?.message ?? error).slice(0, 200)}`);
       continue;
@@ -369,9 +461,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     }
     // ★ C492：先把质量算一遍，缺的约束**逐字补回**（约束丢了比多几行更糟）
     const preQuality = measureFoldQuality({ graph, range: { start, end }, summaryText: text });
+    // ★ C493：`quality.missingConstraints` 只给前 5 条（防止报告过长）——补回时要用**全量**，
+    //   否则第 6 条照样丢（真机 cr=0.833 就是这么来的）。
+    const allConstraints = [...new Set(Object.values(graph?.nodes ?? {}).flatMap((n) => (Array.isArray(n?.constraints) ? n.constraints : [])))];
+    const stillMissing = allConstraints.filter((c) => !text.includes(c));
     let repaired = 0;
-    if (Array.isArray(preQuality.missingConstraints) && preQuality.missingConstraints.length > 0) {
-      const fixed = repairMissingConstraints(text, preQuality.missingConstraints);
+    if (stillMissing.length > 0) {
+      const fixed = repairMissingConstraints(text, stillMissing);
       text = fixed.text;
       repaired = fixed.repaired;
       console.log(`  ⚠ 模型漏了 ${repaired} 条约束，已逐字补回`);
@@ -415,9 +511,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       offlineCovered: { start, end },
       ...(uncoveredHead > 0 ? { offlineUncoveredHead: { start: rangeStart, end: start - 1, events: uncoveredHead } } : {}),
       ...(uncoveredTail > 0 ? { offlineUncoveredTail: { start: end + 1, end: rangeEnd, events: uncoveredTail } } : {}),
+      // ★ C493：还有没压到的部分 ⇒ 标 partial，让 `closeoutSettles` 继续认为欠账未清
+      ...(uncoveredHead > 0 || uncoveredTail > 0 ? { partial: true } : {}),
     };
     fs.writeFileSync(graphFile, JSON.stringify(graph, null, 1), "utf8");
-    console.log(`  ✓ 已写回：摘要 ${text.length} 字符 · ${ms}ms · usage=${JSON.stringify(result.usage)}`);
+    console.log(`  ✓ [${chunkNo}/${maxChunks}] 已写回：段 ${start}-${end} · 摘要 ${text.length} 字符 · ${ms}ms · usage=${JSON.stringify(result.usage)}`);
+    // 下一段从这段的末尾继续（分段模式）；单段模式到此为止
+    cursor = end + 1;
+    if (end >= rangeEnd) break;
+    }
   }
   return 0;
 }

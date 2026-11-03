@@ -73,3 +73,28 @@ tests["C491 覆盖区间要算清前后两段（只压了尾部，就别宣称�
   t.eq(clamp.start, 100, "起点夹到 rangeStart");
   t.eq(clamp.end, 200, "终点夹到 rangeEnd");
 };
+
+tests["C494 默认模型跟 DSH 走：从 profile 的 cordis.patch.yml 读 agent-default-model"] = async (t) => {
+  const m = await import("../scripts/archive-fold.mjs");
+  const nodeFs = (await import("node:fs")).default;
+  const nodePath = (await import("node:path")).default;
+  const { fileURLToPath } = await import("node:url");
+  const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+  const home = nodePath.join(HERE, ".tmp-default-model");
+  nodeFs.rmSync(home, { recursive: true, force: true });
+  nodeFs.mkdirSync(nodePath.join(home, "profiles", "desktop"), { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(home, "profiles", "desktop", "cordis.patch.yml"),
+    ["# patch", "- id: agent-default-model # magpie", "  config:", "    provider: magpie", "    model: group/deepseek-v4.1-flash1017", "    reasoningEffort: max", "- id: other", "  config:", "    model: should-not-win"].join("\n"),
+    "utf8",
+  );
+  const r = m.readDefaultModel(home);
+  t.eq(r.model, "group/deepseek-v4.1-flash1017", "必须取 agent-default-model 那条");
+  t.eq(r.provider, "magpie", "provider 也要拿到");
+  t.includes(r.source, "cordis.patch.yml", "要能说出配置来源（排查时有用）");
+  t.eq(r.model === "should-not-win", false, "不许被后面的条目覆盖");
+  // 没有 profile 时不许抛
+  const none = m.readDefaultModel(nodePath.join(HERE, ".nope-home"));
+  t.eq(none.model, null, "找不到就返回 null，由调用方兜底");
+  nodeFs.rmSync(home, { recursive: true, force: true });
+};

@@ -57,6 +57,9 @@ export const DEFAULT_PER_ITEM_MS = 180_000;
  */
 export function closeoutSettles(closeout) {
   if (closeout === null || closeout === undefined || typeof closeout !== "object") return false;
+  // ★ C493：**只压了一部分不算结清**。分段离线压缩会留下 `partial: true`，
+  //   这时 folded>0 也不能算完成，否则那段没压的内容会永远从欠账里消失。
+  if (closeout.partial === true) return false;
   if (Number(closeout.folded) > 0 || Number(closeout.chunkedFolded) > 0) return true;
   if (typeof closeout.foldError === "string" && closeout.foldError !== "") return false;
   const note = String(closeout.foldNote ?? "");

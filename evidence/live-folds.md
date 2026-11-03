@@ -1,6 +1,6 @@
 # live fold 证据（自动汇总）
 
-> 生成于 **2026-11-03T12:22:28Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
+> 生成于 **2026-11-03T12:39:54Z**（UTC），数据源 `D:\DeepSeek Harness\home/chess-context/sessions/*/graph.json` 的 `foldMarks[i]`。
 > 生成命令：`node scripts/live-folds.mjs --write`（只读采集；显式 --write 才覆盖本文件与同名 .json）。
 > 看数字先看这一行的生成时间；宿主里出现新 fold 后重跑即可刷新。
 
@@ -8,49 +8,49 @@
 
 | 项 | 有值的 fold / 总数 |
 |---|---:|
-| trigger | 104 / 109 |
-| quality（保真度） | 101 / 109 |
-| closure（可寻址闭包） | 100 / 109 |
-| usage（provider 真实 token） | 88 / 109 |
+| trigger | 109 / 114 |
+| quality（保真度） | 106 / 114 |
+| closure（可寻址闭包） | 102 / 114 |
+| usage（provider 真实 token） | 90 / 114 |
 
 ## 质量
 
-- 有 quality 样本：**101** 次
-- constraintRecall min：**1** · failureRecall min：**0.75**
+- 有 quality 样本：**106** 次
+- constraintRecall min：**1** · failureRecall min：**0**
 - compressionRatio：**11.41 – 350.68**
 - unknownIds（幻觉探针命中）：**17**
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
-- 有 usage 的 fold：**88** 次 · **遮蔽占读入 44% – 3895%**（C43 口径）
+- 有 usage 的 fold：**90** 次 · **遮蔽占读入 44% – 3895%**（C43 口径）
 - 对照：input/shadowed 0.03 – 2.29（含 host 工具/system 固定开销）
 - 判据：遮蔽占读入 < 30% 时 doctor 判 warn（折得太碎/太早）；比值本身不判错
 
 ## 闭包
 
-- 有 closure 的 fold：**100** 次，其中空闭包 **5** 次（新会话尚无节点时属正常）
-- **悬空（dangling）**：86 次有记录 —— residue 100 / candidates 34 / liveUnsettled 1 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
-- **边界完整性**：97 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **15911** 条
+- 有 closure 的 fold：**102** 次，其中空闭包 **5** 次（新会话尚无节点时属正常）
+- **悬空（dangling）**：88 次有记录 —— residue 102 / candidates 36 / liveUnsettled 1 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
+- **边界完整性**：99 次有 boundary 记录，其中切点落在工具调用中间的 **0** 次（正常应为 0），区间内未结算边合计 **16132** 条
 - 其中 **preGraph 1 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 与上次对比（C50）
 
-- 上次快照：2026-11-03T12:21:12Z
-- 新增 fold：**-1** 次
-- 质量下限变化：**有变化**（上次 c=0.16666666666666666 / f=0.75 · unknownIds 17）
+- 上次快照：2026-11-03T12:31:09Z
+- 新增 fold：**1** 次
+- 质量下限变化：**有变化**（上次 c=1 / f=0.75 · unknownIds 17）
 - 边界回归（openAtEnd 增加）：无
 - 遮蔽占读入漂移（下限）：0.0 个百分点
 
 ## 闭包链（C103）
 
-- 检查 **72** 对相邻 fold（同会话、按时间排序）
+- 检查 **74** 对相邻 fold（同会话、按时间排序）
 - 节点级重叠：**13** 处（session-1e82afca-8be:n1255→n1 / session-1e82afca-8be:n1546→n117 / session-1e82afca-8be:n1863→n663 / session-1e82afca-8be:n2183→n1246 / session-1e82afca-8be:n2505→n1535 / session-00b50089-b7a:n1820→n520 / session-8cc34e32-c35:n941→n1 / session-8cc34e32-c35:n1192→n215 / session-8cc34e32-c35:n1428→n441 / session-8cc34e32-c35:n1729→n932 / session-f46d6330-b42:n102→n44 / session-c0a5847a-d34:n1670→n1308 / session-c0a5847a-d34:n2167→n1551）
 - 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。
 
 ## 会话分布（C54）
 
-- 有 fold 的会话：**28** 个，其中 **7** 个被折过 ≥3 次
-- 折叠最多的会话：session-c0a5847a-d34c-…（20 次） / session-1e82afca-8be2-…（18 次） / session-8cc34e32-c35d-…（15 次）
+- 有 fold 的会话：**28** 个，其中 **8** 个被折过 ≥3 次
+- 折叠最多的会话：session-c0a5847a-d34c-…（20 次） / session-1e82afca-8be2-…（18 次） / session-8cc34e32-c35d-…（18 次）
 - 压缩无效（foldThrash ≥2，连续两次 fold 间隔 <30 事件）：0 个
 
 ## 逐次明细
@@ -167,4 +167,9 @@
 | 108 | 0dcbcff0-4f31-4919-892… | 2026-11-03 12:07:19 | archive-offline | 0 | — | — | 17088 | — | — | — |
 | 109 | 266d5133-dee8-46bf-a67… | 2026-11-03 12:07:30 | archive-offline | 0 | — | — | 10899 | — | — | — |
 | 110 | session-00b50089-b7a1-… | 2026-11-03 12:08:51 | archive-offline | 0 | — | — | 17076 | 1/1 | — | — |
+| 111 | session-62bcb7d2-160d-… | 2026-11-03 12:23:54 | pressure | 114423 | 206865 | 1.81 | 67818 | 1/1 | 175.5 | 73/96 |
+| 112 | session-8cc34e32-c35d-… | 2026-11-03 12:29:08 | archive-offline | 0 | — | — | 22793 | 1/1 | — | — |
+| 113 | session-226dbf4f-ed4b-… | 2026-11-03 12:29:09 | pressure | 103558 | 190863 | 1.84 | 21359 | 1/1 | 84.95 | 196/199 |
+| 114 | session-8cc34e32-c35d-… | 2026-11-03 12:29:22 | archive-offline | 0 | — | — | 14607 | 1/1 | — | — |
+| 115 | session-8cc34e32-c35d-… | 2026-11-03 12:38:48 | archive-offline | 0 | — | — | 16974 | 1/0 | — | — |
 
