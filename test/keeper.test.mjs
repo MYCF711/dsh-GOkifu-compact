@@ -1,5 +1,5 @@
 import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
-import { observeEvent, actionSignature } from "../src/rooms/keeper.mjs";
+import { observeEvent, actionSignature, taskPivotScore } from "../src/rooms/keeper.mjs";
 
 function freshState() {
   return {
@@ -152,4 +152,31 @@ tests["C446 动作指纹：键序无关、参数一变就变、同一命令重�
   const edge = Object.values(g.edges)[0];
   t.eq(typeof edge.sig, "string", "新边的 sig 必须落盘（否则循环判据永远只能看 action）");
   t.eq(edge.sig.length >= 8, true, "指纹不能是空串");
+};
+
+/* ───── C461：任务切换（与根目标几乎无词重叠）───── */
+
+tests["C461 taskPivotScore：换任务是「低重叠 + 有实质内容」，短句与同题追问都不算"] = (t) => {
+  const prior = { rootText: "修复 dsh-GOkifu-compact 的压缩成本估算", constraints: ["不许重启 DSH"] };
+  t.eq(taskPivotScore("继续", prior).reason, "too-short", "「继续」不构成切换");
+  t.eq(taskPivotScore("把散点图换成折线图并加注释", prior).pivot, true, "完全另一件事 ⇒ 判切换");
+  t.eq(taskPivotScore("压缩成本估算里的峰谷价要按折叠时刻算", prior).pivot, false, "同题追问不算切换");
+  // 有约束词出现 ⇒ 明显同题
+  const withConstraint = taskPivotScore("这个改动不许重启 DSH，先写脚本", prior);
+  t.eq(withConstraint.pivot, false, "提到原约束的肯定是同一件事");
+  // 空输入不崩
+  t.eq(taskPivotScore("", prior).pivot, false, "空文本");
+  t.eq(taskPivotScore("hello world 这是一个新话题", { rootText: "" }).reason, "no-tokens", "没有先前目标可比 ⇒ 不判");
+};
+
+tests["C461 落账：换任务时在 user 节点上打 pivot 印记，并累加 g.pivots"] = (t) => {
+  const g = createGraph({ sessionId: "c461" });
+  const st = freshState();
+  observeEvent(g, ev("user/message", 1, userMsg("修复压缩成本估算里的峰谷价")), st);
+  t.eq(g.pivots === undefined || g.pivots === 0, true, "第一条（根目标）不可能是切换");
+  observeEvent(g, ev("user/message", 3, userMsg("把散点图换成折线图并加注释")), st);
+  t.eq(g.pivots, 1, "换任务要计数");
+  const pivotNodes = Object.values(g.nodes).filter((n) => n.pivot === true);
+  t.eq(pivotNodes.length, 1, "只标记换任务那一条");
+  t.eq(pivotNodes[0].text.includes("折线图"), true, "标的是新任务那条");
 };

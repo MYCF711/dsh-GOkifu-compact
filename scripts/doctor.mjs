@@ -354,6 +354,9 @@ export function indexFreshness({
 }
 
 let indexStale = 0;
+// ★ C461：换过任务的会话数（旧任务的历史之后每轮都在付费）
+let pivotSessions = 0;
+let pivotTotal = 0;
 let indexMtimeFalsePositives = 0; // ★ C459：mtime 看着陈旧、内容其实是最新的
 let lastNodeId = null;
 let newestFlush = 0;
@@ -428,6 +431,11 @@ if (nodeFs.existsSync(chessRoot)) {
             else if (rec.seq !== null && typeof rec.seq !== "number") mergeBad += 1;
           }
         }
+      }
+      // ★ C461：任务切换记账（由 keeper 落盘，这里只读）
+      if (Number(g.pivots) > 0) {
+        pivotSessions += 1;
+        pivotTotal += Number(g.pivots);
       }
       // ★ C459：给「树新鲜度」用 —— 最新节点 id（内容复验的判据）
       lastNodeId = (g.order ?? []).at(-1) ?? null;
@@ -524,6 +532,15 @@ if (nodeFs.existsSync(chessRoot)) {
 
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
 add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个` + (indexMtimeFalsePositives > 0 ? `（另有 ${indexMtimeFalsePositives} 个 mtime 看着陈旧、**内容复验是最新的** —— graph.json 会因标量写入刷新，index.md 只在节点变化时追加，两者 mtime 本来不同步）` : ""));
+// ★ C461：任务切换 = 旧任务的历史之后每轮都在付费（Claude Code 的解法是 /clear）
+if (pivotSessions > 0) {
+  add(
+    "任务切换（可清理的会话）",
+    "ok",
+    `${pivotSessions} 个会话里出现过 ${pivotTotal} 次「换了件事」（与根目标/约束几乎无词重叠）—— ` +
+      "这些会话之后每轮请求都在为旧任务的历史付费（无状态 API 每轮重发历史；缓存热时打折、过期后全价）",
+  );
+}
 
 // ★ C230：抗干扰度的累加器（3.3c 里逐会话累加，报告在该块之后）
 const interference = { total: 0, resolved: 0, worst: [] };

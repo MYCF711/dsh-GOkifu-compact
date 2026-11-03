@@ -1,5 +1,5 @@
 {
-  "total": 885,
+  "total": 887,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -52,7 +52,7 @@
     "install-revert.test.mjs": 5,
     "install-ui-step.test.mjs": 5,
     "integration.test.mjs": 0,
-    "keeper.test.mjs": 1,
+    "keeper.test.mjs": 3,
     "kifu-model-snapshot.test.mjs": 7,
     "kifu-persist.test.mjs": 10,
     "knowledge-markers.test.mjs": 2,

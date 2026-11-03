@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C461 | 新增任务切换探测：换任务后旧历史每轮都在付费 |
 | C460 | replace 占比高不等于缓存差：新增 injectTail 直方图并按代价判定 |
 | C459 | 树新鲜度改用内容复验：真机那 2 个陈旧会话都是假的 |
 | C458 | 摘要清洗：把折叠时还不存在的 id 换成 n?/e? |
@@ -533,6 +534,44 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C461 · 新增任务切换探测：换任务后旧历史每轮都在付费
+
+**读 Claude Code 最佳实践（HTTP 200，已核实），发现我们缺一个机制：任务换了之后，旧任务的历史每轮都在付费。**
+
+### 一、原文两句
+
+> "**Every request sends the whole conversation**, so a session that's collected three unrelated tasks **re-reads all three on every turn** of the fourth."
+> "`/clear` between unrelated tasks. It costs nothing, and it means the next task doesn't keep paying for the previous one's history."
+
+我们的结论 A1 早就量到了同一件事（成本大头是前缀有没有失配、而不是注入多少），
+但**从来没有"发现任务已经换了"的能力** —— 我们没有 `/clear` 的等价物。
+
+### 二、做了（C461）
+
+`taskPivotScore(text, {rootText, constraints})`：新消息与「根目标 + 约束」的词重叠 **≤6%** 且长度 **≥8 字** ⇒ 判为换任务。
+命中时在 user 节点打 `pivot` 印记、累加 `g.pivots`；doctor 报「任务切换（可清理的会话）」。
+
+判据刻意**保守**（宁可漏报，不要天天喊"你要换会话了"）：
+
+- `继续` / `好` 这类短句 ⇒ `too-short`，不判；
+- 提到原约束的 ⇒ 必然同题；
+- 没有先前目标可比 ⇒ `no-tokens`，不判。
+
+### 三、测试
+
+- 三条正负例（短句不算 / 完全另一件事算 / 同题追问不算）+ 空输入 + 无先前目标；
+- 落账行为：第一条（根目标）不会被打印记；换任务那条被打、`g.pivots` 累加 1。
+
+### 四、另一条**记成待办，不照抄**
+
+官方说压缩点 "compaction **near the top**"（1M 窗口），而我们默认 `thresholdRatio = 0.45`（半腰偏下），**比它激进**。
+但两边缓存经济学不同（我们单次 fold ≈ $0.032、缓存命中 94%），**不能照抄**——
+待办：用我们自己的数据算「45% vs 70%」的总成本，再决定要不要动默认值。
+
+### 待核实
+
+原文没给"near the top"的具体百分比，**不能引用成"80%"**；`/usage` 的 10% 阈值是他们产品功能，不是通用建议。
 
 ### C460 · replace 占比高不等于缓存差：新增 injectTail 直方图并按代价判定
 
