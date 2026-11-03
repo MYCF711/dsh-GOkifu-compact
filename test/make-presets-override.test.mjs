@@ -38,8 +38,14 @@ tests["C84-1 dry-run 必须 0 退出、自检通过、且**不写**仓库里的 
   t.eq(before, after, "dry-run 不许改 cordis.patch.yml");
   t.includes(out, "自检通过", `自检必须通过：\n${out.slice(-400)}`);
   t.includes(out, "dry-run", "必须明确告诉用户「没写盘」");
-  const backups = nodeFs.readdirSync(REPO).filter((f) => f.startsWith("cordis.patch.yml.bak-"));
-  t.eq(backups.length, 0, `dry-run 不许留下备份文件（实际 ${backups.join(",")}）`);
+  // ★ C512：判据改成**前后差集**。原来直接断言"一个都没有"——
+  //   可仓库里可能早就躺着一次**真实安装**留下的备份（那是历史，不是这次 dry-run 造成的），
+  //   于是这条测试会在"有没有历史备份"上随机红绿。dry-run 的契约是"**这次**没写"。
+  const backupsBefore = new Set(nodeFs.readdirSync(REPO).filter((f) => f.startsWith("cordis.patch.yml.bak-")));
+  runDry();
+  const backupsAfter = nodeFs.readdirSync(REPO).filter((f) => f.startsWith("cordis.patch.yml.bak-"));
+  const added = backupsAfter.filter((f) => !backupsBefore.has(f));
+  t.eq(added, [], `dry-run 不许留下备份文件（本次新增 ${added.join(",")}）`);
 };
 
 tests["C84-2 确定性：同样输入两次输出必须逐字相同（发布日期不抖）"] = (t) => {

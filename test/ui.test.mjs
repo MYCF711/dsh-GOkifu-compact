@@ -410,3 +410,16 @@ tests["C508 模型二级菜单：自绘弹层要能显示 provider 分组 + mode
   t.includes(src, "onChange(item.value, { provider: group.provider })", "两级一起落盘");
   t.includes(src, "document.addEventListener(\"mousedown\"", "点外面要能关（否则挡住下面的字段）");
 };
+
+tests["C511 两个摘要选择器必须同一套外壳与配色（不许一半原生一半自绘）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  t.includes(src, "function PickerShell", "同一套外壳");
+  t.includes(src, "h(SummaryProviderPicker", "provider 也走自绘");
+  t.includes(src, "h(SummaryModelPicker", "model 走自绘");
+  // provider 字段不许再走原生 select 分支
+  t.eq(/field\.key === "summarizationProvider" && hasCatalog\) \{\s*\n\s*\/\/[^\n]*\n\s*control = h\(SummaryProviderPicker/.test(src), true, "provider 分支应直接渲染自绘选择器");
+  // 配色：高亮不用蓝色（官方主题色不是蓝），弹层用系统色跟随主题
+  t.eq(src.includes("rgba(59,130,246,0.22)"), false, "选中态不该再用蓝色");
+  t.includes(src, 'background: "Canvas"', "弹层用系统色，跟随宿主主题");
+  t.includes(src, "rgba(127,127,127,0.24)", "选中态用面板同一套中性灰");
+};
