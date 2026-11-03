@@ -17,6 +17,8 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { checkPanelCapabilities } from "./post-restart-check.mjs";
+import { loadSessionGraph } from "./graph-audit.mjs";
+import { currentGoalOf } from "../src/rooms/ledger.mjs";
 import { repoBuildId } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +91,71 @@ export function scanEvidence(sessionsRoot) {
     }
   }
   out.closeout.sessions = out.closeout.seen ? 1 : 0;
+  return out;
+}
+
+/**
+ * ★ C450：判断「C446/C448/C449 这几轮改动有没有真的跑起来」——离线、纯读磁盘、可单测。
+ *
+ * 为什么需要：这些改动都不改变面板能力，`checkPanelCapabilities` 探不出来；而"跑的是不是新代码"
+ * 又不能用 buildId 一口咬定（C293/C294 证明过时间戳会骗人）。这里只认两件**磁盘上可验证**的事：
+ *   ① 边上的 `sig`（C446 的动作指纹）—— **只有新代码写的边才有**；
+ *      全库 0 条 ⇒ 还在跑旧代码（老棋谱本来就没有这个字段）。
+ *   ② 最新会话的 `CURRENT GOAL` 会渲染成什么（C448 兜底 + C449 过滤）——
+ *      它只依赖图数据，所以这段逻辑一上线就能算出来"会显示什么/为什么不出"。
+ *
+ * @param {string} sessionsRoot `<home>/chess-context/sessions`
+ * @returns {{sessions:number, edges:number, sigEdges:number,
+ *            goal: {text:string, source:string}|null, goalReason:string, newest:string|null}}
+ */
+export function newCodeProbe(sessionsRoot) {
+  const out = { sessions: 0, edges: 0, sigEdges: 0, goal: null, goalReason: "no-session", newest: null };
+  if (!nodeFs.existsSync(sessionsRoot)) return out;
+  let newest = null;
+  let newestAt = -Infinity;
+  for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+    if (!nodeFs.existsSync(file)) continue;
+    let graph;
+    try {
+      // ★ 必须走审计读取：边与 foldMarks 常在 delta 里（直接 JSON.parse 基线会数出 0 条边）
+      ({ graph } = loadSessionGraph(file));
+    } catch {
+      continue;
+    }
+    out.sessions += 1;
+    for (const e of Object.values(graph.edges ?? {})) {
+      out.edges += 1;
+      if (typeof e?.sig === "string" && e.sig !== "") out.sigEdges += 1;
+    }
+    let at = 0;
+    try {
+      at = nodeFs.statSync(file).mtimeMs;
+    } catch {
+      at = Number(graph.updatedAt ?? 0);
+    }
+    if (at > newestAt) {
+      newestAt = at;
+      newest = graph;
+      out.newest = entry.name;
+    }
+  }
+  if (newest !== null) {
+    const agent = (newest.order ?? [])
+      .map((id) => newest.nodes?.[id])
+      .filter((n) => n !== undefined && n !== null && n.kind === "agent")
+      .at(-1);
+    const users = (newest.order ?? []).map((id) => newest.nodes?.[id]).filter((n) => n !== undefined && n !== null && n.kind === "user");
+    const got = currentGoalOf(newest, agent);
+    out.goal = got;
+    out.goalReason =
+      got !== null
+        ? got.source
+        : users.length <= 1
+          ? "单轮会话（与 ROOT 重复，不渲染）"
+          : "最新一条是接续词或碎片（C449 过滤）";
+  }
   return out;
 }
 
@@ -285,6 +352,8 @@ export async function main(argv = process.argv.slice(2)) {
 
   const sessionsRoot = home === "" ? "" : nodePath.join(home, "chess-context", "sessions");
   const evidence = sessionsRoot === "" ? { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0 } } : scanEvidence(sessionsRoot);
+  // ★ C450：C446/C448/C449 这几轮改动**面板探针看不出来**（它们不改能力面），只能读磁盘上的图。
+  const newCode = sessionsRoot === "" ? { sessions: 0, edges: 0, sigEdges: 0, goal: null, goalReason: "no-home", newest: null } : newCodeProbe(sessionsRoot);
 
   // ★ C353：`buildOk` 不许写死 true —— 真机上"跑的是旧代码"是最常见的情形，
   //   验收脚本自己撒谎就等于没有验收。这里用心跳里的 buildId 与磁盘比。
@@ -347,7 +416,7 @@ export async function main(argv = process.argv.slice(2)) {
         : `（**端口 ${port} 属 pid ${ownerPid}，而心跳来自 pid ${heartbeatPid}** —— 插件没注册到 GUI 进程里）`;
   if (ownerNote !== "") result.line = `${result.line} ${ownerNote}`;
   if (argv.includes("--json")) {
-    console.log(JSON.stringify({ caps, backfill, ...evidence, ...result }, null, 2));
+    console.log(JSON.stringify({ caps, backfill, ...evidence, newCode, ...result }, null, 2));
     // ★ C438：退出码必须区分三态 —— 否则脚本里 `if accept; then …` 会把 partial 也当成成功。
     return result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2;
   }
@@ -369,6 +438,15 @@ export async function main(argv = process.argv.slice(2)) {
       return null;
     }
   })();
+  // ★ C450：把「这几轮改动生效了没」变成两行 —— 否则重启后只能靠人翻 CHANGELOG 对着看。
+  console.log(
+    `  动作指纹（C446）：${newCode.sigEdges}/${newCode.edges} 条边带 sig —— ` +
+      (newCode.sigEdges > 0 ? "新代码已在写指纹 ✅" : "还没有新边（老棋谱本来就没有这个字段）⇒ 继续跑一段再看"),
+  );
+  console.log(
+    `  CURRENT GOAL（C448/C449）：` +
+      (newCode.goal === null ? `不渲染（${newCode.goalReason}）` : `会渲染 ${newCode.goal.source}「${String(newCode.goal.text).slice(0, 40)}」`),
+  );
   if (doctorLine !== null) console.log(`  doctor：${doctorLine}`);
 
   // ★ C386：验收完了人立刻要问「那现在补账多少、要几次、会不会超时」——

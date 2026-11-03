@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C450 | 验收脚本加两条磁盘探针（sig / CURRENT GOAL）+ 循环判据实测不用优化 |
 | C449 | CURRENT GOAL 加信息量过滤：不把「继续」写成当前目标 |
 | C448 | CURRENT GOAL 用最近 user 原话兜底：覆盖率 0.3% → 78%，成本 +1.6% |
 | C447 | 循环形状进 status 日常视图 + 查清 CURRENT GOAL 为什么一直是空的 |
@@ -522,6 +523,47 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C450 · 验收脚本加两条磁盘探针（sig / CURRENT GOAL）+ 循环判据实测不用优化
+
+**四轮改动（C446 指纹 / C447 status 行 / C448+C449 CURRENT GOAL）都还没在运行实例上生效，人要靠翻 CHANGELOG 才知道重启后该看什么。这一轮把"生效了没"做成两条命令输出。**
+
+### 一、给验收脚本加两条**磁盘可验证**的探针（C450）
+
+`scripts/accept-after-restart.mjs` 新增 `newCodeProbe(sessionsRoot)`，重启后直接打印：
+
+```
+动作指纹（C446）：0/27028 条边带 sig —— 还没有新边（老棋谱本来就没有这个字段）⇒ 继续跑一段再看
+CURRENT GOAL（C448/C449）：不渲染（单轮会话（与 ROOT 重复，不渲染））
+```
+
+为什么值得单独做：这几轮改动**不改面板能力**，`checkPanelCapabilities` 看不见；而 buildId 又会骗人（C293/C294 证明过）。
+唯一可靠的证据是磁盘上的图：**`sig` 只有新代码才写**，`CURRENT GOAL` 只依赖图数据。
+
+读图必须走 `loadSessionGraph`（审计读法）—— 边与 `foldMarks` 常在 delta 里，直接 `JSON.parse` 基线会数出 0 条边。
+
+### 二、顺手量了一个"看起来像热点"的东西，结论是**不用优化**
+
+C444 的循环判据每步都要遍历全库边并排序（`Object.values(edges).filter().sort()`），看着可疑。实测（3,633 条边的真机会话）：
+
+| 实现 | 耗时 |
+|---|---|
+| 现状（全量 filter + sort） | **0.63 ms/次** |
+| "优化"（只取尾部 K 条） | 1.196 ms/次 ← **更慢** |
+
+对着 3,633 条边，原生 `sort` 比手写"维护前 K 大"还快（后者每轮都 sort 一个 8 元数组 + 建对象）。
+0.63 ms 相对 LLM 每步数秒的延迟是**噪声级**。**不做优化**，数字留档，免得下次再来测一遍。
+
+### 三、外部知识入库
+
+[Agent 失败分类与效率指标（Chip Huyen）](docs/knowledge/agent失败分类与效率指标-外部资料.md)：三节失败分类（Planning / Tool / Efficiency），
+其中"**each tool needs to be tested independently**""**always print out each tool call and its output**"与我们已有做法一致；
+效率四指标里我们缺两个 —— **"完成任务平均几步""哪个动作最费钱"**，记成候选 **K-13**。
+
+### 待核实
+
+- `sig` 探针在"还没有新边"时会持续显示 0 —— 要等重启后真跑出几步才有判别力，别把它 0 当成失败；
+- K-13 只是文章建议，没有任何数值阈值可对照（原文也明说"与你的 baseline 比"），做之前得先定 baseline。
 
 ### C449 · CURRENT GOAL 加信息量过滤：不把「继续」写成当前目标
 
