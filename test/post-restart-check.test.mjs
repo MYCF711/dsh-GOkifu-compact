@@ -68,7 +68,10 @@ tests["C243 折叠观测字段 + 注入动作：只在新代码跑过之后才 o
   const oldFold = evaluatePostRestart({ ...base, latestFold: { at: 1, usage: { inputTokens: 100 } } });
   const of = oldFold.checks.find((c) => c.id === "fold-fields");
   t.eq(of.level, "warn", "老 foldMark 只能 warn");
-  t.includes(of.detail, "规则摘要", "要说明「也可能是规则摘要」——别让人误判成重启没生效");
+  // ★ C471：现在**规则/合并折叠**由 `pickFoldForFieldProbe` 单独判定（见下面 C471 用例），
+  //   所以走到这条警告时已经确认"这是一次**模型**折叠却没写字段" —— 文案就该直接指向旧代码。
+  t.includes(of.detail, "模型", "要说清这条警告针对的是「模型折叠」");
+  t.includes(of.detail, "旧代码", "并指出最可能的原因（旧代码仍在跑）");
 
   // ③ 新 foldMark ⇒ ok（这条是"新代码接管"的第二重证据）
   const newFold = evaluatePostRestart({ ...base, latestFold: { at: 2, usage: { inputTokens: 100, instructionTokens: 42 } } });
@@ -100,4 +103,22 @@ tests["C264 `--api` 招牌检查：旧面板的「未知 action」必须被解�
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "post-restart-check.mjs"), "utf8");
   t.includes(src, 'argv.includes("--api")', "必须由 --api 显式开启");
   t.includes(src, "未知 action", "旧面板的「未知 action」要解释成还没重启");
+};
+
+tests["C471 规则/合并折叠不该被报成「旧代码未接管」"] = async (t) => {
+  const m = await import("../scripts/post-restart-check.mjs");
+  const pick = m.pickFoldForFieldProbe;
+  const model = { at: 100, trigger: "pressure", usage: { instructionTokens: 2454, inputTokens: 100000 } };
+  const rules = { at: 200, trigger: "tier2", usage: { inputTokens: 1000 } };
+  const r1 = pick([model, rules]);
+  t.eq(r1.kind, "ok", "有一条模型折叠带字段 ⇒ ok（哪怕它不是最后一条）");
+  t.eq(r1.instructionTokens, 2454, "取的是模型折叠那条的值");
+  t.includes(r1.note, "规则/合并", "要说明最后一条为什么没有这个字段");
+  const r2 = pick([rules]);
+  t.eq(r2.kind, "rules-only", "只有规则折叠 ⇒ 不是未接管");
+  const r3 = pick([{ at: 300, trigger: "pressure", usage: { inputTokens: 5000 } }]);
+  t.eq(r3.kind, "missing-field", "模型折叠却没字段 ⇒ 才该报警");
+  t.eq(pick([]).kind, "no-fold", "什么都没有");
+  // 老调用方式（只传 latestFold）仍然可用
+  t.eq(pick(null, model).kind, "ok", "兼容单条入参");
 };

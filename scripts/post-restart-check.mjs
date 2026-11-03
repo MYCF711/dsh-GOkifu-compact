@@ -55,7 +55,41 @@ export function defaultHome() {
  * 纯评估函数（不读盘，便于单测）：把「戳 + 磁盘构建标识 + 版本 + 预算统计」判成一张检查表。
  * @returns {{ok:boolean, checks:Array<{id:string,name:string,level:"ok"|"warn"|"fail",detail:string}>}}
  */
-export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null, latestFold = null } = {}) {
+/**
+ * ★ C471：判断「折叠观测字段」时，**该看哪一条折叠**。
+ *
+ * 由来：最近一次 fold 是 `tier2`（规则重建，没有模型调用）⇒ 它天然没有 `usage.instructionTokens`。
+ * 而检查只看"最后一条"，于是报「旧代码仍在跑（等重启）」—— **把正常的规则折叠报成了未接管**。
+ * 判据要区分三件事：**有模型折叠** / **只有规则∪合并折叠** / **有模型折叠但没这个字段**。
+ *
+ * @param {Array<object>} folds 全部 foldMark（顺序不限，内部按 at 取最大）
+ * @param {object|null} [fallbackLatest] 兼容旧调用：只给一条时也能用
+ * @returns {{kind: "ok"|"rules-only"|"missing-field"|"no-fold", instructionTokens: number|null, at: number|null, note: string}}
+ */
+export function pickFoldForFieldProbe(folds, fallbackLatest = null) {
+  const list = (Array.isArray(folds) ? folds : []).filter((m) => m !== null && typeof m === "object" && Number.isFinite(m.at));
+  if (list.length === 0 && fallbackLatest !== null && typeof fallbackLatest === "object") list.push(fallbackLatest);
+  if (list.length === 0) return { kind: "no-fold", instructionTokens: null, at: null, note: "还没有 foldMark" };
+  const latest = list.reduce((a, b) => (b.at > a.at ? b : a));
+  const isRulesLike = (m) => m.tier2 === true || m.trigger === "tier2" || m.summaryMode === "rules" || m.fallback === "rules";
+  const withField = list.filter((m) => Number.isFinite(m?.usage?.instructionTokens));
+  if (withField.length > 0) {
+    const best = withField.reduce((a, b) => (b.at > a.at ? b : a));
+    return {
+      kind: "ok",
+      instructionTokens: best.usage.instructionTokens,
+      at: best.at,
+      // 说清"这是哪一条"：若它不是最后一条，读者要知道最后那条为什么没有
+      note: best.at === latest.at ? "" : `（看的是最近一次**模型**折叠；最后一条 ${new Date(latest.at).toISOString().slice(11, 19)} 是${isRulesLike(latest) ? "规则/合并" : "别的"}折叠，没有模型调用）`,
+    };
+  }
+  if (isRulesLike(latest)) {
+    return { kind: "rules-only", instructionTokens: null, at: latest.at, note: "最近一次是规则/合并折叠（没有模型调用），字段本来就不会有" };
+  }
+  return { kind: "missing-field", instructionTokens: null, at: latest.at, note: "最近一次是模型折叠却没有 instructionTokens" };
+}
+
+export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null, latestFold = null, folds = null } = {}) {
   const checks = [];
   const push = (id, name, level, detail) => checks.push({ id, name, level, detail });
 
@@ -101,17 +135,18 @@ export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", ver
   }
   // ★ C243：1.17.6 的折叠观测字段。C236/C237 新写了 usage.cacheReadTokens（展示用）与 usage.instructionTokens，
   //   它们**只在新代码跑过一次 fold 之后**才会出现 —— 正好当"新代码是否接管"的第二重判据。
-  if (latestFold === null || typeof latestFold !== "object") {
-    push("fold-fields", "折叠观测字段（instructionTokens）", "warn", "还没有 foldMark 带 usage —— 等重启后第一次 fold");
-  } else if (Number.isFinite(latestFold?.usage?.instructionTokens)) {
-    push("fold-fields", "折叠观测字段（instructionTokens）", "ok", `最近一次 fold 记了我们的指令 ${latestFold.usage.instructionTokens} tok（C237）`);
-  } else {
-    push(
-      "fold-fields",
-      "折叠观测字段（instructionTokens）",
-      "warn",
-      "最近一次 fold 没有 instructionTokens —— 旧代码仍在跑（等重启），或这次走的是规则摘要（没有模型调用，正常）",
-    );
+  // ★ C471：先判断"该看哪一条折叠"，再决定要不要报警（规则/合并折叠天然没有这个字段）
+  {
+    const picked = pickFoldForFieldProbe(folds, latestFold);
+    if (picked.kind === "no-fold") {
+      push("fold-fields", "折叠观测字段（instructionTokens）", "warn", "还没有 foldMark —— 等重启后第一次 fold");
+    } else if (picked.kind === "ok") {
+      push("fold-fields", "折叠观测字段（instructionTokens）", "ok", `最近一次**模型**折叠记了我们的指令 ${picked.instructionTokens} tok（C237）${picked.note}`);
+    } else if (picked.kind === "rules-only") {
+      push("fold-fields", "折叠观测字段（instructionTokens）", "ok", `最近一次 fold 是规则/合并折叠（无模型调用），字段本来就不会有 —— 不是未接管`);
+    } else {
+      push("fold-fields", "折叠观测字段（instructionTokens）", "warn", "最近一次**模型**折叠却没有 instructionTokens —— 旧代码仍在跑（等重启）");
+    }
   }
 
   // ★ C243：C219 的「注入动作」（append vs replace）也只在重启后才有数据。
@@ -313,6 +348,7 @@ export async function main(argv = process.argv.slice(2)) {
     budget = null;
   }
   // 最近一次带 usage 的 foldMark（跨会话取 at 最大的那个）—— 给"折叠观测字段"判据用
+  const allFolds = [];
   const latestFold = (() => {
     let best = null;
     const root = nodePath.join(home, "chess-context", "sessions");
@@ -329,6 +365,8 @@ export async function main(argv = process.argv.slice(2)) {
         }
         for (const mark of marks) {
           if (!mark || typeof mark.at !== "number") continue;
+          // ★ C471：全部收起（判据要能区分"最后一条是规则折叠"与"新代码没接管"）
+          allFolds.push(mark);
           if (best === null || mark.at > best.at) best = mark;
         }
       }
@@ -337,7 +375,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     return best;
   })();
-  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget, latestFold });
+  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget, latestFold, folds: allFolds });
 
   // ④ doctor 0 错误；⑤ boundary-audit 0 findings（两者都是仓库/运行态红线，独立于上面的纯评估）
   let doctor = null;
