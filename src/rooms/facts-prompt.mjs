@@ -60,7 +60,15 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("- If you must cut for length: cut narrative, cut pleasantries, cut redundant explanation — NEVER a constraint, NEVER a failed attempt.");
   lines.push("- EVERY line under FAILED_ATTEMPTS must appear in your output — one line each, with its reason and evidence seq. Never merge two of them, never drop one because it looks obsolete. They are why the next model will not walk into the same wall.");
   lines.push("- Never promote an UNVERIFIED_CLAIM to a verified fact. Only exit codes, test counts, diffs and explicit tool errors count as verification.");
-  lines.push("- Never invent a node, an edge, a result, or a path.");
+  // ★ C455：**"别发明 id"这条规矩以前只在 preGraph 分支里出现** —— 常规折叠反而没写。
+  //   而真机上确实有摘要写出「这次折叠时还不存在的 id」（doctor 的 outOfRangeLater，19 次，
+  //   含 pressure 折叠；重渲染事实块确认那些 id 不在块里 ⇒ 不是我们喂的，是模型自己补的）。
+  //   编号一旦进了 checkpoint，下一个模型就会拿它去查 —— 查不到，或者查到一个**未来**的状态。
+  //   所以这条必须**无条件**出现，并且把"合法集合"说清楚：只能是上面那块里出现过的。
+  lines.push(
+    "- Cite ONLY ids that literally appear in the authoritative block above. Never guess, never continue a sequence " +
+      "(n1, n2, n3 …). Never invent a node, an edge, a result, or a path. An id that is not in that block does not exist for you.",
+  );
   lines.push("");
   lines.push("Output EXACTLY this Markdown structure. Keep every section, in order. Write \"(none)\" when empty — never drop a section.");
   lines.push("");

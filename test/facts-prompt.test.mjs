@@ -67,3 +67,25 @@ tests["C107 摘要 prompt 必须保留两条冗余保险（约束逐字 + 每条
   // 反向：这两条不许被「精简」成软性措辞
   t.eq(/MAY (summarize|paraphrase) (constraints|failed attempts)/i.test(prompt), false, "不许出现「可概括约束/失败」的软性措辞");
 };
+
+tests["C455 「只能引用事实块里出现过的 id」必须无条件出现（真机 19 次摘要写出未来 id）"] = (t) => {
+  const base = buildChessInstruction({ facts: "FACTS-BLOCK", shadowedStart: 10, shadowedEnd: 20 });
+  t.includes(base, "Cite ONLY ids that literally appear", "常规折叠也要有这条规矩（以前只在 preGraph 分支里写）");
+  t.includes(base, "never continue a sequence", "要点名「别顺着编号往下猜」—— 那正是模型编 n1717 的方式");
+  const pre = buildChessInstruction({ facts: "FACTS-BLOCK", shadowedStart: 10, shadowedEnd: 20, preGraph: true });
+  t.includes(pre, "Cite ONLY ids that literally appear", "preGraph 同样要有");
+  t.includes(pre, "Cite it by seq ranges only", "preGraph 原有的「只按 seq 引用」也要保留");
+};
+
+tests["C455 规则不许挤掉原有约束（指令变长但关键条款一条不少）"] = (t) => {
+  const text = buildChessInstruction({ facts: "FACTS-BLOCK", shadowedStart: 10, shadowedEnd: 20 });
+  for (const must of [
+    "ROOT_USER_REQUEST_VERBATIM",
+    "CONSTRAINTS_VERBATIM",
+    "FAILED_ATTEMPTS",
+    "Never promote an UNVERIFIED_CLAIM",
+    "本段遮蔽 seq 10-20",
+  ]) {
+    t.includes(text, must, `缺条款：${must}`);
+  }
+};
