@@ -103,3 +103,26 @@ tests["C496 allConstraints 取全量（质量报告只给前 5 条，补回不�
   t.eq(all.length, 2, "去重后两条");
   t.eq(all.includes("a") && all.includes("b"), true, "两条都在");
 };
+
+tests["C499 该不该走离线补折：只有「算不出区间」才走"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const base = { closeout: { folded: 0, foldNote: "nothing-to-fold:no-foldable-span" }, tailEvents: 100, enabled: true };
+  t.eq(m.shouldTryOfflineFold(base).go, true, "算不出区间 + 尾巴够长 ⇒ 走离线");
+  t.eq(m.shouldTryOfflineFold({ ...base, enabled: false }).why, "disabled", "用户关了就不走");
+  t.eq(m.shouldTryOfflineFold({ ...base, closeout: { folded: 0, foldError: "timeout" } }).go, false, "超时不是这条路径的事");
+  t.eq(m.shouldTryOfflineFold({ ...base, closeout: { folded: 2 } }).why, "already-folded", "已经折过就别重复花钱");
+  t.eq(m.shouldTryOfflineFold({ ...base, tailEvents: 10 }).why, "tail-too-short", "尾巴太短不折");
+};
+
+tests["C499 结果翻译：有缺口就 partial，不许记成全压过"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const full = m.offlineFoldOutcome({ chunks: [{}], coveredStart: 1, coveredEnd: 100, uncoveredHead: 0, uncoveredTail: 0 }, { rangeStart: 1, rangeEnd: 100, maxSeq: 100 });
+  t.eq(full.folded, 1, "折了 1 段");
+  t.eq(full.partial, false, "全覆盖 ⇒ 不是 partial");
+  const gap = m.offlineFoldOutcome({ chunks: [{}, {}], coveredStart: 500, coveredEnd: 900, uncoveredHead: 400, uncoveredTail: 0 }, { rangeStart: 100, rangeEnd: 900, maxSeq: 900 });
+  t.eq(gap.partial, true, "前段没压 ⇒ partial");
+  t.eq(gap.uncoveredHead, 400, "缺口大小要带出来");
+  const empty = m.offlineFoldOutcome({ chunks: [], failed: "empty-response" }, { rangeStart: 1, rangeEnd: 100, maxSeq: 100 });
+  t.eq(empty.folded, 0, "空响应 ⇒ 0 段");
+  t.eq(empty.partial, true, "没压成当然算 partial");
+};

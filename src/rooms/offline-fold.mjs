@@ -310,3 +310,53 @@ export async function runOfflineFold({
   const uncoveredTail = coveredEnd === null ? Math.max(0, rangeEnd - rangeStart + 1) : Math.max(0, rangeEnd - coveredEnd);
   return { chunks, coveredStart, coveredEnd, uncoveredHead, uncoveredTail };
 }
+
+/**
+ * ★ C499：**该不该走离线补折**（纯函数，便于单测）。
+ *
+ * 触发条件（缺一不可）：
+ *   · 用户没关（`chess.offlineCloseout !== false`）；
+ *   · 这一次收尾**没折成**，而且原因是"算不出可折区间"（`no-foldable-span`）——
+ *     其它失败（超时/400/余额）走原路径，离线也救不了；
+ *   · 会话尾巴还够长（`minEvents`）。
+ *
+ * @param {{closeout?:object|null, reason?:string|null, tailEvents?:number, enabled?:boolean, minEvents?:number}} args
+ * @returns {{go:boolean, why:string}}
+ */
+export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40 } = {}) {
+  if (enabled !== true) return { go: false, why: "disabled" };
+  // 顺序有意义：**已经折过**先判（不管原因写着什么，都不该再花一次钱）
+  if (closeout?.folded > 0) return { go: false, why: "already-folded" };
+  const note = String(reason ?? closeout?.foldNote ?? "");
+  if (!note.includes("no-foldable-span")) return { go: false, why: "not-no-foldable-span" };
+  if (!(Number(tailEvents) >= Number(minEvents))) return { go: false, why: "tail-too-short" };
+  return { go: true, why: "no-foldable-span" };
+}
+
+/**
+ * ★ C499：把离线编排的结果翻译成 `applyCloseoutOutcome` 认的形状。
+ *
+ * 关键：**有缺口就写 `partial`** —— 只压了尾部不能记成"全压过"（C476 那个坑的第四次变体）。
+ * @param {{chunks:Array<object>, coveredStart:number|null, coveredEnd:number|null, uncoveredHead:number, uncoveredTail:number, failed?:string}} result
+ * @param {{rangeStart:number, rangeEnd:number, maxSeq:number}} range
+ * @returns {object}
+ */
+export function offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq } = {}) {
+  const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
+  if (chunks.length === 0) {
+    return { tier: "offline", folded: 0, chunks: 0, stopped: result?.failed ?? "empty", error: null, partial: true };
+  }
+  const end = Number(result.coveredEnd);
+  const tail = Number.isFinite(end) ? Math.max(0, Number(maxSeq ?? rangeEnd) - end) : Number(rangeEnd ?? 0);
+  const head = Number(result.uncoveredHead) || 0;
+  return {
+    tier: "offline",
+    folded: chunks.length,
+    chunks: chunks.length,
+    stopped: "done",
+    error: null,
+    partial: head > 0 || tail > 0,
+    ...(head > 0 ? { uncoveredHead: head } : {}),
+    ...(tail > 0 ? { uncoveredTail: tail } : {}),
+  };
+}

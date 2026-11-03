@@ -19,39 +19,8 @@ import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
-const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
-
-/**
- * ★ C358：把多帧 zstd 拆成逐帧解压后的文本（纯函数，输入 Buffer，输出 string）。
- * 只按 magic 切分 —— 压缩数据里出现同样 4 字节的概率极低，且解压失败会被跳过（不会污染结果）。
- * @param {Buffer} buf
- * @returns {{text: string, frames: number, okFrames: number}}
- */
-export function decodeMultiFrameZstd(buf) {
-  const b = buf;
-  const starts = [];
-  // ★ C463：**用 Buffer.indexOf 找 magic，不要逐字节 for**（35MB 文件 = 3500 万次 JS 迭代）。
-  const magic = Buffer.from(ZSTD_MAGIC);
-  let from = 0;
-  for (;;) {
-    const at = b.indexOf(magic, from);
-    if (at < 0) break;
-    starts.push(at);
-    from = at + magic.length;
-  }
-  const parts = [];
-  let okFrames = 0;
-  for (let k = 0; k < starts.length; k += 1) {
-    const end = starts[k + 1] ?? b.length;
-    try {
-      parts.push(zlib.zstdDecompressSync(b.subarray(starts[k], end)));
-      okFrames += 1;
-    } catch {
-      /* 误切的 magic：解压失败就跳过 */
-    }
-  }
-  return { text: Buffer.concat(parts).toString("utf8"), frames: starts.length, okFrames };
-}
+// ★ C498：多帧解码已搬进 src/rooms/zstd-log.mjs（插件进程也要读日志），这里只做转发
+export { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
 
 /**
  * ★ C359：统计**真清单消息**。

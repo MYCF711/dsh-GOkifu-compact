@@ -22,9 +22,11 @@ tests["C463 doctor 不许再 spawn python 解会话日志（那是 24s → 8.75s
 };
 
 tests["C463 多帧扫描要用 Buffer.indexOf（原生），不许逐字节 for"] = (t) => {
-  const src = read("scripts/session-scan.mjs");
+  // ★ C498：解码器已搬进 `src/rooms/zstd-log.mjs`（插件进程也要读日志）—— 守卫跟着实现走
+  const src = read("src/rooms/zstd-log.mjs");
   t.eq(src.includes("b.indexOf(magic"), true, "用原生查找");
   t.eq(/for \(let i = 0; i \+ 4 <= b\.length; i \+= 1\)/.test(src), false, "逐字节扫描已删除（35MB = 3500 万次迭代）");
+  t.eq(read("scripts/session-scan.mjs").includes("zstd-log"), true, "脚本侧必须转发到共享实现，不许再抄一份");
 };
 
 tests["C464 doctor 一次运行只解一次图（9 个块各自 loadSessionGraph = 多付 4 秒）"] = (t) => {
