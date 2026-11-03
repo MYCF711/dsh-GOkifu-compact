@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
+import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 
 // ★ C490：默认用 `deepseek-flash`，**不用** `group/...`。
 //   真机实测（2026-11-03）：`group/deepseek-v4.1-flash1017` 被路由到 wps-lingxi 上游，
@@ -54,7 +55,7 @@ export function collectMessages(events, { maxChars = 60_000 } = {}) {
     if (e.type !== "user/message" && e.type !== "assistant/message") continue;
     const text = plainText(e.data?.message?.content ?? e.data?.content);
     if (text.trim() === "") continue;
-    picked.push({ role: e.type === "user/message" ? "user" : "assistant", text });
+    picked.push({ role: e.type === "user/message" ? "user" : "assistant", text, seq: Number(e.seq) || null });
   }
   // 从**最近**往前取，直到预算用完（尾部最相关；早期内容已经在既有棋谱里）
   const out = [];
@@ -71,6 +72,46 @@ export function collectMessages(events, { maxChars = 60_000 } = {}) {
   }
   out.reverse();
   return { messages: out, chars, dropped };
+}
+
+/**
+ * ★ C491：从「消息预算」反推**实际覆盖的区间**，并算清前后两段没覆盖到多少。
+ *
+ * 为什么必须算：预算只装得下尾部若干条消息，若把 `seqEnd` 写成整个欠账区间的末尾，
+ * 等于宣称"这段都压过了"，没压的那段从此**再也不会出现在欠账里**（C476 的同一个陷阱）。
+ *
+ * @param {{rangeStart:number, rangeEnd:number, seqs:number[]}} input
+ * @returns {{start:number, end:number, uncoveredHead:number, uncoveredTail:number}}
+ */
+export function coverageOf({ rangeStart, rangeEnd, seqs }) {
+  const list = (Array.isArray(seqs) ? seqs : []).filter((x) => Number.isFinite(x));
+  const coveredStart = list.length > 0 ? Math.min(...list) : rangeStart;
+  const coveredEnd = list.length > 0 ? Math.max(...list) : rangeStart;
+  const start = Math.max(rangeStart, Math.min(coveredStart, rangeEnd));
+  const end = Math.max(start, Math.min(rangeEnd, coveredEnd));
+  return { start, end, uncoveredHead: Math.max(0, start - rangeStart), uncoveredTail: Math.max(0, rangeEnd - end) };
+}
+
+/**
+ * ★ C492：**离线摘要丢掉的约束，机械补回去。**
+ *
+ * 由来：真机（2026-11-03）跑完离线压缩，doctor 的「压缩保真度」立刻红了一条：
+ * `constraintRecall min=0.167` —— 模型把"约束"当普通句子压缩掉了，只留下 6 条里的一半。
+ *
+ * 约束**不是摘要**，是硬性事实：丢掉它，后续模型就可能去动本来不许动的东西。
+ * 所以这里不祈祷模型听话，而是**机械补回**：缺哪条就把原文逐字追加到末尾。
+ *
+ * @param {string} text 模型给的摘要
+ * @param {string[]} missing 质量检查发现缺失的约束原文
+ * @returns {{text:string, repaired:number}}
+ */
+export function repairMissingConstraints(text, missing) {
+  const list = (Array.isArray(missing) ? missing : []).map((x) => String(x ?? "").trim()).filter((x) => x !== "");
+  if (list.length === 0) return { text: String(text ?? ""), repaired: 0 };
+  const body = String(text ?? "").replace(/\s+$/, "");
+  const lines = ["", "## 约束（逐字补充 · 离线压缩后自动补回，不许删）"];
+  for (const c of list) lines.push(`- ${c}`);
+  return { text: `${body}\n${lines.join("\n")}`, repaired: list.length };
 }
 
 /**
@@ -245,16 +286,22 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     }
     targets.push(dir);
   } else if (argv.includes("--due")) {
+    // ★ C491：按尾巴**从大到小**（与 backfill-plan 的建议一致：先补欠得最多的），
+    //   而不是读目录顺序 —— 那个顺序既不稳定也不公平。
+    const due = [];
     for (const dir of fs.readdirSync(sessionsRoot)) {
       const file = path.join(sessionsRoot, dir, "graph.json");
       if (!fs.existsSync(file)) continue;
       try {
         const g = loadSessionGraph(file).graph;
-        if (debtOfGraph(g).due) targets.push(dir);
+        const d = debtOfGraph(g);
+        if (d.due) due.push({ dir, tail: d.tail });
       } catch {
         /* 坏图跳过 */
       }
     }
+    due.sort((a, b) => b.tail - a.tail);
+    for (const x of due) targets.push(x.dir);
   }
   if (targets.length === 0) {
     console.log("没有目标（用 --session <id前缀> 或 --due）");
@@ -272,13 +319,33 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     }
     const events = readSessionEvents(logFile);
     const { messages, chars, dropped } = collectMessages(events, { maxChars });
-    const end = debt.maxSeq;
-    const start = debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
+    const rangeStart = debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
+    const rangeEnd = debt.maxSeq;
+    // ★ C491：**记录真正覆盖的区间**。预算只装得下尾部若干条消息，
+    //   若把 `seqEnd` 写成整个欠账区间的末尾，等于宣称"这段都压过了" —— 剩下的就再也看不见了。
+    // ★ C491：**没有可做区间就别写**。真机踩过：`--session` 强制重跑一个已结清的会话，
+    //   rangeStart 会超过 rangeEnd，写出一条 `seqStart > seqEnd` 的反向 foldMark。
+    if (rangeEnd < rangeStart) {
+      console.log(`  没有欠账区间（${rangeStart}-${rangeEnd}），跳过`);
+      continue;
+    }
+    const seqs = messages.map((m) => m.seq);
+    const { start, end } = coverageOf({ rangeStart, rangeEnd, seqs });
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages });
     console.log(`== ${dir.slice(0, 16)} ==`);
-    console.log(`  段 ${start}-${end} · 消息 ${messages.length} 条（${chars} 字符${dropped > 0 ? `，更早的 ${dropped} 条未放` : ""}）`);
-    console.log(`  输入合计 ${prompt.length} 字符 · 模型 ${model}`);
+    const { uncoveredHead, uncoveredTail } = coverageOf({ rangeStart, rangeEnd, seqs });
+    console.log(
+      `  段 ${start}-${end}（欠账区间 ${rangeStart}-${rangeEnd}` +
+        `${uncoveredHead > 0 ? `，**前段 ${rangeStart}-${start - 1} 未覆盖（${uncoveredHead} 事件）**` : ""}` +
+        `${uncoveredTail > 0 ? `，尾部还剩 ${uncoveredTail} 事件未覆盖` : ""}）` +
+        ` · 消息 ${messages.length} 条（${chars} 字符${dropped > 0 ? `，更早的 ${dropped} 条未放` : ""}）`,
+    );
+    const priceIn = Number(get("price-in", 0.028)); // 美元/百万输入 token（deepseek-flash 未命中）
+    const priceOut = Number(get("price-out", 0.28));
+    const estInTok = Math.round(prompt.length * 0.3); // 粗估：以 ASCII 为主
+    const estCost = (estInTok / 1e6) * priceIn + (1600 / 1e6) * priceOut;
+    console.log(`  输入合计 ${prompt.length} 字符（≈${estInTok} tok）· 估价 ≈ $${estCost.toFixed(4)} · 模型 ${model}`);
     if (!write) {
       console.log("  （干跑：加 --write 才会真的调用模型并写回）");
       continue;
@@ -292,7 +359,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       continue;
     }
     const ms = Date.now() - startedAt;
-    const text = result.text.trim();
+    let text = result.text.trim();
     if (text === "") {
       console.log(
         `  ✗ 模型返回空文本（finish=${result.finish ?? "?"} · reasoning=${result.reasoningChars ?? 0} 字符 · usage=${JSON.stringify(result.usage)}）`,
@@ -300,6 +367,16 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       if (result.raw !== null) console.log(`    原始响应：${result.raw}`);
       continue;
     }
+    // ★ C492：先把质量算一遍，缺的约束**逐字补回**（约束丢了比多几行更糟）
+    const preQuality = measureFoldQuality({ graph, range: { start, end }, summaryText: text });
+    let repaired = 0;
+    if (Array.isArray(preQuality.missingConstraints) && preQuality.missingConstraints.length > 0) {
+      const fixed = repairMissingConstraints(text, preQuality.missingConstraints);
+      text = fixed.text;
+      repaired = fixed.repaired;
+      console.log(`  ⚠ 模型漏了 ${repaired} 条约束，已逐字补回`);
+    }
+
     // 写回：foldMark + closeout + lastOfflineSummary
     graph.foldMarks = Array.isArray(graph.foldMarks) ? graph.foldMarks : [];
     graph.foldMarks.push({
@@ -314,6 +391,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       ms,
       usage: result.usage,
       summaryChars: text.length,
+      // ★ C491：**质量也要算**。否则离线折叠在 `summary-refs` / doctor 眼里是"没有 quality 的折叠"，
+      //   与在线折叠口径不一致，等于换个地方瞎。
+      quality: measureFoldQuality({ graph, range: { start, end }, summaryText: text }),
+      qualityRepaired: repaired,
       offline: true,
     });
     graph.lastOfflineSummary = { at: Date.now(), range: { start, end }, text, model: result.model };
@@ -329,6 +410,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       foldAttempted: true,
       folded: 1,
       foldOffline: true,
+      // ★ C491：**覆盖到哪儿要写清楚**。预算只装得下尾部时，前段其实没压 ——
+      //   不写就是"宣称全压过"，那一段从此再也不会出现在欠账里。
+      offlineCovered: { start, end },
+      ...(uncoveredHead > 0 ? { offlineUncoveredHead: { start: rangeStart, end: start - 1, events: uncoveredHead } } : {}),
+      ...(uncoveredTail > 0 ? { offlineUncoveredTail: { start: end + 1, end: rangeEnd, events: uncoveredTail } } : {}),
     };
     fs.writeFileSync(graphFile, JSON.stringify(graph, null, 1), "utf8");
     console.log(`  ✓ 已写回：摘要 ${text.length} 字符 · ${ms}ms · usage=${JSON.stringify(result.usage)}`);

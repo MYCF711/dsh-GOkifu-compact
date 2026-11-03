@@ -52,3 +52,24 @@ tests["C490 prompt 要明说：这是归档会话、只输出摘要、不许给�
   t.includes(prompt, "做件事", "消息要带进去");
   t.includes(prompt, "n123", "要求只能引用出现过的实体");
 };
+
+tests["C491 覆盖区间要算清前后两段（只压了尾部，就别宣称压了全部）"] = async (t) => {
+  const m = await import("../scripts/archive-fold.mjs");
+  const c = m.coverageOf({ rangeStart: 100, rangeEnd: 500, seqs: [480, 490, 500] });
+  t.eq(c.start, 480, "起点是第一条被压的 seq");
+  t.eq(c.end, 500, "终点是最后一条");
+  t.eq(c.uncoveredHead, 380, "前段 100–479 没压到");
+  t.eq(c.uncoveredTail, 0, "尾部压到了");
+  // 全范围
+  const all = m.coverageOf({ rangeStart: 100, rangeEnd: 500, seqs: [100, 300, 500] });
+  t.eq(all.uncoveredHead + all.uncoveredTail, 0, "全覆盖 ⇒ 没有缺口");
+  // 没有 seq（日志里没有文本消息）⇒ 覆盖 0 宽，两头都算缺
+  const none = m.coverageOf({ rangeStart: 100, rangeEnd: 500, seqs: [] });
+  t.eq(none.start, 100, "起点退回归一化");
+  t.eq(none.uncoveredHead, 0, "等于起点时不算缺");
+  t.eq(none.uncoveredTail, 400, "整段都没覆盖");
+  // 越界的 seq 必须被夹住
+  const clamp = m.coverageOf({ rangeStart: 100, rangeEnd: 200, seqs: [50, 999] });
+  t.eq(clamp.start, 100, "起点夹到 rangeStart");
+  t.eq(clamp.end, 200, "终点夹到 rangeEnd");
+};

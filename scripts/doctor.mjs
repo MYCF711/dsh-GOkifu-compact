@@ -1336,6 +1336,14 @@ mark('C196 新鲜度');
     const attempted = withCloseout.filter((x) => x.closeout?.foldAttempted === true).length;
     if (attempted > 0) parts.push(`${attempted} 次有折叠结局记录`);
     // ★ C488：把最近一条有 note 的折叠的处置建议带出来
+    // ★ C491：离线压缩**没覆盖到的那一段**要报出来 —— 否则"折了"就等于"全压过了"
+    const withGap = withCloseout.filter((x) => Number(x?.closeout?.offlineUncoveredHead?.events) > 0);
+    if (withGap.length > 0) {
+      const worst = withGap
+        .map((x) => ({ x, n: Number(x.closeout.offlineUncoveredHead.events) || 0 }))
+        .sort((a, b) => b.n - a.n)[0];
+      parts.push(`**离线压缩还有缺口**：${withGap.length} 个会话的前段没压（最大 ${worst.n} 事件，${sessionLabel(worst.x.sessionId, wsTitles).label}）—— 这些还没进欠账，下一步做分段离线`);
+    }
     const withNote = withCloseout
       .filter((x) => typeof x.closeout?.foldNote === "string" && x.closeout.foldNote !== "")
       .sort((a, b) => (Number(b.closeout.at) || 0) - (Number(a.closeout.at) || 0));
