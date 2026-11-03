@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C489 | 「算不出」要说明为什么算不出；附带缓存定价对照 |
 | C488 | closeout 说清了原因：no-foldable-span（归档时已不可折叠） |
 | C486 | 降级路径比正常路径贵 13 倍：规则摘要要截断 |
 | C485 | HANDOFF 的全量通过数从此有人守（gate 回写基线） |
@@ -560,6 +561,43 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C489 · 「算不出」要说明为什么算不出；附带缓存定价对照
+
+**`no-foldable-span` 只说了结论，没说原因。而原因有两种，处置完全不同：**
+
+| 原因 | 含义 | 该怎么办 |
+|---|---|---|
+| `surface=0` | 会话已被归档/摘除，没有可折的东西 | **结构上做不到**，账留给重开时补 |
+| `surface>0` 却算不出 | 规划器/边界对齐的问题 | **是 bug**，得查 planner |
+
+### 改法（C489）
+
+跳过原因带上当时的规模：
+
+```js
+this._foldSkipReason = `${planned.reason}(surface=${surfaceN},priced=${pricedN})`;
+```
+
+下次归档的 `closeout.foldNote` 就会是 `nothing-to-fold:no-foldable-span(surface=0,priced=108)`
+—— 一眼能分清"外部条件不允许"和"我们自己错了"。
+
+### 外部知识（①）：两家的缓存定价差得很远
+
+| | Anthropic | DeepSeek |
+|---|---|---|
+| 写缓存 | **+25%** | **不加价** |
+| 命中读取 | **10%** | **≈2%** |
+
+Anthropic 原文："Writing to the cache costs 25% more … cached content … costing only 10% of the base input token price."（HTTP 200）
+
+同样 **94.2%** 命中率，等效成本 Anthropic ≈ 0.215×、DeepSeek ≈ **0.118×**（推算，非官方）。
+⇒ 命中率越高，DeepSeek 的优势越大；这也让 C219/C230 盯"热清单 append vs replace"更值得。
+
+### 教训
+
+**"算不出"不是结论，是症状。** 一个失败原因如果无法区分"外部条件不允许"和"我们自己错了"，
+它就只能让人反复试。
 
 ### C488 · closeout 说清了原因：no-foldable-span（归档时已不可折叠）
 

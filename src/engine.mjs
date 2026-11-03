@@ -2182,7 +2182,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     if (planned.range === null) {
       // ★ C474：**跳过原因必须留得住**。归档收尾那次返回 null，closeout 只写了个 "nothing-to-fold"，
       //   而那个会话有 163 节点 / 191 边、从没折过 —— 到底是"没内容"还是"拿不到 surface/区间"，靠猜没用。
-      this._foldSkipReason = String(planned.reason ?? "planner-null");
+      // ★ C489：把**当时的输入规模**一起记下。`no-foldable-span` 只说了"算不出区间"，
+      //   但"为什么算不出"要看 surface 有多大：surface=0 说明会话已被归档/摘除，
+      //   surface>0 却算不出，才是规划器或对齐的问题。两者处置完全不同。
+      const surfaceN = Array.isArray(session?.surface?.nodes) ? session.surface.nodes.length : null;
+      const pricedN = Array.isArray(measurement?.nodes) ? measurement.nodes.length : null;
+      this._foldSkipReason = `${planned.reason ?? "planner-null"}(surface=${surfaceN ?? "?"},priced=${pricedN ?? "?"})`;
       this.ctx.logger?.debug?.(`chess-context: 本次不 fold（${planned.reason}）`);
     }
     // ★ C189：规划器按**下标**工作，而 surface 顺序不保证按 seq 递增（C187 在 live 上证明过）。
