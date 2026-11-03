@@ -354,3 +354,16 @@ tests["C417 补账响应必须回显「真正生效的参数」（未知参数�
   t.includes(src, "selected: picked.length", "applied 必须含 selected（实际选中几个）");
   t.includes(src, "limit: wantedIds === null ? limit : picked.length", "指定了 id 时 limit 应反映实际数量");
 };
+
+tests["C426 真补账完成后必须作废清单缓存（否则十秒内再点会看到旧的 due/清单）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "LIST_DEBTS_CACHE.delete(cacheKey)", "真补后必须删缓存（C426）");
+  // 删除必须发生在「真补」分支（report 之后），而不是 dryRun 分支
+  const del = src.indexOf("LIST_DEBTS_CACHE.delete(cacheKey)");
+  const report = src.indexOf("const report = await backfillArchivedSessions");
+  t.ok(report > 0 && del > report, "作废要写在真补完成之后");
+};

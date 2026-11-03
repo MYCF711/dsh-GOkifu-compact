@@ -1552,6 +1552,10 @@ function applyInner(ctx) {
             resolveAgent,
             closeout: (agent) => bridge.closeoutNow(agent, { source: "backfill" }),
           });
+          // ★ C426：真补完之后**必须作废清单缓存**。
+          //   C416 的 10 秒缓存在这里会反噬：补完再点一次（十秒内）仍看到旧的 due 与旧清单，
+          //   会以为"没补成功"。清一下就能让下一次点击拿到真实结果。
+          LIST_DEBTS_CACHE.delete(cacheKey);
           return sendJson(res, 200, { ok: true, scanned: listed.scanned, due: listed.due, ...report });
           } finally {
             BACKFILL_GATE.inFlight = false; // 无论成败都释放，否则一次异常会把闸门永久焊死
