@@ -37,3 +37,20 @@ tests["C325 守卫自检：收缩必须被认出来"] = (t) => {
   t.eq(g.grown, [{ file: "a.test.mjs", was: 4, now: 9 }], "变多要报增长（提示更新基线）");
   t.eq(g.shrunk, [], "变多不算收缩");
 };
+
+tests["C485 HANDOFF 里的「全量 N passed」必须等于最近一次实测（否则新人第一眼读到的是过期数）"] = async (t) => {
+  const nodeFs = (await import("node:fs")).default;
+  const nodePath = (await import("node:path")).default;
+  const { fileURLToPath } = await import("node:url");
+  const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
+  const baseline = JSON.parse(nodeFs.readFileSync(nodePath.join(HERE, "counts-baseline.json"), "utf8"));
+  if (!Number.isFinite(baseline.passed)) {
+    // 还没跑过门禁：不算失败，但要明说（不许静默通过）
+    t.eq(true, true, "基线里还没有 passed 字段 —— 跑一次 `npm run gate` 就会回写");
+    return;
+  }
+  const handoff = nodeFs.readFileSync(nodePath.join(HERE, "..", "HANDOFF.md"), "utf8");
+  const m = /全量\s*\*\*(\d+)\s*passed/.exec(handoff);
+  t.eq(m !== null, true, "HANDOFF 必须写明全量通过数");
+  t.eq(Number(m[1]), baseline.passed, `HANDOFF 写的 ${m[1]} 与最近一次实测 ${baseline.passed} 不符 —— 改文档或重跑门禁`);
+};

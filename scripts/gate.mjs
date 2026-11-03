@@ -19,6 +19,7 @@
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import * as testCounts from "./test-counts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -110,6 +111,17 @@ function scriptPathOf(gate) {
     : nodePath.join(ROOT, "scripts", gate.script);
 }
 
+/** ★ C485：全量测试跑完，把实测通过数回写基线 —— 让「文档里的数字 vs 现实」有闭环。 */
+function recordPassedFromOutput(out) {
+  const m = /(\d+)\s+passed/.exec(String(out ?? ""));
+  if (m === null) return null;
+  try {
+    return testCounts.recordPassedCount(Number(m[1])).passed;
+  } catch {
+    return null;
+  }
+}
+
 function runOne(gate) {
   const started = Date.now();
   const res = spawnSync(process.execPath, [scriptPathOf(gate), ...(gate.args ?? [])], {
@@ -148,6 +160,11 @@ export function main(argv = process.argv.slice(2)) {
   const results = [];
   for (const gate of gates) {
     const r = runOne(gate);
+    // ★ C485：全量测试跑完，把实测通过数回写基线（文档里的数字才有闭环可对）
+    if (gate.id === "test" && r.ok === true) {
+      const n = recordPassedFromOutput(r.out);
+      if (n !== null) r.passedRecorded = n;
+    }
     results.push(r);
     const mark = r.advisory === true ? "—" : r.ok ? "✓" : "✗";
     process.stdout.write(`  ${mark} ${r.name}（${(r.ms / 1000).toFixed(1)}s）${r.advisory !== true && r.note ? ` — ${r.note}` : ""}\n`);

@@ -39,6 +39,27 @@ export function countCases(text) {
  * @param {Record<string, number>} baseline
  * @returns {{shrunk: Array<{file: string, was: number, now: number}>, grown: Array<{file: string, was: number, now: number}>, added: string[], removed: string[]}}
  */
+/**
+ * ★ C485：把**最近一次全量测试的通过数**写进基线。
+ *
+ * 由来：HANDOFF 是新人第一眼读的文件，里面写着「全量 1226 passed」——而实际已经是 1242。
+ * 更糟的是**没有任何东西守着它**：C167/C172 只保证「文档之间一致」，三个文件一起过期也照样绿。
+ * 这个字段由 `gate.mjs` 在跑完全量测试后回写，于是「文档 vs 现实」终于有了闭环。
+ *
+ * @param {number} passed
+ * @param {{baselineFile?: string}} [options]
+ * @returns {{passed:number}} 写入后的值
+ */
+export function recordPassedCount(passed, { baselineFile = BASELINE } = {}) {
+  const n = Number(passed);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`通过数不合理：${passed}`);
+  const current = nodeFs.existsSync(baselineFile) ? JSON.parse(nodeFs.readFileSync(baselineFile, "utf8")) : { total: 0, files: {} };
+  current.passed = Math.round(n);
+  current.passedAt = new Date().toISOString();
+  nodeFs.writeFileSync(baselineFile, JSON.stringify(current, null, 1), "utf8");
+  return { passed: current.passed };
+}
+
 export function compareCounts(current, baseline) {
   const shrunk = [];
   const grown = [];

@@ -29,3 +29,21 @@
 
 - 宿主（DSH）对 `magpie` 用的是 OpenAI 还是 Anthropic 格式？两种格式下**同一请求的 usage 口径是否一致**（C361 的 miss/hit/out 拆分）未验；
 - `any` 被降级成 `auto` 对宿主"强制调用某个工具"的逻辑有没有影响 —— 插件侧不可见。
+
+---
+
+## base_url 复核（2026-11-03 · **已核实**）
+
+来源：<https://api-docs.deepseek.com/zh-cn/>（HTTP 200）逐字：
+
+| PARAM | VALUE |
+|---|---|
+| `base_url`（OpenAI） | `https://api.deepseek.com` |
+| `base_url`（Anthropic） | `https://api.deepseek.com/anthropic` |
+| `model` | `deepseek-flash` / `deepseek-v4-pro` |
+
+> "模型名请使用 `deepseek-flash`。该模型现已升级为 **DeepSeek-V4.1-Flash-1017**，**调用方式保持不变**。
+> 旧模型名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` **仍可调用，但对应模型已下线**。"
+
+**对我们的用处**：本仓任何"换 base_url / 换模型名"的排查都从这张表出发 ——
+旧模型名**不会报错**（会静默由新模型承接），所以"名字能调通"**不能**证明配置是对的。
