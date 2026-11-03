@@ -57,6 +57,7 @@ const add = (name, status, detail) => checks.push({ name, status, detail });
  *   每块都重新 readFile + JSON.parse + fromJSON + sha 一遍 116 个图（合计 26 MB）。
  *   实测这是 7.3s 里约 4-5 秒的来源。doctor 是一次性进程，进程内缓存绝对安全。
  */
+const wsTitles = loadWorkspaceTitles(home);
 const graphCache = new Map();
 function loadGraphCached(file) {
   if (!graphCache.has(file)) graphCache.set(file, loadSessionGraph(file));
@@ -372,7 +373,7 @@ if (foldFailures.length > 0) {
     "折叠失败分类（C467）",
     newest.kind === "upstream-routing" || newest.kind === "balance" ? "warn" : "ok",
     `${foldFailures.length} 个会话记着失败：${Object.entries(byKind).map(([k, n]) => `${k}=${n}`).join(" / ")}` +
-      ` · 最近一次 ${fmtAt(newest.at)}（${newest.session}）：${newest.message.slice(0, 80)} ${hintOf(newest.kind)}`,
+      ` · 最近一次 ${fmtAt(newest.at)}（${sessionLabel(newest.session, wsTitles).label}）：${newest.message.slice(0, 80)} ${hintOf(newest.kind)}`,
   );
 }
 
@@ -394,6 +395,50 @@ let objectHash = 0;
  *          lastNodeId?:string|null, idleMs?:number, lagMs?:number}} input
  * @returns {{stale:boolean, reason:string}}
  */
+/**
+ * ★ C475：把会话 id 翻成**用户界面上看到的名字**。
+ *
+ * 由来（用户原话）：「你说的是你看到的编号，不是我这里看到的中文名」——
+ * doctor 满屏 `session-b4664e8f…`，而用户界面上写的是「发布代码仓库并公开」。
+ * 报告要给人看，就得说人话；id 保留在括号里（排查时仍要能定位）。
+ *
+ * @param {string} sessionId 形如 `session-b4664e8f-…` 或目录名
+ * @param {Record<string,string>} titles 会话 id（可带或不带 `session-` 前缀）→ 标题
+ * @returns {{label:string, title:string|null}}
+ */
+export function sessionLabel(sessionId, titles = {}) {
+  const raw = String(sessionId ?? "");
+  const bare = raw.replace(/^session-/, "");
+  const title = titles[bare] ?? titles[raw] ?? null;
+  if (title === null || title === "") return { label: raw.slice(0, 20), title: null };
+  return { label: `「${title}」（${bare.slice(0, 8)}）`, title };
+}
+
+/**
+ * 从 `storages/workspace.json` 取「会话 → 工作区标题」映射（同一会话跨工作区时取第一个）。
+ * 读不到就返回空表 —— 报告退回显示 id，不许因此失败。
+ * @param {string} home
+ * @returns {Record<string,string>}
+ */
+export function loadWorkspaceTitles(home) {
+  try {
+    const file = nodePath.join(home, "storages", "workspace.json");
+    const parsed = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+    const out = {};
+    for (const info of Object.values(parsed?.tables?.workspaces ?? {})) {
+      const title = typeof info?.title === "string" ? info.title : "";
+      if (title === "") continue;
+      for (const sid of Array.isArray(info?.sessionIds) ? info.sessionIds : []) {
+        const bare = String(sid).replace(/^session-/, "");
+        if (out[bare] === undefined) out[bare] = title;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export function indexFreshness({
   graphMtime,
   indexMtime,
@@ -1271,7 +1316,10 @@ mark('C196 新鲜度');
     add(
       "归档收尾（closeout）",
       "warn",
-      `${missingCloseout.length} 个会话已归档、留下棋谱，却一条 closeout 都没有（${missingCloseout.slice(0, 3).join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
+      `${missingCloseout.length} 个会话已归档、留下棋谱，却一条 closeout 都没有（${missingCloseout
+        .slice(0, 3)
+        .map((x) => sessionLabel(x, wsTitles).label)
+        .join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
         ` —— 归档没走到收尾路径：1.17.6 之前挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）` +
         `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}` +
         outcomeSummary,
