@@ -88,7 +88,40 @@ export function readDefaultModel(home) {
  * @param {{maxChars?:number, fromSeq?:number|null}} [options]
  * @returns {{messages:Array<{role:string,text:string,seq:number|null}>, chars:number, dropped:number}}
  */
-export function collectMessages(events, { maxChars = 60_000, fromSeq = null } = {}) {
+/**
+ * ★ C521：把一次工具调用压成**一行**（name + 关键参数），给摘要当"做过什么"的骨架。
+ *
+ * 为什么必须有：真机会话里 **95% 的 assistant 消息没有文本块**（4,728 条只有 287 条有 text），
+ * 真正干活的记录在 `tool/call` 事件里（同一会话 4,509 次）。
+ * 只喂 user/assistant 文本 ⇒ 摘要在讲"用户说了什么"，却不知道"agent 做了什么"。
+ *
+ * @param {{name?:string, arguments?:string}} data
+ * @param {number} maxArgChars
+ * @returns {string}
+ */
+export function toolDigestLine(data, maxArgChars = 80) {
+  const name = String(data?.name ?? "").trim();
+  if (name === "") return "";
+  let args = data?.arguments;
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args);
+      // 只挑最能说明意图的那个参数（按常见键顺序）
+      const key = ["command", "file_path", "path", "pattern", "query", "url", "title", "prompt"].find((k) => typeof parsed?.[k] === "string");
+      args = key === undefined ? args : `${key}=${parsed[key]}`;
+    } catch {
+      /* 不是 JSON 就原样用 */
+    }
+  } else if (args !== null && typeof args === "object") {
+    args = Object.entries(args).slice(0, 2).map(([k, v]) => `${k}=${String(v)}`).join(" ");
+  }
+  const raw = String(args ?? "").replace(/\s+/g, " ").trim();
+  const cut = raw.length > maxArgChars;
+  const body = cut ? `${raw.slice(0, maxArgChars)}…` : raw;
+  return `→ ${name}(${body})`;
+}
+
+export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4 } = {}) {
   const picked = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (e === null || typeof e !== "object") continue;
@@ -99,35 +132,87 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null } = 
     if (text.trim() === "") continue;
     picked.push({ role: e.type === "user/message" ? "user" : "assistant", text, seq: Number(e.seq) || null });
   }
+  // ★ C521：把工具调用也编进时间线（受 toolShare 预算约束），否则摘要只剩"用户说了什么"
+  const toolLines = [];
+  for (const e of Array.isArray(events) ? events : []) {
+    if (e === null || typeof e !== "object" || e.type !== "tool/call") continue;
+    if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
+    const line = toolDigestLine(e.data);
+    if (line !== "") toolLines.push({ role: "tool", text: line, seq: Number(e.seq) || null });
+  }
+  const merged = [...picked, ...toolLines].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+  // ★ C521：**两份预算**。工具行最多占 toolShare（默认 40%），文本行吃剩下的 ——
+  //   否则工具行会把"用户到底要什么"挤掉（测试里钉住了）。
+  // 没有工具行时**不预留**工具预算（否则小预算下文本一条都放不进来 —— C490 那条就是这个形状）
+  const hasTools = toolLines.length > 0;
+  const toolCap = hasTools ? Math.max(0, Math.floor(maxChars * Math.max(0, Math.min(1, Number(toolShare) || 0)))) : 0;
+  const textCap = Math.max(0, maxChars - toolCap);
+  const out = [];
+  let toolChars = 0;
+  let textChars = 0;
+  let dropped = 0;
+  const take = (m) => {
+    if (m.role === "tool") {
+      if (toolChars + m.text.length > toolCap) return false;
+      toolChars += m.text.length;
+      out.push(m);
+      return true;
+    }
+    if (textChars + m.text.length > textCap) return false;
+    textChars += m.text.length;
+    out.push(m);
+    return true;
+  };
+  // ★ C521：**工具行超预算只是"这条不要"，不是"到此为止"**（一开始写成 break，结果什么都进不去）。
+  //   只有**文本行**超预算才是真正的预算边界。
+  const overCap = (m) => (m.role === "tool" ? toolChars + m.text.length > toolCap : textChars + m.text.length > textCap);
   if (fromSeq !== null) {
-    const out = [];
-    let chars = 0;
-    let dropped = 0;
-    for (let i = 0; i < picked.length; i += 1) {
-      const m = picked[i];
-      if (chars + m.text.length > maxChars) {
-        dropped = picked.length - i;
+    for (let i = 0; i < merged.length; i += 1) {
+      const m = merged[i];
+      if (overCap(m)) {
+        if (m.role === "tool") {
+          dropped += 1;
+          continue;
+        }
+        dropped = merged.length - i;
         break;
       }
-      out.push(m);
-      chars += m.text.length;
+      take(m);
     }
-    return { messages: out, chars, dropped };
-  }
-  const out = [];
-  let chars = 0;
-  let dropped = 0;
-  for (let i = picked.length - 1; i >= 0; i -= 1) {
-    const m = picked[i];
-    if (chars + m.text.length > maxChars) {
-      dropped = i + 1;
-      break;
+  } else {
+    for (let i = merged.length - 1; i >= 0; i -= 1) {
+      const m = merged[i];
+      if (overCap(m)) {
+        if (m.role === "tool") {
+          dropped += 1;
+          continue;
+        }
+        dropped = i + 1;
+        break;
+      }
+      take(m);
     }
-    out.push(m);
-    chars += m.text.length;
+    out.reverse();
   }
-  out.reverse();
-  return { messages: out, chars, dropped };
+  return { messages: out, chars: out.reduce((n, m) => n + m.text.length, 0), dropped };
+}
+
+/**
+ * ★ C521：工具行只占**一部分**预算（默认 40%）—— 全塞工具等于把用户诉求挤掉。
+ * 超了就**从最早的开始丢**（保留最近的：它们才是当前状态）。
+ * @param {Array<{role:string,text:string}>} messages
+ * @param {number} budgetChars
+ */
+function limitToolLines(messages, budgetChars) {
+  let used = 0;
+  for (const m of messages) if (m.role === "tool") used += m.text.length;
+  if (used <= budgetChars) return;
+  for (let i = 0; i < messages.length && used > budgetChars; i += 1) {
+    if (messages[i].role !== "tool") continue;
+    used -= messages[i].text.length;
+    messages.splice(i, 1);
+    i -= 1;
+  }
 }
 
 /**

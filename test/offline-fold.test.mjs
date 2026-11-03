@@ -218,3 +218,35 @@ tests["C517 「surface 里找不到这段」也是放弃理由 —— 归档后�
   t.eq(m.shouldTryOfflineFold({ ...base, reason: "MAX_TOKENS" }).go, false, "截断不是 surface 问题，别乱走离线");
   t.eq(m.shouldTryOfflineFold({ ...base, reason: "余额不足（402）" }).go, false, "没钱走离线也一样没钱");
 };
+
+tests["C521 摘要输入必须带「agent 做过什么」——真机 95% 的 assistant 消息没有文本块"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  // 一行工具摘要：JSON arguments 只取最能说明意图的那个键
+  t.eq(m.toolDigestLine({ name: "bash", arguments: "{\"command\":\"npm test\"}" }), "→ bash(command=npm test)", "bash 取 command");
+  t.eq(m.toolDigestLine({ name: "read", arguments: "{\"file_path\":\"a/b.mjs\"}" }), "→ read(file_path=a/b.mjs)", "read 取 file_path");
+  t.includes(m.toolDigestLine({ name: "bash", arguments: "{\"command\":\"" + "x".repeat(200) + "\"}" }), "…", "超长要截（这里是前缀截断）");
+  t.eq(m.toolDigestLine({ name: "" }), "", "没名字就不产生行");
+
+  const events = [
+    u(1, "把构建跑通"),
+    { type: "tool/call", seq: 2, data: { name: "bash", arguments: "{\"command\":\"npm test\"}" } },
+    { type: "tool/result", seq: 3, data: { content: [{ type: "text", text: "x".repeat(4000) }] } },
+    a(4, "测试过了"),
+  ];
+  const got = m.collectMessages(events, { maxChars: 10_000 });
+  const toolLines = got.messages.filter((x) => x.role === "tool");
+  t.eq(toolLines.length, 1, "工具调用要变成一行");
+  t.includes(toolLines[0].text, "npm test", "要能看出跑了什么");
+  t.eq(got.messages.some((x) => x.text.includes("x".repeat(100))), false, "工具**结果**仍然不进（那才是几千字符的东西）");
+};
+
+tests["C521 工具行有预算上限：不许把用户诉求挤掉"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const events = [u(1, "目标：修好日志")];
+  for (let i = 2; i <= 200; i += 1) events.push({ type: "tool/call", seq: i, data: { name: "bash", arguments: `{"command":"cmd-${i}-${"y".repeat(60)}"}` } });
+  const got = m.collectMessages(events, { maxChars: 6000, toolShare: 0.4 });
+  const userChars = got.messages.filter((x) => x.role !== "tool").reduce((n, x) => n + x.text.length, 0);
+  const toolChars = got.messages.filter((x) => x.role === "tool").reduce((n, x) => n + x.text.length, 0);
+  t.eq(userChars > 0, true, "用户那条必须还在");
+  t.eq(toolChars <= 6000 * 0.4 + 200, true, `工具行不能超过 40% 预算（实际 ${toolChars}）`);
+};
