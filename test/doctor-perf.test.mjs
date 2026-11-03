@@ -37,3 +37,11 @@ tests["C464 doctor 一次运行只解一次图（9 个块各自 loadSessionGraph
   t.eq(src.includes("function loadGraphCached"), true, "必须有进程内图缓存");
   t.eq(src.includes("graphCache"), true, "缓存容器在位");
 };
+
+tests["C513 patch 里没有模型表 ⇒ 要问一次本机网关（magpie /v1/models），不许直接判 error"] = (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "function liveProviderModels", "必须有运行时取模型表的兜底");
+  t.includes(src, "http://127.0.0.1:3425/v1/models", "只问本机 magpie 网关（AGENTS.md 登记的出口）");
+  t.includes(src, "if (fromPatch.length > 0) return fromPatch;", "patch 里有就以 patch 为准（不额外发请求）");
+  t.includes(src, "return liveProviderModels(name);", "patch 没有才走兜底");
+};

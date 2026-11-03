@@ -113,14 +113,39 @@ function readPresetSummarizer() {
   return { provider, model };
 }
 function providerModels(name) {
-  if (!nodeFs.existsSync(profilePatch)) return [];
-  const text = nodeFs.readFileSync(profilePatch, "utf8");
-  const idx = text.indexOf(`- id: ${name}`);
-  if (idx < 0) return [];
-  const slice = text.slice(idx, idx + 4000);
-  const models = [];
-  for (const m of slice.matchAll(/^\s+- id:\s*(\S+)/gm)) models.push(m[1]);
-  return models;
+  const fromPatch = (() => {
+    if (!nodeFs.existsSync(profilePatch)) return [];
+    const text = nodeFs.readFileSync(profilePatch, "utf8");
+    const idx = text.indexOf(`- id: ${name}`);
+    if (idx < 0) return [];
+    const slice = text.slice(idx, idx + 4000);
+    const models = [];
+    for (const m of slice.matchAll(/^\s+- id:\s*(\S+)/gm)) models.push(m[1]);
+    return models;
+  })();
+  if (fromPatch.length > 0) return fromPatch;
+  // ★ C513：**patch 里没有模型表 ≠ 这个 provider 没有模型**。
+  //   magpie 的模型目录是它自己运行时给的（`/v1/models`），不是写在 patch 里的 ——
+  //   只看 patch 会把「配了 magpie 的模型」误判成 error。
+  return liveProviderModels(name);
+}
+
+/**
+ * ★ C513：向本机网关要一次模型表（只读、5 秒上限、失败就当读不到）。
+ * 只认 127.0.0.1 的 magpie（端口 3425，AGENTS.md 里登记的唯一模型出口）。
+ * @param {string} name
+ * @returns {string[]}
+ */
+function liveProviderModels(name) {
+  if (name !== "magpie") return [];
+  try {
+    const out = execFileSync("curl.exe", ["-s", "-m", "5", "http://127.0.0.1:3425/v1/models"], { encoding: "utf8", timeout: 8000 });
+    const parsed = JSON.parse(out);
+    const list = Array.isArray(parsed?.data) ? parsed.data : [];
+    return list.map((m) => String(m?.id ?? "")).filter((x) => x !== "");
+  } catch {
+    return [];
+  }
 }
 /* ── 2.5 压缩后端接管：preset 里必须是我们的引擎，且没有 compaction-basic ── */
 const hasOurEngine = hasOurName;
