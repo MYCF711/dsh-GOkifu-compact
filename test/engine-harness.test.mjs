@@ -3080,8 +3080,8 @@ tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默
 tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;
-  // 3 处 = 两个调用点 + 方法定义本身
-  t.eq(calls, 3, `两个调用点 + 定义本身，实际 ${calls} 处`);
+  // ★ C517 后又多了两个入口（单段抛错 / 分段一段没折成）⇒ 现在是 5 处（4 调用点 + 定义）
+  t.eq(calls, 5, `调用点 ${calls - 1} 个 + 定义本身，实际 ${calls} 处`);
   t.includes(src, '#tryOfflineCloseout(target, "timeout")', "超时分支必须尝试离线，而不是直接放弃");
   t.includes(src, "shouldTryOfflineFold", "判定复用纯函数");
   t.includes(src, "未走离线补折", "不走也要留痕（调参时靠这行）");

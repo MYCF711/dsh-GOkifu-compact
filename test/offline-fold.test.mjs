@@ -208,3 +208,13 @@ tests["C505 合法实体不许被误伤"] = async (t) => {
   t.eq(chunk.sanitized, 0, "e1 在图里且区间内 ⇒ 不该被清");
   t.includes(chunk.text, "e1", "合法实体要留着");
 };
+
+tests["C517 「surface 里找不到这段」也是放弃理由 —— 归档后补账失败的正是它"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const base = { enabled: true, tailEvents: 1531, minEvents: 40 };
+  const real = "Error: compactRegion: start seq 496 not found in surface";
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: real }).go, true, "真机那条错误必须触发离线补折");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "compactRegion: start seq 12 not found in surface" }).go, true, "换 seq 也一样");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "MAX_TOKENS" }).go, false, "截断不是 surface 问题，别乱走离线");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "余额不足（402）" }).go, false, "没钱走离线也一样没钱");
+};

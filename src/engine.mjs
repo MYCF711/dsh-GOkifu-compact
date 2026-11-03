@@ -1692,13 +1692,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         void totalEnd;
         // ★ C479：**分段没折完也要说清为什么**。真机 c460d468：`chunkedChunks: 2 / chunkedFolded: 0`，
         //   而 closeout 里没有任何原因 —— 与 C474 修的"单段 null"是同一个洞，只是这条分支漏了。
-        return {
+        const chunkedResult = {
           tier: "chunked",
           folded,
           chunks: chunks.length,
           stopped: outcome.stopped ?? null,
           error: outcome.error === null || outcome.error === undefined ? null : String(outcome.error).slice(0, 300),
         };
+        // ★ C517：**一段都没折成**时试离线（真机 c460d468 就是这个形状：
+        //   chunkedChunks:2 / chunkedFolded:0 / foldError:"start seq 496 not found in surface"）。
+        if (folded === 0 && chunkedResult.error !== null) {
+          const offline = await this.#tryOfflineCloseout(target, chunkedResult.error);
+          if (offline !== null) return offline;
+        }
+        return chunkedResult;
       }
     }
     const work = (async () => {
@@ -1724,6 +1731,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         const offline = await this.#tryOfflineCloseout(target, "timeout");
         if (offline !== null) return offline;
         return { tier: "single", skipped: "timeout" };
+      }
+      // ★ C517：**折叠抛错也要试离线**。真机 c460d468：`compactRegion: start seq 496 not found in surface`
+      //   —— 归档恢复后 surface 里没有这段，在线折叠永远失败；而离线补折读的是**日志**，正好能救。
+      if (result !== null && result !== undefined && typeof result === "object" && typeof result.error === "string" && result.error !== "") {
+        const offline = await this.#tryOfflineCloseout(target, result.error);
+        if (offline !== null) return offline;
       }
       // ★ C474：null 不等于"没东西可折" —— 把 skip 原因一起带回去，让 closeout 能说清
       if (result === null || result === undefined) {

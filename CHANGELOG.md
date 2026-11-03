@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C509 | 真因：surface 里找不到这段；错误也要触发离线补折 |
 | C508 | doctor 报出归档后仍未折的尾巴（23 个会话 / 64,562 事件） |
 | C507 | 欠账口径守卫：lastFoldSeq 与 foldMarks 差 1670 事件 |
 | C506 | 收尾结局只改内存没落盘：sessionRefs 早被删了 |
@@ -580,6 +581,47 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C509 · 真因：surface 里找不到这段；错误也要触发离线补折
+
+**这次补账把真正的失败原因照出来了（C514 让结局落盘，第一次看到它）。**
+
+### 一、真机本次结果
+
+```
+补一个会话 c460d468（尾巴 1531）→ 面板补账 1 秒返回 folded:1
+但图里写的是：
+closeout: { "folded": 0, "chunkedChunks": 2, "chunkedFolded": 0,
+            "chunkStopped": "error",
+            "foldError": "Error: compactRegion: start seq 496 not found in surface" }
+```
+
+**这就是那批会话一直折不掉的真因**：归档/恢复之后，宿主的 surface 里**没有这些消息**，
+所以 `compactRegion` 直接抛 `start seq … not found in surface`。
+
+### 二、而离线补折本该救它，却没被触发
+
+`shouldTryOfflineFold` 原来只认两种放弃理由：`no-foldable-span` / `timeout`。
+**错误也是一种"放弃"** —— 尤其是这条"surface 里找不到"。
+
+### 三、改法（C517）
+
+1. 判定函数加第三类：**错误文本里出现 surface 语义**（`not found in surface` 等）；
+2. 引擎里补两个入口：
+   - 单段折叠**抛错**时试离线；
+   - 分段折叠**一段都没折成**时试离线（真机正是这个形状）。
+
+### 四、验证
+
+```
+node test/run.mjs → 1278 passed, 0 failed
+（离线判定 13 条，其中「surface 里找不到这段」样例用真机原文）
+```
+
+### 五、意义
+
+这条补上之后，**归档会话的折叠才真正闭环**：
+在线折叠失败 → 自动改走"读日志 + 默认模型" → 不再依赖 surface。
 
 ### C508 · doctor 报出归档后仍未折的尾巴（23 个会话 / 64,562 事件）
 

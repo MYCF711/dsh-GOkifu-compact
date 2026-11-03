@@ -1,5 +1,5 @@
 {
- "total": 958,
+ "total": 959,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -83,7 +83,7 @@
   "merge-provenance.test.mjs": 4,
   "migrate.test.mjs": 2,
   "node-docs.test.mjs": 2,
-  "offline-fold.test.mjs": 12,
+  "offline-fold.test.mjs": 13,
   "overbudget-report.test.mjs": 4,
   "p6c-preflight.test.mjs": 6,
   "pack-check.test.mjs": 3,
@@ -141,6 +141,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1277,
- "passedAt": "2026-11-03T19:26:19.628Z"
+ "passed": 1278,
+ "passedAt": "2026-11-03T19:45:24.934Z"
 }

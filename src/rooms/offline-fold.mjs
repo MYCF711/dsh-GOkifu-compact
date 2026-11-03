@@ -341,7 +341,14 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
   // ★ C503：**「在线路径放弃了」都算触发条件**。
   //   这里原来只认 `no-foldable-span`，于是 C501 加的"超时也走离线"实际是**死代码** ——
   //   reason 传进来的是 `"timeout"`，永远不匹配。教训：加分支时先测那个分支的输入。
-  const isGiveUp = note.includes("no-foldable-span") || note === "timeout" || note.includes("timeout");
+  // ★ C517：**第三种放弃理由：surface 供不上这段**。
+  //   真机（2026-11-04 c460d468，归档后补账）：
+  //     `foldError: "Error: compactRegion: start seq 496 not found in surface"`
+  //   —— 归档/恢复之后宿主的 surface 里没有这些消息，在线折叠**永远折不了**。
+  //   这正是离线补折存在的理由，可它只认前两种原因 ⇒ 白白失败。
+  const surfaceMissing = /not found in surface|surface/i.test(note) && /compact|fold|region/i.test(note + " fold");
+  const isGiveUp =
+    note.includes("no-foldable-span") || note === "timeout" || note.includes("timeout") || surfaceMissing;
   if (!isGiveUp) return { go: false, why: "not-a-giveup-reason" };
   if (!(Number(tailEvents) >= Number(minEvents))) return { go: false, why: "tail-too-short" };
   return { go: true, why: "no-foldable-span" };
