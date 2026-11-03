@@ -1,5 +1,5 @@
 {
-  "total": 848,
+  "total": 850,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -60,7 +60,7 @@
     "ledger-pricing.test.mjs": 9,
     "ledger-properties.test.mjs": 2,
     "ledger-scale.test.mjs": 4,
-    "ledger.test.mjs": 25,
+    "ledger.test.mjs": 27,
     "live-bench.test.mjs": 8,
     "live-folds.test.mjs": 11,
     "log-window.test.mjs": 4,

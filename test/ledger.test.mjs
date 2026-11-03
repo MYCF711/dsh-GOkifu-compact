@@ -2,7 +2,7 @@ import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureE
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, _internal } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
@@ -501,4 +501,51 @@ tests["C352 官方比例估算器：中文 0.6/字、英文 0.3/字（校准脚�
   // 纯英文时我们应偏低（0.25 vs 0.3）
   const asciiOnly = compareEstimates("abcdefghijklmnopqrst");
   t.eq(asciiOnly.ratio < 1, true, `纯英文时应偏低，实际 ${asciiOnly.ratio}`);
+};
+
+/* ───────── C448：CURRENT GOAL 的原料问题（真机 93.3% 的 assistant 消息没有 text 块） ───────── */
+
+tests["C448 currentGoalOf：agent 有 goal 就用它；没有再兜底最近一条 user 原话（且不能是根）"] = (t) => {
+  const g = buildGraph({ failures: 1 });
+  const latest = (g.order ?? []).map((id) => g.nodes[id]).filter((n) => n && n.kind === "agent").at(-1);
+  // ① 只有根用户 ⇒ 不给（否则就是重复 ROOT）
+  t.eq(currentGoalOf(g, { goal: "" }), null, "单轮会话不该伪造 CURRENT GOAL（与 ROOT 重复）");
+  // ② 多轮 ⇒ 用最近一条 user 原话
+  const g2 = buildGraph({ failures: 1, extraUser: "改成先跑 lint，再跑测试。" });
+  const got = currentGoalOf(g2, { goal: "" });
+  t.eq(got?.source, "latest-user", "没有 goal 时应回落到最近一条 user 原话");
+  t.includes(got?.text ?? "", "先跑 lint", "回落内容必须是用户原话");
+  // ③ agent 自己有 goal ⇒ 优先它
+  const got2 = currentGoalOf(g2, { goal: "跑通 lint" });
+  t.eq(got2?.source, "agent-goal", "有 goal 时不许被兜底覆盖");
+  t.eq(got2?.text, "跑通 lint", "goal 原文");
+  // ④ 最新那条就是根 ⇒ 不给
+  const g3 = buildGraph({ failures: 0 });
+  const rootId = g3.rootUserNodeIds[0];
+  t.eq(currentGoalOf(g3, { goal: "" }), null, "只有根时不给");
+  t.eq(currentGoalOf({ ...g3, rootUserNodeIds: [g3.order.at(-1)] }, { goal: "" }), null, "最新一条就是根时不给");
+  t.eq(typeof rootId, "string", "夹具应有根 id");
+};
+
+tests["C448 renderLedger：多轮会话必须真的出现 CURRENT GOAL 行（真机现状是 0.3% 才有）"] = (t) => {
+  // 有路径才会渲染 CURRENT GOAL 行（它挂在路径块里）⇒ 夹具必须有 agent 节点
+  const withPath = (extraUser) => {
+    const g = createGraph({ sessionId: "c448" });
+    const u = addUserNodeId(g, { seq: 1, text: "把 data.jsonl 算出来。" });
+    const e1 = addEdge(g, { from: u, intent: "跑一下", action: "bash(node calc.mjs)" });
+    const n2 = addAgentNode(g, { seq: 5, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
+    g.edges[e1].to = n2;
+    settleEdge(g, e1, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    if (extraUser !== null) addUserNodeId(g, { seq: 9, text: extraUser });
+    return g;
+  };
+  const single = renderLedger(withPath(null), { now: 1_760_000_000_000 });
+  t.eq(single.text.includes("CURRENT GOAL"), false, "单轮会话不出现（与 ROOT 重复）");
+  const multi = renderLedger(withPath("改成先跑 lint，再跑测试。"), { now: 1_760_000_000_000 });
+  t.includes(multi.text, "CURRENT GOAL:", "多轮会话必须出现");
+  t.includes(multi.text, "先跑 lint", "内容要带上用户原话");
+  // 长指令要截断（一行不许无限长）
+  const clipped = renderLedger(withPath("改".repeat(400)), { now: 1_760_000_000_000 });
+  const line = clipped.text.split(String.fromCharCode(10)).find((l) => l.startsWith("CURRENT GOAL:"));
+  t.eq((line ?? "").length <= 240 + 20, true, `CURRENT GOAL 行必须截断，实际 ${(line ?? "").length} 字`);
 };

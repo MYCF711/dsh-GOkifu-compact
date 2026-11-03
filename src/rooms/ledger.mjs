@@ -410,6 +410,36 @@ export function laterSuccessOf(edge, successEdges = []) {
   return best;
 }
 
+/**
+ * ★ C448：热清单里「当前目标」到底能取到什么 —— 纯函数，便于单测。
+ *
+ * 由来（真机实测）：`CURRENT GOAL` 这行**几乎从不出现**。查下来不是渲染写错，是**没有原料**：
+ * 一个 35.7 MB 会话里 3,369 条 assistant 消息有 **93.3% 没有 `text` 块**（3,142 条），
+ * 而 `goal` 只从 assistant 文本抽 ⇒ 19,375 个 agent 节点里只有 62 个（0.3%）有 goal。
+ *
+ * 所以补一个**一定存在**的兜底：最近一条 **user 原话**（多轮会话里 78% 有，长度中位 21 字）。
+ * 只在两个条件下用，避免把噪声伪装成目标：
+ *   · agent 节点自己没有 goal；
+ *   · 最近一条 user **不是根节点**（是根的话它就等于已经渲染过的 ROOT USER，重复一遍是纯浪费）。
+ *
+ * 成本实测（37 个真机会话）：整库热清单 tokens 15803 → 16134（**+2.1%**，约 +9 tok/会话）。
+ *
+ * @returns {{text: string, source: "agent-goal"|"latest-user"}|null}
+ */
+export function currentGoalOf(g, latestAgent) {
+  const goal = typeof latestAgent?.goal === "string" ? latestAgent.goal.trim() : "";
+  if (goal !== "") return { text: goal, source: "agent-goal" };
+  const users = (g?.order ?? [])
+    .map((id) => g.nodes?.[id])
+    .filter((n) => n !== undefined && n !== null && n.kind === "user" && typeof n.text === "string" && n.text.trim() !== "");
+  if (users.length === 0) return null;
+  const last = users[users.length - 1];
+  const rootIds = Array.isArray(g?.rootUserNodeIds) ? g.rootUserNodeIds : [];
+  // 只有一条 user / 最新那条就是根 ⇒ 与 ROOT 重复，不给
+  if (rootIds.includes(last.id) || users.length === 1) return null;
+  return { text: last.text.trim(), source: "latest-user" };
+}
+
 export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null, retried = 1) {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
@@ -1063,8 +1093,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   （verifier 复验抓到；e3820651 331→742、6f90bd1d 453→810 …）。
       //   现在 `prePathUnits` 是**精确的加权单位数**（W-A：4 单位 = 1 token，CJK 4 单位/字），
       //   `available` 才是路径行真正能用的额度。
-      const goal = latest?.goal;
-      const goalLine = goal ? `CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}` : null;
+      // ★ C448：goal 常常为空（真机 0.3%）⇒ 兜底最近一条 user 原话（否则这行等于不存在）
+      const goalOf = currentGoalOf(g, latest);
+      const goalLine = goalOf === null ? null : `CURRENT GOAL: ${clip(goalOf.text, level <= 1 ? 240 : 120)}`;
       const transpositionNote = (() => {
         let transposed = 0;
         for (let i = 1; i < path.length; i += 1) {
