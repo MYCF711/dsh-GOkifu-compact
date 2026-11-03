@@ -28,6 +28,8 @@ export const COLD_INPUT_PER_MTOK = 0.15;
 /** 每次补账除了折进去的尾巴，还要付一次摘要输出（保守按 2k token、$0.6/M 计）。 */
 export const SUMMARY_OUTPUT_TOKENS = 2000;
 export const OUTPUT_PER_MTOK = 0.6;
+/** ★ C452：峰时价 = 低谷价 × 2（与 src/ui.mjs 的 PEAK_MULTIPLIER 同一个数）。 */
+export const PEAK_MULTIPLIER = 2;
 
 /**
  * ★ C339：把一批欠账算成「要几轮、多少钱」。纯函数，便于单测。
@@ -68,6 +70,10 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
   const clicks = (rows ?? []).length === 0 ? 0 : Math.ceil((rows ?? []).length / 20);
   // 每一段折叠都要付一次输入（该段 token）+ 一次摘要输出
   const costUsd = (tokens / 1_000_000) * coldInputPerMTok + (chunks * SUMMARY_OUTPUT_TOKENS / 1_000_000) * OUTPUT_PER_MTOK;
+  // ★ C452：官方是**峰谷两档**（"Off-peak rates are half of the peak rates"），这里给的 costUsd 是
+  //   **低谷价**（下限）。高峰时段（UTC 周一~周五 01–04 / 06–10 = 北京工作日 09–12、14–18）
+  //   要 **×2** —— 而那恰好是大家干活的时间。两个数一起给，别让"$1.81"被当成上限。
+  const peakUsd = costUsd * PEAK_MULTIPLIER;
   return {
     total: (rows ?? []).length,
     estimable,
@@ -79,6 +85,7 @@ export function summarizePlan(rows, { maxChunks = 6, coldInputPerMTok = COLD_INP
     clicks,
     multiPass,
     costUsd: Math.round(costUsd * 100) / 100,
+    costUsdPeak: Math.round(peakUsd * 100) / 100,
     rows: rows ?? [],
   };
 }
@@ -263,7 +270,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (rounds.length > 6) console.log(`  …共 ${rounds.length} 轮`);
   console.log(
     `合计 ≈ ${(plan.tokens / 1_000_000).toFixed(2)} M tok / ${plan.chunks} 段` +
-      ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**`,
+      ` · 冷缓存估价 **$${plan.costUsd.toFixed(2)}**（低谷）/ $${plan.costUsdPeak.toFixed(2)}（高峰）`,
   );
   const allMs = rows.flatMap((r) => r._ms ?? []);
   const dur = foldDurationStats(allMs);

@@ -1,5 +1,5 @@
 {
-  "total": 861,
+  "total": 865,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -80,6 +80,7 @@
     "pack-check.test.mjs": 3,
     "package-exports.test.mjs": 12,
     "patch-manifest.test.mjs": 3,
+    "peak-pricing.test.mjs": 4,
     "perf-probe.test.mjs": 2,
     "persist-incremental.test.mjs": 8,
     "post-restart-check.test.mjs": 5,

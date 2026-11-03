@@ -285,3 +285,27 @@
 
 ⇒ 这次实测反过来印证了 C398/C400 的必要性：**字段名与位置都对，但写入顺序错了**，就是全 null。
 重启加载 C398/C400 后，同一会话的新折叠应出现真值 —— 这是下一次重启的**可验证预言**。
+
+
+---
+
+## 复核（2026-11-03 重新抓取 · **已核实**）
+
+来源：<https://api-docs.deepseek.com/quick_start/pricing>（HTTP 200）
+
+| 每 1M token（USD） | deepseek-flash 低谷 | deepseek-flash 高峰 | deepseek-v4-pro 低谷 | deepseek-v4-pro 高峰 |
+|---|---|---|---|---|
+| 输入 cache **hit** | 0.003 | 0.006 | 0.022 | 0.044 |
+| 输入 cache **miss** | 0.15 | 0.30 | 0.66 | 1.32 |
+| 输出 | 0.6 | 1.2 | 1.98 | 3.96 |
+
+原文口径（逐字）："**Off-peak rates are half of the peak rates.** Peak hours are **01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday**, excluding Chinese public holidays."
+
+**两个必须记住的换算**：
+
+- 高峰时段换成北京时间 = **工作日 09:00–12:00 与 14:00–18:00** —— 正好是干活时间。
+  我们此前的所有"$X 估算"用的都是**低谷价**，白天看等于**低报一倍**（C452 起两个价一起给）。
+- 节假日要排除，但我们离线没有中国节假日表 ⇒ 节假日会被算成高峰，**只会高估、不会低估**（方向上安全）。
+
+模型页同时写着：`deepseek-flash` 是**现用名**，`deepseek-v4-flash` 等旧名仍可用但"served by the DeepSeek-V4.1-Flash-1017 model and billed at the Flash price"；
+`deepseek-v4-pro` 对应 `DeepSeek-V4-Pro-0813`。上下文 **1M**、最大输出 **384K**、思考模式**默认开启**。

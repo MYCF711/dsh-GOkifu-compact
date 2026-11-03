@@ -340,6 +340,33 @@ export const PRICE_USD_PER_MTOK = Object.freeze({
  * 如果用户跑的是 pro，面板上的"今日折叠成本"会**低报 4 倍多**。
  * 低报比不报更糟：它让人以为很便宜。
  */
+/**
+ * ★ C452：**峰谷两档价**（官方原文："Off-peak rates are half of the peak rates"）。
+ *
+ * 我们表里（C271/C345）用的都是**低峰价** ⇒ 估算是**下限**。而高峰时段换算到北京时间恰好是
+ * **工作日 09:00–12:00 与 14:00–18:00**（UTC 01–04 / 06–10）—— 正是大家真正在干活的时候。
+ * 也就是说：白天算出来的成本可能**低报一倍**。这一行把它说清楚，并给一个能判定的函数。
+ */
+export const PEAK_MULTIPLIER = 2;
+
+/**
+ * 现在（或指定时刻）是不是**高峰时段**。官方口径：UTC 周一~周五 01:00–04:00 与 06:00–10:00。
+ *
+ * **已知近似**：官方还要排除"中国法定节假日"（原文："excluding Chinese public holidays"），
+ * 我们离线没有节假日表 ⇒ 节假日会被算成高峰（**只会高估，不会低估**，方向上是安全的）。
+ *
+ * @param {Date|number|string} [at]
+ * @returns {boolean}
+ */
+export function isPeakUtc(at) {
+  const d = at instanceof Date ? at : new Date(at ?? Date.now());
+  if (Number.isNaN(d.getTime())) return false;
+  const weekday = d.getUTCDay(); // 0=周日, 6=周六
+  if (weekday === 0 || weekday === 6) return false;
+  const hour = d.getUTCHours();
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
+
 export const MODEL_PRICES_USD_PER_MTOK = Object.freeze({
   "deepseek-flash": PRICE_USD_PER_MTOK,
   "deepseek-v4-pro": Object.freeze({ miss: 0.66, hit: 0.022, out: 1.98 }),
@@ -350,14 +377,20 @@ export const MODEL_PRICES_USD_PER_MTOK = Object.freeze({
  * @param {string} [model]
  * @returns {{miss:number, hit:number, out:number, matched:boolean}}
  */
-export function priceForModel(model) {
+export function priceForModel(model, { at = null } = {}) {
   const key = String(model ?? "").trim().toLowerCase();
-  if (key.includes("pro")) return { ...MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"], matched: true };
-  if (key.includes("flash")) return { ...PRICE_USD_PER_MTOK, matched: true };
-  return { ...PRICE_USD_PER_MTOK, matched: false };
+  const base = key.includes("pro") ? MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"] : PRICE_USD_PER_MTOK;
+  const matched = key.includes("pro") || key.includes("flash");
+  // ★ C452：峰时价 = 低谷价 × 2（官方原文）。
+  //   **不传 `at` = 按低谷算（下限），而不是按"现在"** —— 否则同一份 usage 的结果会在一天里翻倍，
+  //   历史数字、单测、落盘文档全都会跟着漂（这是比"少算"更糟的一类问题）。
+  //   要看高峰价必须**显式**传时刻，调用方自己决定。
+  const peak = at === null || at === undefined ? false : isPeakUtc(at);
+  const k = peak ? PEAK_MULTIPLIER : 1;
+  return { miss: base.miss * k, hit: base.hit * k, out: base.out * k, matched, peak };
 }
 
-export function estimateFoldCostUsd(usage, model = usage?.model) {
+export function estimateFoldCostUsd(usage, model = usage?.model, { at = null } = {}) {
   const input = Number(usage?.inputTokens);
   if (!Number.isFinite(input) || input < 0) return null;
   const hit = Math.max(0, Number(usage?.cacheReadTokens) || 0);
@@ -371,7 +404,7 @@ export function estimateFoldCostUsd(usage, model = usage?.model) {
   const looksSplit = Number.isFinite(total) && total > 0 && Math.abs(total - (input + hit + output)) <= 2;
   const miss = looksSplit ? input : Math.max(0, input - hit);
   const hitTokens = looksSplit ? hit : Math.min(input, hit);
-  const p = priceForModel(model);
+  const p = priceForModel(model, { at });
   return (miss * p.miss + hitTokens * p.hit + output * p.out) / 1e6;
 }
 
