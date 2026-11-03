@@ -69,6 +69,80 @@ export function hitRateFromFile(file) {
   return hit + miss === 0 ? null : { hit, miss, hitRate: hit / (hit + miss) };
 }
 
+/**
+ * ★ C463：把「折叠经济学」抽成一个可被别的命令调用的函数（status 要用，不想再 spawn 一次）。
+ * @param {{home?:string, hitRate?:number|null}} [options]
+ * @returns {{hitRate:number, source:string, pricePerMTok:number, folds:number, costUsd:number,
+ *            shadowedTokens:number, paybackMedian:number|null, paybackMin:number|null,
+ *            paybackMax:number|null, sessions:number, minSteps:number|null}}
+ */
+export function computeEconomics({ home = process.env.DSH_HOME ?? "D:\DeepSeek Harness\home", hitRate = null } = {}) {
+  let cache;
+  if (hitRate !== null && Number.isFinite(Number(hitRate))) {
+    cache = { hitRate: Number(hitRate), hit: null, miss: null, source: "--hit 手动指定" };
+  } else {
+    const files = sessionFiles(home);
+    const got = files.length === 0 ? null : hitRateFromFile(files[0].file);
+    cache = got === null ? { hitRate: 0.9, hit: null, miss: null, source: "没有会话日志，按 90% 估" } : { ...got, source: path.basename(path.dirname(files[0].file)).slice(0, 20) };
+  }
+  const priceOff = priceForModel("deepseek-flash", { at: new Date("2026-11-03T00:00:00Z") });
+  const pricePerMTok = effectiveInputPrice({ hitRate: cache.hitRate, hit: priceOff.hit, miss: priceOff.miss });
+
+  const out = {
+    hitRate: cache.hitRate,
+    source: cache.source,
+    pricePerMTok,
+    folds: 0,
+    costUsd: 0,
+    shadowedTokens: 0,
+    paybackMedian: null,
+    paybackMin: null,
+    paybackMax: null,
+    sessions: 0,
+    minSteps: null,
+  };
+  const root = path.join(home, "chess-context", "sessions");
+  if (!fs.existsSync(root)) return out;
+  const paybacks = [];
+  for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!d.isDirectory()) continue;
+    const file = path.join(root, d.name, "graph.json");
+    if (!fs.existsSync(file)) continue;
+    let graph;
+    try {
+      ({ graph } = loadSessionGraph(file));
+    } catch {
+      continue;
+    }
+    const steps = Object.values(graph.nodes ?? {}).filter((n) => n?.kind === "agent").length;
+    let used = false;
+    for (const mark of graph.foldMarks ?? []) {
+      const usage = mark?.usage;
+      if (!usage) continue;
+      const cost = estimateFoldCostUsd(usage, usage.model, { at: mark.at ?? null });
+      if (!Number.isFinite(cost)) continue;
+      const shadowed = Number(mark.shadowedTokens) || 0;
+      out.folds += 1;
+      out.costUsd += cost;
+      out.shadowedTokens += shadowed;
+      const pb = foldPayback({ foldCostUsd: cost, shadowedTokens: shadowed, pricePerMTok });
+      if (pb.requestsNeeded !== null) paybacks.push(pb.requestsNeeded);
+      used = true;
+    }
+    if (used) {
+      out.sessions += 1;
+      out.minSteps = out.minSteps === null ? steps : Math.min(out.minSteps, steps);
+    }
+  }
+  if (paybacks.length > 0) {
+    const sorted = [...paybacks].sort((a, b) => a - b);
+    out.paybackMedian = sorted[Math.floor(sorted.length / 2)];
+    out.paybackMin = sorted[0];
+    out.paybackMax = sorted[sorted.length - 1];
+  }
+  return out;
+}
+
 function main(argv) {
   const get = (name, fallback) => {
     const i = argv.indexOf(`--${name}`);
@@ -129,6 +203,40 @@ function main(argv) {
     .map((r) => ({ ...r, ...foldPayback({ foldCostUsd: r.cost, shadowedTokens: r.shadowedTokens, pricePerMTok }) }))
     .filter((r) => r.requestsNeeded !== null)
     .sort((a, b) => a.requestsNeeded - b.requestsNeeded);
+  // ★ C463：`--write` 落一份快照 —— 全量扫棋谱要 1.6s+，`status` 每次重算会拖到 20 秒以上（实测 26.7s）。
+  //   日常视图只读快照，重算交给这条命令自己。
+  if (argv.includes("--write")) {
+    const snapshot = {
+      at: Date.now(),
+      hitRate: cache.hitRate,
+      pricePerMTok,
+      folds: rows.length,
+      costUsd: rows.reduce((s, r) => s + r.cost, 0),
+      shadowedTokens: rows.reduce((s, r) => s + r.shadowedTokens, 0),
+      paybackMedian: null,
+      paybackMin: null,
+      paybackMax: null,
+      sessions: new Set(rows.map((r) => r.session)).size,
+      minSteps: null,
+    };
+    const pbs = rows
+      .map((r) => foldPayback({ foldCostUsd: r.cost, shadowedTokens: r.shadowedTokens, pricePerMTok }).requestsNeeded)
+      .filter((x) => x !== null)
+      .sort((a, b) => a - b);
+    if (pbs.length > 0) {
+      snapshot.paybackMedian = pbs[Math.floor(pbs.length / 2)];
+      snapshot.paybackMin = pbs[0];
+      snapshot.paybackMax = pbs.at(-1);
+    }
+    try {
+      const file = path.join(home, "chess-context", "fold-economics.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(snapshot, null, 2), "utf8");
+      console.log(`  已写快照：${file}`);
+    } catch (error) {
+      console.log(`  快照写失败（不影响本次输出）：${String(error?.message ?? error)}`);
+    }
+  }
   const costTotal = rows.reduce((s, r) => s + r.cost, 0);
   const shadowedTotal = rows.reduce((s, r) => s + r.shadowedTokens, 0);
   const med = paybacks.length === 0 ? null : paybacks[Math.floor(paybacks.length / 2)].requestsNeeded;

@@ -30,10 +30,14 @@ const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
 export function decodeMultiFrameZstd(buf) {
   const b = buf;
   const starts = [];
-  for (let i = 0; i + 4 <= b.length; i += 1) {
-    if (b[i] === ZSTD_MAGIC[0] && b[i + 1] === ZSTD_MAGIC[1] && b[i + 2] === ZSTD_MAGIC[2] && b[i + 3] === ZSTD_MAGIC[3]) {
-      starts.push(i);
-    }
+  // ★ C463：**用 Buffer.indexOf 找 magic，不要逐字节 for**（35MB 文件 = 3500 万次 JS 迭代）。
+  const magic = Buffer.from(ZSTD_MAGIC);
+  let from = 0;
+  for (;;) {
+    const at = b.indexOf(magic, from);
+    if (at < 0) break;
+    starts.push(at);
+    from = at + magic.length;
   }
   const parts = [];
   let okFrames = 0;

@@ -15,6 +15,7 @@
  */
 
 import nodeFs from "node:fs";
+import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
@@ -250,7 +251,9 @@ const cacheUsage = createCacheUsage();
 for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs: WINDOW_MS, head: 6, limit: 24 })) {
   let events;
   try {
-    events = execFileSync("python", ["-c", PY, file], { maxBuffer: 512 * 1024 * 1024 }).toString("utf8").split("\n");
+    // ★ C463：**别再 spawn python 解 zstd** —— 每个日志一个 Python 进程（最多 24 个），
+    //   实测 doctor 因此要 24s。解码器我们自己就有（session-scan.decodeMultiFrameZstd）。
+    events = decodeMultiFrameZstd(nodeFs.readFileSync(file)).text.split("\n");
   } catch {
     continue;
   }

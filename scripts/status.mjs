@@ -45,6 +45,16 @@ export function renderStatus(data) {
       ? "未采集"
       : `命中 ${d.bench.hitRate === null ? "?" : (d.bench.hitRate * 100).toFixed(1) + "%"} · 全量 $${d.bench.totalCost === null ? "?" : d.bench.totalCost.toFixed(2)}`,
   ]);
+  // ★ C463：**折叠回本点** —— 回答"我们到底该不该折这么多"。
+  rows.push([
+    "折叠回本",
+    d.economics === null || d.economics === undefined
+      ? "未采集"
+      : d.economics.paybackMedian === null
+        ? `fold ${d.economics.folds} 次 · 回本点算不出（缺 usage/遮蔽量）`
+        : `中位 ${Math.ceil(d.economics.paybackMedian)} 次请求 · fold ${d.economics.folds} 次 $${d.economics.costUsd.toFixed(2)}` +
+          (Number.isFinite(d.economics.ageMinutes) ? ` · 快照 ${d.economics.ageMinutes} 分钟前（重算：fold-economics --write）` : ""),
+  ]);
   // ★ C454：**动作开销**也进日常视图。C451 做了 `action-cost`，但"要专门跑的脚本"= 没人跑（C447 同一个坑）。
   //   这里只报两个数：累计最贵的工具 + 单次最贵 —— 都不需要跑全量报告就能看出趋势。
   rows.push([
@@ -173,6 +183,17 @@ export async function main(argv = process.argv.slice(2)) {
     };
   } catch {
     data.bench = null;
+  }
+
+  // ⑤a 折叠经济学（C462/C463）—— **只读快照**。全量扫棋谱 + 解日志要 20+ 秒（实测 26.7s），
+  //   日常视图不能这么贵；重算交给 `node scripts/fold-economics.mjs --write`。
+  try {
+    const fsMod = (await import("node:fs")).default;
+    const homeDir = process.env.DSH_HOME ?? "D:\DeepSeek Harness\home";
+    const snap = JSON.parse(fsMod.readFileSync(nodePath.join(homeDir, "chess-context", "fold-economics.json"), "utf8"));
+    data.economics = { ...snap, ageMinutes: Math.max(0, Math.round((Date.now() - Number(snap.at || 0)) / 60000)) };
+  } catch {
+    data.economics = null;
   }
 
   // ⑤b 动作开销（C451/C454）—— 解一个会话日志，实测 ~1s

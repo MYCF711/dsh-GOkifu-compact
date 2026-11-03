@@ -121,3 +121,16 @@ tests["C454 动作开销行：给「累计最贵的工具 + 单次最贵」，�
   t.includes(line, "6708", "单次最贵");
   t.eq(renderStatus({}).find(([k]) => k === "动作开销")[1], "未采集", "没数据说未采集，不许空着");
 };
+
+tests["C463 折叠回本行：中位回本次数 + 成本 + 快照年龄；没数据说未采集"] = (t) => {
+  const rows = renderStatus({ economics: { folds: 73, costUsd: 2.73, paybackMedian: 5.2, ageMinutes: 7, minSteps: 131 } });
+  const line = rows.find(([k]) => k === "折叠回本")[1];
+  t.includes(line, "6 次请求", "上取整（5.2 ⇒ 6，宁可说多一次）");
+  t.includes(line, "73 次", "折叠次数");
+  t.includes(line, "2.73", "成本");
+  t.includes(line, "7 分钟前", "快照年龄必须写出来 —— 否则看起来像实时数");
+  // 缺 usage/遮蔽量时不许编数字
+  const noPayback = renderStatus({ economics: { folds: 3, costUsd: 0, paybackMedian: null, ageMinutes: 1 } });
+  t.includes(noPayback.find(([k]) => k === "折叠回本")[1], "算不出", "缺数据要说算不出");
+  t.eq(renderStatus({}).find(([k]) => k === "折叠回本")[1], "未采集", "完全没快照时说未采集");
+};
