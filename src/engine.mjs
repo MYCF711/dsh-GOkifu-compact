@@ -43,6 +43,7 @@ import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-pr
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
+import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
 
@@ -257,6 +258,10 @@ export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
   if (kind === "overload") return { base: Math.round(base * 2), cap };
   return { base, cap };
 }
+
+/** ★ C444：边的可排序 seq（evidence 可能是数字，也可能是 {start,end}）。 */
+const edgeSeq = (e) =>
+  typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN;
 
 const FOLD_RETRY_BASE_SEQ = 30;
 const FOLD_RETRY_CAP_SEQ = 480;
@@ -1773,6 +1778,30 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     const g = this.#graph(session);
     const st = this.#runtimeFor(session);
 
+    // ★ C444：**思考死循环检测**。真机（2026-11-03 DSH-GO）：会话末尾连续 8 步都是同一个
+    //   `bash(...)`、零文本产出，**手动压缩一次就好了**。这里把那个动作变成自动：
+    //   末尾连续相同动作 ≥ 4 次 ⇒ 强制折一次（受限流与上限保护，坑在 loop-guard 里）。
+    if (trigger === "pressure" || trigger === "auto") {
+      const loopState = this.#runtimeFor(session);
+      const stat = loopStreak(
+        Object.values(g?.edges ?? {})
+          .filter((e) => Number.isFinite(edgeSeq(e)))
+          .sort((a, b) => edgeSeq(a) - edgeSeq(b)),
+      );
+      const verdict = shouldFoldForLoop(stat, {
+        seq: session.seq,
+        lastLoopFoldSeq: loopState.lastLoopFoldSeq,
+        loopFoldCount: loopState.loopFoldCount,
+      });
+      if (verdict.fire) {
+        loopState.lastLoopFoldSeq = session.seq;
+        loopState.loopFoldCount = (loopState.loopFoldCount ?? 0) + 1;
+        this.ctx.logger?.warn?.(
+          `chess-context: 检测到思考死循环（连续 ${stat.streak} 次相同动作：${String(stat.action).slice(0, 60)}）—— 触发一次压缩以打断它`,
+        );
+        trigger = "loop";
+      }
+    }
     const overflow = trigger === "context-overflow";
     if (overflow) {
       const prune = this.ctx.get("toolResultPruner");
@@ -1788,7 +1817,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   （会话已经闲置很久、用户做完就归档）。旧代码让它们和 pressure 走同一道门槛 ⇒
     //   尾巴够长但没有到阈值时收尾折叠会静默什么都不做 —— 与不修没区别。
     //   仍然保留 retainTokens / minFoldTokens 的语义：真的没东西可折时 planFold 会返回 null。
-    const forced = trigger === "archive" || trigger === "backfill" || trigger === "disposed";
+    const forced = trigger === "archive" || trigger === "backfill" || trigger === "disposed" || trigger === "loop";
     if (overflow) {
       spec = { thresholdTokens: 0, retainTokens: 0 };
     } else {
