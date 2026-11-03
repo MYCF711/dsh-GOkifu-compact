@@ -1,5 +1,5 @@
 {
- "total": 963,
+ "total": 965,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -17,8 +17,9 @@
   "cache-usage.test.mjs": 4,
   "check-maintenance.test.mjs": 6,
   "cli-routing.test.mjs": 4,
-  "closeout-backfill.test.mjs": 17,
+  "closeout-backfill.test.mjs": 18,
   "closeout-outcome.test.mjs": 5,
+  "closeout-plan.test.mjs": 1,
   "closeout-settles.test.mjs": 7,
   "compare-models.test.mjs": 0,
   "config-schema.test.mjs": 2,
@@ -141,6 +142,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1282,
- "passedAt": "2026-11-03T21:26:03.935Z"
+ "passed": 1284,
+ "passedAt": "2026-11-03T22:25:18.612Z"
 }

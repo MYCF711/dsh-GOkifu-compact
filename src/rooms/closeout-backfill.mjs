@@ -175,7 +175,10 @@ export function listDebts({ sessionIds = [], loadGraph, minEvents = DEFAULT_MIN_
  */
 export function rankDebts(items, { limit = DEFAULT_LIMIT } = {}) {
   const list = Array.isArray(items) ? [...items] : [];
-  list.sort((a, b) => (Number(b?.tail) || 0) - (Number(a?.tail) || 0));
+  // ★ C520：排序要算上**前段缺口**。C519 之后 `tail` 可能已经是 0，而 `gapEvents` 还有上万 ——
+  //   只按 tail 排，这些会话会永远排在最后，永远轮不到（等于没修）。
+  const weight = (x) => (Number(x?.tail) || 0) + (Number(x?.gapEvents) || 0);
+  list.sort((a, b) => weight(b) - weight(a));
   const capped = Math.max(0, Number(limit) || 0);
   return list.slice(0, capped);
 }

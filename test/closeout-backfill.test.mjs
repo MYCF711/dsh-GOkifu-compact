@@ -353,3 +353,17 @@ tests["C519 离线补折留下的前段缺口也算欠账 —— 否则这个洞
   t.eq(d2.gapEvents, 0, "没有洞就是 0");
   t.eq(d2.due, false, "无洞无尾巴 ⇒ 不欠");
 };
+
+tests["C520 排序要算上前段缺口 —— 否则 tail=0 的会话永远排最后、永远轮不到"] = async (t) => {
+  const items = [
+    { sessionId: "small-tail", tail: 1200, gapEvents: 0 },
+    { sessionId: "big-gap", tail: 0, gapEvents: 12000 },
+    { sessionId: "mid", tail: 5000, gapEvents: 0 },
+  ];
+  const ranked = rankDebts(items, { limit: 3 });
+  t.eq(ranked[0].sessionId, "big-gap", "缺口 12k 的必须排第一（tail+gap 最大）");
+  t.eq(ranked[1].sessionId, "mid", "其次 5k");
+  t.eq(ranked[2].sessionId, "small-tail", "最后才是 1.2k");
+  const one = rankDebts(items, { limit: 1 });
+  t.eq(one[0].sessionId, "big-gap", "只补一个时也必须先补缺口最大的");
+};

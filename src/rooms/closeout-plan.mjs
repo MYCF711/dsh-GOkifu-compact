@@ -71,22 +71,31 @@ export function planCloseoutChunks({
  *          null = 不需要分段（或估不出来）
  */
 export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS, maxChunks = 6 } = {}) {
-  const tooBig = closeoutExceedsLimit(graph, maxTokens);
-  if (tooBig === null) return null;
   let debt = null;
   try {
     debt = debtOfGraph(graph);
   } catch {
     debt = null;
   }
+  // ★ C520：**有前段缺口时，要压的是那个洞**（C519 之后 `tail` 可能已经是 0）。
+  //   不处理的话：`closeoutExceedsLimit` 看到 tail=0 直接返回 null ⇒ 分段计划 0 段 ⇒
+  //   这类会话永远补不了（真机 session-00b50089：尾巴 0 事件、缺口 1,043k tok、0 段）。
+  const gap = debt?.gap ?? null;
+  const gapEvents = Number(gap?.events ?? 0);
+  const tooBig = closeoutExceedsLimit(graph, maxTokens);
+  if (tooBig === null && gapEvents === 0) return null;
+  const tailEvents = Math.max(0, Number(tooBig?.tail ?? 0)) + gapEvents;
+  // 起点就用缺口的 `from`（seq 从 1 开始，别减成 0）
+  const fromSeq = gapEvents > 0 ? Math.max(1, Number(gap?.from ?? 1)) : Number(debt?.lastFoldSeq ?? 0);
   const chunks = planCloseoutChunks({
-    fromSeq: Number(debt?.lastFoldSeq ?? 0),
-    tail: tooBig.tail,
+    fromSeq,
+    tail: tailEvents,
     tokensPerEvent: debt?.tokensPerEvent ?? null,
     maxTokens,
     maxChunks,
   });
-  return { est: tooBig.est, tail: tooBig.tail, chunks };
+  const est = tooBig?.est ?? (debt?.tokensPerEvent === null || debt?.tokensPerEvent === undefined ? null : Math.round(gapEvents * debt.tokensPerEvent));
+  return { est, tail: tailEvents, chunks, ...(gapEvents > 0 ? { gap: { from: gap?.from, events: gapEvents } } : {}) };
 }
 
 /**
