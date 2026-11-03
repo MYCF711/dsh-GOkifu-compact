@@ -1,5 +1,5 @@
 {
-  "total": 917,
+  "total": 920,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -116,6 +116,7 @@
     "test-gate.test.mjs": 0,
     "tewari-perf.test.mjs": 7,
     "tier2.test.mjs": 10,
+    "tool-result-share.test.mjs": 3,
     "touched-files.test.mjs": 9,
     "trace-relative.test.mjs": 0,
     "tree-freshness.test.mjs": 5,
