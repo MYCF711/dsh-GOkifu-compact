@@ -40,6 +40,7 @@
 | **Token 计量官方比例** | [`token计量官方比例-deepseek.md`](./token计量官方比例-deepseek.md) | 官方：英文 0.3 token/字、中文 0.6 token/字；我们 CJK 算 **1.0**（高估 67%）、ASCII 算 **0.25**（低估 17%）。改成官方比例会让 17 条测试红（阈值全要重推）⇒ 记候选 K-20 |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | **宿主会话文件格式（zstd 多帧）** | [`宿主会话文件格式-zstd多帧.md`](./宿主会话文件格式-zstd多帧.md) | 实测：`session.v4.jsonl.zstd` 是 **9,193 帧拼接**；`zstdDecompressSync` 只解第一帧（232 字节）且**不报错**，流式解码器报 `Unknown frame descriptor` ⇒ **离线 grep 不到会话内容** |
+| **宿主插件生命周期与热重载** | [`宿主插件生命周期与热重载.md`](./%E5%AE%BF%E4%B8%BB%E6%8F%92%E4%BB%B6%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E4%B8%8E%E7%83%AD%E9%87%8D%E8%BD%BD.md) | asar 原文：**HMR 会 `delete(plugin) → fiber dispose`**；`ctx.effect` 返回 disposer。⇒ 解释了"改文件后心跳换 pid""路由消失后再没回来" |
 | **前缀补全（不适用）** | [`前缀补全-不适用说明-deepseek.md`](./前缀补全-不适用说明-deepseek.md) | 官方 Chat Prefix Completion：末条 assistant + `prefix:true` + `/beta` base_url；**我们走宿主 ctx.llm，用不了**，且它不省 token 只控输出形式 |
 | **Anthropic 兼容接口的参数支持面** | [`Anthropic兼容接口-参数支持面-deepseek.md`](./Anthropic兼容接口-参数支持面-deepseek.md) | 官方：`cache_control` **Ignored**（缓存自动生效）、`anthropic-beta`/`anthropic-version` 被忽略、`tool_choice:any` 降级为 auto；`max_tokens` 上限随思考模式/effort 变化 |
 | **Responses API（无状态 + 超窗 400）** | [`Responses API-无状态与超窗400-deepseek.md`](./Responses%20API-无状态与超窗400-deepseek.md) | 官方：`previous_response_id`/`conversation`/`store` 全不支持（**stateless**），`truncation` 不支持 ⇒ **超窗直接 400**；⇒ 折叠是必需品，且该 400 必须按"可恢复"处理（C382） |
