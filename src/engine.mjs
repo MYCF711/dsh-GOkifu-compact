@@ -36,6 +36,8 @@ import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/confi
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
+import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome } from "./rooms/offline-fold.mjs";
+import { findSessionLog, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
@@ -1707,10 +1709,152 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       else if (result !== null && result !== undefined) this.ctx.logger?.info?.("chess-context: 归档收尾折叠完成");
       if (result === "timeout") return { tier: "single", skipped: "timeout" };
       // ★ C474：null 不等于"没东西可折" —— 把 skip 原因一起带回去，让 closeout 能说清
-      if (result === null || result === undefined) return { tier: "single", skipped: this._foldSkipReason ?? "unknown" };
+      if (result === null || result === undefined) {
+        const skipReason = this._foldSkipReason ?? "unknown";
+        // ★ C500：**算不出区间 ≠ 没办法**。归档后宿主的 surface 已经没了，`compactIfNeeded`
+        //   永远拿不到区间；但**会话日志还在** —— 那就自己读日志、用宿主默认模型压一次。
+        //   这不是"绕过对话模型"，是"绕过没有 surface 这件事"（模型仍然走 DSH 的默认模型）。
+        // `#closeoutFold(target)` 里没有 `session` 变量 —— target 可能是 agent 也可能是 session
+        const offlineSession = target?.session ?? target;
+        const offlineId = typeof offlineSession?.id === "string" ? offlineSession.id : "";
+        const live = offlineId === "" ? undefined : this.graphs.get(offlineId);
+        const tailEvents = Number(offlineSession?.seq) - Number((live?.foldMarks ?? []).at(-1)?.seqEnd ?? 0);
+        const decision = shouldTryOfflineFold({
+          closeout: live?.closeout ?? null,
+          reason: skipReason,
+          tailEvents: Number.isFinite(tailEvents) ? tailEvents : 0,
+          enabled: this.chess.offlineCloseout !== false,
+          minEvents: this.chess.closeoutMinEvents ?? 40,
+        });
+        if (decision.go) {
+          const offline = await this.#offlineCloseoutFold(target);
+          if (offline !== null) return offline;
+        }
+        return { tier: "single", skipped: skipReason };
+      }
       return result;
     } finally {
       if (timer !== null) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * ★ C500：**离线补折** —— 归档后拿不到 surface，就自己读日志、用宿主默认模型压一次。
+   *
+   * 为什么要有它：归档事件到达时宿主的会话 surface 已经摘除了，`compactIfNeeded` 只能返回
+   * `no-foldable-span`（真机 2026-11-03 验证）。但**会话日志还在磁盘上**，模型也还能用 ——
+   * 缺的从来不是模型，是"可折的活数据"。
+   *
+   * 边界（说清楚做了什么、没做什么）：
+   *   · **不动宿主的压缩历史**（`session.v4.jsonl.zstd` 原样保留）；
+   *   · 产出记在**我们自己的棋谱**上：`foldMarks` 追加一条 `trigger: "archive-offline"`，
+   *     `closeout.source = "archive-offline"`，摘要留在 `lastOfflineSummary`；
+   *   · 有缺口就 `partial: true` —— 只压了尾部不许记成"全压过"。
+   *
+   * @param {object} target agent 或 session
+   * @returns {Promise<object|null>} 给 `applyCloseoutOutcome` 的结果；做不了就 null（保持原结局）
+   */
+  async #offlineCloseoutFold(target) {
+    try {
+      const session = target?.session ?? target;
+      const id = typeof session?.id === "string" ? session.id : null;
+      if (id === null) return null;
+      const graph = this.graphs.get(id);
+      if (graph === undefined || graph === null) return null;
+      // 会话日志在 <home>/sessions/**，而 graphDir = <home>/chess-context/sessions
+      const home = nodePath.dirname(nodePath.dirname(this.graphDir ?? ""));
+      const logFile = findSessionLog(home, id);
+      if (logFile === null) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-log", partial: true };
+      const events = readSessionEvents(logFile);
+      if (events.length === 0) return { tier: "offline", folded: 0, chunks: 0, stopped: "empty-log", partial: true };
+      const debt = debtOfGraph(graph);
+      const rangeStart = debt.lastFoldSeq === null || debt.lastFoldSeq === undefined ? 1 : Number(debt.lastFoldSeq) + 1;
+      const rangeEnd = Number(debt.maxSeq) || 0;
+      if (rangeEnd < rangeStart) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-range", partial: false };
+      const dflt = readDefaultModel(home);
+      const routed = routedTarget(session);
+      const target0 = {
+        provider: dflt.provider ?? routed?.provider,
+        model: dflt.model ?? routed?.model,
+      };
+      if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
+      const callModel = async (prompt, { maxTokens }) => {
+        const chunks = [];
+        for await (const chunk of this.ctx.llm.stream({
+          provider: target0.provider,
+          model: target0.model,
+          messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+          maxTokens: Number(maxTokens) || 4000,
+          sessionId: id,
+          purpose: "compaction",
+        })) {
+          chunks.push(chunk);
+        }
+        const assembler = new BlockAssembler();
+        for (const chunk of chunks) assembler.push?.(chunk);
+        const blocks = typeof assembler.finish === "function" ? assembler.finish() : [];
+        const text = Array.isArray(blocks) ? blocks.map((b) => String(b?.text ?? "")).join("\n") : "";
+        return { text, usage: assembler.usage ?? null, model: target0.model };
+      };
+      const result = await runOfflineFold({
+        graph,
+        events,
+        rangeStart,
+        rangeEnd,
+        maxChars: Number(this.chess.offlineMaxChars) || 60_000,
+        maxChunks: 1,
+        callModel,
+        measureQuality: ({ range, summaryText }) => measureFoldQuality({ graph, range, summaryText }),
+      });
+      const outcome = offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq: rangeEnd });
+      if ((result?.chunks ?? []).length === 0) {
+        this.ctx.logger?.warn?.(`chess-context: 离线补折没产出（${result?.failed ?? "empty"}），保持原结局`);
+        return outcome;
+      }
+      for (const chunk of result.chunks) {
+        graph.foldMarks = Array.isArray(graph.foldMarks) ? graph.foldMarks : [];
+        graph.foldMarks.push({
+          at: Date.now(),
+          seqStart: chunk.start,
+          seqEnd: chunk.end,
+          trigger: "archive-offline",
+          // ★ C108-1：每个折叠点都要记 closure（哪些节点/边被折掉）—— 离线折叠也不能例外，
+          //   否则 doctor 的那几项会显示「未采集」，等于给仪器留了个盲区。
+          closure: foldClosureOf(graph, { start: chunk.start, end: chunk.end }),
+          boundary: foldBoundaryOf(graph, { start: chunk.start, end: chunk.end }),
+          shadowedTokens: null,
+          measuredBefore: null,
+          route: { provider: target0.provider, model: chunk.model ?? target0.model },
+          fallback: null,
+          ms: chunk.ms,
+          usage: chunk.usage,
+          summaryChars: String(chunk.text ?? "").length,
+          quality: chunk.quality,
+          qualityRepaired: chunk.repaired,
+          offline: true,
+        });
+      }
+      const last = result.chunks[result.chunks.length - 1];
+      graph.lastOfflineSummary = { at: Date.now(), range: { start: last.start, end: last.end }, text: last.text, model: last.model };
+      graph.closeout = {
+        ...(graph.closeout ?? {}),
+        at: Date.now(),
+        source: "archive-offline",
+        foldAttempted: true,
+        folded: result.chunks.length,
+        foldOffline: true,
+        offlineCovered: { start: result.coveredStart, end: result.coveredEnd },
+        ...(outcome.partial === true ? { partial: true } : {}),
+        ...(outcome.uncoveredHead > 0 ? { offlineUncoveredHead: { events: outcome.uncoveredHead } } : {}),
+        ...(outcome.uncoveredTail > 0 ? { offlineUncoveredTail: { events: outcome.uncoveredTail } } : {}),
+      };
+      this.ctx.logger?.info?.(
+        `chess-context: 离线补折完成 ${result.chunks.length} 段（段 ${last.start}-${last.end}，摘要 ${String(last.text ?? "").length} 字符${outcome.partial ? "，仍有缺口" : ""}）`,
+      );
+      return outcome;
+    } catch (error) {
+      this.ctx.logger?.warn?.(`chess-context: 离线补折失败（不影响归档）：${String(error)}`);
+      return { tier: "offline", folded: 0, chunks: 0, stopped: "error", error: String(error).slice(0, 300), partial: true };
     }
   }
 

@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C496 | 引擎接上离线补折：no-foldable-span 时读日志用默认模型 |
 | C495 | 日志读取搬进 src/rooms；守卫要跟着实现走 |
 | C494 | 离线压缩的编排搬进 src/rooms：脚本与引擎共用一份 |
 | C493 | 用 DSH 的默认模型；'离线'指的是数据来源不是模型 |
@@ -567,6 +568,46 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C496 · 引擎接上离线补折：no-foldable-span 时读日志用默认模型
+
+**地基铺完了（编排解耦 C496、日志读取搬进 `src/rooms` C498），这轮把它接进引擎。**
+
+### 一、接线形状
+
+```
+#closeoutFold(target)
+  └─ compactIfNeeded 返回 null（no-foldable-span）
+       └─ shouldTryOfflineFold() 判定
+            └─ #offlineCloseoutFold(target)
+                 · findSessionLog + readSessionEvents   ← 读日志，不靠 surface
+                 · readDefaultModel(home) ⇒ provider/model   ← **DSH 默认模型**
+                 · runOfflineFold(callModel = ctx.llm.stream)
+                 · 写 foldMarks(trigger=archive-offline) + closeout + lastOfflineSummary
+```
+
+### 二、这轮踩的三个坑
+
+| 坑 | 后果 | 记在哪 |
+|---|---|---|
+| 私有方法必须声明在类里 | 先写调用点 ⇒ `Private field must be declared` | 已经一次写对顺序 |
+| python heredoc 把 `.join("\n")` 的 `\n` 写成**真换行** | **整个引擎语法坏掉** | 教训：给 JS 写字符串别在 python 普通串里写 `\n` |
+| `#closeoutFold(target)` 里没有 `session` 变量 | 引用不存在的名字 | 改成从 `target` 取 |
+
+### 三、守卫（C500）
+
+引擎必须用 `shouldTryOfflineFold` / `runOfflineFold` / `readDefaultModel`；
+写回必须带 `trigger: "archive-offline"` 与 `partial`；
+**且引擎里不许出现 `3425/v1`** —— 模型调用必须走 `ctx.llm.stream`，不许自己拼 HTTP。
+（这条正是用户指出来的那个点：能调 DSH 的默认模型就该调。）
+
+### 四、状态
+
+```
+node test/run.mjs → 1261 passed, 0 failed
+```
+
+**尚未真机验证**：要等一次真实归档（重启后）才能看到这条路径跑通。
 
 ### C495 · 日志读取搬进 src/rooms；守卫要跟着实现走
 

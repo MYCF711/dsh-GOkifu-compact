@@ -3063,3 +3063,15 @@ tests["C497 422（参数错误）必须跟 400 归一类 —— 重试同一个�
   t.includes(src, "422 已经是 permanent", "要写清 422 的归类依据（已由 isPermanentSummaryError 覆盖），别默默改掉");
   t.includes(src, "要改的是请求本身，不是等一会儿", "提示语要让读者知道该做什么");
 };
+
+tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默认模型）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "#offlineCloseoutFold", "必须有这个方法（否则 no-foldable-span 仍然无解）");
+  t.includes(src, "shouldTryOfflineFold", "触发条件要走纯函数判定（别在引擎里另写一套）");
+  t.includes(src, "runOfflineFold", "编排复用 rooms 里那份，不许再写一遍");
+  t.includes(src, "readDefaultModel", "模型用 DSH 默认模型（用户明确要求）");
+  t.includes(src, 'trigger: "archive-offline"', "写回的 foldMark 要能跟在线折叠区分开");
+  t.includes(src, "partial: true", "有缺口必须标 partial，不许记成全压过");
+  // 绝不许在引擎里自己拼 HTTP —— 模型调用必须走宿主 ctx.llm
+  t.eq(/3425\/v1/.test(src), false, "引擎不许直连 magpie 端口，必须走 ctx.llm.stream");
+};
