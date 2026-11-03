@@ -53,3 +53,19 @@ tests["C474 「没折」必须带原因：foldNote 要能区分'没内容'与'�
   const legacy = applyCloseoutOutcome({}, null, null);
   t.eq(legacy.foldNote, "nothing-to-fold", "没有原因时保持旧文案");
 };
+
+tests["C479 分段收尾没折完也要留原因（真机 c460d468：0/2 段、无任何原因）"] = (t) => {
+  const partial = applyCloseoutOutcome({ source: "archive" }, { tier: "chunked", folded: 0, chunks: 2, stopped: "deadline", error: null }, null);
+  t.eq(partial.folded, 0, "0 段折成");
+  t.eq(partial.chunkedChunks, 2, "计划 2 段");
+  t.eq(partial.chunkStopped, "deadline", "停在哪必须记下（deadline / error / done）");
+  t.includes(partial.foldNote ?? "", "chunked-incomplete", "没折完要有可读结论");
+  // 有错误时，错误优先于"没折完"
+  const errored = applyCloseoutOutcome({}, { tier: "chunked", folded: 1, chunks: 3, stopped: "error", error: "429 rate limit" }, null);
+  t.includes(errored.foldError ?? "", "429", "错误要原样留下");
+  t.eq(errored.foldNote, undefined, "有错误就不该再写'没折完'");
+  // 全部折完 ⇒ 不加噪音字段
+  const all = applyCloseoutOutcome({}, { tier: "chunked", folded: 3, chunks: 3, stopped: "done", error: null }, null);
+  t.eq(all.foldNote, undefined, "折完了不许写'没折完'");
+  t.eq(all.folded, 3, "段数照记");
+};

@@ -202,9 +202,15 @@ export function applyCloseoutOutcome(closeout, result, error = null, at = Date.n
     return next;
   }
   if (result.tier === "chunked") {
-    next.folded = Number(result.folded) || 0;
-    next.chunkedFolded = Number(result.folded) || 0;
-    next.chunkedChunks = Number(result.chunks) || 0;
+    const folded = Number(result.folded) || 0;
+    const chunks = Number(result.chunks) || 0;
+    next.folded = folded;
+    next.chunkedFolded = folded;
+    next.chunkedChunks = chunks;
+    // ★ C479：分段没折完必须留原因（deadline / error / 其它），否则 closeout 只剩一句 folded:0
+    if (typeof result.stopped === "string" && result.stopped !== "") next.chunkStopped = result.stopped;
+    if (typeof result.error === "string" && result.error !== "") next.foldError = result.error.slice(0, 300);
+    else if (folded < chunks) next.foldNote = `chunked-incomplete:${folded}/${chunks}`;
     return next;
   }
   next.folded = 1;

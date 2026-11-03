@@ -1667,7 +1667,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             `还剩约 ${remaining} 事件；结束原因 ${stopped}${stopped === "deadline" ? `，已用满 ${limitMs}ms 预算` : ""} —— 装不下就再收一次）`,
         );
         void totalEnd;
-        return { tier: "chunked", folded, chunks: chunks.length };
+        // ★ C479：**分段没折完也要说清为什么**。真机 c460d468：`chunkedChunks: 2 / chunkedFolded: 0`，
+        //   而 closeout 里没有任何原因 —— 与 C474 修的"单段 null"是同一个洞，只是这条分支漏了。
+        return {
+          tier: "chunked",
+          folded,
+          chunks: chunks.length,
+          stopped: outcome.stopped ?? null,
+          error: outcome.error === null || outcome.error === undefined ? null : String(outcome.error).slice(0, 300),
+        };
       }
     }
     const work = (async () => {

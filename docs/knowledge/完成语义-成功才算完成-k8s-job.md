@@ -33,3 +33,17 @@
 
 - `backoffLimit` 的**具体退避曲线**（指数？上限多少）这页没给公式，只提到"基于 `.spec.backoffLimit`"；
 - 我们没有照搬 Job 的重试预算：我们的"预算"是**事件退避**（`FOLD_RETRY_BASE_SEQ`…），语义不同，别混用。
+
+---
+
+## 4. 补充复核（2026-11-03 同一页 · **已核实**）
+
+> "The Pod will be re-created if the total number of restarts is below `backoffLimit`.
+> **If the `backoffLimit` is reached the entire Job failed.**"
+
+⇒ 重试预算耗尽的结果是 **Failed**，而不是"完成"。也就是说这个模型里只有两个终态：**成功** 或 **失败**；
+"试过了但没成"从不被写成"已完成"。
+
+**对我们的直接用处（C479）**：分段收尾原来是"折了 0/2 段、closeout 里什么都没有"，
+读起来像是处理完了；现在会记 `chunkStopped` + `foldNote: chunked-incomplete:0/2`，
+相当于把"预算耗尽"明确写成**未完成**。
