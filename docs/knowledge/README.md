@@ -47,6 +47,7 @@
 | **JSON Output 空内容陷阱** | [`JSON-Output-空内容陷阱-deepseek.md`](./JSON-Output-%E7%A9%BA%E5%86%85%E5%AE%B9%E9%99%B7%E9%98%B1-deepseek.md) | 官方：非 JSON 输出会被**替换成空格**，可能"成功但内容空白"（`finish_reason=stop`）；我们已有 `.trim()` 守卫（C387 已核实） |
 | **Search / Fetch 与上下文** | [`Search与Fetch-工具输出与上下文-deepseek.md`](./Search%E4%B8%8EFetch-%E5%B7%A5%E5%85%B7%E8%BE%93%E5%87%BA%E4%B8%8E%E4%B8%8A%E4%B8%8B%E6%96%87-deepseek.md) | 官方 Search（结构化结果）/ Fetch（取网页正文）；我们**不直接调用**，但它们产出会进上下文 ⇒ 折叠 + 宿主 `tool-result-pruner` 才是压制手段 |
 | **Tool Calls（strict / 自定义工具）** | [`Tool-Calls-strict模式与自定义工具-deepseek.md`](./Tool-Calls-strict%E6%A8%A1%E5%BC%8F%E4%B8%8E%E8%87%AA%E5%AE%9A%E4%B9%89%E5%B7%A5%E5%85%B7-deepseek.md) | 官方：`strict`（Beta）强制遵守 schema；自定义 client tool（`type:"custom"`）返回 **422**（永久，不重试）；`tool_call_id` 必须正确回填 |
+| **Chat Completion 参数细则** | [`ChatCompletion-参数与流式usage-deepseek.md`](./ChatCompletion-%E5%8F%82%E6%95%B0%E4%B8%8E%E6%B5%81%E5%BC%8Fusage-deepseek.md) | 官方：`stream_options.include_usage` **必须配 `stream:true`**（否则 400），最后一块一定有 usage；`frequency_penalty`/`presence_penalty` **已废弃、传了无效** |
 | **API 无状态与历史重发** | [`API无状态与历史重发-deepseek.md`](./API无状态与历史重发-deepseek.md) | 官方：`/chat/completions` **stateless**，每轮都要重发全部历史 ⇒ ①压缩收益是**每轮复利**；②注入必须**替换**不是追加；③前缀缓存是唯一反向杠杆 |
 | 限流与并发（DeepSeek） | [`限流与并发-deepseek.md`](./限流与并发-deepseek.md) | flash 并发上限 **2500** ⇒ 串行补账是我们自己的选择，不是被限流 |
 | 错误码与重试（DeepSeek） | [`错误码与重试-deepseek.md`](./错误码与重试-deepseek.md) | 429/5xx 该重试、401/402/400 不该；我们的退避按事件数 ⇒ 立 K-13 |
