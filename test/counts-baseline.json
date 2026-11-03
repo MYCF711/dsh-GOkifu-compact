@@ -1,5 +1,5 @@
 {
- "total": 951,
+ "total": 952,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -125,7 +125,7 @@
   "ui-backfill.test.mjs": 12,
   "ui-config.test.mjs": 13,
   "ui-health.test.mjs": 0,
-  "ui-layout.test.mjs": 2,
+  "ui-layout.test.mjs": 3,
   "ui-models.test.mjs": 7,
   "ui-perf.test.mjs": 10,
   "ui-security.test.mjs": 25,
@@ -141,6 +141,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1270,
- "passedAt": "2026-11-03T16:24:39.714Z"
+ "passed": 1271,
+ "passedAt": "2026-11-03T16:27:28.154Z"
 }

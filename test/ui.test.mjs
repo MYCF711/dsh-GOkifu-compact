@@ -123,6 +123,8 @@ export const tests = {
     const react = {
       createElement: (...args) => ({ args }),
       useState: () => [undefined, () => {}],
+    // ★ C510：客户端用了 useRef（模型二级菜单）——假 React 必须也有，否则渲染类测试会炸
+    useRef: (initial) => ({ current: initial }),
       useEffect: () => {},
       useCallback: (fn) => fn,
       useMemo: (fn) => fn(),

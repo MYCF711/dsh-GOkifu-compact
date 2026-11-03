@@ -36,6 +36,8 @@ function loadClientBundle() {
   const react = {
     createElement: (...args) => ({ args }),
     useState: () => [undefined, () => {}],
+    // ★ C510：客户端用了 useRef（模型二级菜单）——假 React 必须也有，否则渲染类测试会炸
+    useRef: (initial) => ({ current: initial }),
     useEffect: () => {},
     useCallback: (callback) => callback,
     useMemo: (factory) => factory(),
@@ -317,4 +319,16 @@ tests["C270 面板调的每个 action 服务端都必须认；服务端多余 ac
     if (ALLOWED_SERVER_ONLY.has(name)) continue;
     t.eq(called.has(name), true, `服务端有 action "${name}" 但面板从不调用 —— 要么补面板，要么加进允许列表并写原因`);
   }
+};
+
+tests["⑨ C510 假 React 必须提供客户端用到的每个 hook（否则渲染类测试假绿）"] = (t) => {
+  const hooks = new Set([...CLIENT_SRC.matchAll(/\b(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]));
+  const local = new Set([
+    ...[...CLIENT_SRC.matchAll(/function\s+(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]),
+    ...[...CLIENT_SRC.matchAll(/const\s+(use[A-Z][A-Za-z]*)\s*=/g)].map((x) => x[1]),
+  ]);
+  const fakeSrc = nodeFs.readFileSync(nodePath.join(HERE, "ui-layout.test.mjs"), "utf8");
+  // 不用正则：避免 `` 在模板串里被当成退格符（这个坑今天已经踩两次）
+  const missing = [...hooks].filter((name) => !local.has(name) && !fakeSrc.includes(`${name}:`));
+  t.eq(missing, [], `假 React 缺这些 hook：${missing.join(", ")}`);
 };
