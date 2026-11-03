@@ -67,6 +67,36 @@ export function hasLedgerState(graph) {
  *
  * `foldFailures > 0` 时追加 `|fold-fail-N` 后缀（告警出现时必须绕过「同 digest」判据）。
  */
+/**
+ * ★ C460：把"清单后面还有几条消息"分桶。分桶而不是记原值，是为了让 doctor 一行说得完，
+ * 也避免统计表被长尾撑爆（与 bumpSkipReason 同一个理由）。
+ * @param {number} n
+ */
+export function afterTailBucket(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "0";
+  if (v === 1) return "1";
+  if (v === 2) return "2";
+  return "3+";
+}
+
+/**
+ * ★ C460：surface 上这条消息**后面**还有几条消息（surface 位置 seq 更大的）。
+ *
+ * 用来回答医生那句话的前提：「replace 改写的是中间那条 ⇒ 从那里起前缀失配」——
+ * 若它后面 0 条，那这次替换只作废它自己（与 append 的差别很小）；后面越多越贵。
+ * @param {{surface?:{nodes?:number[]}}} session
+ * @param {number} seq
+ * @returns {number}
+ */
+export function countAfterSeq(session, seq) {
+  const nodes = session?.surface?.nodes;
+  if (!Array.isArray(nodes) || !Number.isFinite(seq)) return 0;
+  let n = 0;
+  for (const node of nodes) if (Number(node) > seq) n += 1;
+  return n;
+}
+
 export function ledgerDigest(graph, { foldFailures = 0 } = {}) {
   const parts = [];
   const roots = graph.rootUserNodeIds.map((id) => graph.nodes[id]).filter(Boolean);
@@ -318,7 +348,12 @@ export function decideInjection({
         state.lastLedgerInjectSeq = session.seq;
         state.lastLedgerFailureCount = ledger.failureCount;
         log("debug", `chess-context: 替换失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens（surface 仍只有一条）`);
-        return { decision, action: "replace", reason: "replaced" };
+        // ★ C460：**这次替换到底作废了多少缓存**，取决于清单后面还有几条消息。
+        //   doctor 一直说"replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配"，但没说"中间"是哪儿 ——
+        //   实测（9 条清单消息、6 个会话）**89% 的情况下清单就是请求里的最后一条**，后面 0 条。
+        //   那样替换只作废它自己，与 append 的差别很小。这个数必须记下来，否则判据只能靠猜。
+        const afterTail = countAfterSeq(session, existing.seq);
+        return { decision, action: "replace", reason: "replaced", afterTail };
       } catch (error) {
         // 锚点失效（例如刚好被 fold 遮蔽）→ 退回追加路径，绝不因为这里失败而丢信息
         log("warn", `chess-context: 失败清单替换失败，退回追加：${String(error)}`);

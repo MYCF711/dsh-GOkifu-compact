@@ -44,6 +44,7 @@ import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/confi
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
+import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
 
@@ -1176,6 +1177,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           const actions = this.ledgerBudget.injectActions && typeof this.ledgerBudget.injectActions === "object" ? this.ledgerBudget.injectActions : {};
           actions[actionKey] = (Number.isFinite(actions[actionKey]) ? actions[actionKey] : 0) + 1;
           this.ledgerBudget.injectActions = actions;
+          // ★ C460：replace 时"清单后面还有几条消息"的分布 —— 缓存影响的实际大小就看它
+          if (actionKey === "replace") {
+            const bucket = afterTailBucket(result.afterTail);
+            const tails = this.ledgerBudget.injectTail && typeof this.ledgerBudget.injectTail === "object" ? this.ledgerBudget.injectTail : {};
+            tails[bucket] = (Number.isFinite(tails[bucket]) ? tails[bucket] : 0) + 1;
+            this.ledgerBudget.injectTail = tails;
+          }
           this.ledgerBudget.updatedAt = Date.now();
           const totalActions = Object.values(actions).reduce((sum, n) => sum + (Number(n) || 0), 0);
           if (totalActions % 20 === 0) this.#persistLedgerBudget();

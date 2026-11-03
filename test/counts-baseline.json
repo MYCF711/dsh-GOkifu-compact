@@ -1,5 +1,5 @@
 {
-  "total": 883,
+  "total": 885,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -47,6 +47,7 @@
     "handoff-check.test.mjs": 22,
     "hot-inject.test.mjs": 7,
     "index-fingerprint.test.mjs": 2,
+    "inject-tail.test.mjs": 2,
     "install-link.test.mjs": 29,
     "install-revert.test.mjs": 5,
     "install-ui-step.test.mjs": 5,

@@ -1523,10 +1523,25 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   } else {
     const total = append + replace;
     const pct = Math.round((replace / total) * 100);
+    // ★ C460：**别再用"中间那条"这种想当然的说法判死 replace**。真正决定代价的是
+    //   「清单后面还有几条消息」：0 条 ⇒ 只作废它自己；越多越贵。这个直方图 C460 起才采集。
+    const tails = stats && typeof stats === "object" && stats.injectTail && typeof stats.injectTail === "object" ? stats.injectTail : null;
+    const tailText =
+      tails === null
+        ? "（清单后面还有几条消息：未采集 —— C460 起才写，重启后自然出现）"
+        : `清单后面还有几条消息：0 条 ${Number(tails["0"]) || 0} 次 / 1 条 ${Number(tails["1"]) || 0} / 2 条 ${Number(tails["2"]) || 0} / 3+ 条 ${Number(tails["3+"]) || 0}`;
+    const tailZero = tails === null ? null : Number(tails["0"]) || 0;
+    // 只有"多数替换后面确实还压着消息"时才算缓存风险；否则占比高也不该报警
+    const risky = tails === null ? pct >= 90 : tailZero * 2 < replace;
     add(
       "热清单注入动作（缓存友好性）",
-      pct >= 90 ? "warn" : "ok",
-      `append ${append} / replace ${replace}（replace 占 ${pct}%；replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配、缓存作废，占比越高越贵）`,
+      risky ? "warn" : "ok",
+      `append ${append} / replace ${replace}（replace 占 ${pct}%）· ${tailText}` +
+        (tails === null
+          ? " ⇒ 代价取决于替换点后面还有几条消息，C460 起才有数（别按占比下结论）"
+          : risky
+            ? " ⇒ 替换点后面压着消息，前缀失配的代价真实存在"
+            : " ⇒ 多数替换后面没有消息，缓存代价很小（replace 占比高本身不是问题）"),
     );
   }
 }
