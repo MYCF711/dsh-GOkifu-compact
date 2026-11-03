@@ -1,5 +1,5 @@
 {
-  "total": 840,
+  "total": 847,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -48,7 +48,7 @@
     "install-revert.test.mjs": 5,
     "install-ui-step.test.mjs": 5,
     "integration.test.mjs": 0,
-    "keeper.test.mjs": 0,
+    "keeper.test.mjs": 1,
     "kifu-model-snapshot.test.mjs": 7,
     "kifu-persist.test.mjs": 10,
     "knowledge-markers.test.mjs": 2,
@@ -64,7 +64,8 @@
     "live-bench.test.mjs": 8,
     "live-folds.test.mjs": 11,
     "log-window.test.mjs": 4,
-    "loop-guard.test.mjs": 2,
+    "loop-guard.test.mjs": 4,
+    "loop-report.test.mjs": 4,
     "make-preset.test.mjs": 0,
     "make-presets-override.test.mjs": 3,
     "manual-compact.test.mjs": 1,

@@ -220,7 +220,7 @@ function predecessorEdge(g, nodeId) {
 
 /* ────────────────────────────── 边 ────────────────────────────── */
 
-export function addEdge(g, { from, intent = "", action = "", evidence = null }) {
+export function addEdge(g, { from, intent = "", action = "", evidence = null, sig = "" }) {
   const id = `e${g.nextEdge++}`;
   g.edges[id] = {
     id,
@@ -228,6 +228,9 @@ export function addEdge(g, { from, intent = "", action = "", evidence = null }) 
     to: null,
     intent: norm(intent).slice(0, 200),
     action: norm(action).slice(0, 240),
+    // ★ C446：动作指纹（工具名 + 完整参数）—— 循环判据的键。老边没有这个字段，判据回落 action。
+    //   只在给了值时才写，避免把老图/夹具全刷一遍新字段。
+    ...(typeof sig === "string" && sig !== "" ? { sig } : {}),
     result: "untested",       // untested | success | failure | unverified
     verify: { kind: "none", summary: "" },
     errorSnippet: "",

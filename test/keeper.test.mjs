@@ -1,5 +1,5 @@
 import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
-import { observeEvent } from "../src/rooms/keeper.mjs";
+import { observeEvent, actionSignature } from "../src/rooms/keeper.mjs";
 
 function freshState() {
   return {
@@ -129,4 +129,27 @@ export const tests = {
     if (again.changed) throw new Error("重复结果不该再改图");
     if (failureEdges(g).length !== before) throw new Error("失败边数变了");
   },
+};
+
+/* ───── C446：动作指纹（循环判据的键）───── */
+
+tests["C446 动作指纹：键序无关、参数一变就变、同一命令重复跑必相同"] = (t) => {
+  const a = actionSignature("bash", { command: "ls -la", description: "看看" });
+  const b = actionSignature("bash", { description: "看看", command: "ls -la" }); // 键序不同
+  t.eq(a, b, "同样的参数换个键序必须同指纹（否则每次写图的顺序不同就会误判成不同动作）");
+  const c = actionSignature("bash", { command: "ls -la src", description: "看看" });
+  t.eq(a === c, false, "参数不同 ⇒ 指纹必须不同");
+  t.eq(a === actionSignature("edit", { command: "ls -la", description: "看看" }), false, "工具名不同 ⇒ 指纹必须不同");
+  // 真机那个误判形状：同一文件的两次不同编辑
+  const e1 = actionSignature("edit", { file_path: "D:/a/b.md", old_string: "x", new_string: "y" });
+  const e2 = actionSignature("edit", { file_path: "D:/a/b.md", old_string: "y", new_string: "z" });
+  t.eq(e1 === e2, false, "同一文件的不同编辑必须区分（这是 C444 的误判来源）");
+  // 落到边上
+  const g = createGraph({ sessionId: "k8" });
+  const st = freshState();
+  observeEvent(g, ev("user/message", 1, userMsg("x")), st);
+  observeEvent(g, ev("assistant/message", 2, { message: assistantWithCall("c1", "bash", { command: "npm test" }) }), st);
+  const edge = Object.values(g.edges)[0];
+  t.eq(typeof edge.sig, "string", "新边的 sig 必须落盘（否则循环判据永远只能看 action）");
+  t.eq(edge.sig.length >= 8, true, "指纹不能是空串");
 };
