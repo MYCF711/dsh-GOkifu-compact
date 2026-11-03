@@ -210,7 +210,7 @@ export function lruSet(map, key, value, max = GRAPH_CACHE_MAX) {
 }
 
 /** 目录扫描：{root, files:[{dir,file,mtimeMs,size}]}（不读文件内容）。 */
-function collectGraphFiles(home = resolveHome()) {
+export function collectGraphFiles(home = resolveHome()) {
   const root = nodePath.join(home, "chess-context", "sessions");
   const files = [];
   let entries;
@@ -416,6 +416,7 @@ export function todayAggregateFrom(scan) {
   let shadowed = 0;
   let costUsd = 0;
   let costKnown = 0;
+  let peakFolds = 0;
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
@@ -430,10 +431,15 @@ export function todayAggregateFrom(scan) {
       sessions.add(file.dir);
       shadowed += marks.reduce((sum, mark) => sum + (mark.shadowedTokens ?? 0), 0);
       for (const mark of marks) {
-        const cost = estimateFoldCostUsd(mark?.usage);
+        // ★ C453：**按这次折叠发生的时刻计价**。C452 把峰谷两档补上了，但如果这里不传时刻，
+        //   每一次折叠都会被按低谷价算 —— 白天干活时面板就系统性**低报一倍**。
+        //   `foldMark.at` 本来就有，只是以前没人用它定价。
+        const cost = estimateFoldCostUsd(mark?.usage, mark?.usage?.model, { at: mark?.at ?? null });
         if (cost !== null) {
           costUsd += cost;
           costKnown += 1;
+          // 顺便记一下"今天有几笔是按高峰价算的" —— 让面板能标出来，不然用户没法解释这个数为什么比昨天高
+          if (mark?.at !== null && mark?.at !== undefined && isPeakUtc(mark.at)) peakFolds += 1;
         }
       }
     }
@@ -445,7 +451,7 @@ export function todayAggregateFrom(scan) {
     }
   }
   // ★ C239：`costUsd` 是**估算**（官方价目 × 真实 usage）；`costKnown` 是有 usage 的 fold 数，供页面标注覆盖率。
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown, truncated };
+  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown, truncated, peakFolds };
 }
 
 /** 一次扫描 + 清缓存，给同一个请求里的两个聚合用。 */
