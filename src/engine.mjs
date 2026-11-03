@@ -1124,9 +1124,13 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         //   `closeout` 记下了（source=archive、尾巴 7706 / 1069 事件），但 foldMarks 是 0、日志里
         //   只有一条 `compaction/start` 没有 `end`，另一次是上游 400 ⇒ **折了没有、失败了没有，图上看不出来**。
         //   验证单要回答的正是这个问题，所以这里无论成功/失败/跳过都写回去。
+        // ★ C514：**把 {id, cwd} 一起带下去**。归档后 `sessionRefs` 里那条引用会被删掉，
+        //   原来的实现靠 sessionRefs 找 session 才能 flush —— 引用没了就**只改了内存、没落盘**，
+        //   于是"这次到底折了没有"在磁盘上永远看不到（真机 a09a4535 就是：closeout 里没有 folded）。
+        const ref = { id: sessionId, cwd: session.cwd };
         void this.#closeoutFold(session, source)
-          .then((result) => this.#recordCloseoutOutcome(sessionId, result, null))
-          .catch((error) => this.#recordCloseoutOutcome(sessionId, null, error));
+          .then((result) => this.#recordCloseoutOutcome(sessionId, ref, result, null))
+          .catch((error) => this.#recordCloseoutOutcome(sessionId, ref, null, error));
       }
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
@@ -1144,15 +1148,22 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    * @param {object|null} result #closeoutFold 的返回
    * @param {unknown} error 抛出的错误（如果有）
    */
-  #recordCloseoutOutcome(sessionId, result, error) {
+  #recordCloseoutOutcome(sessionId, ref, result, error) {
     if (typeof sessionId !== "string" || sessionId === "") return;
     try {
       const live = this.graphs.get(sessionId);
       if (live === undefined || live === null) return;
       // 结局怎么记：纯函数在 closeout-plan（C466），这里只负责落盘
       live.closeout = applyCloseoutOutcome(live.closeout ?? null, result, error ?? null);
-      const session = this.sessionRefs.get(sessionId);
-      if (session !== undefined) this.#flush(session, { full: true });
+      // ★ C514：**直接走 persist**，不再依赖 sessionRefs。
+      //   归档会把那条引用删掉，而收尾折叠是异步的 —— 等它回来时引用早没了，
+      //   于是 `if (session !== undefined)` 静默跳过 ⇒ 结局只活在内存里。
+      if (ref !== null && ref !== undefined && typeof ref.id === "string") {
+        const written = this.persist.flush({ id: ref.id, cwd: ref.cwd }, live, { full: true });
+        if (written !== null && written !== undefined && written.ok === false) {
+          this.ctx.logger?.warn?.(`chess-context: 收尾结局落盘失败（不影响归档）：${written.error}`);
+        }
+      }
     } catch {
       /* 记账失败不影响归档 */
     }

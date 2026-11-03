@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C506 | 收尾结局只改内存没落盘：sessionRefs 早被删了 |
 | C505 | provider 自绘 + 中性灰；doctor 模型表读不到就问网关 |
 | C504 | provider 也用自绘；高亮改中性灰、弹层跟随主题 |
 | C503 | 假 React 缺 hook = 假绿；无状态的直白说法 |
@@ -577,6 +578,54 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C506 · 收尾结局只改内存没落盘：sessionRefs 早被删了
+
+**用户归档了一个真实会话（找 Go 语言音乐播放器，E 盘）。我去核对，结果发现了「验证单永远看不到折了没有」的根因。**
+
+### 一、那个会话长什么样
+
+```
+closeout: {"at":…, "eventsSinceLastFold":3988, "folds":2, "source":"archive"}
+foldMarks: pressure@8-340 (cr:1) · pressure@343-1874 (cr:1)
+lastOfflineSummary: 无
+```
+
+- 两次**在线**折叠，约束召回都是 1，路由 `magpie/group/deepseek-v4.1-flash1017`（你选的那个模型）✅
+- 但 **`closeout` 里没有 `folded`** —— 收尾那次折叠到底跑没跑，磁盘上回答不了。
+
+### 二、根因：结局只改了内存，没落盘
+
+收尾折叠是**异步**的，而归档一发生，引擎就把 `sessionRefs` 里那条引用**删掉**了。
+旧代码落盘时要靠 `sessionRefs.get(sessionId)` 找 session：
+
+```js
+const session = this.sessionRefs.get(sessionId);
+if (session !== undefined) this.#flush(session, { full: true });   // ← 引用没了，静默跳过
+```
+
+于是 `closeout.folded / foldNote / foldError` 全被丢在内存里，会话一结束就没影了。
+**这就是为什么"归档了但压不了"这件事，之前一直只能靠翻日志判断。**
+
+### 三、改法（C514）
+
+- 归档时把 `{ id, cwd }` 一起带进异步链；
+- 结局直接走 `persist.flush({id,cwd}, live, {full:true})` 落盘，**不再依赖 sessionRefs**；
+- 落盘失败要 warn（不许静默）。
+
+### 四、验证（含反向验证）
+
+新测试 C514 断言「磁盘上的 closeout 必须出现结局字段」。**把修复 stash 掉再跑，它确实红**：
+
+```
+✗ C514 … 现在只有 {"at":…,"eventsSinceLastFold":1032,"folds":0,"source":"disposed"}
+```
+
+恢复后：`103 passed`。全量 **1274 passed / 0 failed**。
+
+### 五、注意
+
+这是**引擎改动，要重启才生效**。
 
 ### C505 · provider 自绘 + 中性灰；doctor 模型表读不到就问网关
 

@@ -3096,3 +3096,28 @@ tests["C506 离线补折优先用「上下文压缩设置里选的模型」"] = 
   t.includes(src, "summarizationProvider", "读的就是设置里那个键");
   t.includes(src, "summarizationModel", "model 同理");
 };
+
+tests["C514 归档收尾的结局必须落盘 —— 不许只在内存里（sessionRefs 已被删）"] = async (t) => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c514-closeout-persist");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 120 });
+  const session = await p22Session(ctx, "sess-c514");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  await ctx.emitRaw("session/disposed", session);
+  // 收尾是异步的（还带超时）：等磁盘上的 closeout 出现「结局」字段
+  let g = null;
+  for (let i = 0; i < 80; i += 1) {
+    g = await readGraphReplayed(dir, "sess-c514");
+    const c = g?.closeout ?? {};
+    if ("folded" in c || "foldError" in c || "skipped" in c || "partial" in c) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const c = g?.closeout ?? {};
+  const hasOutcome = "folded" in c || "foldError" in c || "skipped" in c || "partial" in c;
+  t.eq(hasOutcome, true, `收尾结局必须出现在磁盘上的 closeout 里（现在只有 ${JSON.stringify(c)}）`);
+  // 代码层：不许再靠 sessionRefs 才 flush
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "this.persist.flush({ id: ref.id, cwd: ref.cwd }, live, { full: true })", "结局要直接走 persist 落盘");
+};
