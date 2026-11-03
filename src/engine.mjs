@@ -36,7 +36,7 @@ import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/confi
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
-import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome } from "./rooms/offline-fold.mjs";
+import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph } from "./rooms/offline-fold.mjs";
 import { findSessionLog, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
@@ -1839,45 +1839,17 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         this.ctx.logger?.warn?.(`chess-context: 离线补折没产出（${result?.failed ?? "empty"}），保持原结局`);
         return outcome;
       }
-      for (const chunk of result.chunks) {
-        graph.foldMarks = Array.isArray(graph.foldMarks) ? graph.foldMarks : [];
-        graph.foldMarks.push({
-          at: Date.now(),
-          seqStart: chunk.start,
-          seqEnd: chunk.end,
-          trigger: "archive-offline",
-          // ★ C108-1：每个折叠点都要记 closure（哪些节点/边被折掉）—— 离线折叠也不能例外，
-          //   否则 doctor 的那几项会显示「未采集」，等于给仪器留了个盲区。
-          closure: foldClosureOf(graph, { start: chunk.start, end: chunk.end }),
-          boundary: foldBoundaryOf(graph, { start: chunk.start, end: chunk.end }),
-          shadowedTokens: null,
-          measuredBefore: null,
-          route: { provider: target0.provider, model: chunk.model ?? target0.model },
-          fallback: null,
-          ms: chunk.ms,
-          usage: chunk.usage,
-          summaryChars: String(chunk.text ?? "").length,
-          quality: chunk.quality,
-          qualityRepaired: chunk.repaired,
-          offline: true,
-        });
-      }
-      const last = result.chunks[result.chunks.length - 1];
-      graph.lastOfflineSummary = { at: Date.now(), range: { start: last.start, end: last.end }, text: last.text, model: last.model };
-      graph.closeout = {
-        ...(graph.closeout ?? {}),
-        at: Date.now(),
-        source: "archive-offline",
-        foldAttempted: true,
-        folded: result.chunks.length,
-        foldOffline: true,
-        offlineCovered: { start: result.coveredStart, end: result.coveredEnd },
-        ...(outcome.partial === true ? { partial: true } : {}),
-        ...(outcome.uncoveredHead > 0 ? { offlineUncoveredHead: { events: outcome.uncoveredHead } } : {}),
-        ...(outcome.uncoveredTail > 0 ? { offlineUncoveredTail: { events: outcome.uncoveredTail } } : {}),
-      };
+      // ★ C502：记账逻辑搬到 rooms（可单测），引擎只负责"取输入 + 调模型"
+      const applied = applyOfflineFoldToGraph(graph, result, {
+        rangeStart,
+        rangeEnd,
+        provider: target0.provider,
+        model: target0.model,
+      });
+      const lastChunk = result.chunks[result.chunks.length - 1];
       this.ctx.logger?.info?.(
-        `chess-context: 离线补折完成 ${result.chunks.length} 段（段 ${last.start}-${last.end}，摘要 ${String(last.text ?? "").length} 字符${outcome.partial ? "，仍有缺口" : ""}）`,
+        `chess-context: 离线补折完成 ${applied.marksAdded} 段（段 ${lastChunk.start}-${lastChunk.end}，` +
+          `摘要 ${String(lastChunk.text ?? "").length} 字符${outcome.partial ? "，仍有缺口" : ""}）`,
       );
       return outcome;
     } catch (error) {

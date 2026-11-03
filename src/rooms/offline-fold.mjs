@@ -360,3 +360,63 @@ export function offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq } = {}
     ...(tail > 0 ? { uncoveredTail: tail } : {}),
   };
 }
+
+/**
+ * ★ C502：把离线折叠**写回棋谱**（`foldMarks` + `closeout` + `lastOfflineSummary`）。
+ *
+ * 为什么单独抽：这段是"账怎么记"，与"活怎么干"（读日志、调模型）无关。
+ * 抽出来就能**不依赖引擎/harness** 直接单测 —— 上一轮那条端到端测试卡在假 session 上，
+ * 提示我们：把"记账"和"驱动"分开，才测得动。
+ *
+ * @param {object} graph 棋谱（会被就地修改）
+ * @param {{chunks:Array<object>, coveredStart:number|null, coveredEnd:number|null, uncoveredHead?:number, uncoveredTail?:number}} result
+ * @param {{rangeStart:number, rangeEnd:number, provider?:string|null, model?:string|null, now?:number}} meta
+ * @returns {{marksAdded:number, partial:boolean}}
+ */
+export function applyOfflineFoldToGraph(graph, result, meta = {}) {
+  const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
+  const now = Number.isFinite(meta.now) ? meta.now : Date.now();
+  if (chunks.length === 0) return { marksAdded: 0, partial: true };
+  const graphRef = graph ?? {};
+  graphRef.foldMarks = Array.isArray(graphRef.foldMarks) ? graphRef.foldMarks : [];
+  for (const chunk of chunks) {
+    graphRef.foldMarks.push({
+      at: now,
+      seqStart: chunk.start,
+      seqEnd: chunk.end,
+      trigger: "archive-offline",
+      shadowedTokens: null,
+      measuredBefore: null,
+      route: { provider: meta.provider ?? "offline", model: chunk.model ?? meta.model ?? null },
+      fallback: null,
+      ms: chunk.ms ?? null,
+      usage: chunk.usage ?? null,
+      summaryChars: String(chunk.text ?? "").length,
+      quality: chunk.quality ?? null,
+      qualityRepaired: chunk.repaired ?? 0,
+      offline: true,
+    });
+  }
+  const last = chunks[chunks.length - 1];
+  graphRef.lastOfflineSummary = { at: now, range: { start: last.start, end: last.end }, text: String(last.text ?? ""), model: last.model ?? meta.model ?? null };
+  const uncoveredHead = Number(result?.uncoveredHead) || 0;
+  const uncoveredTail = Number(result?.uncoveredTail) || 0;
+  const partial = uncoveredHead > 0 || uncoveredTail > 0;
+  const base = { ...(graphRef.closeout ?? {}) };
+  delete base.foldNote;
+  delete base.foldError;
+  delete base.chunkStopped;
+  graphRef.closeout = {
+    ...base,
+    at: now,
+    source: "archive-offline",
+    foldAttempted: true,
+    folded: chunks.length,
+    foldOffline: true,
+    offlineCovered: { start: result.coveredStart ?? last.start, end: result.coveredEnd ?? last.end },
+    ...(partial ? { partial: true } : {}),
+    ...(uncoveredHead > 0 ? { offlineUncoveredHead: { events: uncoveredHead } } : {}),
+    ...(uncoveredTail > 0 ? { offlineUncoveredTail: { events: uncoveredTail } } : {}),
+  };
+  return { marksAdded: chunks.length, partial };
+}

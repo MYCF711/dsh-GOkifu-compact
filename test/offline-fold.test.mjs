@@ -126,3 +126,42 @@ tests["C499 结果翻译：有缺口就 partial，不许记成全压过"] = asyn
   t.eq(empty.folded, 0, "空响应 ⇒ 0 段");
   t.eq(empty.partial, true, "没压成当然算 partial");
 };
+
+tests["C502 写回棋谱：marks/closeout/lastOfflineSummary 一次到位，旧矛盾字段要清掉"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const g = {
+    foldMarks: [],
+    closeout: { at: 1, source: "archive", folded: 0, foldNote: "nothing-to-fold:no-foldable-span", foldError: "旧的错" },
+  };
+  const result = {
+    chunks: [
+      { start: 101, end: 200, text: "## 目标\n- x", quality: { constraintRecall: 1 }, repaired: 0, model: "m1", ms: 10, usage: null },
+      { start: 201, end: 300, text: "## 目标\n- y", quality: { constraintRecall: 1 }, repaired: 2, model: "m1", ms: 20, usage: null },
+    ],
+    coveredStart: 101,
+    coveredEnd: 300,
+    uncoveredHead: 100,
+    uncoveredTail: 0,
+  };
+  const out = m.applyOfflineFoldToGraph(g, result, { rangeStart: 1, rangeEnd: 300, provider: "magpie", model: "m1", now: 999 });
+  t.eq(out.marksAdded, 2, "两段各一条 foldMark");
+  t.eq(g.foldMarks.length, 2, "写进 foldMarks");
+  t.eq(g.foldMarks[0].trigger, "archive-offline", "要能跟在线折叠区分");
+  t.eq(g.foldMarks[1].qualityRepaired, 2, "补回条数要留痕");
+  t.eq(g.closeout.source, "archive-offline", "closeout 来源改写");
+  t.eq(g.closeout.folded, 2, "折了几段");
+  t.eq(g.closeout.partial, true, "前段没压 ⇒ partial");
+  t.eq(g.closeout.foldNote, undefined, "旧矛盾字段（nothing-to-fold）必须清掉");
+  t.eq(g.closeout.foldError, undefined, "旧错误也必须清掉");
+  t.eq(g.lastOfflineSummary.range.end, 300, "摘要区间记最后一段");
+  t.includes(g.lastOfflineSummary.text, "- y", "摘要正文留最后一段");
+};
+
+tests["C502 空结果不许动棋谱（不许写半截账）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const g = { foldMarks: [], closeout: { source: "archive", folded: 0 } };
+  const before = JSON.stringify(g);
+  const out = m.applyOfflineFoldToGraph(g, { chunks: [], coveredStart: null, coveredEnd: null }, { rangeStart: 1, rangeEnd: 10 });
+  t.eq(out.marksAdded, 0, "0 段");
+  t.eq(JSON.stringify(g), before, "一个字都不该改 —— 没压成就还是原样欠着");
+};
