@@ -1590,6 +1590,14 @@ function applyInner(ctx) {
             ...(perItemMs === undefined ? {} : { perItemMs }),
             resolveAgent,
             closeout: (agent) => bridge.closeoutNow(agent, { source: "backfill" }),
+            // ★ C518：面板也要**读回图上的结局**，不许把"调用成功"当"真的折了"
+            readGraph: (id) => {
+              try {
+                return store.load({ id, cwd: "" })?.graph ?? null;
+              } catch {
+                return null;
+              }
+            },
           });
           // ★ C426：真补完之后**必须作废清单缓存**。
           //   C416 的 10 秒缓存在这里会反噬：补完再点一次（十秒内）仍看到旧的 due 与旧清单，

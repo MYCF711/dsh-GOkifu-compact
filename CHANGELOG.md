@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C510 | 补账以图为准：调用成功不等于真的折了 |
 | C509 | 真因：surface 里找不到这段；错误也要触发离线补折 |
 | C508 | doctor 报出归档后仍未折的尾巴（23 个会话 / 64,562 事件） |
 | C507 | 欠账口径守卫：lastFoldSeq 与 foldMarks 差 1670 事件 |
@@ -581,6 +582,53 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C510 · 补账以图为准：调用成功不等于真的折了
+
+**上一轮发现「面板说成功了、图里写的是失败」。这轮把它修掉：补账改为读回图上的真实结局。**
+
+### 一、真机症状
+
+```
+面板返回：folded: 1
+图上写的：folded: 0 / chunkedFolded: 0 / chunkStopped: "error"
+          foldError: "Error: compactRegion: start seq 496 not found in surface"
+```
+
+`closeout()` 返回的是**调用结果**，不是**账本**。两者不一致时，界面把真实失败掩盖了。
+
+### 二、改法（C518）
+
+- `runBackfill` 新增可选 `readGraph(sessionId)`；
+- 收尾调用后**读回图**（最多等 1.5s，让 C514 的异步落盘落定），以图为准覆盖
+  `folded / foldNote / foldError / partial / foldOffline`；
+- 记录带 `fromGraph: true`，一眼能看出这个结论来自图；
+- 面板接上：`readGraph: (id) => store.load({id,cwd:""}).graph`。
+
+### 三、测试
+
+| 用例 | 断言 |
+|---|---|
+| 调用成功但图上失败 | `ok:true` 但 `folded:false`，`foldError` 带原因，汇总 `folded:0` |
+| 图上真折成 | `folded:true`、`partial`、`foldOffline` 都要透出 |
+| 没给 readGraph | 退回旧行为，且不带 `fromGraph` |
+
+### 四、外部知识（①）：官方价目表复核
+
+| 项 | flash | pro |
+|---|---|---|
+| 输入命中 空闲/高峰（元/百万） | 0.02 / 0.04 | 0.15 / 0.30 |
+| 输入未命中 | 1 / 2 | 4.5 / 9.0 |
+| 输出 | 4 / 8 | 13.5 / 27.0 |
+
+高峰 = 北京时间周一至周五 **9:00–12:00 与 14:00–18:00** ⇒ UTC **01–04 与 06–10**，
+与 `isPeakUtc()` 的两个窗口一致（**两段**，不是只有上午）。旧名 `deepseek-v4-flash` 已下线但仍会路由到 V4.1-Flash-1017。
+
+### 五、验证
+
+```
+node test/run.mjs → 1281 passed, 0 failed
+```
 
 ### C509 · 真因：surface 里找不到这段；错误也要触发离线补折
 

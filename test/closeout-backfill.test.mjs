@@ -290,3 +290,49 @@ tests["C515 foldMarks 为空但 lastFoldSeq 有值 ⇒ 仍然算欠账（不许�
   t.eq(debt.lastFoldSeq, null, "没有 foldMark 就没有折叠区间");
   t.eq(debt.tail >= 2999, true, `没折过就该整段欠着（实际 ${debt.tail}）`);
 };
+
+tests["C518 补账以图上的结局为准：调用成功 ≠ 真的折了"] = async (t) => {
+  const calls = [];
+  const report = await runBackfill({
+    items: [{ sessionId: "s1", tail: 100 }],
+    resolveAgent: async () => ({ session: { id: "s1" } }),
+    // 引擎返回"成功"，但图上写的是失败 —— 真机 c460d468 的形状
+    closeout: async () => {
+      calls.push("closeout");
+      return { folded: true };
+    },
+    readGraph: () => ({ closeout: { folded: 0, chunkedFolded: 0, foldError: "Error: compactRegion: start seq 496 not found in surface" } }),
+  });
+  t.eq(calls.length, 1, "收尾要被调用一次");
+  const r = report.results[0];
+  t.eq(r.ok, true, "调用本身是成功的");
+  t.eq(r.folded, false, "但图上没折成 ⇒ folded 必须是 false");
+  t.eq(r.fromGraph, true, "要标明这个结论来自图");
+  t.includes(String(r.foldError), "not found in surface", "失败原因要带出来，别只给个 false");
+  t.eq(report.folded, 0, "汇总也不能虚报成功");
+};
+
+tests["C518 图上真折成了 ⇒ folded=true，并带 foldNote/partial"] = async (t) => {
+  const report = await runBackfill({
+    items: [{ sessionId: "s2", tail: 100 }],
+    resolveAgent: async () => ({ session: { id: "s2" } }),
+    closeout: async () => ({ folded: true }),
+    readGraph: () => ({ closeout: { folded: 2, partial: true, foldOffline: true } }),
+  });
+  const r = report.results[0];
+  t.eq(r.folded, true, "图上折了 2 段");
+  t.eq(r.partial, true, "有缺口要带 partial");
+  t.eq(r.foldOffline, true, "离线补折要能看出来");
+  t.eq(report.folded, 1, "汇总计 1 个会话折成");
+};
+
+tests["C518 没给 readGraph ⇒ 退回旧行为（但记录不带 fromGraph）"] = async (t) => {
+  const report = await runBackfill({
+    items: [{ sessionId: "s3", tail: 100 }],
+    resolveAgent: async () => ({ session: { id: "s3" } }),
+    closeout: async () => ({ folded: true }),
+  });
+  const r = report.results[0];
+  t.eq(r.folded, true, "旧行为保持不变");
+  t.eq(r.fromGraph, undefined, "没有图就没有 fromGraph 标记");
+};

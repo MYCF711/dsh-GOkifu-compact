@@ -184,10 +184,59 @@ export function rankDebts(items, { limit = DEFAULT_LIMIT } = {}) {
  * @param {number} [options.perItemMs] 单个会话的硬超时
  * @returns {Promise<{total:number, done:number, folded:number, failed:number, dryRun:boolean, results:object[]}>}
  */
+/**
+ * ★ C518：把「图上写的结局」翻译成补账记录里的字段。
+ *
+ * 为什么需要：`closeout()` 返回的是**调用结果**，而账本在图上。两者不一致时，
+ * 界面上"成功了"会掩盖真实失败（真机 c460d468 就是这样）。这里以图为准。
+ *
+ * @param {(sessionId: string) => object|null} readGraph
+ * @param {string} sessionId
+ * @param {number} budgetMs 最多等多久让异步落盘落定
+ * @returns {Promise<{folded:boolean, foldNote?:string, foldError?:string, partial?:boolean, fromGraph:true}|null>}
+ */
+async function outcomeFromGraph(readGraph, sessionId, budgetMs) {
+  const deadline = Date.now() + Math.max(0, Number(budgetMs) || 0);
+  let closeout = null;
+  for (;;) {
+    try {
+      const g = readGraph(sessionId);
+      closeout = g?.closeout ?? null;
+    } catch {
+      closeout = null;
+    }
+    if (closeout !== null && closeout !== undefined) {
+      const hasVerdict =
+        "folded" in closeout || "chunkedFolded" in closeout || "foldError" in closeout || "foldNote" in closeout || "partial" in closeout;
+      if (hasVerdict) break;
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (closeout === null || closeout === undefined) return null;
+  const folded = Number(closeout.folded) > 0 || Number(closeout.chunkedFolded) > 0;
+  return {
+    fromGraph: true,
+    folded,
+    ...(closeout.foldNote === undefined || closeout.foldNote === null ? {} : { foldNote: String(closeout.foldNote) }),
+    ...(closeout.foldError === undefined || closeout.foldError === null ? {} : { foldError: String(closeout.foldError).slice(0, 300) }),
+    ...(closeout.partial === true ? { partial: true } : {}),
+    ...(closeout.foldOffline === true ? { foldOffline: true } : {}),
+  };
+}
+
 export async function runBackfill({
   items = [],
   resolveAgent,
   closeout,
+  /**
+   * ★ C518：**读回图上的真实结局**。`closeout()` 的返回值是"调用成功"，
+   * 不等于"真的折了" —— 真机（2026-11-04 c460d468）面板报 `folded:1`，图上写的是
+   * `folded:0 / foldError:"start seq 496 not found in surface"`。
+   * 给了这个函数就以图为准；不给就退回旧行为（调用方自己负责诚实）。
+   * @type {((sessionId: string) => object|null) | undefined}
+   */
+  readGraph,
   dryRun = false,
   onProgress = () => {},
   perItemMs = DEFAULT_PER_ITEM_MS,
@@ -233,7 +282,13 @@ export async function runBackfill({
     }
     try {
       const outcome = await withTimeout(Promise.resolve().then(() => closeout(agent)), perItemMs, sessionId);
-      push({ ...base, ok: true, ...(outcome && typeof outcome === "object" ? outcome : {}) });
+      const merged = { ...base, ok: true, ...(outcome && typeof outcome === "object" ? outcome : {}) };
+      // ★ C518：以**图上的结局**为准（最多等 1.5s，让 C514 的异步落盘落定）
+      if (typeof readGraph === "function") {
+        const truth = await outcomeFromGraph(readGraph, sessionId, 1500);
+        if (truth !== null) Object.assign(merged, truth);
+      }
+      push(merged);
     } catch (error) {
       push({ ...base, ok: false, error: String(error?.message ?? error).slice(0, 200) });
     }
