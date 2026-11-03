@@ -1,5 +1,5 @@
 {
-  "total": 831,
+  "total": 833,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -51,6 +51,7 @@
     "keeper.test.mjs": 0,
     "kifu-model-snapshot.test.mjs": 7,
     "kifu-persist.test.mjs": 10,
+    "knowledge-markers.test.mjs": 2,
     "knowledge-progress.test.mjs": 1,
     "ledger-boundary.test.mjs": 14,
     "ledger-budget-persist.test.mjs": 3,

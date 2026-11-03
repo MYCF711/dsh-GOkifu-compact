@@ -29,3 +29,5 @@
 
 - 多帧是怎么切分的（是否有长度前缀/索引文件）—— 摸清了才能写只读解析器；
 - 是否所有会话都用同一格式（样本只查了 1 个会话）。
+
+> **来源（补记 C436）**：本机 `DSH_HOME` 下的 `home/sessions/<workspace>/<session>/session.v4.jsonl.zstd`（本机实测）。
