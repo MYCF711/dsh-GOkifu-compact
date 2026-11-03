@@ -75,7 +75,7 @@ tests["C469 按「有没有跑过清洗」分队列：时间基线会把旧代�
     mark(200, "pressure", { unknownIds: [], outOfRangeLater: [], outOfRangeEarlier: [] }),
     // 修复后：字段存在（哪怕是 0）
     // ★ 注意：`sanitizedIds` 在 **foldMark 顶层**（engine 就是这么写的），不在 quality 里
-    { ...mark(300, "pressure", { unknownIds: [], outOfRangeLater: [], outOfRangeEarlier: [] }), sanitizedIds: 0 },
+    { ...mark(300, "pressure", { unknownIds: [], outOfRangeLater: [], outOfRangeEarlier: [] }), sanitizedIds: 0, sanitizeRan: true },
     { ...mark(400, "pressure", { unknownIds: [], outOfRangeLater: ["n7"], outOfRangeEarlier: [] }), sanitizedIds: 3 },
   ];
   const r = summarizeRefs(marks);
@@ -89,4 +89,20 @@ tests["C469 按「有没有跑过清洗」分队列：时间基线会把旧代�
   const rr = summarizeRefs(realish, { since: 400 });
   t.eq(rr.protectedFolds, 0, "时间过滤后仍然没有修复后样本");
   t.includes(rr.protectedFolds === 0 ? "**还没有**" : "ok", "**还没有**", "空队列必须明说，别让人以为 0% 就是修好了");
+};
+
+tests["C482 「跑过清洗」要能证明：sanitizeRan 或替换数>0；空转的单列一栏"] = (t) => {
+  const mk = (at, extra, later) => ({ at, trigger: "pressure", quality: { unknownIds: [], outOfRangeLater: later, outOfRangeEarlier: [] }, ...extra });
+  const marks = [
+    mk(100, { sanitizedIds: 0, sanitizeRan: false }, ["n9"]), // 空转（range 为空）
+    mk(200, { sanitizedIds: 3, sanitizeRan: true }, []), // 真跑过且干净
+    mk(300, { sanitizedIds: 6 }, []), // 老记录：替换数>0 ⇒ 也算跑过
+    mk(400, { sanitizedIds: 0 }, ["n8"]), // 老记录且替换 0 ⇒ 说不清
+  ];
+  const r = summarizeRefs(marks);
+  t.eq(r.protectedFolds, 2, "真跑过的 2 条（含老记录里替换数>0 的）");
+  t.eq(r.protectedWithLater, 0, "跑过的里面没有'更晚实体'");
+  t.eq(r.unconfirmedFolds, 1, "老记录且替换 0 ⇒ 未确认");
+  t.eq(r.unconfirmedWithLater, 1, "而它确实带更晚实体 —— 正是真机那条的样子");
+  t.eq(r.unprotectedFolds, 1, "sanitizeRan:false 明确没跑的，算未保护而不是未确认");
 };

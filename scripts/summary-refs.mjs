@@ -45,6 +45,9 @@ export function summarizeRefs(marks, { since = null } = {}) {
     //   时间基线会把"修复前的旧折叠"一直算进分子（上一轮就是这样：7 条新折叠 100% 带更晚实体，
     //   而那 7 条其实全是**重启前的旧代码**跑的）。`sanitizedIds` 字段只有 C458 之后才会写。
     protectedFolds: 0,
+    // ★ C482：写了 sanitizedIds 但没有 sanitizeRan ⇒ 不知道清洗有没有真跑（老记录）
+    unconfirmedFolds: 0,
+    unconfirmedWithLater: 0,
     protectedWithLater: 0,
     unprotectedFolds: 0,
     unprotectedWithLater: 0,
@@ -66,9 +69,20 @@ export function summarizeRefs(marks, { since = null } = {}) {
     out.unknown += unknown.length;
     out.later += later.length;
     out.earlier += earlier.length;
-    if (mark.sanitizedIds !== undefined) {
+    // ★ C482：**"跑过清洗"不等于"有 sanitizedIds 字段"**。真机 c0a5847a 那次
+    //   `sanitizedIds: 0` 但 quality 里还列出 20 个「更晚实体」—— 那是 range 为空、清洗空转。
+    //   所以队列归属改成看 `sanitizeRan`；老 foldMark（没有该字段）单独记一栏"未确认"。
+    // `sanitizedIds > 0` 本身就证明它跑过（真替换了东西），老记录也按这个算
+    if (mark.sanitizeRan === true || Number(mark.sanitizedIds) > 0) {
       out.protectedFolds += 1;
       if (later.length > 0) out.protectedWithLater += 1;
+    } else if (mark.sanitizeRan === false) {
+      // 明确知道没跑（新版才写得出这个值）⇒ 就是未保护
+      out.unprotectedFolds += 1;
+      if (later.length > 0) out.unprotectedWithLater += 1;
+    } else if (mark.sanitizedIds !== undefined) {
+      out.unconfirmedFolds += 1;
+      if (later.length > 0) out.unconfirmedWithLater += 1;
     } else {
       out.unprotectedFolds += 1;
       if (later.length > 0) out.unprotectedWithLater += 1;
@@ -182,10 +196,16 @@ function main(argv) {
   if (cur.examples.later.length > 0) console.log(`  例子（更晚）：${cur.examples.later.slice(0, 4).join(" | ")}`);
   // ★ C469：两个队列分开报 —— 这是唯一能回答"C458 到底有没有用"的口径
   console.log(
-    `  · 修复后队列（有 sanitizedIds，C458 起）：${cur.protectedFolds} 条折叠，其中带「更晚实体」${cur.protectedWithLater} 条` +
+    `  · 修复后队列（清洗确实跑过：sanitizeRan 或 替换数>0）：${cur.protectedFolds} 条折叠，其中带「更晚实体」${cur.protectedWithLater} 条` +
       (cur.protectedFolds === 0 ? "（**还没有**：等下一次真机折叠）" : ""),
   );
   console.log(`  · 修复前队列（无该字段）：${cur.unprotectedFolds} 条折叠，带「更晚实体」${cur.unprotectedWithLater} 条（历史账，不会自己变好）`);
+  if (cur.unconfirmedFolds > 0) {
+    console.log(
+      `  · **未确认队列**（有 sanitizedIds 但缺 sanitizeRan）：${cur.unconfirmedFolds} 条，带「更晚实体」${cur.unconfirmedWithLater} 条` +
+        ` —— 这些折叠的清洗可能**空转**（range 为空），不能算进"修复后"`,
+    );
+  }
   const cmp = compareWithBaseline(cur, baseline);
   console.log(`  ${cmp.line}`);
   if (effectiveSince !== null && cur.withQuality === 0) {

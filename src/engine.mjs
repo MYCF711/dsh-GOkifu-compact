@@ -1443,6 +1443,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const cleaned = sanitizeSummaryIds(this._lastSummaryText ?? "", g, range);
       this._lastSummaryText = cleaned.text;
       this._lastSummarySanitized = cleaned.removed.length > 0 ? cleaned.removed : [];
+      // ★ C482：`sanitizedIds: 0` 有两种截然不同的含义 ——「检查过，没毛病」与「根本没检查」。
+      //   真机 c0a5847a 那次：`sanitizedIds: 0`，但 quality 里仍列出 20 个「更晚实体」——
+      //   说明那次 **range 是 null，清洗直接返回了原文本**（checked=0），却被记成 0 个改动。
+      this._lastSummarySanitizeChecked = Number(cleaned.checked) || 0;
     }
     this._lastSummaryModelText = modelText;
     this._lastSummaryProvider = used.provider;
@@ -2098,6 +2102,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       totalAfter: after.totalTokens,
       // ★ C458：这次摘要有几个 id 被清洗成 n? / e?（>0 说明模型仍在编编号，提示词不够）
       sanitizedIds: sanitizedIds.length,
+      // ★ C482：「检查过没毛病」与「根本没检查」必须分开（checked=0 说明 range 为空，清洗是空转）
+      sanitizeChecked: Number(this._lastSummarySanitizeChecked) || 0,
+      sanitizeRan: (Number(this._lastSummarySanitizeChecked) || 0) > 0,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
       measuredBefore: markPressure?.tokens ?? null,
       thresholdTokens: markPressure?.threshold ?? null,
