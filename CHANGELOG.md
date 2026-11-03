@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C443 | 把 foldMark usage 构造抽成纯函数并行为测住（不只是 grep 源码） |
 | C442 | 查了 GET /models 与余额接口：面板的 models 是宿主表，不是它 |
 | C441 | 挖到宿主 HMR 契约：delete(plugin)→fiber dispose；给自愈写明边界 |
 | C440 | 能力探针不再越界断言「跑的是新代码」（只证动作层） |
@@ -515,6 +516,22 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C443 · 把 foldMark usage 构造抽成纯函数并行为测住（不只是 grep 源码）
+
+C346 / C398 修的都是"foldMark 里要写 model 与 finishReason"，但**验证方式一直是源码断言**——
+"这一行里有没有那个字符串"。同一个问题因此犯了三次（C321/C398/C399）才修好。
+
+这轮把它**变成可行为测试的**：
+
+- 抽出纯函数 `buildFoldMarkUsage(summaryUsage, { provider, model, instructionTokens })`：
+  foldMark 里那份 usage 的**唯一构造点**；
+- 测试 `engine-harness` C443 用**真机形状**的 usage 驱动：
+  `{inputTokens:217664, outputTokens:781, totalTokens:219000, cacheReadTokens:19584}`（没有 model）
+  断言输出**必须有** `model`/`provider`/`instructionTokens`，且原有字段不丢；空/非法输入返回 `null` 而非崩。
+
+**教训**：**源码断言只能证明"写了"，行为测试才能证明"写对了"。**
+能抽成纯函数的，就不要停在 grep 上。
 
 ### C442 · 查了 GET /models 与余额接口：面板的 models 是宿主表，不是它
 

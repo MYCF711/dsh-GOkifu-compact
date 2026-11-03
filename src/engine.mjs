@@ -169,6 +169,27 @@ export function newlyArchived(previous, current) {
   return out;
 }
 
+/**
+ * ★ C443：foldMark 里那份 usage 的**唯一构造点**。纯函数。
+ *
+ * 为什么抽出来：C346/C398 修的就是"这里要写 model 与 finishReason"，
+ * 但那两次都只能用**源码断言**验证（字段在不在那一行）。
+ * 抽成纯函数后，可以**行为地**测：给一份没有 model 的真机 usage，看输出里有没有 model。
+ *
+ * @param {object|null} summaryUsage 宿主返回的 usage（可能没有 model）
+ * @param {{provider?:string|null, model?:string|null, instructionTokens?:number|null}} extra
+ * @returns {object|null}
+ */
+export function buildFoldMarkUsage(summaryUsage, { provider = null, model = null, instructionTokens = null } = {}) {
+  if (summaryUsage === null || summaryUsage === undefined || typeof summaryUsage !== "object") return null;
+  return {
+    ...summaryUsage,
+    provider: provider ?? null,
+    model: model ?? null,
+    instructionTokens: Number.isFinite(Number(instructionTokens)) ? Number(instructionTokens) : null,
+  };
+}
+
 export function isPermanentSummaryError(message) {
   const text = String(message ?? "");
   if (text === "") return false;
@@ -1954,19 +1975,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       route: summaryRoute,
       fallback: summaryMode === "rules" ? "rules" : null,
       ms: Math.max(0, Date.now() - foldStartedAt),
-      usage: summaryUsage === null ? null : {
-        ...summaryUsage,
-        // ★ C346：**把模型名写进 usage**。真机实测：真实 usage 只有
-        //   `inputTokens/outputTokens/totalTokens/cacheReadTokens`，**没有 model** ——
-        //   于是 C345 的"按实际模型计价"在面板上永远回落到 flash（跑 Pro 就低报 4 倍）。
-        //   这里补上，让成本卡能真的按模型算。
+      usage: buildFoldMarkUsage(summaryUsage, {
         provider: summaryProvider,
         model: summaryModel,
-        // ★ C237：我们自己的指令（facts + 模板）占多少 token —— 用它来回答「fold 输入里有多少是我们加的」。
-        //   实测（session-1e82afca 一次 231k 的 fold）：指令 3,996 tok = **1.7%**，其余全是宿主送进来的消息。
-        //   没有这个字段，每次讨论"输入/遮蔽 = 1.4"都会重新猜一遍。
-        instructionTokens: Number.isFinite(this._lastSummaryInstructionTokens) ? this._lastSummaryInstructionTokens : null,
-      },
+        instructionTokens: this._lastSummaryInstructionTokens,
+      }),
+
       // 摘要总字符数（含机械追加的约束段与最近访问文件）。老 foldMark 没有该字段 ⇒ null。
       summaryChars,
       // 保真度：constraintRecall / failureRecall（应恒 1）/ compressionRatio（记趋势）。

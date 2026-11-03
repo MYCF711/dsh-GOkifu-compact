@@ -2886,3 +2886,20 @@ tests["C399/C400 三个证据字段必须真的落进 foldMark（不再依赖实
   t.includes(block, "measuredBefore: markPressure?.tokens", "foldMark 必须读 markPressure");
   t.eq(/this\._foldDiag\?/.test(block), false, "不许再读 this._foldDiag（已废弃）");
 };
+
+tests["C443 foldMark 的 usage 用行为测住：真机 usage 没有 model 也要补上"] = async (t) => {
+  const { mod } = await load();
+  const build = mod.buildFoldMarkUsage;
+  t.eq(typeof build, "function", "必须导出 buildFoldMarkUsage");
+
+  // 真机形状：只有 4 个 token 字段，没有 model
+  const real = { inputTokens: 217664, outputTokens: 781, totalTokens: 219000, cacheReadTokens: 19584 };
+  const out = build(real, { provider: "magpie", model: "group/deepseek-v4.1-flash1017", instructionTokens: 3996 });
+  t.eq(out.model, "group/deepseek-v4.1-flash1017", "必须补上 model（否则成本永远按 flash 估）");
+  t.eq(out.provider, "magpie", "provider 也要写上");
+  t.eq(out.instructionTokens, 3996, "指令 token 要带出去");
+  t.eq(out.inputTokens, 217664, "原有字段不许丢");
+  // 空/非法输入
+  t.eq(build(null), null, "没有 usage ⇒ null");
+  t.eq(build({ inputTokens: 1 }, { instructionTokens: "x" }).instructionTokens, null, "非法 instructionTokens ⇒ null");
+};
