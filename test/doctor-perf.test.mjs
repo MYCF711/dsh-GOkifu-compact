@@ -26,3 +26,12 @@ tests["C463 多帧扫描要用 Buffer.indexOf（原生），不许逐字节 for"
   t.eq(src.includes("b.indexOf(magic"), true, "用原生查找");
   t.eq(/for \(let i = 0; i \+ 4 <= b\.length; i \+= 1\)/.test(src), false, "逐字节扫描已删除（35MB = 3500 万次迭代）");
 };
+
+tests["C464 doctor 一次运行只解一次图（9 个块各自 loadSessionGraph = 多付 4 秒）"] = (t) => {
+  const src = read("scripts/doctor.mjs");
+  // 只允许一处直接调用（那个就是缓存函数的实现本身）
+  const direct = [...src.matchAll(/loadSessionGraph\(/g)].length;
+  t.eq(direct <= 2, true, `直接调用 loadSessionGraph 的地方有 ${direct} 处 —— 只该有 import 与 loadGraphCached 内部`);
+  t.eq(src.includes("function loadGraphCached"), true, "必须有进程内图缓存");
+  t.eq(src.includes("graphCache"), true, "缓存容器在位");
+};

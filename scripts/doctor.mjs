@@ -51,6 +51,24 @@ const sessionsRoot = nodePath.join(home, "sessions");
 const checks = [];
 const add = (name, status, detail) => checks.push({ name, status, detail });
 
+/**
+ * ★ C464：**一次运行只解一次图**。doctor 有 9 个块各自 `loadSessionGraph()`，
+ *   每块都重新 readFile + JSON.parse + fromJSON + sha 一遍 116 个图（合计 26 MB）。
+ *   实测这是 7.3s 里约 4-5 秒的来源。doctor 是一次性进程，进程内缓存绝对安全。
+ */
+const graphCache = new Map();
+function loadGraphCached(file) {
+  if (!graphCache.has(file)) graphCache.set(file, loadSessionGraph(file));
+  return graphCache.get(file);
+}
+
+const TRACE = process.env.DSH_DOCTOR_TRACE === "1";
+const T0 = Date.now();
+/** 分段计时（DSH_DOCTOR_TRACE=1 打到 stderr）—— 回答「doctor 到底慢在哪」。 */
+function mark(name) {
+  if (TRACE) console.error(`[${String(Date.now() - T0).padStart(6)} ms] ${name}`);
+}
+
 /* ── 1. 安装态 ──
    以前这里只 `existsSync(node_modules/<pkg>)`：junction 在就报 ok，而依赖声明可能指向
    一个**不存在的目录**（重装即坏）。判据与 verify-install 共用 scripts/link-path.mjs。 */
@@ -209,6 +227,7 @@ if (sum === null) {
   );
 }
 
+mark('安装/版本检查');
 /* ── 3. 压缩健康：最近会话的 compaction 成败 ── */
 const PY = `import sys, zstandard
 with open(sys.argv[1],'rb') as f:
@@ -317,6 +336,7 @@ add(
     `${lastErrors.length ? `；最近错误：${lastErrors[0]}` : ""}`,
 );
 
+mark('会话日志扫描 ★');
 /* ── 4. 棋谱健康 ── */
 let sessions = 0;
 let agents = 0;
@@ -410,7 +430,7 @@ if (nodeFs.existsSync(chessRoot)) {
     newestFlush = Math.max(newestFlush, mtime);
     try {
       // ★ C183：聚合统计同样要重放 delta（否则节点/边数系统性偏低，自环率也会被扭曲）
-      const g = loadSessionGraph(f).graph;
+      const g = loadGraphCached(f).graph;
       {
         const es = Object.values(g.edges ?? {});
         const ns = Object.keys(g.nodes ?? {}).length;
@@ -507,6 +527,7 @@ if (nodeFs.existsSync(chessRoot)) {
     else if (verdictIndex.reason === "content-fresh") indexMtimeFalsePositives += 1;
   }
 }
+mark('棋谱健康扫描');
 /* ── 3.3d 新观测字段覆盖（C193）──
    这五个字段是「压缩是否被真正观测到」的指标；缺哪个就说明对应路径**还没有真机样本**
    （不是错误，但必须让人看见「我们现在到底看得到什么」）。 */
@@ -548,6 +569,7 @@ if (pivotSessions > 0) {
 // ★ C230：抗干扰度的累加器（3.3c 里逐会话累加，报告在该块之后）
 const interference = { total: 0, resolved: 0, worst: [] };
 
+mark('观测字段覆盖');
 /* ── 3.3c 棋谱结构自洽（C140）──
    结构坏掉的图会安静地留在磁盘上（validate 只在写盘时告警一行）。这里逐会话体检：
    悬空边 / 悬空 stateIndex / order 漂移 / foldMark 闭包越界。发现即 error（数据损坏）。 */
@@ -565,7 +587,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
       if (!nodeFs.existsSync(graphFile)) continue;
       let loaded;
       try {
-        loaded = loadSessionGraph(graphFile);
+        loaded = loadGraphCached(graphFile);
       } catch (error) {
         // ★ C145/C148：把「旧版本图」和「真的损坏」分开 ——
         //   但**判据必须是文件里的 version 值**，不能靠错误文案：
@@ -649,6 +671,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
   }
 }
 
+mark('结构自洽');
 /* ── 3.3b 节点文档与棋谱一致（C110）──
    热清单省略行会写「见 nodes/<id>.md」。文件缺失 = 空指针（模型会去读，然后 ENOENT）；
    文件比节点多 = 陈旧工件（不影响引用，只计数）。 */
@@ -671,7 +694,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
       try {
         // ★ C143（审查 P1-2）：必须重放 delta —— 运行时 load 会重放；只读基线会把
         //   「只在 delta 里、其实还活着」的节点当成不存在（误报陈旧）或漏报真实缺失（假绿）。
-        loaded = loadSessionGraph(graphFile);
+        loaded = loadGraphCached(graphFile);
       } catch (error) {
         // ★ C148（复审 P1-1）：**不许静默跳过** —— 否则旧版本/坏图会话完全不进这条检查，
         //   而 detail 还写「齐全」，等于永久假绿。
@@ -723,6 +746,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
   add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
 }
 
+mark('节点文档一致');
 /* ── 3.4 第三方 preset 的压缩后端（C94）──
    我们的 patch 只覆盖**四个官方 preset**。第三方插件若自带 preset（例如 dsh-design-studio 的
    `preset-design`「设计模式」），它可能在自己的 bundle patch 里重新声明 compaction-basic ⇒
@@ -768,6 +792,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
   }
 }
 
+mark('第三方 preset');
 /* ── 3.4b insert id 唯一性（C96）──
    bundle patch 的 `insert` 行靠 id 建索引：两个插件插同一个 id，后写的会**替换**先写的 ——
    被替掉的那个插件等于静默禁用。若撞的是我们的 `gokifu-ui`，设置页/`/gokifu/api` 会消失。 */
@@ -817,6 +842,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
   }
 }
 
+mark('insert id');
 /* ── 3.45 preset 覆盖唯一性（C95）──
    多个 bundle 若覆盖**同一个 preset id**，后写的那份会整体接管 config ——
    若别人的覆盖里又带回调 compression-basic，我们的引擎就被**静默顶掉**了。
@@ -859,6 +885,7 @@ const interference = { total: 0, resolved: 0, worst: [] };
   }
 }
 
+mark('preset 覆盖');
 /* ── 3.5 置换合并可追溯（C33）：被吞节点的身份必须留有记录 ── */
 add(
   "置换合并可追溯（superseded）",
@@ -902,6 +929,7 @@ add(
       //   只说"这次花了多少"会严重低估收益，所以给一句口径，不编数字。
       " · 口径：这是**单次**花费；被遮蔽的 token 在之后每轮请求里都会省（无状态 API 每轮重发历史）",
 );
+mark('3.5 置换合并');
 /* ★ C348：**思考模式默认开着**（官方《Thinking Mode》：默认 enabled、默认 effort=high）。
    摘要请求也会带上思考 ⇒ 输出 token 里有一部分是推理。这块要**看得见**，否则
    "一次 fold 输出 3k token" 会被读成"摘要写了 3k 字"。宿主的 usage 里本来就有 `reasoningTokens`。 */
@@ -917,7 +945,7 @@ add(
       if (!nodeFs.existsSync(graphFile)) continue;
       let g = null;
       try {
-        g = loadSessionGraph(graphFile).graph;
+        g = loadGraphCached(graphFile).graph;
       } catch {
         continue;
       }
@@ -948,6 +976,7 @@ add(
   }
 }
 
+mark('C348 思考模式');
 /* ★ C401：**仪器到底装上了没有**。C398/C400 是"把字段写进 foldMark"的修复，
    但一个字段"存在"和"有值"是两回事（C317–C321 连错五轮都在这上面）。
    这里直接把最近 10 条 foldMark 的三个新字段数出来。 */
@@ -961,7 +990,7 @@ add(
       if (!nodeFs.existsSync(graphFile)) continue;
       let g = null;
       try {
-        g = loadSessionGraph(graphFile).graph;
+        g = loadGraphCached(graphFile).graph;
       } catch {
         continue;
       }
@@ -988,6 +1017,7 @@ add(
   }
 }
 
+mark('C401 仪器');
 /* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
    我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
    所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。 */
@@ -1004,7 +1034,7 @@ add(
       if (!nodeFs.existsSync(graphFile)) continue;
       let g = null;
       try {
-        g = loadSessionGraph(graphFile).graph;
+        g = loadGraphCached(graphFile).graph;
       } catch {
         continue;
       }
@@ -1042,6 +1072,7 @@ add(
   }
 }
 
+mark('C347 成本模型');
 /* ★ 2026-11-01（C20）：fold 的**成本效率** —— 摘要请求读了多少 token，才换回多少遮蔽 token。
    live 实测 input/shadowed = 1.43–1.63：**摘要请求读的是整个 surface，不是只读被折叠段**。
    比值 ≥2 说明「读两倍才压一倍」—— 触发点太晚、或增量范围切得太碎。纯观测，不改行为。 */
@@ -1088,6 +1119,7 @@ add(
   }
 }
 
+mark('C20 成本效率');
 /* ★ P2-2（task-192）：最近 5 次 fold 的 route / fallback / ms / usage。
    旧图的 foldMark 没有这些字段 ⇒ 明确写「—」（不许用 0/undefined 冒充数据）。
    tier-2 的合并记录不是 fold（没有 route/usage），也按「—」显示。 */
@@ -1121,6 +1153,7 @@ add(
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+mark('P2-2 最近5次');
 /* ★ C196：fold 新鲜度 —— 回答「什么时候会再 fold」。只展示，不判断。 */
 {
   const top = [...foldGrowth].sort((a, b) => b.growth - a.growth).slice(0, 3);
@@ -1134,6 +1167,7 @@ add(
   }
 }
 
+mark('C196 新鲜度');
 /* ★ C216：归档收尾 —— 回答「会话被归档时，最后那一段到底压了没有」。
    判据（真机 1.17.5 的失败样本）：已归档 + 有棋谱 + 一条 closeout 都没有 ⇒ 归档信号没接上。
    这条是 C210 那次真机验证得出的：它挂在 `session/disposed` 上，而 GUI 归档根本不发这个事件。 */
@@ -1211,6 +1245,7 @@ add(
   }
 }
 
+mark('C216 归档收尾');
 /* ★ 2026-11-01（C12）：fold 触发原因分布 —— `context-overflow` 出现 = 已经被迫自救，
    说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。 */
 {
@@ -1230,6 +1265,7 @@ add(
   }
 }
 
+mark('C12 触发原因');
 /* ★ 2026-11-01（保真度 L1，`src/rooms/fold-quality.mjs`）：最近 fold 的「约束/失败边有没有留住」。
    判据（`docs/压缩的重注入契约.md` §6 第 6b 行）：
      · constraintRecall **必须 = 1** —— 丢一条约束 = 任务变了 ⇒ error；
@@ -1329,6 +1365,7 @@ add(
   );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
+mark('保真度 L1');
 /* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ── */
 {
   const marks = recentFoldMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
@@ -1355,6 +1392,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+mark('4.8 悬空');
 /* ── 4.9 fold 边界完整性（C31）：切点落在工具调用中间 = 摘要引用区间外结果，判 error ── */
 {
   const withBoundary = recentFoldMarks
@@ -1375,6 +1413,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+mark('4.9 边界');
 /* ★ C220：上下文缓存命中 —— 本机 96% 的输入 token 走缓存（DeepSeek disk cache）。
    这条是**成本侧的唯一真相**：真正贵的是「没命中的那部分」，而不是我们注入了多少。 */
 {
@@ -1394,6 +1433,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+mark('C220 缓存命中');
 /* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──
    engine 每次 renderLedger 后会把 {none, over-budget, impossible, maxOverBudgetBy} 落到
    `<DSH_HOME>/chess-context/ledger-budget.json`。没有这个文件 = 从未采集（旧版本或还没跑过）
@@ -1511,6 +1551,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     }
   }
 
+mark('5 热清单预算');
 /* ★ C198：宿主直接调用 compactRegion 的折叠（我们的 compactIfNeeded 之外）—— 以前完全不留账。 */
 {
   const ext = stats && typeof stats === "object" ? Number(stats.externalFolds ?? 0) : 0;
@@ -1530,6 +1571,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+mark('C198 外部折叠');
 /* ★ C219：热清单**注入动作** —— 缓存友好性。
    append = 只在末尾追加（前缀不动，DeepSeek 的 disk cache 还能命中）；
    replace = 改写 surface 中间那条（从那里起前缀失配，缓存作废）。
@@ -1566,6 +1608,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
   }
 }
 
+mark('C219 注入动作');
 /* ★ C197：token 压力快照 —— 回答「为什么还不 fold」：是没到阈值，还是根本没被调用。 */
 {
   const pressure = stats && typeof stats === "object" && stats.pressure && typeof stats.pressure === "object" ? stats.pressure : null;
@@ -1600,7 +1643,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       let g;
       try {
         // ★ C183：脚本侧读图必须走 loadSessionGraph（会重放 delta），不许裸 fromJSON
-        g = loadSessionGraph(file).graph;
+        g = loadGraphCached(file).graph;
       } catch {
         continue;
       }
@@ -1713,7 +1756,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       if (!nodeFs.existsSync(file)) continue;
       let g;
       try {
-        g = loadSessionGraph(file).graph;
+        g = loadGraphCached(file).graph;
       } catch {
         continue;
       }
@@ -1759,7 +1802,7 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
       if (!nodeFs.existsSync(file)) continue;
       let g;
       try {
-        g = loadSessionGraph(file).graph;
+        g = loadGraphCached(file).graph;
       } catch {
         continue;
       }
