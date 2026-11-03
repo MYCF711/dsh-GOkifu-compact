@@ -426,6 +426,25 @@ export function laterSuccessOf(edge, successEdges = []) {
  *
  * @returns {{text: string, source: "agent-goal"|"latest-user"}|null}
  */
+/**
+ * ★ C449：这条 user 原话**值不值得复诵**。
+ *
+ * 真机数据（29 个多轮会话，最新 user 消息长度**中位 12 字**）里最短的一批是：
+ * `继续`×3、`go`、`修一下`、`都是0`、`我重启好了`×2 …
+ * 把「继续」渲染成 `CURRENT GOAL: 继续` 不但没信息，还会让模型以为**当前目标就是"继续"**。
+ *
+ * 判据只拦**纯接续/确认词**（外加 ≤2 字的碎片），不做语义猜测：
+ * 命中的东西模型本来也不需要被告知（它就在最后一条消息里）。
+ */
+const CONTINUATION_ONLY_RE = /^(?:继续|接着|再继续|继续吧|往下|go|continue|ok|okay|好|好的|行|嗯|可以|开始|请继续|继续推进)[\s。.!！?？~～]*$/i;
+
+export function isInformativeAsk(text) {
+  const t = String(text ?? "").trim();
+  if (t.length === 0) return false;
+  if (t.length <= 2) return false;
+  return !CONTINUATION_ONLY_RE.test(t);
+}
+
 export function currentGoalOf(g, latestAgent) {
   const goal = typeof latestAgent?.goal === "string" ? latestAgent.goal.trim() : "";
   if (goal !== "") return { text: goal, source: "agent-goal" };
@@ -437,7 +456,12 @@ export function currentGoalOf(g, latestAgent) {
   const rootIds = Array.isArray(g?.rootUserNodeIds) ? g.rootUserNodeIds : [];
   // 只有一条 user / 最新那条就是根 ⇒ 与 ROOT 重复，不给
   if (rootIds.includes(last.id) || users.length === 1) return null;
-  return { text: last.text.trim(), source: "latest-user" };
+  // ★ C449：**只复诵"最新那条且它本身有信息量"**。
+  //   为什么不去更早的消息里找一条有信息量的：那条多半**已经做完了**，
+  //   把一个完成的旧任务写成 CURRENT GOAL，比不写更糟（会把模型拽回去重做）。
+  const text = last.text.trim();
+  if (!isInformativeAsk(text)) return null;
+  return { text, source: "latest-user" };
 }
 
 export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null, retried = 1) {

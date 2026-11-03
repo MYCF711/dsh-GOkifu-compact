@@ -2,7 +2,7 @@ import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureE
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, _internal } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
@@ -548,4 +548,35 @@ tests["C448 renderLedger：多轮会话必须真的出现 CURRENT GOAL 行（真
   const clipped = renderLedger(withPath("改".repeat(400)), { now: 1_760_000_000_000 });
   const line = clipped.text.split(String.fromCharCode(10)).find((l) => l.startsWith("CURRENT GOAL:"));
   t.eq((line ?? "").length <= 240 + 20, true, `CURRENT GOAL 行必须截断，实际 ${(line ?? "").length} 字`);
+};
+
+/* ───────── C449：兜底内容要过信息量这道门（真机最新 user 消息中位只有 12 字） ───────── */
+
+tests["C449 isInformativeAsk：纯接续/确认词不算目标，2 字以内一律不算"] = (t) => {
+  for (const junk of ["继续", "继续吧。", "go", "GO", "ok", "好的", "嗯", "可以", "接着", "请继续", ""]) {
+    t.eq(isInformativeAsk(junk), false, `「${junk}」不该被当成当前目标`);
+  }
+  for (const real of ["修一下", "都是0", "我重启好了", "按照 gokifu 的方式完善 kifu", "继续修 data.jsonl 那个解析"]) {
+    t.eq(isInformativeAsk(real), true, `「${real}」应当被当成当前目标`);
+  }
+};
+
+tests["C449 currentGoalOf：最新一条只是「继续」⇒ 宁可不给（更早那条多半已做完，写成目标会把模型拽回去重做）"] = (t) => {
+  const mk = (extra) => {
+    const g = createGraph({ sessionId: "c449" });
+    const u = addUserNodeId(g, { seq: 1, text: "把 data.jsonl 算出来。" });
+    const e1 = addEdge(g, { from: u, action: "bash(node calc.mjs)" });
+    const n2 = addAgentNode(g, { seq: 5, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
+    g.edges[e1].to = n2;
+    addUserNodeId(g, { seq: 9, text: extra });
+    return g;
+  };
+  t.eq(currentGoalOf(mk("继续"), { goal: "" }), null, "「继续」不渲染");
+  t.eq(currentGoalOf(mk("go"), { goal: "" }), null, "英文接续词同样不渲染");
+  t.eq(currentGoalOf(mk("改成先跑 lint 再跑测试"), { goal: "" })?.text, "改成先跑 lint 再跑测试", "有信息量才渲染");
+  // agent 自己有 goal 时，接续词过滤不该把 goal 也挡掉
+  t.eq(currentGoalOf(mk("继续"), { goal: "跑通 lint" })?.source, "agent-goal", "goal 优先，且不受兜底过滤影响");
+  // 真渲染：最新是「继续」⇒ 不出这行
+  const noLine = renderLedger(mk("继续"), { maxTokens: 500, now: 1_760_000_000_000 });
+  t.eq(noLine.text.includes("CURRENT GOAL"), false, "「继续」不该在清单里出现");
 };
