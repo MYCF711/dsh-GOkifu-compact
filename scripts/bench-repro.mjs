@@ -21,7 +21,9 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
 
 /** 基线：只在有意改变算法/夹具时更新，并同步 README。 */
-const EXPECTED_TOKENS = 351;
+// 351 → 387：1.13.0 把热清单预算改成按字符类别加权（CJK 1 token/字 + 其余 1/4 token/字），
+// 同一份 2000 边夹具的渲染结果就变了 —— 这是**有意的**基线变更，不是漂移。
+const EXPECTED_TOKENS = 387;
 const EXPECTED_TIER = 5;
 const EXPECTED_RETENTION = 8;
 
