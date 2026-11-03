@@ -27,7 +27,7 @@ import { writeBuildStamp } from "./rooms/build-stamp.mjs";
 import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
-import { debtOfGraph, closeoutSettles } from "./rooms/closeout-backfill.mjs";
+import { debtOfGraph, closeoutSettles, listDebts, rankDebts } from "./rooms/closeout-backfill.mjs";
 import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
@@ -673,6 +673,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     };
     if (this.chess.hotLedger) this.#bindLedger();
     this.#bindKeeper();
+    // ★ C524：**自动补账**（默认开）。归档会话的尾巴不用人点，后台自己清。
+    this.#startAutoBackfill();
   }
 
   /* ────────────────────────── P7：预算消费 ────────────────────────── */
@@ -1765,6 +1767,113 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       /* 配置没解析出来就当没设 */
     }
     return null;
+  }
+
+  /* ────────────────────────── 自动补账（C524） ────────────────────────── */
+
+  /**
+   * ★ C524：**后台自动补账**。
+   *
+   * 用户的话：「面板补账开个自动开关，默认打开也可以达到一样的效果」。
+   * 效果就是：归档会话没折完的尾巴，不需要人点按钮，自己会被补掉。
+   *
+   * 与面板补账的**关键区别**：面板要 `resume` 成 live agent（会碰宿主状态、要处理 busy 闸门）；
+   * 这里走的是**离线补折**（读日志 + 默认模型），全程不碰宿主 surface —— 所以它能在后台安静地做。
+   *
+   * 三条安全线：
+   *   · 串行，每轮最多 `autoBackfillMaxSessions` 个（默认 1）；
+   *   · **活着的会话不碰**（日志 mtime < 5 分钟）—— 宿主手里有内存里的图，我们写会被覆盖；
+   *   · 失败只 warn，绝不影响主流程。
+   */
+  #startAutoBackfill() {
+    try {
+      if (this.chess.autoBackfill === false) return;
+      const everyMs = Math.max(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MIN) || 30) * 60_000;
+      const delayMs = Math.max(10, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_DELAY_SEC) || 120) * 1000;
+      const kick = () => {
+        void this.#autoBackfillTick().catch((error) => {
+          this.ctx?.logger?.warn?.(`chess-context: 自动补账异常（不影响压缩）：${String(error)}`);
+        });
+      };
+      const first = setTimeout(kick, delayMs);
+      first?.unref?.();
+      const timer = setInterval(kick, everyMs);
+      timer?.unref?.();
+      this._autoBackfill = { first, timer };
+    } catch {
+      /* 定时器起不来不影响主路径 */
+    }
+  }
+
+  /** ★ C524：一轮自动补账。串行、限量、跳过活会话。 */
+  async #autoBackfillTick() {
+    if (this.chess.autoBackfill === false) return;
+    if (this._autoBackfillBusy === true) return;
+    this._autoBackfillBusy = true;
+    const started = Date.now();
+    try {
+      const root = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
+      const home = nodePath.basename(root) === "chess-context" ? nodePath.dirname(root) : nodePath.dirname(nodePath.dirname(root));
+      const listed = listDebts({
+        sessionIds: (() => {
+          try {
+            return nodeFs
+              .readdirSync(nodePath.join(root, "sessions"), { withFileTypes: true })
+              .filter((d) => d.isDirectory())
+              .map((d) => d.name);
+          } catch {
+            return [];
+          }
+        })(),
+        minEvents: Number(this.chess.closeoutMinEvents) || 40,
+        limit: 50,
+        loadGraph: (id) => this.persist.load({ id, cwd: "" }).graph,
+      });
+      const max = Math.max(0, Math.min(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MAX) || 1));
+      if (max === 0) {
+        this.ctx?.logger?.info?.(`chess-context: 自动补账只检查不补（${listed.due} 个欠账）`);
+        return;
+      }
+      const picked = rankDebts(listed.items, { limit: max });
+      let done = 0;
+      for (const item of picked) {
+        const id = String(item?.sessionId ?? "");
+        if (id === "") continue;
+        const logFile = (() => {
+          try {
+            return findSessionLog(home, id);
+          } catch {
+            return null;
+          }
+        })();
+        // 活会话：宿主持有内存里的图，我们写会被覆盖（真机 8cc34e32 的血泪教训）
+        if (logFile !== null) {
+          try {
+            if ((Date.now() - nodeFs.statSync(logFile).mtimeMs) / 60_000 < 5) continue;
+          } catch {
+            /* stat 失败就当不活 */
+          }
+        }
+        const loaded = this.persist.load({ id, cwd: "" });
+        const graph = loaded?.graph ?? null;
+        if (graph === null) continue;
+        this.graphs.set(id, graph);
+        const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" });
+        done += 1;
+        this.ctx?.logger?.info?.(
+          `chess-context: 自动补账 ${id.slice(0, 8)} → ${outcome?.folded ?? 0} 段` +
+            (outcome?.partial === true ? "（仍有缺口，下轮继续）" : "") +
+            (outcome?.stopped !== undefined && outcome.stopped !== null && outcome.stopped !== "done" ? ` · ${outcome.stopped}` : ""),
+        );
+      }
+      if (done > 0) {
+        this.ctx?.logger?.info?.(`chess-context: 自动补账完成 ${done} 个会话（${Math.round((Date.now() - started) / 1000)}s，剩余欠账 ${Math.max(0, listed.due - done)}）`);
+      }
+    } catch (error) {
+      this.ctx?.logger?.warn?.(`chess-context: 自动补账失败（不影响压缩）：${String(error)}`);
+    } finally {
+      this._autoBackfillBusy = false;
+    }
   }
 
   /**

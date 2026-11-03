@@ -430,20 +430,20 @@ export const tests = {
     t.notIncludes(install, "export function replaceCompactionBlock", "install.mjs 不得再有自持实现");
   },
 
-  "A2-1：preset 块格式逐字未变（engineBlock 26 行 / 20 个配置键；C210 加 closeout*）"(t) {
+  "A2-1：preset 块格式逐字未变（engineBlock 27 行 / 21 个配置键；C524 加 autoBackfill）"(t) {
     // 动态 import 房间，直接比对块内容 —— 这是「一个字节都不许变」的机器判据。
     return import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href).then((room) => {
       const block = room.engineBlock();
-      t.eq(block.length, 26, "engineBlock 行数（C316 加 closeoutMaxFoldTokens）");
+      t.eq(block.length, 27, "engineBlock 行数（C524 加 autoBackfill）");
       t.eq(block[0], "# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。", "首行注释");
       t.eq(block[3], "- id: gokifu-compact", "id 行");
       t.eq(block[4], "  name: 'dsh-gokifu-compact/engine'", "name 行（单引号）");
       t.eq(block[8], "    firstFoldRatio: 0.30      # 首折阈值：只作用于本会话第一次 fold（0 = 关闭）", "S8 首折行（紧跟在 thresholdRatio 之后）");
-      t.eq(block[21], "    tier2After: 8", "tier2After 行");
-      t.eq(block[24], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
-      t.eq(block[25], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
+      t.eq(block[22], "    tier2After: 8", "tier2After 行（前一行是 autoBackfill）");
+      t.eq(block[25], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
+      t.eq(block[26], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
       const parsed = room.parseEngineBlock(block.join("\n"));
-      t.eq(Object.keys(parsed.config).length, 20, "配置键数（C316 +1）");
+      t.eq(Object.keys(parsed.config).length, 21, "配置键数（C524 +1）");
       t.eq(parsed.config.thresholdRatio, 0.45, "thresholdRatio 数值型");
       t.eq(parsed.config.firstFoldRatio, 0.3, "firstFoldRatio 数值型（0.30 → 0.3）");
       t.eq(parsed.config.summarizationProvider, "", "空字符串写成 ''");

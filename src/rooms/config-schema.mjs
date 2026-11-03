@@ -62,6 +62,11 @@ export const SCHEMA = Object.freeze([
   { key: "auto", type: "boolean", default: true, where: "preset", label: "自动压缩", desc: "自动压缩（between-step 压力触发）" },
 
   // —— 棋谱扩展 ——
+  // ★ C524：**自动补账**。用户不想每次手动点「补账」—— 归档会话的尾巴默认就该自己清掉。
+  //   间隔与批量刻意**不开放配置**（30 分钟 / 每轮 1 个），要调就用环境变量：
+  //   `DSH_GOKIFU_AUTO_BACKFILL_MIN` / `DSH_GOKIFU_AUTO_BACKFILL_MAX` —— 少一个配置项，
+  //   就少一处 golden 与文档漂移（这是吃过教训的：每个新键要同步 6 个 golden）。
+  { key: "autoBackfill", type: "boolean", default: true, where: "preset", label: "自动补账", desc: "后台每 30 分钟自动补一个归档会话的尾巴（离线补折：读日志 + 默认模型）；关掉就只手动补" },
   { key: "summaryMode", type: "enum", values: ["hybrid", "rules", "llm"], default: "hybrid", where: "preset", label: "摘要方式", desc: "hybrid=规则事实+模型润色；rules=零模型调用；llm=完全交给模型" },
   {
     key: "growthFloorTokens",
@@ -119,6 +124,7 @@ export const PRESET_KEYS = Object.freeze([
   "retainRatio",
   "growthFloorTokens",
   "minFoldTokens",
+  "autoBackfill",
   "summaryMode",
   "maxTokens",
   "summarizationProvider",
@@ -171,6 +177,7 @@ const LABEL_ORDER = Object.freeze([
   "retainRatio",
   "growthFloorTokens",
   "minFoldTokens",
+  "autoBackfill",
   "summaryMode",
   "maxTokens",
   "hotLedger",
@@ -238,6 +245,8 @@ export function resolveConfig(raw = {}) {
     maxTokens: num(c.maxTokens, describe("maxTokens").default),
     growthFloorTokens: num(c.growthFloorTokens, describe("growthFloorTokens").default),
     minFoldTokens: num(c.minFoldTokens, describe("minFoldTokens").default),
+    // ★ C524：默认开（只有显式 false 才关）
+    autoBackfill: c.autoBackfill !== false,
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
     // ★ C248：注入节流间隔（默认 40 = 旧行为）

@@ -3121,3 +3121,21 @@ tests["C514 归档收尾的结局必须落盘 —— 不许只在内存里（ses
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "this.persist.flush({ id: ref.id, cwd: ref.cwd }, live, { full: true })", "结局要直接走 persist 落盘");
 };
+
+tests["C524 自动补账：默认开、限量、跳过活会话、失败只 warn"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "#startAutoBackfill", "要有启动入口");
+  t.includes(src, "this.chess.autoBackfill === false", "默认开（只在显式 false 时关）");
+  t.includes(src, "#autoBackfillTick", "要有每轮的实现");
+  t.includes(src, "autoBackfillMaxSessions", "要有每轮上限");
+  t.includes(src, "mtimeMs) / 60_000 < 5", "活会话要跳过（写会被宿主覆盖）");
+  t.includes(src, "自动补账失败（不影响压缩）", "失败只 warn");
+  t.includes(src, "setInterval(kick, everyMs)", "要按间隔自己跑");
+  t.includes(src, "?.unref?.()", "定时器不许吊住宿主退出");
+
+  // 配置项必须存在且默认开
+  const schema = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "config-schema.mjs"), "utf8");
+  t.includes(schema, 'key: "autoBackfill", type: "boolean", default: true', "autoBackfill 默认必须 true");
+  t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MIN", "间隔用环境变量调（少一处 golden 漂移）");
+  t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "每轮数量同理");
+};
