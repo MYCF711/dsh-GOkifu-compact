@@ -89,7 +89,7 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   // ★ C299：**分段收尾不进 foldMarks**（走 compactRegion），只留 `closeout.chunkedFolded`；
   //   不把它算进来，已经折完的会话会被当成"没折过"（与 doctor 的判断口径分裂）。
   const folded =
-    marks.some((mark) => mark?.trigger === "archive" || mark?.trigger === "backfill") ||
+    marks.some((mark) => mark?.trigger === "archive" || mark?.trigger === "backfill" || mark?.trigger === "archive-offline") ||
     Number(graph?.closeout?.chunkedFolded) > 0;
   // ★ C286：估一下这次收尾折叠**大概要花多少输入 token**。
   //   为什么能估：每个 foldMark 都记了「折了多少事件(seqEnd-seqStart) / 遮蔽多少 token(shadowedTokens)」，
