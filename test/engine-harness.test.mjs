@@ -61,7 +61,7 @@ export function createUserMessage(input) { return { id: "m" + Math.random().toSt
 export class BlockAssembler {
   constructor() { this.chunks = []; this.finish = { kind: "stop" }; this.usage = undefined; }
   push(chunk) { this.chunks.push(chunk); if (chunk && chunk.usage !== undefined) this.usage = chunk.usage; }
-  blocks() { return [{ type: "text", text: "## 目标\\n- mock summary" }]; }
+  blocks() { return [{ type: "text", text: (globalThis.__D460_SUMMARY_TEXT__ ?? "## 目标\\n- mock summary") }]; }
 }
 `,
   );
@@ -165,7 +165,7 @@ export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   return session;
 }
 
-export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null, services = {} } = {}) {
+export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null, services = {}, summaryText = "## 目标\n- mock" } = {}) {
   const listeners = new Map();
   const overlay = { ...services };
   const ctx = {
@@ -2984,4 +2984,45 @@ tests["C467 400 要分出「被路由到别的上游」：这类改提示词没�
   // 普通 400 仍是可重试的"格式/参数"类
   // 普通 400 在**退避**层面仍按"重试同一路径无意义"处理（参数错不会自己好），这点不变
   t.eq(mod.isPermanentSummaryError("400 invalid format"), true, "退避口径不变：400 仍会强制走规则摘要兜底");
+};
+
+
+tests["C458 清洗接线：模型编出来的 id 在落库前就变成 n?/e?（不是只测纯函数）"] = async (t) => {
+  // 纯函数测试只能证明 sanitizeSummaryIds 正确，证明不了**引擎真的调了它**。
+  // 这里让假模型吐出一段带编造编号的摘要，再检查引擎保存的那份文本。
+  const base = await load();
+  const dir = nodePath.join(GRAPHS, "c458-wire");
+  nodeFs.rmSync(dir, { recursive: true, force: true });
+  // n999 图里没有；e77 不存在；n1/n2 是真的 —— 摘要文本由桩的 BlockAssembler 从 globalThis 读
+  globalThis.__D460_SUMMARY_TEXT__ = "## 目标\n- 跑通构建\n- n1 起点\n- n999 不存在\n- e77 也不存在\n- 见 n2\n";
+  const ctx = makeCtx();
+  // 直接铺一张最小图（与 C458 那条 P0 回归测试同一种写法，不依赖任何 seed 辅助）
+  const sessDir = nodePath.join(dir, "sessions", "sess-c458");
+  nodeFs.mkdirSync(sessDir, { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(sessDir, "graph.json"),
+    JSON.stringify({
+      version: 1, sessionId: "sess-c458", cwd: "C:/tmp", createdAt: 1, updatedAt: 1,
+      nextNode: 3, nextEdge: 1,
+      nodes: {
+        n1: { id: "n1", kind: "user", seq: 1, text: "把构建跑通", constraints: [], ts: 1 },
+        n2: { id: "n2", kind: "agent", seq: 2, goal: "试一下", via: null, ts: 2 },
+      },
+      edges: {}, order: ["n1", "n2"], stateIndex: {}, rootUserNodeIds: ["n1"],
+      checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
+    }, null, 1),
+    "utf8",
+  );
+  const engine = new base.Engine(ctx, { graphDir: dir, auto: false });
+  const session = makeSession({ id: "sess-c458" });
+  // 真实的 range 是 `compactRegion()` 在调 super 之前设好的；直接调 summarize 得自己摆好
+  // （否则 sanitize 会因为"判不了晚不晚"而原样返回 —— 这是它刻意的保守行为）
+  engine._chessActiveRange = { start: 1, end: 2 };
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  if (!out || !Array.isArray(out.summary)) throw new Error("summarize 没产出");
+  const text = engine._lastSummaryText ?? "";
+  t.includes(text, "n?", "编造/越界的编号必须被换成占位符");
+  t.includes(text, "n1", "真实存在的 id 要保留");
+  t.eq(text.includes("n999"), false, "n999 不许留在 checkpoint 里");
+  t.eq(text.includes("e77"), false, "e77 同理");
 };
