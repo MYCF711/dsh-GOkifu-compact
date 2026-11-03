@@ -328,7 +328,11 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
   // 顺序有意义：**已经折过**先判（不管原因写着什么，都不该再花一次钱）
   if (closeout?.folded > 0) return { go: false, why: "already-folded" };
   const note = String(reason ?? closeout?.foldNote ?? "");
-  if (!note.includes("no-foldable-span")) return { go: false, why: "not-no-foldable-span" };
+  // ★ C503：**「在线路径放弃了」都算触发条件**。
+  //   这里原来只认 `no-foldable-span`，于是 C501 加的"超时也走离线"实际是**死代码** ——
+  //   reason 传进来的是 `"timeout"`，永远不匹配。教训：加分支时先测那个分支的输入。
+  const isGiveUp = note.includes("no-foldable-span") || note === "timeout" || note.includes("timeout");
+  if (!isGiveUp) return { go: false, why: "not-a-giveup-reason" };
   if (!(Number(tailEvents) >= Number(minEvents))) return { go: false, why: "tail-too-short" };
   return { go: true, why: "no-foldable-span" };
 }

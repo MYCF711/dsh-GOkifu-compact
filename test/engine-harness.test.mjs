@@ -3076,6 +3076,7 @@ tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默
   t.eq(/3425\/v1/.test(src), false, "引擎不许直连 magpie 端口，必须走 ctx.llm.stream");
 };
 
+
 tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;

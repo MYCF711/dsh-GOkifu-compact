@@ -165,3 +165,13 @@ tests["C502 空结果不许动棋谱（不许写半截账）"] = async (t) => {
   t.eq(out.marksAdded, 0, "0 段");
   t.eq(JSON.stringify(g), before, "一个字都不该改 —— 没压成就还是原样欠着");
 };
+
+tests["C503 「超时」也是触发条件（否则 C501 那条分支是死代码）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const base = { enabled: true, tailEvents: 100, minEvents: 40 };
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "timeout" }).go, true, "在线超时 ⇒ 该走离线（日志还在）");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "no-foldable-span(surface=0,priced=3)" }).go, true, "带括号的形态也要认");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "no-target" }).go, false, "没有路由不是离线能救的");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "below-min-tokens" }).go, false, "尾巴太短按设计不折");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "timeout", closeout: { folded: 3 } }).why, "already-folded", "已折过仍然不重花");
+};
