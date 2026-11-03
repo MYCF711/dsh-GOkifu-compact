@@ -60,3 +60,21 @@ tests["C425 关键文档不得被截断（进度页曾因异常写入变成 0 �
     t.eq(size >= min, true, `${rel} 只有 ${size} 字节（下限 ${min}）—— 可能被截断/清空，先 git checkout 恢复`);
   }
 };
+
+tests["C427 用户会用的脚本必须在发布物里（pack 复验过，但要有守卫）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const root = nodePath.join(here, "..");
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(root, "package.json"), "utf8"));
+  t.eq(Array.isArray(pkg.files), true, "package.json 必须有 files");
+  // 这些目录/文件是用户真正会碰的：脚本、lib、docs、evidence
+  for (const need of ["scripts", "lib", "docs"]) {
+    t.eq(pkg.files.includes(need), true, `files 必须包含 ${need}（否则发布物里没有它）`);
+  }
+  // 逐个点名"用户会直接跑"的脚本，防止它们被改名/漏掉
+  for (const rel of ["scripts/status.mjs", "scripts/backfill-plan.mjs", "scripts/backfill-one.mjs", "scripts/accept-after-restart.mjs"]) {
+    t.eq(nodeFs.existsSync(nodePath.join(root, rel)), true, `${rel} 必须存在（用户会直接跑）`);
+  }
+};
