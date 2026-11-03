@@ -45,3 +45,12 @@ tests["C513 patch 里没有模型表 ⇒ 要问一次本机网关（magpie /v1/m
   t.includes(src, "if (fromPatch.length > 0) return fromPatch;", "patch 里有就以 patch 为准（不额外发请求）");
   t.includes(src, "return liveProviderModels(name);", "patch 没有才走兜底");
 };
+
+tests["C516 doctor 必须报出「归档了但仍有一大截没折」的会话（含合计事件数）"] = (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "归档后剩余的未折尾巴", "要有这一条检查");
+  t.includes(src, ">= 1000", "阈值写清楚");
+  t.includes(src, "Math.max(...marks.map((m) => Number(m.seqEnd)))", "尾巴必须按 foldMarks 算");
+  t.eq(src.includes("lastFoldSeq"), true, "注释里要说明为什么不能用 lastFoldSeq");
+  t.includes(src, "只能补账", "要告诉人怎么办（已归档的不会再收尾）");
+};

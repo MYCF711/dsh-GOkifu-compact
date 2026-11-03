@@ -1110,6 +1110,49 @@ mark('3.5 置换合并');
   }
 }
 
+mark('C516 归档后还剩多少没折');
+/* ★ C516：**"归档了但没折完"要能被看见**。
+   真机（2026-11-04）：a09a4535 跑到 5,862 事件，最后一次折叠区间只到 1,874，尾巴 3,988 —— 
+   而它已经归档（closeout 有记录）。这类会话以前只能靠人临时写脚本才看得见。
+   判据只认 foldMarks（`lastFoldSeq` 记的是"折时的会话 seq"，不是"折到哪"，别拿它算尾巴）。 */
+{
+  const root4 = nodePath.join(home, "chess-context", "sessions");
+  const bigTail = [];
+  if (nodeFs.existsSync(root4)) {
+    for (const entry of nodeFs.readdirSync(root4, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(root4, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      const marks = (Array.isArray(g?.foldMarks) ? g.foldMarks : []).filter((m) => Number.isFinite(m?.seqEnd));
+      const lastEnd = marks.length > 0 ? Math.max(...marks.map((m) => Number(m.seqEnd))) : 0;
+      const closed = g?.closeout !== undefined && g?.closeout !== null;
+      const tail = Number(g?.closeout?.eventsSinceLastFold ?? Math.max(0, lastEnd));
+      const maxSeq = lastEnd + tail;
+      if (!closed) continue;
+      if (tail >= 1000) bigTail.push({ id: entry.name.replace(/^session-/, "").slice(0, 8), tail, maxSeq, folds: marks.length });
+    }
+  }
+  bigTail.sort((a, b) => b.tail - a.tail);
+  const total = bigTail.reduce((sum, x) => sum + x.tail, 0);
+  add(
+    "归档后剩余的未折尾巴",
+    bigTail.length === 0 ? "ok" : "warn",
+    bigTail.length === 0
+      ? "没有「归档了但还剩一大截没折」的会话"
+      : `${bigTail.length} 个会话归档时仍有 ≥1000 事件未折（合计 ${total.toLocaleString("en-US")}）：` +
+          bigTail.slice(0, 5).map((x) => `${x.id}(${x.tail})`).join(" · ") +
+          (bigTail.length > 5 ? " …" : "") +
+          " ⇒ 这些是**已经归档**的：收尾不会再跑，只能补账（面板「补账」或 scripts/archive-fold.mjs）；" +
+          "未归档的会在收尾时自动处理，并带 foldNote/foldError 落账（C514）",
+  );
+}
+
 mark('C348 思考模式');
 /* ★ C401：**仪器到底装上了没有**。C398/C400 是"把字段写进 foldMark"的修复，
    但一个字段"存在"和"有值"是两回事（C317–C321 连错五轮都在这上面）。
