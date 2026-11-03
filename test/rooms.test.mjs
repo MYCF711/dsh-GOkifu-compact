@@ -45,6 +45,12 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "offline-fold": {
+    // C495/C496：离线归档压缩的纯逻辑与编排（脚本与引擎共用；模型调用由调用方注入）
+    file: "offline-fold.mjs",
+    allowed: ["node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "closeout-plan": {
     // C339：归档收尾的"要不要分段/怎么切/怎么执行"纯函数（engine 与离线脚本共用）
     file: "closeout-plan.mjs",
@@ -498,7 +504,7 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world"],
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world"],
       "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检

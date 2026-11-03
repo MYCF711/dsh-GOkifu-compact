@@ -225,6 +225,8 @@ export function classifySummaryError(message) {
   if (/(^|[^0-9])429([^0-9]|$)/.test(text) || /rate limit/i.test(text)) return "rate-limit";
   if (/(^|[^0-9])(500|503)([^0-9]|$)/.test(text) || /overload|server error/i.test(text)) return "overload";
   if (/timeout|timed out|aborted|etimedout/i.test(text)) return "timeout";
+  // ★ C497：422 已经是 permanent（见 isPermanentSummaryError）—— 这里**不动**分类，
+  //   只把"该怎么读"写进提示：400 与 422 都是"改请求"，不是"等一会儿"。
   if (/(^|[^0-9])400([^0-9]|$)/.test(text) || /invalid format|invalid_request/i.test(text)) return "invalid-request";
   if (isPermanentSummaryError(text)) return "permanent";
   return "other";
@@ -238,11 +240,11 @@ export function classifySummaryError(message) {
 export function summaryErrorHint(kind) {
   if (kind === "upstream-routing") return "模型组把请求路由到了别的上游 ⇒ 查 magpie 分组/换非 group 模型；改提示词没有用";
   if (kind === "balance") return "余额不足（402）⇒ 充值是唯一解；期间走规则摘要";
-  if (kind === "invalid-request") return "400 先看错误正文里的上游名字，再查 max_tokens 是否超过该模型上限";
+  if (kind === "invalid-request") return "400/422 先看错误正文里的上游名字，再查 max_tokens 是否超过该模型上限（422 通常是参数本身不合法）";
   if (kind === "rate-limit") return "限流 ⇒ 放慢节奏（已加最小等待）";
   if (kind === "overload") return "上游过载 ⇒ 稍后重试";
   if (kind === "timeout") return "超时 ⇒ 调大 closeoutTimeoutMs 或减小单段上限";
-  if (kind === "permanent") return "永久性错误 ⇒ 已强制走规则摘要，别再重试同一路径";
+  if (kind === "permanent") return "永久性错误（含 422 参数错误）⇒ 已强制走规则摘要；要改的是请求本身，不是等一会儿";
   return "";
 }
 

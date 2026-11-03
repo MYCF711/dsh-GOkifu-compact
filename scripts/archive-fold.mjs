@@ -50,204 +50,23 @@ export const DEFAULT_BASE_URL = "http://127.0.0.1:3425/v1";
  * @param {string} home DSH_HOME
  * @returns {{provider:string|null, model:string|null, source:string}}
  */
-export function readDefaultModel(home) {
-  const profilesDir = path.join(home, "profiles");
-  let entries = [];
-  try {
-    entries = fs.readdirSync(profilesDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    return { provider: null, model: null, source: "no-profiles" };
-  }
-  for (const name of entries) {
-    const file = path.join(profilesDir, name, "cordis.patch.yml");
-    if (!fs.existsSync(file)) continue;
-    const text = fs.readFileSync(file, "utf8");
-    // 只认 `- id: agent-default-model` 那一块里的 provider/model（简单逐行解析，避免引 yaml 依赖）
-    const lines = text.split(/\r?\n/);
-    let inBlock = false;
-    let provider = null;
-    let model = null;
-    for (const line of lines) {
-      if (/^-\s*id:\s*agent-default-model/.test(line.trim())) {
-        inBlock = true;
-        continue;
-      }
-      if (inBlock && /^-\s*id:/.test(line.trim())) break;
-      if (!inBlock) continue;
-      const pm = /^\s*provider:\s*(.+)$/.exec(line);
-      if (pm !== null) provider = pm[1].trim().replace(/^["']|["']$/g, "");
-      const mm = /^\s*model:\s*(.+)$/.exec(line);
-      if (mm !== null) model = mm[1].trim().replace(/^["']|["']$/g, "");
-    }
-    if (model !== null) return { provider, model, source: `profiles/${name}/cordis.patch.yml` };
-  }
-  return { provider: null, model: null, source: "agent-default-model-not-found" };
-}
+// ★ C495：纯逻辑已搬进 src/rooms/offline-fold.mjs（脚本与引擎共用同一份）
+import {
+  readDefaultModel,
+  collectMessages,
+  coverageOf,
+  repairMissingConstraints,
+  renderFacts,
+  buildOfflinePrompt,
+  allConstraints,
+  plainText,
+} from "../src/rooms/offline-fold.mjs";
 
-/* ────────────────────────── 纯函数 ────────────────────────── */
-
-/**
- * 从会话事件里挑出「值得压」的消息：只取 user/assistant 的文本，**跳过工具结果**。
- *
- * 为什么跳过工具结果：`tool/result` 在真机上占上下文 12%–77%（中位 44.9%，见 C481），
- * 而其中 93%–100% 没有被任何失败边引用。整段塞进摘要请求既贵又稀释重点。
- * 失败信息本来就在棋谱的 `errorSnippet` 里，走 facts 块。
- *
- * @param {Array<object>} events
- * @param {{maxChars?:number}} [options]
- * @returns {{messages:Array<{role:string, text:string}>, chars:number, dropped:number}}
- */
-export function collectMessages(events, { maxChars = 60_000, fromSeq = null } = {}) {
-  const picked = [];
-  for (const e of Array.isArray(events) ? events : []) {
-    if (e === null || typeof e !== "object") continue;
-    if (e.type !== "user/message" && e.type !== "assistant/message") continue;
-    // ★ C493：分段离线时**从头往后**取（`fromSeq` 之后），与"尾巴优先"是两种取法
-    if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
-    const text = plainText(e.data?.message?.content ?? e.data?.content);
-    if (text.trim() === "") continue;
-    picked.push({ role: e.type === "user/message" ? "user" : "assistant", text, seq: Number(e.seq) || null });
-  }
-  if (fromSeq !== null) {
-    // ★ C493：**从头往后**装（分段模式）。装到预算为止，剩下的留给下一段。
-    const out = [];
-    let chars = 0;
-    let dropped = 0;
-    for (let i = 0; i < picked.length; i += 1) {
-      const m = picked[i];
-      if (chars + m.text.length > maxChars) {
-        dropped = picked.length - i; // 后面还有这么多条没装进去
-        break;
-      }
-      out.push(m);
-      chars += m.text.length;
-    }
-    return { messages: out, chars, dropped };
-  }
-  // 默认：从**最近**往前取，直到预算用完（尾部最相关；早期内容已经在既有棋谱里）
-  const out = [];
-  let chars = 0;
-  let dropped = 0;
-  for (let i = picked.length - 1; i >= 0; i -= 1) {
-    const m = picked[i];
-    if (chars + m.text.length > maxChars) {
-      dropped = i + 1;
-      break;
-    }
-    out.push(m);
-    chars += m.text.length;
-  }
-  out.reverse();
-  return { messages: out, chars, dropped };
-}
-
-/**
- * ★ C491：从「消息预算」反推**实际覆盖的区间**，并算清前后两段没覆盖到多少。
- *
- * 为什么必须算：预算只装得下尾部若干条消息，若把 `seqEnd` 写成整个欠账区间的末尾，
- * 等于宣称"这段都压过了"，没压的那段从此**再也不会出现在欠账里**（C476 的同一个陷阱）。
- *
- * @param {{rangeStart:number, rangeEnd:number, seqs:number[]}} input
- * @returns {{start:number, end:number, uncoveredHead:number, uncoveredTail:number}}
- */
-export function coverageOf({ rangeStart, rangeEnd, seqs }) {
-  const list = (Array.isArray(seqs) ? seqs : []).filter((x) => Number.isFinite(x));
-  const coveredStart = list.length > 0 ? Math.min(...list) : rangeStart;
-  const coveredEnd = list.length > 0 ? Math.max(...list) : rangeStart;
-  const start = Math.max(rangeStart, Math.min(coveredStart, rangeEnd));
-  const end = Math.max(start, Math.min(rangeEnd, coveredEnd));
-  return { start, end, uncoveredHead: Math.max(0, start - rangeStart), uncoveredTail: Math.max(0, rangeEnd - end) };
-}
-
-/**
- * ★ C492：**离线摘要丢掉的约束，机械补回去。**
- *
- * 由来：真机（2026-11-03）跑完离线压缩，doctor 的「压缩保真度」立刻红了一条：
- * `constraintRecall min=0.167` —— 模型把"约束"当普通句子压缩掉了，只留下 6 条里的一半。
- *
- * 约束**不是摘要**，是硬性事实：丢掉它，后续模型就可能去动本来不许动的东西。
- * 所以这里不祈祷模型听话，而是**机械补回**：缺哪条就把原文逐字追加到末尾。
- *
- * @param {string} text 模型给的摘要
- * @param {string[]} missing 质量检查发现缺失的约束原文
- * @returns {{text:string, repaired:number}}
- */
-export function repairMissingConstraints(text, missing) {
-  const list = (Array.isArray(missing) ? missing : []).map((x) => String(x ?? "").trim()).filter((x) => x !== "");
-  if (list.length === 0) return { text: String(text ?? ""), repaired: 0 };
-  const body = String(text ?? "").replace(/\s+$/, "");
-  const lines = ["", "## 约束（逐字补充 · 离线压缩后自动补回，不许删）"];
-  for (const c of list) lines.push(`- ${c}`);
-  return { text: `${body}\n${lines.join("\n")}`, repaired: list.length };
-}
-
-/**
- * 从棋谱渲染「硬事实块」（目标 / 约束 / 死路 / 已验证 / 坐标）—— 与在线折叠同一套事实。
- * @param {object} graph
- * @param {{start:number, end:number}} range
- * @returns {string}
- */
-export function renderFacts(graph, range) {
-  const nodes = Object.values(graph?.nodes ?? {});
-  const edges = Object.values(graph?.edges ?? {});
-  const lines = [];
-  const root = (graph?.rootUserNodeIds ?? []).map((id) => graph?.nodes?.[id]).filter(Boolean)[0];
-  lines.push(`## 目标（不可改写）`, `- ${String(root?.text ?? "(none)").split("\n")[0]}`);
-  const constraints = [...new Set(nodes.flatMap((n) => (Array.isArray(n?.constraints) ? n.constraints : [])))].slice(0, 12);
-  if (constraints.length > 0) {
-    lines.push("", "## 约束（一条都不许丢）");
-    for (const c of constraints) lines.push(`- ${c}`);
-  }
-  const failures = edges.filter((e) => e?.result === "failure");
-  lines.push("", "## 已探明死路（不许重试）");
-  if (failures.length === 0) lines.push("- (none)");
-  for (const e of failures.slice(-40)) {
-    const label = String(e.intent || e.action || "").slice(0, 80);
-    const err = String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0].slice(0, 80);
-    lines.push(`- ${e.id} "${label}" → ${err} (seq ${e.evidence?.start ?? "?"}-${e.evidence?.end ?? "?"})`);
-  }
-  const ok = edges.filter((e) => e?.result === "success").slice(-10);
-  if (ok.length > 0) {
-    lines.push("", "## 已验证事实");
-    for (const e of ok) lines.push(`- ${e.id} ${String(e.action ?? "").slice(0, 80)} → ${e.verify?.summary ?? "ok"}`);
-  }
-  lines.push("", "## 原始坐标", `- 本段遮蔽 seq ${range.start}-${range.end}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
-  return lines.join("\n");
-}
-
-/**
- * 拼离线摘要的输入（纯函数，便于单测）。
- * @param {{facts:string, messages:Array<{role:string,text:string}>}} input
- * @returns {string}
- */
-export function buildOfflinePrompt({ facts, messages }) {
-  const body = (messages ?? []).map((m) => `### ${m.role}\n${m.text}`).join("\n\n");
-  return [
-    "你在为一个**已经归档**的会话做摘要。这些消息不会再被对话模型看到，只会进我们的棋谱。",
-    "",
-    "# 硬事实（必须全部保留，禁止改写约束与死路）",
-    facts,
-    "",
-    "# 原始消息（按时间顺序，工具结果已省略）",
-    body,
-    "",
-    "# 输出要求",
-    "- 只输出摘要正文，用二级标题分节：目标 / 棋谱（状态节点） / 已探明死路 / 已验证事实 / 未验证 / 当前节点与最近用户消息 / 原始坐标。",
-    "- 引用实体只能引用上面出现过的 `n123` / `e456`；不确定就写 `n?`。",
-    "- 不要写「下一步该做什么」这类行动建议。",
-  ].join("\n");
-}
+// 兼容导出：这些实现已经搬进 src/rooms/offline-fold.mjs，脚本这边只做转发
+export { readDefaultModel, collectMessages, coverageOf, repairMissingConstraints, renderFacts, buildOfflinePrompt, allConstraints };
 
 /* ────────────────────────── 主流程 ────────────────────────── */
 
-function plainText(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((b) => (typeof b?.text === "string" ? b.text : ""))
-    .filter((x) => x !== "")
-    .join("\n");
-}
 
 /** 读会话日志 → 事件数组（坏行跳过）。 */
 export function readSessionEvents(logFile) {

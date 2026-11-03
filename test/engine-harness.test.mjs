@@ -3057,3 +3057,9 @@ tests["C487 规则摘要的失败行必须截断字段（31k 字符的降级摘�
   t.includes(line, "evidence seq", "坐标必须保留");
   t.eq(line.includes("y".repeat(200)), false, "超长错误文本不该整段塞进来");
 };
+
+tests["C497 422（参数错误）必须跟 400 归一类 —— 重试同一个请求不会变好"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "422 已经是 permanent", "要写清 422 的归类依据（已由 isPermanentSummaryError 覆盖），别默默改掉");
+  t.includes(src, "要改的是请求本身，不是等一会儿", "提示语要让读者知道该做什么");
+};
