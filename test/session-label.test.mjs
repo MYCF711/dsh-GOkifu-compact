@@ -51,3 +51,10 @@ tests["C484 「输出效率」的分母用记录里的 summaryTokens，而不是
   t.eq(pick({}), null, "什么都没有 ⇒ null（调用方跳过，不编数字）");
   t.eq(pick({ quality: { summaryTokens: 0 }, summaryChars: 0 }), null, "0 不算数");
 };
+
+tests["C488 closeout 结局要翻译成人话（no-foldable-span 不是'没内容'）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "doctor.mjs"), "utf8");
+  t.includes(src, "no-foldable-span", "doctor 必须认识这个结局");
+  t.includes(src, "重开该会话时会补", "并且说清补救路径 —— 否则用户只会反复归档来试");
+  t.includes(src, "chunked-incomplete", "分段没折完也要有建议");
+};

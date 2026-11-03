@@ -3026,3 +3026,34 @@ tests["C458 清洗接线：模型编出来的 id 在落库前就变成 n?/e?（�
   t.eq(text.includes("n999"), false, "n999 不许留在 checkpoint 里");
   t.eq(text.includes("e77"), false, "e77 同理");
 };
+
+tests["C487 规则摘要的失败行必须截断字段（31k 字符的降级摘要反而更贵）"] = async (t) => {
+  const { Engine } = await load();
+  const dir = nodePath.join(GRAPHS, "c487-rule-trim");
+  nodeFs.rmSync(dir, { recursive: true, force: true });
+  const sessDir = nodePath.join(dir, "sessions", "sess-c487");
+  nodeFs.mkdirSync(sessDir, { recursive: true });
+  const longAction = `bash(command=${"x".repeat(400)})`;
+  const longError = `Error: ${"y".repeat(400)}`;
+  nodeFs.writeFileSync(
+    nodePath.join(sessDir, "graph.json"),
+    JSON.stringify({
+      version: 1, sessionId: "sess-c487", cwd: "C:/tmp", createdAt: 1, updatedAt: 1, nextNode: 2, nextEdge: 2,
+      nodes: { n1: { id: "n1", kind: "user", seq: 1, text: "把构建跑通", constraints: [], ts: 1 } },
+      edges: { e1: { id: "e1", from: "n1", to: "n1", intent: "试一次", action: longAction, result: "failure", errorSnippet: longError, evidence: { start: 1, end: 2 }, ts: 2 } },
+      order: ["n1"], stateIndex: {}, rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
+    }, null, 1),
+    "utf8",
+  );
+  // 强制走**规则摘要**这条路径（默认会走模型，桩返回固定文本，测不到 ruleSummary）
+  const engine = new Engine(makeCtx(), { graphDir: dir, auto: false, summaryMode: "rules" });
+  const session = makeSession({ id: "sess-c487" });
+  engine._chessActiveRange = { start: 1, end: 2 };
+  const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+  const text = (out?.summary ?? []).map((b) => String(b.text ?? "")).join("\n");
+  const line = text.split("\n").find((l) => l.includes("e1")) ?? "";
+  t.eq(line.length <= 260, true, `失败行必须被截断（实际 ${line.length} 字符）`);
+  t.includes(line, "e1", "边 id 必须保留（回读时靠它定位）");
+  t.includes(line, "evidence seq", "坐标必须保留");
+  t.eq(line.includes("y".repeat(200)), false, "超长错误文本不该整段塞进来");
+};

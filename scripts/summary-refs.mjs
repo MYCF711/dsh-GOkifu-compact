@@ -47,6 +47,9 @@ export function summarizeRefs(marks, { since = null } = {}) {
     protectedFolds: 0,
     // ★ C482：写了 sanitizedIds 但没有 sanitizeRan ⇒ 不知道清洗有没有真跑（老记录）
     unconfirmedFolds: 0,
+    // ★ C486：规则摘要（fallback=rules / route.model=null）—— 机械渲染，不算幻觉来源
+    rulesFolds: 0,
+    rulesWithLater: 0,
     unconfirmedWithLater: 0,
     protectedWithLater: 0,
     unprotectedFolds: 0,
@@ -61,6 +64,8 @@ export function summarizeRefs(marks, { since = null } = {}) {
     out.folds += 1;
     if (Number.isFinite(mark.at) && (out.newestAt === null || mark.at > out.newestAt)) out.newestAt = mark.at;
     const q = mark.quality;
+    // ★ C486：**规则摘要**（无模型调用）里的"更晚实体"不是幻觉，是机械渲染的结果 —— 单独记，不算进幻觉口径
+    const rulesMode = mark.fallback === "rules" || (mark.route !== null && mark.route !== undefined && mark.route.model === null);
     if (q === null || typeof q !== "object") continue;
     out.withQuality += 1;
     const unknown = Array.isArray(q.unknownIds) ? q.unknownIds : [];
@@ -73,7 +78,10 @@ export function summarizeRefs(marks, { since = null } = {}) {
     //   `sanitizedIds: 0` 但 quality 里还列出 20 个「更晚实体」—— 那是 range 为空、清洗空转。
     //   所以队列归属改成看 `sanitizeRan`；老 foldMark（没有该字段）单独记一栏"未确认"。
     // `sanitizedIds > 0` 本身就证明它跑过（真替换了东西），老记录也按这个算
-    if (mark.sanitizeRan === true || Number(mark.sanitizedIds) > 0) {
+    if (rulesMode) {
+      out.rulesFolds += 1;
+      if (later.length > 0) out.rulesWithLater += 1;
+    } else if (mark.sanitizeRan === true || Number(mark.sanitizedIds) > 0) {
       out.protectedFolds += 1;
       if (later.length > 0) out.protectedWithLater += 1;
     } else if (mark.sanitizeRan === false) {
@@ -200,6 +208,12 @@ function main(argv) {
       (cur.protectedFolds === 0 ? "（**还没有**：等下一次真机折叠）" : ""),
   );
   console.log(`  · 修复前队列（无该字段）：${cur.unprotectedFolds} 条折叠，带「更晚实体」${cur.unprotectedWithLater} 条（历史账，不会自己变好）`);
+  if (cur.rulesFolds > 0) {
+    console.log(
+      `  · 规则摘要（无模型调用）：${cur.rulesFolds} 条折叠，带「更晚实体」${cur.rulesWithLater} 条` +
+        ` —— 这些是**机械渲染**出来的引用，不是幻觉；别混进"模型编造"的口径`,
+    );
+  }
   if (cur.unconfirmedFolds > 0) {
     console.log(
       `  · **未确认队列**（有 sanitizedIds 但缺 sanitizeRan）：${cur.unconfirmedFolds} 条，带「更晚实体」${cur.unconfirmedWithLater} 条` +

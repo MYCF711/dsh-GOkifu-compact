@@ -1305,6 +1305,22 @@ mark('C196 新鲜度');
   );
   // ★ C466：**历史欠账不该盖住当前状态**。24 个老会话没有 closeout 是永久事实，
   //   但它不该让"最近这次归档折了没有"看不见 —— 所以两种分支都带上同一段结局摘要。
+  /**
+   * ★ C488：**把 closeout 里的结局翻译成人话**（真机 2026-11-03 新字段验证后加的）。
+   *
+   * 归档收尾最常见的两种"没折成"其实都不需要人动手：
+   *   · `no-foldable-span` —— 归档那一刻会话已不可折叠（surface 没了）；账已记，**重开该会话时会补**；
+   *   · `chunked-incomplete` —— 分段折了一半（多半撞了 90s 预算），可把 closeoutMaxFoldTokens 调小。
+   * 不写清楚，用户只会看到"归档了但没折"，然后反复归档来试。
+   */
+  const closeoutNoteHint = (note) => {
+    const text = String(note ?? "");
+    if (text.includes("no-foldable-span")) return "（会话归档时已不可折叠 ⇒ 账已记，**重开该会话时会补**）";
+    if (text.includes("chunked-incomplete")) return "（分段没折完 ⇒ 多半撞了 closeoutTimeoutMs，可调小 closeoutMaxFoldTokens）";
+    if (text.includes("below-min-tokens")) return "（尾巴太短，按设计不折）";
+    return "";
+  };
+
   const outcomeSummary = (() => {
     const parts = [];
     const bySourceNow = {};
@@ -1319,6 +1335,14 @@ mark('C196 新鲜度');
     if (src !== "") parts.push(`来源 ${src}`);
     const attempted = withCloseout.filter((x) => x.closeout?.foldAttempted === true).length;
     if (attempted > 0) parts.push(`${attempted} 次有折叠结局记录`);
+    // ★ C488：把最近一条有 note 的折叠的处置建议带出来
+    const withNote = withCloseout
+      .filter((x) => typeof x.closeout?.foldNote === "string" && x.closeout.foldNote !== "")
+      .sort((a, b) => (Number(b.closeout.at) || 0) - (Number(a.closeout.at) || 0));
+    if (withNote.length > 0) {
+      const latest = withNote[0];
+      parts.push(`最近结局 \`${latest.closeout.foldNote}\`${closeoutNoteHint(latest.closeout.foldNote)}`);
+    }
     const failed = withCloseout.filter((x) => typeof x.closeout?.foldError === "string" && x.closeout.foldError !== "");
     if (failed.length > 0) {
       parts.push(

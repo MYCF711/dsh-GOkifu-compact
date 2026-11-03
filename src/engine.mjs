@@ -2449,6 +2449,9 @@ function edgeTouchedPaths(edge) {
   return m ? [m[1]] : [];
 }
 
+/** ★ C487：规则摘要每行里 action / error 的字符上限（超出部分可按 evidence seq 回读）。 */
+const RULE_LINE_FIELD_CHARS = 80;
+
 /** 规则摘要：零模型调用，结构与棋谱摘要一致。 */
 function ruleSummary(g, range) {
   const failures = failureEdges(g);
@@ -2466,7 +2469,15 @@ function ruleSummary(g, range) {
   // C47：规则摘要同样只写章节名 —— 摘要会成为后续轮次的上下文内容，标题里的指令会一直生效。
   lines.push("## 已探明死路");
   if (failures.length === 0) lines.push("- (none)");
-  for (const e of failures) lines.push(`- ${e.id} "${e.intent || e.action}" → ${(e.errorSnippet || e.verify?.summary || "-").split("\n")[0]} (evidence seq ${e.evidence?.start ?? "?"}-${e.evidence?.end ?? "?"})`);
+  // ★ C487：**规则摘要的每行字段要截断**。真机（2026-11-03）规则摘要中位 **31,245 字符**，
+  //   是模型摘要（2,388）的 **13.1×** —— 一次降级反而往上下文里塞回 9k+ token。
+  //   量过：action/error 各截到 80 字符，这一段从 26.9k → **15.6k 字符（−42%）**，
+  //   而**边 id、错误首 80 字符、evidence seq 全部保留**（原件可按 seq 回读），召回不受影响。
+  for (const e of failures) {
+    const label = String(e.intent || e.action || "").slice(0, RULE_LINE_FIELD_CHARS);
+    const err = String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0].slice(0, RULE_LINE_FIELD_CHARS);
+    lines.push(`- ${e.id} "${label}" → ${err} (evidence seq ${e.evidence?.start ?? "?"}-${e.evidence?.end ?? "?"})`);
+  }
   lines.push("");
   lines.push("## 已验证事实");
   const ok = Object.values(g.edges).filter((e) => e.result === "success").slice(-15);
