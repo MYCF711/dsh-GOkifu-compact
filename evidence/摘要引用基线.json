@@ -1,0 +1,17 @@
+{
+  "at": 1793688559194,
+  "since": 1793688559194,
+  "folds": 91,
+  "withQuality": 85,
+  "unknown": 17,
+  "later": 84,
+  "earlier": 61,
+  "foldsWithLater": 19,
+  "foldsWithUnknown": 4,
+  "byTrigger": {
+    "pressure": 15,
+    "tier2": 3,
+    "context-overflow": 1
+  },
+  "newestAt": 1793686748181
+}

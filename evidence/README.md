@@ -62,6 +62,7 @@
 | 与官方模板的对照 | `node test/real-model.mjs --runs 3`（调真实模型） |
 | 压缩产物交接 | `node scripts/handoff-check.mjs` |
 | live 综合体检 | `node scripts/doctor.mjs` |
+| 摘要有没有编造/越界引用 id（C455 修复的验证） | `node scripts/summary-refs.mjs`（加 `--write` 落基线 `摘要引用基线.json`，之后只看基线之后的新折叠） |
 
 > **注意**：`real-fold-trigger` / `real-model` 会调本机 magpie 网关，**不是零成本**；
 > 前三个（bench / handoff / doctor）零模型调用，可以随便跑。
