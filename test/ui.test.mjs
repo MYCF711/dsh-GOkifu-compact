@@ -396,3 +396,15 @@ tests["C507 客户端用到的 React hook 必须都从 React 解构出来（否�
   // React.useXxx 形式不算（它自带命名空间）
   t.eq(missing, [], `这些 hook 用了却没解构：${missing.join(", ")}`);
 };
+
+tests["C508 模型二级菜单：自绘弹层要能显示 provider 分组 + model 条目"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  t.includes(src, "function SummaryModelPicker", "必须有自绘的二级菜单组件（原生 optgroup 在深色主题下看不清）");
+  t.includes(src, "styles.pickerPop", "弹层样式");
+  t.includes(src, "styles.pickerGroup", "一级：provider 分组标题");
+  t.includes(src, "role: \"option\"", "二级：model 条目要能被读屏/测试识别");
+  t.includes(src, "h(SummaryModelPicker", "字段里接上它");
+  // 选模型时顺带定 provider —— 否则会写出「model 属于 A、provider 写着 B」的组合
+  t.includes(src, "onChange(item.value, { provider: group.provider })", "两级一起落盘");
+  t.includes(src, "document.addEventListener(\"mousedown\"", "点外面要能关（否则挡住下面的字段）");
+};

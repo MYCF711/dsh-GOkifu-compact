@@ -51,9 +51,24 @@ tests["C453 今日聚合按 foldMark.at 计价：高峰折叠必须算成两倍�
   nodeFs.rmSync(TMP, { recursive: true, force: true });
   // 2026-11-02 是周一；但这里用"今天的 UTC 小时"，避免依赖跑测试的日期是周几 —— 所以两条都取同一小时，
   // 只让**单价**成为变量：一条标在高峰时段，另一条用低谷价直接对账。
-  const peakAt = todayUtcHour(2);   // UTC 02:00 在高峰窗口（01–04）里，但周末不算 —— 下面会跳过周末
+  // ★ C509：这两个时刻必须**都在「本地今天」里**，否则半夜跑这条测试必红
+  //   （沿用原写法时：本地 00:13 的"今天 UTC hh:00"其实落在本地午夜之前 ⇒ 聚合把它们全过滤掉 ⇒ costKnown=0）。
+  const startLocal = new Date();
+  startLocal.setHours(0, 0, 0, 0);
+  const fromLocal = startLocal.getTime();
   const isWeekend = [0, 6].includes(new Date().getUTCDay());
-  const offAt = todayUtcHour(12);   // UTC 12:00 一定不在高峰窗口
+  // 高峰窗口是 UTC 01–04：从本地午夜起往后找**第一个**落在该窗口的整点（可能在今天稍晚，也可能明天）
+  const peakAt = (() => {
+    const d = new Date(fromLocal);
+    for (let i = 0; i < 48; i += 1) {
+      const t = fromLocal + i * 3600_000;
+      const h = new Date(t).getUTCHours();
+      if (h >= 1 && h <= 3 && t >= fromLocal) return Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth(), new Date(t).getUTCDate(), h, 0, 0);
+      void d;
+    }
+    return fromLocal + 2 * 3600_000;
+  })();
+  const offAt = fromLocal + 12 * 3600_000;   // 本地午夜 +12h：一定在「今天」里，且不在 UTC 01–03
   writeGraph(TMP, "session-cost", [
     { at: offAt, trigger: "pressure", shadowedTokens: 1000, usage: USAGE },
     { at: peakAt, trigger: "pressure", shadowedTokens: 1000, usage: USAGE },
