@@ -58,10 +58,16 @@ export async function main(argv = process.argv.slice(2)) {
   const data = {};
 
   // ① 门禁：只看最后一行（它自己会跑全量测试，这里不重复）
-  const gateOut = run("gate.mjs", ["--no-pack"], 600_000);
-  data.gate = gateOut === null ? "未采集（gate 失败）" : (gateOut.trim().split("\n").filter((l) => l.includes("门禁")).pop() ?? "见 gate 输出");
+  // ★ C431：`--fast` 跳过门禁（要跑全量测试，约 40s）——"快看一眼"与"交付前验一遍"不该共用同一个耗时下限。
+  const fast = argv.includes("--fast");
+  const gateOut = fast ? null : run("gate.mjs", ["--no-pack"], 600_000);
+  data.gate = fast
+    ? "未跑（--fast）"
+    : gateOut === null
+      ? "未采集（gate 失败）"
+      : (gateOut.trim().split(String.fromCharCode(10)).filter((l) => l.includes("门禁")).pop() ?? "见 gate 输出");
   // ★ C422：门禁里已经跑过全量测试 —— 它绿了就当作"测试也过了"的证据，不再重跑一遍。
-  if (gateOut !== null && gateOut.includes("全量测试全绿")) data.tests = { passed: -1, failed: 0 };
+  if (!fast && gateOut !== null && gateOut.includes("全量测试全绿")) data.tests = { passed: -1, failed: 0 };
 
   // ② doctor
   const docOut = run("doctor.mjs", ["--json"], 180_000);

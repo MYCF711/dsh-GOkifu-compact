@@ -78,3 +78,14 @@ tests["C427 用户会用的脚本必须在发布物里（pack 复验过，但要
     t.eq(nodeFs.existsSync(nodePath.join(root, rel)), true, `${rel} 必须存在（用户会直接跑）`);
   }
 };
+
+tests["C431 status --fast 跳过门禁（快看一眼 vs 交付前验一遍，两种用法）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "status.mjs"), "utf8");
+  t.includes(src, 'argv.includes("--fast")', "必须支持 --fast（C431）");
+  t.includes(src, "未跑（--fast）", "--fast 时门禁那行要明说未跑（不能留空或假装通过）");
+  t.includes(src, "!fast && gateOut", "--fast 时不许把测试标成「门禁内全绿」");
+};

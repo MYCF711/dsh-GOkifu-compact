@@ -1,5 +1,5 @@
 {
-  "total": 829,
+  "total": 830,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -95,7 +95,7 @@
     "run-skip.test.mjs": 0,
     "selfloop.test.mjs": 1,
     "session-scan.test.mjs": 3,
-    "status.test.mjs": 5,
+    "status.test.mjs": 6,
     "test-counts.test.mjs": 2,
     "test-gate.test.mjs": 0,
     "tewari-perf.test.mjs": 7,
