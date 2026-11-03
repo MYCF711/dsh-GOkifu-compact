@@ -193,3 +193,14 @@ tests["C415 面板识别要严：本机有好几个服务对任意 POST 都回 2
   ].join("\n");
   t.eq(mod.listeningPorts(netstat), [56319], "只留 >=1024 的高位端口");
 };
+
+tests["C438 验收脚本退出码必须区分三态（ready=0 / partial=1 / stale=2）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
+  // 旧写法只有 stale→1，partial 会被当成成功；脚本里 `if accept; then …` 就会误判
+  t.eq(src.includes('result.verdict === "stale" ? 1 : 0'), false, "不许只有 stale→1（partial 会被当成功）");
+  t.includes(src, 'result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2', "必须三态映射");
+};

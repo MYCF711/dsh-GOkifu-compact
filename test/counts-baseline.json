@@ -1,5 +1,5 @@
 {
-  "total": 833,
+  "total": 834,
   "files": {
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
@@ -79,7 +79,7 @@
     "perf-probe.test.mjs": 2,
     "persist-incremental.test.mjs": 8,
     "post-restart-check.test.mjs": 5,
-    "post-restart-pid.test.mjs": 12,
+    "post-restart-pid.test.mjs": 13,
     "preset-discovery.test.mjs": 0,
     "preset-wiring.test.mjs": 0,
     "probe-compaction-wiring.test.mjs": 3,

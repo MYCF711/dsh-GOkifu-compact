@@ -347,7 +347,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (ownerNote !== "") result.line = `${result.line} ${ownerNote}`;
   if (argv.includes("--json")) {
     console.log(JSON.stringify({ caps, backfill, ...evidence, ...result }, null, 2));
-    return result.verdict === "stale" ? 1 : 0;
+    // ★ C438：退出码必须区分三态 —— 否则脚本里 `if accept; then …` 会把 partial 也当成成功。
+    return result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2;
   }
   console.log("== 重启后验收（accept-after-restart）==");
   console.log(`  ${result.line}`);
@@ -384,7 +385,7 @@ export async function main(argv = process.argv.slice(2)) {
   } catch (error) {
     console.log(`  补账：算不出来（${String(error?.message ?? error).slice(0, 80)}）—— 可单独跑 node scripts/backfill-plan.mjs`);
   }
-  return result.verdict === "stale" ? 1 : 0;
+  return result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2;
 }
 
 const invokedDirectly =
