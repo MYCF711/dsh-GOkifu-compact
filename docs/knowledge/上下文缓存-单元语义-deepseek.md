@@ -76,3 +76,24 @@
   （0 条 / 1 条 / 2 条 / 3+ 条），doctor 据此判断，而不是按占比。
 
 **待核实**：样本只有 6 个会话、9 条清单（日志解码昂贵）。更大样本上"后面总是 0 条"是否成立，还没有数据。
+
+---
+
+## 复核（2026-11-03 · **已核实**）
+
+来源：<https://api-docs.deepseek.com/guides/kv_cache>（HTTP 200）
+
+本页的核心论断今天重新抓原文确认过，逐字：
+
+> "cache hit requires that the corresponding prefix has already been **'persisted'** (written to the disk cache).
+> Due to the **Sliding Window Attention** mechanism, the storage and matching of cached prefixes differs from before.
+> **Each cached prefix is an independent, complete unit.** A subsequent request can only hit the cache if it
+> **fully matches a cache prefix unit**."
+
+两点补充（同一页）：
+
+- 缓存不是永久的：文中给出清理窗口 **"hours to a few days"** ⇒ 长时间闲置后第一次请求必然冷启动；
+- 命中要求**整段前缀完全匹配一个单元** ⇒ 中间任何一处改动都会让它之后的内容全部失配（这正是 C1/C2 的结论）。
+
+**待核实**：这一版没抓到"单元的具体切分规则/大小"（旧版文档曾写"按固定块"，本页未复述）——
+所以本仓库里凡涉及**单元大小**的说法都只能当经验值，不能当规范引用。

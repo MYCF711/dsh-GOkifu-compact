@@ -1,5 +1,5 @@
 {
-  "total": 894,
+  "total": 899,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -69,6 +69,7 @@
     "ledger.test.mjs": 29,
     "live-bench.test.mjs": 8,
     "live-folds.test.mjs": 11,
+    "log-stats.test.mjs": 5,
     "log-window.test.mjs": 4,
     "loop-guard.test.mjs": 4,
     "loop-report.test.mjs": 4,

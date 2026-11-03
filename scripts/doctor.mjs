@@ -16,6 +16,7 @@
 
 import nodeFs from "node:fs";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
+import { logCacheKey, summarizeLogEvents, replayLogStats } from "./log-stats.mjs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
@@ -266,61 +267,75 @@ const WINDOW_MS = 60 * 60 * 1000; // 1 小时：只看「现在是不是还在�
 const since = Date.now() - WINDOW_MS;
 // ★ C218：按**时间窗**选日志，而不是「最新 6 份」——旧写法会漏掉真实折叠（C-18 事故：
 //   01:12 那次 fold 落在第 7 份日志里，doctor 报「成功 0 / 失败 0」）。上限 24 份，解压成本可控。
-const cacheUsage = createCacheUsage();
-for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs: WINDOW_MS, head: 6, limit: 24 })) {
-  let events;
+// ★ C465：日志是**追加写**的 ⇒ `(size, mtime)` 不变就可以复用上一次的聚合，只解变了的那几份。
+//   缓存里只存**与时间无关**的量（每次调用的缓存读数、每次 fold 的事件）；"最近一小时"的过滤在回放时做。
+//   `--no-log-cache` 可强制全量重算（对账用）。
+const LOG_CACHE_FILE = nodePath.join(home, "chess-context", "doctor-log-cache.json");
+const useLogCache = !process.argv.includes("--no-log-cache");
+let logCache = {};
+if (useLogCache) {
   try {
-    // ★ C463：**别再 spawn python 解 zstd** —— 每个日志一个 Python 进程（最多 24 个），
-    //   实测 doctor 因此要 24s。解码器我们自己就有（session-scan.decodeMultiFrameZstd）。
-    events = decodeMultiFrameZstd(nodeFs.readFileSync(file)).text.split("\n");
+    logCache = JSON.parse(nodeFs.readFileSync(LOG_CACHE_FILE, "utf8"));
+    if (logCache === null || typeof logCache !== "object" || logCache.v !== 1) logCache = { v: 1 };
+  } catch {
+    logCache = { v: 1 };
+  }
+} else {
+  logCache = { v: 1 };
+}
+let logCacheDirty = false;
+const logParts = [];
+for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs: WINDOW_MS, head: 6, limit: 24 })) {
+  let stats = null;
+  try {
+    const st = nodeFs.statSync(file);
+    const key = logCacheKey(st);
+    const hit = logCache[file];
+    if (useLogCache && hit && typeof hit === "object" && hit.key === key && hit.stats) {
+      stats = hit.stats;
+    } else {
+      const raw = decodeMultiFrameZstd(nodeFs.readFileSync(file)).text.split("\n");
+      const events = [];
+      for (const line of raw) {
+        if (line.length === 0) continue;
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          /* 坏行跳过（与旧实现一致） */
+        }
+      }
+      stats = summarizeLogEvents(events, { session });
+      logCache[file] = { key, stats };
+      logCacheDirty = true;
+    }
   } catch {
     continue;
   }
-  for (const line of events) {
-    if (line.length === 0) continue;
-    let e;
-    try {
-      e = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const at = typeof e.time === "number" ? e.time : 0;
-    // ★ C220：同一趟解压顺手把每次调用的缓存命中捞出来（assistant/message 带 usage）
-    if (e.type === "assistant/message" && e.data?.usage) accumulateCacheUsage(cacheUsage, e.data.usage);
-    if (e.type === "compaction/summary" && e.data?.usage) {
-      // 旧版本写的 graph 没有 lastFoldUsage —— 从会话日志里捞最近一次摘要的真实 usage 兜底
-      if (logUsage === null || at > logUsage.at) {
-        logUsage = {
-          at,
-          inputTokens: e.data.usage.inputTokens,
-          outputTokens: e.data.usage.outputTokens,
-          provider: e.data.provider ?? null,
-          model: e.data.model ?? null,
-          shadowedTokens: e.data.shadowedTokenCount ?? null,
-          session,
-        };
-      }
-      continue;
-    }
-    if (e.type !== "compaction/end") continue;
-    if (e.data?.error) {
-      foldFailAll += 1;
-      lastFailAt = Math.max(lastFailAt, at);
-      if (at >= since) {
-        foldFail += 1;
-        if (lastErrors.length < 3) {
-          // ★ C212：类身份不一致这类错误，光看原文没法处置 —— 附一句「该做什么」。
-          const hint = /Receiver must be an instance of class/i.test(String(e.data.error))
-            ? "（插件被装载了两份/类身份不一致 ⇒ 重启 DSH，并确认同名插件只有一条）"
-            : "";
-          lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}${hint}`);
-        }
-      }
-    } else {
-      foldOkAll += 1;
-      lastOkAt = Math.max(lastOkAt, at);
-      if (at >= since) foldOk += 1;
-    }
+  logParts.push({ ...stats, session });
+}
+const replay = replayLogStats(logParts, { since });
+foldOk = replay.foldOk;
+foldFail = replay.foldFail;
+foldOkAll = replay.foldOkAll;
+foldFailAll = replay.foldFailAll;
+lastOkAt = replay.lastOkAt;
+lastFailAt = replay.lastFailAt;
+if (replay.logUsage !== null) logUsage = replay.logUsage;
+for (const item of replay.errors) {
+  if (lastErrors.length >= 3) break;
+  // ★ C212：类身份不一致这类错误，光看原文没法处置 —— 附一句「该做什么」。
+  const hint = /Receiver must be an instance of class/i.test(String(item.error))
+    ? "（插件被装载了两份/类身份不一致 ⇒ 重启 DSH，并确认同名插件只有一条）"
+    : "";
+  lastErrors.push(`${String(item.session).slice(0, 20)}: ${item.error}${hint}`);
+}
+const cacheUsage = { calls: replay.calls, inputTokens: replay.inputTokens, cacheTokens: replay.cacheTokens, ratios: replay.ratios, breaks: replay.breaks, lastRatio: replay.ratios.length > 0 ? replay.ratios.at(-1) : null };
+if (logCacheDirty) {
+  try {
+    nodeFs.mkdirSync(nodePath.dirname(LOG_CACHE_FILE), { recursive: true });
+    nodeFs.writeFileSync(LOG_CACHE_FILE, JSON.stringify(logCache), "utf8");
+  } catch {
+    /* 缓存写不进去不影响本次结果 */
   }
 }
 const inWindow = foldOk + foldFail > 0;
