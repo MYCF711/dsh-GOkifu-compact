@@ -36,3 +36,21 @@
   我们文档里如果出现"Anthropic 建议 X%"这类说法，**都是编的**，别引用。
 - 文章没讨论"循环/停滞"这种触发信号；**C444 的判据是我们自己的**，不要归因给它。
 - 文中 compaction 与 note-taking 的对比只在一处出现，未给实现细节（谁来做摘要、摘成什么结构）。
+
+---
+
+## 复核（2026-11-03 · **已核实**）
+
+来源：<https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents>（HTTP 200）
+
+两句今天重新抓到原文，逐字：
+
+> "…needle-in-a-haystack style benchmarking have uncovered the concept of **context rot**: as the number of tokens in
+> the context window increases, the model's ability to accurately recall information from that context decreases."
+> "LLMs have an **'attention budget'** that they draw on when parsing large volumes of context. **Every new token
+> introduced depletes this budget by some amount**, increasing the need to carefully curate the tokens available to the LLM."
+
+⇒ 这正是我们所有"少注入 / 折叠 / 只留证据"设计的理论依据；也解释了为什么**多留一条边并不免费**。
+
+**待核实**：原文没有给出"多少 token 开始明显退化"的数值（它说的是趋势与"所有模型都有"），
+所以本仓库里凡涉及"上下文超过 X 就变差"的说法，都不能引这篇文章当依据。
