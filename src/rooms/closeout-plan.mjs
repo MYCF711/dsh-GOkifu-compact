@@ -163,3 +163,44 @@ export function recentFoldP90(marks, window = 20) {
   const list = (Array.isArray(marks) ? marks : []).slice(-Math.max(1, window));
   return foldDurationStats(list.map((m) => m?.ms)).p90;
 }
+
+/**
+ * ★ C466：收尾折叠的**结局**怎么写回 `closeout`（纯函数，好测）。
+ *
+ * 由来（2026-11-03 真机验证单）：两次归档都记下了 `closeout`（source=archive、尾巴 7706 / 1069 事件），
+ * 但 `foldMarks` 是 0、日志里只有 `compaction/start` 没有 `end`，另一次是上游 400 —— 
+ * **"折了没有 / 失败了没有"在图上看不出来**，只能人去翻日志。这个函数把三种结局都写清楚：
+ *
+ *   · 折成功（分段）⇒ `folded = 段数`，并带 `chunkedChunks`；
+ *   · 可折但没折（`result == null`）⇒ `folded = 0` + `foldNote: "nothing-to-fold"`；
+ *   · 抛错/超时 ⇒ `folded = 0` + `foldError`（doctor 直接显示）。
+ *
+ * @param {object|null} closeout 现有 closeout（可为空）
+ * @param {{tier?:string, folded?:number, chunks?:number}|null} result
+ * @param {unknown} [error]
+ * @param {number} [at]
+ * @returns {object}
+ */
+export function applyCloseoutOutcome(closeout, result, error = null, at = Date.now()) {
+  const base = closeout !== null && typeof closeout === "object" ? closeout : {};
+  const next = { ...base, foldAttempted: true, foldAt: at };
+  if (error !== null && error !== undefined) {
+    next.folded = 0;
+    const message = error instanceof Error ? error.message : String(error);
+    next.foldError = String(message).slice(0, 300);
+    return next;
+  }
+  if (result === null || result === undefined) {
+    next.folded = 0;
+    next.foldNote = "nothing-to-fold";
+    return next;
+  }
+  if (result.tier === "chunked") {
+    next.folded = Number(result.folded) || 0;
+    next.chunkedFolded = Number(result.folded) || 0;
+    next.chunkedChunks = Number(result.chunks) || 0;
+    return next;
+  }
+  next.folded = 1;
+  return next;
+}

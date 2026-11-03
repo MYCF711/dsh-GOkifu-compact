@@ -1,5 +1,5 @@
 {
-  "total": 899,
+  "total": 902,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -17,6 +17,7 @@
     "check-maintenance.test.mjs": 6,
     "cli-routing.test.mjs": 4,
     "closeout-backfill.test.mjs": 11,
+    "closeout-outcome.test.mjs": 3,
     "compare-models.test.mjs": 0,
     "config-schema.test.mjs": 2,
     "config-table.test.mjs": 3,

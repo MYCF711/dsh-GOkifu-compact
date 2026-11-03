@@ -1209,13 +1209,41 @@ mark('C196 新鲜度');
     `跑 \`node scripts/backfill-plan.mjs\` 看完整口径：欠账个数 / token / 冷缓存估价 / **点击次数** / **哪几个会超单会话超时**（C368）` +
       `；要一次折完大尾巴，可按它给的建议调 \`closeoutMaxFoldTokens\`（C343）`,
   );
+  // ★ C466：**历史欠账不该盖住当前状态**。24 个老会话没有 closeout 是永久事实，
+  //   但它不该让"最近这次归档折了没有"看不见 —— 所以两种分支都带上同一段结局摘要。
+  const outcomeSummary = (() => {
+    const parts = [];
+    const bySourceNow = {};
+    for (const x of withCloseout) {
+      const key = typeof x.closeout?.source === "string" && x.closeout.source !== "" ? x.closeout.source : "unknown";
+      bySourceNow[key] = (bySourceNow[key] ?? 0) + 1;
+    }
+    const src = Object.entries(bySourceNow)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ");
+    if (src !== "") parts.push(`来源 ${src}`);
+    const attempted = withCloseout.filter((x) => x.closeout?.foldAttempted === true).length;
+    if (attempted > 0) parts.push(`${attempted} 次有折叠结局记录`);
+    const failed = withCloseout.filter((x) => typeof x.closeout?.foldError === "string" && x.closeout.foldError !== "");
+    if (failed.length > 0) {
+      parts.push(
+        `**${failed.length} 次折叠失败**：${failed
+          .slice(0, 2)
+          .map((x) => String(x.closeout.foldError).slice(0, 50))
+          .join(" | ")}`,
+      );
+    }
+    return parts.length === 0 ? "" : `（最近这批：${parts.join(" · ")}）`;
+  })();
   if (missingCloseout.length > 0) {
     add(
       "归档收尾（closeout）",
       "warn",
       `${missingCloseout.length} 个会话已归档、留下棋谱，却一条 closeout 都没有（${missingCloseout.slice(0, 3).join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
         ` —— 归档没走到收尾路径：1.17.6 之前挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）` +
-        `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}`,
+        `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}` +
+        outcomeSummary,
     );
   } else if (withCloseout.length === 0) {
     add("归档收尾（closeout）", "warn", "未采集（还没有会话在归档时被收尾过）");
@@ -1245,6 +1273,16 @@ mark('C196 新鲜度');
     // ★ C298：分段折完的会话会在 `closeout.chunkedFolded` 上留数（引擎回写的）；单列出来，
     //   否则"记了 closeout 却没有 archive fold"会一直被读成"没折过"。
     const chunkedSessions = closeouts.filter((x) => Number(x?.closeout?.chunkedFolded) > 0).length;
+    // ★ C466：**折失败的必须点出来**。真机两次归档：closeout 记了、foldMarks 是 0、日志里只有
+    //   一条 `compaction/start` 没有 `end`，另一次是上游 400 —— 以前这些在 doctor 里完全看不见。
+    const foldFailed = closeouts.filter((x) => typeof x?.closeout?.foldError === "string" && x.closeout.foldError !== "");
+    const foldFailedText =
+      foldFailed.length > 0
+        ? ` · **${foldFailed.length} 个收尾折叠失败**：${foldFailed
+            .slice(0, 2)
+            .map((x) => `${x.closeout.source ?? "?"}:${String(x.closeout.foldError).slice(0, 60)}`)
+            .join(" | ")}`
+        : "";
     const chunkedText = chunkedSessions > 0 ? ` · 其中 ${chunkedSessions} 个是**分段折完的**（closeout.chunkedFolded > 0）` : "";
     const externalText = externalFolds > 0 ? ` · 另有 ${externalFolds} 次外部/分段折叠（不入 foldMarks，见 C289/C292）` : "";
     const sourceText = ` · 来源 ${Object.entries(bySource)
@@ -1254,8 +1292,8 @@ mark('C196 新鲜度');
     add(
       "归档收尾（closeout）",
       // ★ C298：分段折完的会话也算"折过了"（它们不进 foldMarks，只留 closeout.chunkedFolded）
-      withArchiveFold.length > 0 || chunkedSessions > 0 ? "ok" : "warn",
-      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${chunkedText}${externalText}${sourceText} —— ${recent}`,
+      foldFailed.length > 0 ? "warn" : withArchiveFold.length > 0 || chunkedSessions > 0 ? "ok" : "warn",
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${chunkedText}${externalText}${foldFailedText}${sourceText} —— ${recent}`,
     );
   }
 }

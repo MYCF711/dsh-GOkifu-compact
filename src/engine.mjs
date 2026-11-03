@@ -28,15 +28,7 @@ import { observeEvent } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph } from "./rooms/closeout-backfill.mjs";
-import {
-  closeoutTimeoutAdvice,
-  recentFoldP90,
-  CLOSEOUT_MAX_FOLD_TOKENS,
-  closeoutExceedsLimit,
-  planCloseoutChunks,
-  planChunkedCloseout,
-  runChunkedCloseout,
-} from "./rooms/closeout-plan.mjs";
+import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
@@ -1099,26 +1091,41 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         //   所以收尾账里 `folds` 永远停在折之前。这里等它跑完把"分段折了几段"补记到 closeout 上，
         //   否则 doctor/审计只会看到"记了 closeout 但没折过"，把已经折完的会话误报成欠账。
         const sessionId = session.id;
-        void this.#closeoutFold(session, source).then((result) => {
-          if (result === null || result === undefined || result.tier !== "chunked") return;
-          if (!(Number(result.folded) > 0)) return;
-          try {
-            const live = this.graphs.get(sessionId);
-            if (live === undefined || live === null) return;
-            live.closeout = {
-              ...(live.closeout ?? {}),
-              chunkedFolded: Number(result.folded),
-              chunkedChunks: Number(result.chunks),
-              chunkedAt: Date.now(),
-            };
-            this.#flush(session, { full: true });
-          } catch {
-            /* 记账失败不影响归档 */
-          }
-        });
+        // ★ C466：**收尾折叠的结果必须落账**。真机（2026-11-03）两次归档：
+        //   `closeout` 记下了（source=archive、尾巴 7706 / 1069 事件），但 foldMarks 是 0、日志里
+        //   只有一条 `compaction/start` 没有 `end`，另一次是上游 400 ⇒ **折了没有、失败了没有，图上看不出来**。
+        //   验证单要回答的正是这个问题，所以这里无论成功/失败/跳过都写回去。
+        void this.#closeoutFold(session, source)
+          .then((result) => this.#recordCloseoutOutcome(sessionId, result, null))
+          .catch((error) => this.#recordCloseoutOutcome(sessionId, null, error));
       }
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
+    }
+  }
+
+  /**
+   * ★ C466：把「归档收尾到底折了没有」写回 `closeout`，让图自己回答验证单的问题。
+   *
+   * 三种结局都要留痕，不许静默：
+   *   · 折成功 ⇒ `folded` 段数（分段）或 1（整段）；
+   *   · 可折但没折（返回 null）⇒ `folded: 0` + `foldNote: "nothing-to-fold"`；
+   *   · 抛错/超时 ⇒ `foldError`（doctor 直接显示，不用再去翻日志）。
+   * @param {string} sessionId
+   * @param {object|null} result #closeoutFold 的返回
+   * @param {unknown} error 抛出的错误（如果有）
+   */
+  #recordCloseoutOutcome(sessionId, result, error) {
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    try {
+      const live = this.graphs.get(sessionId);
+      if (live === undefined || live === null) return;
+      // 结局怎么记：纯函数在 closeout-plan（C466），这里只负责落盘
+      live.closeout = applyCloseoutOutcome(live.closeout ?? null, result, error ?? null);
+      const session = this.sessionRefs.get(sessionId);
+      if (session !== undefined) this.#flush(session, { full: true });
+    } catch {
+      /* 记账失败不影响归档 */
     }
   }
 
