@@ -2903,3 +2903,66 @@ tests["C443 foldMark 的 usage 用行为测住：真机 usage 没有 model 也�
   t.eq(build(null), null, "没有 usage ⇒ null");
   t.eq(build({ inputTokens: 1 }, { instructionTokens: "x" }).instructionTokens, null, "非法 instructionTokens ⇒ null");
 };
+
+/* ───────── C445：循环折叠的**接线**（判据单测证明"算得对"，这里证明"接上了"） ───────── */
+
+/** 造 n 次"同一个 bash 命令"的完整 step（assistant 调用 + 结果 + step/end）。 */
+async function pushIdenticalSteps(ctx, session, n, { command = "ls -la src", startSeq = 1 } = {}) {
+  let seq = startSeq;
+  for (let i = 0; i < n; i += 1) {
+    const callId = `loop-c${i}`;
+    await ctx.emitRaw("session/event", session, assistantEvent(callId, "bash", { command }, seq++));
+    await ctx.emitRaw("session/event", session, resultEvent(callId, "a.ts\nb.ts", seq++));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: seq++, data: { turn: 1, step: i + 1 } });
+  }
+  return seq;
+}
+
+tests["C445 循环折叠接线：连续 8 次相同动作、上下文只有 30K（远低于 90K 阈值）也会折，且 trigger=loop"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-loop-wire" });
+  const dir = nodePath.join(GRAPHS, "g-loop-wire");
+  // 200K × 0.45 = 90K 阈值；这里只有 30K ⇒ 按压力永远不折（正是真机那个选择器的形态：
+  // 循环发生在上下文并不大的时候，靠阈值永远等不到）
+  const ctx = makeCtx({ measureTotal: () => 30_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
+  // 先让表面上有东西可折（否则这条测的就不是"接线"，而是"没内容可折"）
+  for (let i = 0; i < 16; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  await pushIdenticalSteps(ctx, session, 8);
+
+  const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!result) throw new Error("连续 8 次相同动作就该折一次（阈值不该拦住循环自救）");
+  if (engine.compactCalls.length !== 1) throw new Error(`compactRegion 调用 ${engine.compactCalls.length} 次`);
+  // 落盘是 1.2s debounce ⇒ 先让它 idle 落一次（否则读到的是"还没来得及写"的旧图）
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  // ★ 增量落盘：第一次 flush 之后折叠记在 delta 里，只读基线会漏（C210 的教训）
+  const mark = ((await readGraphReplayed(dir, "sess-loop-wire")).foldMarks ?? []).at(-1);
+  if (mark?.trigger !== "loop") throw new Error(`foldMark.trigger 应为 loop，实际 ${JSON.stringify(mark?.trigger)}`);
+  // 日志必须能回答"为什么折" —— 否则事故复盘只看到一次莫名折叠
+  if (!ctx.warns.some((w) => w.includes("思考死循环"))) throw new Error(`warn 里没有循环说明：${JSON.stringify(ctx.warns.slice(-3))}`);
+};
+
+tests["C445 空折不消耗配额：连折不动 4 次后，一旦有内容仍然会折（旧版 3 次就把自己关了）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const session = makeSession({ id: "sess-loop-nofold" });
+  const dir = nodePath.join(GRAPHS, "g-loop-nofold");
+  const ctx = makeCtx({ measureTotal: () => 30_000 });
+  // minFoldTokens 抬高 ⇒ planFold 会说"没有可折内容"，每次 compactIfNeeded 都返回 null
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 10_000_000, retainRatio: 0.1 });
+  await pushIdenticalSteps(ctx, session, 8);
+
+  for (let i = 0; i < 4; i += 1) {
+    const out = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (out !== null) throw new Error(`第 ${i + 1} 次本不该折（minFoldTokens 抬高了）`);
+  }
+  // 旧版 C444 在这里已经把 loopFoldCount 加到 4 ≥ maxTimes(3) ⇒ 之后永远不折。
+  // 现在空转不记账 ⇒ 只要真有内容，第 5 次仍然会折。
+  engine.chess.minFoldTokens = 0;
+  // 制造"可折的内容"：把表面撑起来（retain 是 20K，17 个 7K 节点远超它）
+  for (let i = 0; i < 16; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+  const out = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  if (!out) throw new Error("空转过的循环守卫必须还活着（空折不消耗配额）");
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const mark = ((await readGraphReplayed(dir, "sess-loop-nofold")).foldMarks ?? []).at(-1);
+  if (mark?.trigger !== "loop") throw new Error(`foldMark.trigger 应为 loop，实际 ${JSON.stringify(mark?.trigger)}`);
+};

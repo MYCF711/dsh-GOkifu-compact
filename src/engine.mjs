@@ -1781,6 +1781,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     // ★ C444：**思考死循环检测**。真机（2026-11-03 DSH-GO）：会话末尾连续 8 步都是同一个
     //   `bash(...)`、零文本产出，**手动压缩一次就好了**。这里把那个动作变成自动：
     //   末尾连续相同动作 ≥ 4 次 ⇒ 强制折一次（受限流与上限保护，坑在 loop-guard 里）。
+    let loopFired = false;
     if (trigger === "pressure" || trigger === "auto") {
       const loopState = this.#runtimeFor(session);
       const stat = loopStreak(
@@ -1794,8 +1795,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         loopFoldCount: loopState.loopFoldCount,
       });
       if (verdict.fire) {
-        loopState.lastLoopFoldSeq = session.seq;
-        loopState.loopFoldCount = (loopState.loopFoldCount ?? 0) + 1;
+        // ★ C445：**这里只记录"想折"，不记账**。C444 把 loopFoldCount 写在触发那一刻，
+        //   而后面 planFold 完全可能返回 null（循环时上下文往往不大、没到 retain 边界）。
+        //   于是"空折"也在消耗配额，满 3 次就自动关掉自己 —— 恰好在真正该工作的时刻。
+        loopFired = true;
         this.ctx.logger?.warn?.(
           `chess-context: 检测到思考死循环（连续 ${stat.streak} 次相同动作：${String(stat.action).slice(0, 60)}）—— 触发一次压缩以打断它`,
         );
@@ -1875,6 +1878,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C112：回滚后必须走 `tree` 落盘 —— 否则 index.md 还停在回滚前的渲染上，
       //   nodes/*.md 也留着被回滚掉的节点（C110/C111 观测到的 94 个残骸正是这么来的）。
       this.#flush(session, { tree: true });
+      // ★ C445：循环触发的这次"折不动"要说明白 —— 否则日志里只有一条"检测到循环"，看起来像已处置。
+      if (loopFired) {
+        this.ctx.logger?.warn?.(
+          "chess-context: 检测到思考死循环，但当前没有可折的内容（不消耗配额，下一个事件还会再试）",
+        );
+      }
       return null;
     }
 
@@ -1905,7 +1914,19 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C112：同 range===null 分支 —— 回滚后必须 tree 落盘，让 index.md / nodes 跟上图
       restore();
       this.#flush(session, { tree: true });
+      // ★ C445：折不动也要说明白，否则日志里只剩一条"检测到循环"，看起来像已处置
+      if (loopFired) {
+        this.ctx.logger?.warn?.("chess-context: 检测到思考死循环，但 compactRegion 没有产出（不消耗配额）");
+      }
       return null;
+    }
+    // ★ C445：**折成了才记账**。C444 把 loopFoldCount / lastLoopFoldSeq 写在触发那一刻，
+    //   而"没有可折内容"是常态之一（循环时上下文往往不大）—— 空折 3 次后守卫就把自己关了，
+    //   恰好在真正该工作的时刻。计数挪到这里，保证它只统计**真的发生过的**循环折叠。
+    if (loopFired) {
+      const ls = this.#runtimeFor(session);
+      ls.lastLoopFoldSeq = session.seq;
+      ls.loopFoldCount = (ls.loopFoldCount ?? 0) + 1;
     }
     const after = meter.measure(session);
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
