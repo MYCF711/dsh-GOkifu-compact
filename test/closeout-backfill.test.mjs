@@ -336,3 +336,20 @@ tests["C518 没给 readGraph ⇒ 退回旧行为（但记录不带 fromGraph）"
   t.eq(r.folded, true, "旧行为保持不变");
   t.eq(r.fromGraph, undefined, "没有图就没有 fromGraph 标记");
 };
+
+tests["C519 离线补折留下的前段缺口也算欠账 —— 否则这个洞永久消失"] = async (t) => {
+  const g = mkGraph({ seqs: [1, 9000], marks: [{ seqStart: 8000, seqEnd: 9000, trigger: "archive-offline" }] });
+  g.closeout = { at: 1, source: "archive-offline", foldAttempted: true, folded: 1, foldOffline: true, partial: true, offlineUncoveredHead: { from: 1, events: 7999 } };
+  const debt = debtOfGraph(g, { minEvents: 40 });
+  t.eq(debt.tail, 0, "尾巴已经折干净");
+  t.eq(debt.gapEvents, 7999, "但前段还欠着 7,999 个事件");
+  t.eq(debt.due, true, "有洞就必须继续算欠账");
+  t.eq(debt.gap.from, 1, "洞的起点要带出来");
+
+  // 没有洞的老图不受影响
+  const g2 = mkGraph({ seqs: [1, 100], marks: [{ seqStart: 1, seqEnd: 100, trigger: "archive" }] });
+  g2.closeout = { at: 1, source: "archive", foldAttempted: true, folded: 1 };
+  const d2 = debtOfGraph(g2, { minEvents: 40 });
+  t.eq(d2.gapEvents, 0, "没有洞就是 0");
+  t.eq(d2.due, false, "无洞无尾巴 ⇒ 不欠");
+};

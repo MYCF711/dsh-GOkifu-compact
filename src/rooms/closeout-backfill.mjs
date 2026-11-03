@@ -106,7 +106,16 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
     })
     .filter((x) => x !== null);
   const tokensPerEvent = ratios.length > 0 ? ratios.reduce((a, b) => a + b, 0) / ratios.length : null;
-  const estTokens = tokensPerEvent === null ? null : Math.round(tail * tokensPerEvent);
+  // ★ C519：**离线补折留下的"洞"也要算欠账**。
+  //   离线补折是"从尾巴往前压"的：压完尾巴后 `foldMarks` 前进到 maxSeq，欠账数字变 0 ——
+  //   但前段（head）那段**从来没被压过**，如果不记着它，这个洞就**永久消失**了
+  //   （真机 2026-11-04：8cc34e32 前段 8,000+ 事件就是这样被"折过去了"）。
+  //   所以把 `closeout.offlineUncoveredHead` 当成**未结清的欠账**带出来。
+  const gapEvents = Math.max(0, Number(graph?.closeout?.offlineUncoveredHead?.events ?? 0));
+  const gapStart = Number(graph?.closeout?.offlineUncoveredHead?.from ?? 0);
+  const hasGap = gapEvents > 0;
+  const estTokens = tokensPerEvent === null ? null : Math.round((tail + gapEvents) * tokensPerEvent);
+  const due = hasGap ? gapEvents >= minEvents : !closedOut && tail >= minEvents;
   return {
     maxSeq,
     lastFoldSeq,
@@ -115,7 +124,10 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
     estTokens,
     closedOut,
     folded,
-    due: !closedOut && tail >= minEvents,
+    // 有洞时**仍然欠着**，哪怕尾巴已经归零
+    gapEvents: hasGap ? gapEvents : 0,
+    ...(hasGap ? { gap: { from: gapStart, events: gapEvents } } : {}),
+    due,
   };
 }
 
