@@ -4,6 +4,9 @@
  * 由来（用户原话）：「需要的不是会话自己去压，而是归档的日志需要去调用默认模型压缩一次，
  * 这样就不用依赖对话模型」。
  */
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { collectMessages, renderFacts, buildOfflinePrompt } from "../scripts/archive-fold.mjs";
 
 export const tests = {};
@@ -97,4 +100,12 @@ tests["C494 默认模型跟 DSH 走：从 profile 的 cordis.patch.yml 读 agent
   const none = m.readDefaultModel(nodePath.join(HERE, ".nope-home"));
   t.eq(none.model, null, "找不到就返回 null，由调用方兜底");
   nodeFs.rmSync(home, { recursive: true, force: true });
+};
+
+tests["C523 活着的会话不许用脚本写回（宿主会覆盖，钱白花）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "archive-fold.mjs"), "utf8");
+  t.includes(src, "仍在跑", "要明确告诉用户为什么跳过");
+  t.includes(src, "--force-live", "确实要写时要有逃生口");
+  t.includes(src, "mtimeMs", "判据看日志 mtime");
+  t.includes(src, "applyOfflineFoldToGraph", "写回必须走共享实现（否则字段又会分叉）");
 };

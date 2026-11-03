@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
+import { applyOfflineFoldToGraph } from "../src/rooms/offline-fold.mjs";
 import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 
 // ★ C490：默认用 `deepseek-flash`，**不用** `group/...`。
@@ -202,6 +203,19 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const { graph } = loadSessionGraph(graphFile);
     const debt = debtOfGraph(graph);
     const logFile = findLogFile(home, dir);
+    // ★ C523：**活着的会话不要用脚本写**。真机教训（8cc34e32）：脚本写完，宿主那边把内存里的图
+    //   一 flush 就覆盖回去了 —— 钱花了、什么都没留下。判据看日志 mtime：5 分钟内有写入就算活着。
+    if (write && logFile !== null && logFile !== undefined) {
+      try {
+        const ageMin = (Date.now() - fs.statSync(logFile).mtimeMs) / 60_000;
+        if (ageMin < 5 && !argv.includes("--force-live")) {
+          console.log(`  ! ${dir.slice(0, 16)} 仍在跑（日志 ${ageMin.toFixed(1)} 分钟前还在写）—— 脚本写回会被宿主覆盖，跳过；确实要写加 --force-live`);
+          continue;
+        }
+      } catch {
+        /* stat 失败就不拦 */
+      }
+    }
     if (logFile === null) {
       console.log(`  ✗ ${dir.slice(0, 16)} 找不到会话日志，跳过`);
       continue;
@@ -295,47 +309,22 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       console.log(`  ⚠ 模型漏了 ${repaired} 条约束，已逐字补回`);
     }
 
-    // 写回：foldMark + closeout + lastOfflineSummary
-    graph.foldMarks = Array.isArray(graph.foldMarks) ? graph.foldMarks : [];
-    graph.foldMarks.push({
-      at: Date.now(),
-      seqStart: start,
-      seqEnd: end,
-      trigger: "archive-offline",
-      shadowedTokens: null,
-      measuredBefore: null,
-      route: { provider: "magpie", model: result.model },
-      fallback: null,
-      ms,
-      usage: result.usage,
-      summaryChars: text.length,
-      // ★ C491：**质量也要算**。否则离线折叠在 `summary-refs` / doctor 眼里是"没有 quality 的折叠"，
-      //   与在线折叠口径不一致，等于换个地方瞎。
-      quality: measureFoldQuality({ graph, range: { start, end }, summaryText: text }),
-      qualityRepaired: repaired,
-      offline: true,
-    });
-    graph.lastOfflineSummary = { at: Date.now(), range: { start, end }, text, model: result.model };
-    // ★ C490：折成功之后要**清掉旧的"没折成"说明**，否则图上会同时存在 folded:1 与 nothing-to-fold:*（自相矛盾）
-    const baseCloseout = { ...(graph.closeout ?? {}) };
-    delete baseCloseout.foldNote;
-    delete baseCloseout.foldError;
-    delete baseCloseout.chunkStopped;
-    graph.closeout = {
-      ...baseCloseout,
-      at: Date.now(),
-      source: "archive-offline",
-      foldAttempted: true,
-      folded: 1,
-      foldOffline: true,
-      // ★ C491：**覆盖到哪儿要写清楚**。预算只装得下尾部时，前段其实没压 ——
-      //   不写就是"宣称全压过"，那一段从此再也不会出现在欠账里。
-      offlineCovered: { start, end },
-      ...(uncoveredHead > 0 ? { offlineUncoveredHead: { start: rangeStart, end: start - 1, events: uncoveredHead } } : {}),
-      ...(uncoveredTail > 0 ? { offlineUncoveredTail: { start: end + 1, end: rangeEnd, events: uncoveredTail } } : {}),
-      // ★ C493：还有没压到的部分 ⇒ 标 partial，让 `closeoutSettles` 继续认为欠账未清
-      ...(uncoveredHead > 0 || uncoveredTail > 0 ? { partial: true } : {}),
-    };
+    // ★ C523：**写回走共享实现**（引擎与脚本必须记同一套字段）。
+    //   之前脚本自己写 `offlineUncoveredHead:{start,end,events}`，而 `debtOfGraph` 读的是 `from`
+    //   ⇒ 缺口游标永远回到 1，补缺口原地打转。
+    const quality = measureFoldQuality({ graph, range: { start, end }, summaryText: text });
+    const applied = applyOfflineFoldToGraph(
+      graph,
+      {
+        chunks: [{ start, end, text, quality, repaired, model: result.model, ms, usage: result.usage }],
+        coveredStart: start,
+        coveredEnd: end,
+        uncoveredHead,
+        uncoveredTail,
+      },
+      { rangeStart, rangeEnd, previousGapEvents: debt.gap !== undefined && debt.gap !== null ? Number(debt.gap.events) : undefined, provider: "magpie", model: result.model },
+    );
+    void applied;
     fs.writeFileSync(graphFile, JSON.stringify(graph, null, 1), "utf8");
     console.log(`  ✓ [${chunkNo}/${maxChunks}] 已写回：段 ${start}-${end} · 摘要 ${text.length} 字符 · ${ms}ms · usage=${JSON.stringify(result.usage)}`);
     // 下一段从这段的末尾继续（分段模式）；单段模式到此为止

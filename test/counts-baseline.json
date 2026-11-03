@@ -1,10 +1,10 @@
 {
- "total": 970,
+ "total": 972,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
   "add-changelog.test.mjs": 4,
-  "archive-fold.test.mjs": 6,
+  "archive-fold.test.mjs": 7,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "backfill-plan.test.mjs": 10,
@@ -17,7 +17,7 @@
   "cache-usage.test.mjs": 4,
   "check-maintenance.test.mjs": 6,
   "cli-routing.test.mjs": 4,
-  "closeout-backfill.test.mjs": 18,
+  "closeout-backfill.test.mjs": 19,
   "closeout-outcome.test.mjs": 5,
   "closeout-plan.test.mjs": 1,
   "closeout-settles.test.mjs": 7,
@@ -142,6 +142,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1289,
- "passedAt": "2026-11-03T22:51:09.775Z"
+ "passed": 1291,
+ "passedAt": "2026-11-03T23:25:43.861Z"
 }

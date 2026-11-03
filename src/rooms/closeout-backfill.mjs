@@ -112,7 +112,9 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   //   （真机 2026-11-04：8cc34e32 前段 8,000+ 事件就是这样被"折过去了"）。
   //   所以把 `closeout.offlineUncoveredHead` 当成**未结清的欠账**带出来。
   const gapEvents = Math.max(0, Number(graph?.closeout?.offlineUncoveredHead?.events ?? 0));
-  const gapStart = Number(graph?.closeout?.offlineUncoveredHead?.from ?? 1) || 1;
+  // ★ C523：兼容两种历史写法（`from` 是新的，`start` 是脚本早期写的）—— 两种都要认，否则游标永远是 1
+  const gapHead = graph?.closeout?.offlineUncoveredHead ?? {};
+  const gapStart = Number(gapHead.from ?? gapHead.start ?? 1) || 1;
   const hasGap = gapEvents > 0;
   const estTokens = tokensPerEvent === null ? null : Math.round((tail + gapEvents) * tokensPerEvent);
   const due = hasGap ? gapEvents >= minEvents : !closedOut && tail >= minEvents;

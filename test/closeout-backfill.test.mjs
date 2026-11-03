@@ -367,3 +367,13 @@ tests["C520 排序要算上前段缺口 —— 否则 tail=0 的会话永远排�
   const one = rankDebts(items, { limit: 1 });
   t.eq(one[0].sessionId, "big-gap", "只补一个时也必须先补缺口最大的");
 };
+
+tests["C523 缺口字段两种历史写法都要认（from 与 start）"] = async (t) => {
+  const g = mkGraph({ seqs: [1, 5000], marks: [{ seqStart: 4500, seqEnd: 5000, trigger: "archive-offline" }] });
+  // 脚本早期写的是 {start,end,events}
+  g.closeout = { at: 1, source: "archive-offline", foldAttempted: true, folded: 1, foldOffline: true, partial: true, offlineUncoveredHead: { start: 1200, end: 4499, events: 3300 } };
+  const debt = debtOfGraph(g, { minEvents: 40 });
+  t.eq(debt.gapEvents, 3300, "事件数要认");
+  t.eq(debt.gap.from, 1200, "起点也要认（legacy 用 start）");
+  t.eq(debt.due, true, "有缺口就算欠账");
+};
