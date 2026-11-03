@@ -17,7 +17,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
+import {debtOfGraph, closeoutSettles} from "../src/rooms/closeout-backfill.mjs";
 import { planChunkedCloseout, CLOSEOUT_MAX_FOLD_TOKENS, foldDurationStats } from "../src/rooms/closeout-plan.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -185,6 +185,25 @@ export function estimateSessionRuntime(chunks, medianMs, p90Ms, timeoutMs) {
   return { estMs, risky: worst > timeoutMs };
 }
 
+/**
+ * ★ C478：一条欠账是「从没试过」还是「试过但没成」？纯函数，便于单测。
+ *
+ * C476 之后两种都会回到欠账里，但**处置顺序不同**：后者要先看 `foldNote` / `foldError` 的真因
+ * （例如"被路由到别的上游"），再决定补不补；把两者混在一起，用户会以为自己在补一批从没动过的账。
+ * @param {object} graph 会话棋谱
+ * @returns {{retried:boolean, note:string|null}}
+ */
+export function debtAttemptState(graph) {
+  const c = graph?.closeout;
+  if (c === null || c === undefined || typeof c !== "object") return { retried: false, note: null };
+  if (closeoutSettles(c)) return { retried: false, note: null };
+  const note = String(c.foldNote ?? "");
+  if (note !== "") return { retried: true, note };
+  const err = String(c.foldError ?? "");
+  if (err !== "") return { retried: true, note: err.slice(0, 60) };
+  return { retried: true, note: null };
+}
+
 export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } = {}) {
   const { loadSessionGraph } = await import("./graph-audit.mjs");
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
@@ -203,12 +222,17 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
     const debt = debtOfGraph(graph);
     if (!debt.due) continue;
     const planned = planChunkedCloseout(graph, { maxTokens });
+    const attempt = debtAttemptState(graph);
     rows.push({
       sessionId: entry.name.slice(0, 18),
       tail: debt.tail,
       estTokens: Number.isFinite(debt.estTokens) ? debt.estTokens : null,
       tokensPerEvent: Number.isFinite(debt.tokensPerEvent) ? debt.tokensPerEvent : null,
       chunks: planned?.chunks?.length ?? 1,
+      // ★ C478：区分"从没试过"与"试过但没成"。C476 之后这两种都会回到欠账里，
+      //   但处置不同：后者往往要先看 `foldNote`/`foldError` 的真因（例如路由错），再谈补。
+      retried: attempt.retried,
+      closeoutNote: attempt.note,
       // ★ C342：**需要**多少段（不截断）vs **一次最多**给 6 段 —— 前者大于 6 的会话一次补不完
       _ms: (() => {
         const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
@@ -247,9 +271,16 @@ export async function main(argv = process.argv.slice(2)) {
     `== 补账计划 ==  ${plan.total} 个欠账 · 精确可估 ${plan.estimable} · ` +
       `粗略可估 ${plan.rough}（按全局 ${roughPerEvent === null ? "?" : roughPerEvent.toFixed(0)} tok/事件）· 估不出 ${plan.unknown}`,
   );
+  const retriedCount = rows.filter((r) => r.retried === true).length;
+  if (retriedCount > 0) {
+    console.log(
+      `  （其中 ${retriedCount} 个是**归档时试过但没折成**的 —— 处置顺序与"从没试过"不同：先看 closeout 里的原因，再补）`,
+    );
+  }
   for (const row of rows.slice(0, 12)) {
     const est = row.estTokens === null ? "?" : `${Math.round(row.estTokens / 1000)}k tok`;
-    console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段`);
+    const retryTag = row.retried === true ? ` · **试过没成**${row.closeoutNote === null ? "" : `（${row.closeoutNote}）`}` : "";
+    console.log(`  · ${row.sessionId}  尾巴 ${row.tail} 事件 · ${est} · ${row.chunks} 段${retryTag}`);
   }
   if (rows.length > 12) console.log(`  · …另 ${rows.length - 12} 个`);
   // ★ C414：也把**最小的三个**列出来。默认排序是 tail 降序（先补最大的），

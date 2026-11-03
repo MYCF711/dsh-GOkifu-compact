@@ -52,3 +52,18 @@ tests["C477 引擎补账与账本必须共用同一条判据（同一个坑不�
   const bad = /if \(g\.closeout !== undefined\) return;/;
   t.eq(bad.test(src), false, "「有 closeout 就跳过补账」的旧判据必须删掉");
 };
+
+tests["C478 补账计划要区分「从没试过」与「试过没成」（处置顺序不同）"] = async (t) => {
+  const m = await import("../scripts/backfill-plan.mjs");
+  const fresh = m.debtAttemptState({ nodes: {}, foldMarks: [] });
+  t.eq(fresh.retried, false, "没有 closeout ⇒ 从没试过");
+  t.eq(fresh.note, null, "没有原因");
+  const failed = m.debtAttemptState({ closeout: { foldAttempted: true, folded: 0, foldNote: "nothing-to-fold:planner-null" } });
+  t.eq(failed.retried, true, "试过没成 ⇒ 标出来");
+  t.includes(failed.note ?? "", "planner-null", "原因要带出来（用户才知道先查什么）");
+  const errored = m.debtAttemptState({ closeout: { folded: 0, foldError: "400: upstream rejected" } });
+  t.eq(errored.retried, true, "失败也要标");
+  t.includes(errored.note ?? "", "400", "错误摘要带出来");
+  const done = m.debtAttemptState({ closeout: { folded: 2 } });
+  t.eq(done.retried, false, "真折成了 ⇒ 不算'试过没成'");
+};
