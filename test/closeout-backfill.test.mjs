@@ -265,3 +265,28 @@ tests["C299 「折过了」要认分段收尾（closeout.chunkedFolded），否�
   t.eq(mod.debtOfGraph(base).folded, true, "只有 closeout.chunkedFolded 也必须算折过");
   t.eq(mod.debtOfGraph({ ...base, closeout: { at: 1 } }).folded, false, "没有分段数、也没有 archive foldMark ⇒ 不算折过");
 };
+
+tests["C515 欠账必须按 foldMarks 算，不许按 lastFoldSeq —— 两者在真机上会差两千事件"] = async (t) => {
+  // 真机样本（a09a4535，2026-11-04）：会话跑到 5862，最后一次折叠**区间**只到 1874，
+  // 而 `lastFoldSeq` 记的是「那次折叠时会话的 seq」= 3544。用 lastFoldSeq 算尾巴会漏掉 1670 个事件。
+  const g = mkGraph({
+    seqs: [1, 1874, 3544, 5862],
+    marks: [
+      { seqStart: 8, seqEnd: 340, trigger: "pressure" },
+      { seqStart: 343, seqEnd: 1874, trigger: "pressure" },
+    ],
+  });
+  g.lastFoldSeq = 3544; // 诱饵：真机上它就是这么写的
+  const debt = debtOfGraph(g, { minEvents: 40 });
+  t.eq(debt.lastFoldSeq, 1874, "欠账起点必须取 foldMark.seqEnd");
+  t.eq(debt.tail, 5862 - 1874, `尾巴必须按 foldMark 算（实际 ${debt.tail}）`);
+  t.eq(debt.tail > 1000, true, "这条会话确实还有一大截没折");
+};
+
+tests["C515 foldMarks 为空但 lastFoldSeq 有值 ⇒ 仍然算欠账（不许被那个字段骗过去）"] = async (t) => {
+  const g = mkGraph({ seqs: [1, 3000] });
+  g.lastFoldSeq = 2900; // 诱导：看起来"刚折过"
+  const debt = debtOfGraph(g, { minEvents: 40 });
+  t.eq(debt.lastFoldSeq, null, "没有 foldMark 就没有折叠区间");
+  t.eq(debt.tail >= 2999, true, `没折过就该整段欠着（实际 ${debt.tail}）`);
+};
