@@ -175,3 +175,36 @@ tests["C503 「超时」也是触发条件（否则 C501 那条分支是死代�
   t.eq(m.shouldTryOfflineFold({ ...base, reason: "below-min-tokens" }).go, false, "尾巴太短按设计不折");
   t.eq(m.shouldTryOfflineFold({ ...base, reason: "timeout", closeout: { folded: 3 } }).why, "already-folded", "已折过仍然不重花");
 };
+
+tests["C505 离线摘要编造的 id 必须被代码清掉（提示词挡不住）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    // 模型"编"了图里不存在的 n999 / e999，还引用了区间之后的实体
+    callModel: async () => ({ text: "## 目标\n- 把构建跑通\n\n## 棋谱\n- n999 干了某件事\n- e999 也试过\n- 不许动 prod 配置\n- 不要粉色大象", usage: null, model: "fake" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.sanitized >= 2, true, `编造的 id 至少要清掉 2 个，实际 ${chunk.sanitized}`);
+  t.eq(chunk.text.includes("n999"), false, "n999 不许留在正文里");
+  t.eq(chunk.text.includes("e999"), false, "e999 也不许留");
+  t.includes(chunk.text, "n?", "换成 n? 占位（读者能看出这里被清过）");
+};
+
+tests["C505 合法实体不许被误伤"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    callModel: async () => ({ text: "## 已探明死路\n- e1 \"改 prod\" → EACCES\n- 不许动 prod 配置\n- 不要粉色大象", usage: null, model: "fake" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.sanitized, 0, "e1 在图里且区间内 ⇒ 不该被清");
+  t.includes(chunk.text, "e1", "合法实体要留着");
+};

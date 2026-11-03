@@ -3088,3 +3088,11 @@ tests["C500/C501 离线补折的两个入口都必须走同一条判定（null �
   // graphDir 有两种形态，home 推导不能硬编码层数
   t.includes(src, 'base0 === "chess-context"', "home 推导要按目录名判断（真机 graphDir = <home>/chess-context）");
 };
+
+tests["C506 离线补折优先用「上下文压缩设置里选的模型」"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "#summaryTarget()", "必须有一个统一出口读 summarizationProvider/Model");
+  t.includes(src, "chosen?.provider ?? dflt.provider ?? routed?.provider", "顺序：设置 > DSH 默认模型 > 当前路由");
+  t.includes(src, "summarizationProvider", "读的就是设置里那个键");
+  t.includes(src, "summarizationModel", "model 同理");
+};

@@ -1,5 +1,5 @@
 {
- "total": 946,
+ "total": 949,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -32,7 +32,7 @@
   "docs-numbers.test.mjs": 12,
   "doctor-cli.test.mjs": 46,
   "doctor-perf.test.mjs": 3,
-  "engine-harness.test.mjs": 101,
+  "engine-harness.test.mjs": 102,
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 21,
   "facts-prompt.test.mjs": 6,
@@ -83,7 +83,7 @@
   "merge-provenance.test.mjs": 4,
   "migrate.test.mjs": 2,
   "node-docs.test.mjs": 2,
-  "offline-fold.test.mjs": 10,
+  "offline-fold.test.mjs": 12,
   "overbudget-report.test.mjs": 4,
   "p6c-preflight.test.mjs": 6,
   "pack-check.test.mjs": 3,
@@ -141,6 +141,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1265,
- "passedAt": "2026-11-03T13:50:15.940Z"
+ "passed": 1268,
+ "passedAt": "2026-11-03T14:00:10.569Z"
 }

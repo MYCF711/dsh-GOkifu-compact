@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { sanitizeSummaryIds } from "./fold-quality.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
 const CJK_RE = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
@@ -279,6 +280,14 @@ export async function runOfflineFold({
     if (text === "") {
       return { chunks, coveredStart, coveredEnd, uncoveredHead: 0, uncoveredTail: Math.max(0, rangeEnd - (coveredEnd ?? rangeStart)), failed: "empty-response" };
     }
+    // ★ C505：**提示词挡不住的东西用代码挡**（C458 同一原则）。
+    //   离线摘要的实体引用现在靠提示词约束；真机 5 条离线折叠恰好没编 id，
+    //   但那是运气不是保证 —— 这里补上在线折叠早就有的 sanitize 兜底：
+    //   折叠区间外 / 图里没有的 `n123`、`e456` 一律换成 `n?` / `e?`。
+    const cleaned = sanitizeSummaryIds(text, graph, { start, end });
+    text = cleaned.text;
+    const sanitized = cleaned.removed.length;
+
     // 约束补回：用**全量**缺失清单（质量报告只给前 5 条）
     const missing = allConstraints(graph).filter((c) => !text.includes(c));
     let repaired = 0;
@@ -296,6 +305,7 @@ export async function runOfflineFold({
       dropped,
       text,
       repaired,
+      sanitized,
       quality,
       usage: out?.usage ?? null,
       model: out?.model ?? null,

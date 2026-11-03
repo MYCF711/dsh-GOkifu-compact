@@ -1728,6 +1728,22 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   }
 
   /**
+   * ★ C506：用户在「上下文压缩」设置里选的摘要模型（`summarizationProvider` / `summarizationModel`）。
+   * 两个都填了才算数；否则返回 null，让调用方按默认模型 / 当前路由兜底。
+   * @returns {{provider:string, model:string}|null}
+   */
+  #summaryTarget() {
+    try {
+      const provider = String(this.chess?.summarizationProvider ?? "");
+      const model = String(this.chess?.summarizationModel ?? "");
+      if (provider !== "" && model !== "") return { provider, model };
+    } catch {
+      /* 配置没解析出来就当没设 */
+    }
+    return null;
+  }
+
+  /**
    * ★ C501：**要不要走离线补折**，以及走了之后的结局。抽出来是因为有两个入口
    * （"算不出区间" 与 "在线折叠超时"），两边判据必须一致 —— 否则又是"两条路径只改一条"。
    *
@@ -1798,11 +1814,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const rangeStart = debt.lastFoldSeq === null || debt.lastFoldSeq === undefined ? 1 : Number(debt.lastFoldSeq) + 1;
       const rangeEnd = Number(debt.maxSeq) || 0;
       if (rangeEnd < rangeStart) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-range", partial: false };
+      // ★ C506：**优先用"上下文压缩设置里选的那个模型"**（summarizationProvider/Model），
+      //   这才是用户能控制的地方；没选才退回 DSH 默认模型 / 当前路由。
+      //   顺序：显式设置 > DSH 默认模型（agent-default-model）> 会话当前路由。
+      const chosen = this.#summaryTarget();
       const dflt = readDefaultModel(home);
       const routed = routedTarget(session);
       const target0 = {
-        provider: dflt.provider ?? routed?.provider,
-        model: dflt.model ?? routed?.model,
+        provider: chosen?.provider ?? dflt.provider ?? routed?.provider,
+        model: chosen?.model ?? dflt.model ?? routed?.model,
       };
       if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
       const callModel = async (prompt, { maxTokens }) => {
