@@ -134,3 +134,18 @@ tests["C463 折叠回本行：中位回本次数 + 成本 + 快照年龄；没�
   t.includes(noPayback.find(([k]) => k === "折叠回本")[1], "算不出", "缺数据要说算不出");
   t.eq(renderStatus({}).find(([k]) => k === "折叠回本")[1], "未采集", "完全没快照时说未采集");
 };
+
+tests["C468 折叠失败 / 归档收尾两行：转述 doctor 的正文，未采集要说出来"] = (t) => {
+  const rows = renderStatus({
+    doctor: { bad: 0, warn: 1, foldFailures: { status: "warn", detail: "1 个会话记着失败：upstream-routing=1 · 最近一次 …" }, closeout: { status: "warn", detail: "24 个会话已归档却没有 closeout" } },
+  });
+  const failLine = rows.find(([k]) => k === "折叠失败")[1];
+  t.includes(failLine, "upstream-routing", "分类要透传（这正是 C467 的价值）");
+  t.includes(failLine, "⚠", "warn 状态要能一眼看出");
+  const closeLine = rows.find(([k]) => k === "归档收尾")[1];
+  t.includes(closeLine, "24 个", "数字要透传");
+  // 没有 doctor 数据时不许空着
+  const empty = renderStatus({});
+  t.eq(empty.find(([k]) => k === "折叠失败")[1], "未采集（重启后跑过折叠才有）", "缺数据要说未采集");
+  t.eq(empty.find(([k]) => k === "归档收尾")[1], "未采集", "归档同理");
+};

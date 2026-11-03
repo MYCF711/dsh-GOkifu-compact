@@ -45,6 +45,19 @@ export function renderStatus(data) {
       ? "未采集"
       : `命中 ${d.bench.hitRate === null ? "?" : (d.bench.hitRate * 100).toFixed(1) + "%"} · 全量 $${d.bench.totalCost === null ? "?" : d.bench.totalCost.toFixed(2)}`,
   ]);
+  // ★ C468：折叠失败与归档收尾 —— 两条最容易"静默变坏"的健康项
+  const foldFail = d.doctor?.foldFailures ?? null;
+  rows.push([
+    "折叠失败",
+    foldFail === null || foldFail.detail === ""
+      ? "未采集（重启后跑过折叠才有）"
+      : `${foldFail.status === "warn" ? "⚠ " : ""}${foldFail.detail.slice(0, 120)}`,
+  ]);
+  const closeout = d.doctor?.closeout ?? null;
+  rows.push([
+    "归档收尾",
+    closeout === null || closeout.detail === "" ? "未采集" : `${closeout.status === "warn" ? "⚠ " : ""}${closeout.detail.slice(0, 110)}`,
+  ]);
   // ★ C463：**折叠回本点** —— 回答"我们到底该不该折这么多"。
   rows.push([
     "折叠回本",
@@ -102,7 +115,18 @@ export async function main(argv = process.argv.slice(2)) {
   if (docOut !== null) {
     try {
       const j = JSON.parse(docOut);
-      data.doctor = { bad: Number(j.bad ?? 0), warn: Number(j.warn ?? 0) };
+      const pick = (keyword) => {
+        const hit = (Array.isArray(j.checks) ? j.checks : []).find((c) => typeof c?.name === "string" && c.name.includes(keyword));
+        return hit === undefined ? null : { status: String(hit.status ?? ""), detail: String(hit.detail ?? "") };
+      };
+      data.doctor = {
+        bad: Number(j.bad ?? 0),
+        warn: Number(j.warn ?? 0),
+        // ★ C468：把两条"必须自己能说话"的健康项带进日常视图 —— 折叠失败分类与归档收尾。
+        //   它们的正文里就有处置建议，status 不用重算，只转述。
+        foldFailures: pick("折叠失败分类"),
+        closeout: pick("归档收尾"),
+      };
     } catch {
       data.doctor = null;
     }
