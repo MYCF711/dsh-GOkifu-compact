@@ -1,27 +1,27 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-03T12:39:54Z",
+  "generatedAt": "2026-11-03T13:41:01Z",
   "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 183,
+  "sessions": 198,
   "unreadable": 0,
   "summary": {
-    "total": 114,
+    "total": 113,
     "manual": 1,
     "external": null,
     "coverage": {
-      "trigger": 109,
-      "quality": 106,
-      "closure": 102,
-      "usage": 90
+      "trigger": 108,
+      "quality": 105,
+      "closure": 103,
+      "usage": 91
     },
     "triggerCounts": {
-      "pressure": 87,
+      "pressure": 88,
       "tier2": 14,
       "context-overflow": 1,
-      "archive-offline": 7
+      "archive-offline": 5
     },
     "quality": {
-      "count": 106,
+      "count": 105,
       "constraintRecallMin": 1,
       "failureRecallMin": 0,
       "compressionRatioMin": 11.41,
@@ -29,14 +29,14 @@
       "unknownIdsTotal": 17
     },
     "cost": {
-      "count": 90,
+      "count": 91,
       "inputPerShadowedMin": 0.03,
       "inputPerShadowedMax": 2.29,
       "shadowedShareMin": 0.437,
       "shadowedShareMax": 38.954
     },
     "closureChain": {
-      "checked": 74,
+      "checked": 75,
       "offenders": [
         "session-1e82afca-8be:n1255→n1",
         "session-1e82afca-8be:n1546→n117",
@@ -67,24 +67,24 @@
         },
         {
           "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
-          "folds": 18
+          "folds": 16
         }
       ]
     },
     "closure": {
-      "count": 102,
+      "count": 103,
       "empty": 5,
       "preGraph": 1
     },
     "boundary": {
-      "count": 99,
+      "count": 100,
       "openAtEnd": 0,
-      "unsettled": 16132
+      "unsettled": 16400
     },
     "dangling": {
-      "count": 88,
+      "count": 89,
       "residue": 102,
-      "candidates": 36,
+      "candidates": 37,
       "liveUnsettled": 1,
       "fromBroken": 0
     },
@@ -95,15 +95,15 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-03T12:31:09Z",
-    "newFolds": 1,
-    "qualityChanged": true,
+    "previousAt": "2026-11-03T12:39:54Z",
+    "newFolds": -1,
+    "qualityChanged": false,
     "boundaryRegressed": false,
     "costShareDelta": 0,
     "prevQuality": {
-      "count": 105,
+      "count": 106,
       "constraintRecallMin": 1,
-      "failureRecallMin": 0.75,
+      "failureRecallMin": 0,
       "compressionRatioMin": 11.41,
       "compressionRatioMax": 350.68,
       "unknownIdsTotal": 17
@@ -5196,39 +5196,6 @@
       }
     },
     {
-      "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
-      "fold": 16,
-      "at": 1793708948049,
-      "trigger": "archive-offline",
-      "seqStart": 10890,
-      "seqEnd": 11168,
-      "hasRange": true,
-      "summaryChars": 6662,
-      "shadowedTokens": 0,
-      "inputTokens": null,
-      "outputTokens": null,
-      "inputPerShadowed": null,
-      "shadowedShare": null,
-      "ms": 22793,
-      "route": {
-        "provider": "magpie",
-        "model": "trustoken/deepseek-flash"
-      },
-      "fallback": null,
-      "quality": {
-        "constraintRecall": 1,
-        "failureRecall": 1,
-        "compressionRatio": null,
-        "expectedConstraints": 6,
-        "expectedFailures": 0,
-        "unknownIds": 0,
-        "summaryTokens": 2711
-      },
-      "closure": null,
-      "dangling": null,
-      "boundary": null
-    },
-    {
       "sessionId": "session-226dbf4f-ed4b-4498-9d96-8e1e08c15259",
       "fold": 4,
       "at": 1793708949124,
@@ -5278,53 +5245,69 @@
       }
     },
     {
-      "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
-      "fold": 17,
-      "at": 1793708962674,
-      "trigger": "archive-offline",
-      "seqStart": 11169,
-      "seqEnd": 11385,
+      "sessionId": "session-8a73e06b-efaf-4288-bf0b-6f187a2559ec",
+      "fold": 10,
+      "at": 1793710095240,
+      "trigger": "pressure",
+      "seqStart": 28560,
+      "seqEnd": 30629,
       "hasRange": true,
-      "summaryChars": 4597,
-      "shadowedTokens": 0,
-      "inputTokens": null,
-      "outputTokens": null,
-      "inputPerShadowed": null,
-      "shadowedShare": null,
-      "ms": 14607,
+      "summaryChars": 1861,
+      "shadowedTokens": 137274,
+      "inputTokens": 223869,
+      "outputTokens": 804,
+      "inputPerShadowed": 1.63,
+      "shadowedShare": 0.613,
+      "ms": 9768,
       "route": {
         "provider": "magpie",
-        "model": "trustoken/deepseek-flash"
+        "model": "group/deepseek-v4.1-flash1017"
       },
       "fallback": null,
       "quality": {
         "constraintRecall": 1,
         "failureRecall": 1,
-        "compressionRatio": null,
-        "expectedConstraints": 6,
-        "expectedFailures": 0,
+        "compressionRatio": 173.33,
+        "expectedConstraints": 1,
+        "expectedFailures": 5,
         "unknownIds": 0,
-        "summaryTokens": 2489
+        "summaryTokens": 792
       },
-      "closure": null,
-      "dangling": null,
-      "boundary": null
+      "closure": {
+        "nodes": 272,
+        "edges": 274,
+        "firstNode": "n3452",
+        "lastNode": "n3723",
+        "preGraph": false,
+        "graphNodes": 4003
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 274,
+        "openAtEnd": 0,
+        "unsettled": 268
+      }
     },
     {
       "sessionId": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
-      "fold": 18,
-      "at": 1793709528585,
+      "fold": 16,
+      "at": 1793713126016,
       "trigger": "archive-offline",
-      "seqStart": 18847,
-      "seqEnd": 19433,
+      "seqStart": 19305,
+      "seqEnd": 19897,
       "hasRange": true,
-      "summaryChars": 4007,
+      "summaryChars": 4855,
       "shadowedTokens": 0,
       "inputTokens": null,
       "outputTokens": null,
       "inputPerShadowed": null,
       "shadowedShare": null,
-      "ms": 16974,
+      "ms": 19008,
       "route": {
         "provider": "magpie",
         "model": "wps-lingxi/deepseek-v4.1-flash"
@@ -5335,9 +5318,9 @@
         "failureRecall": 0,
         "compressionRatio": null,
         "expectedConstraints": 6,
-        "expectedFailures": 1,
+        "expectedFailures": 2,
         "unknownIds": 0,
-        "summaryTokens": 1556
+        "summaryTokens": 1939
       },
       "closure": null,
       "dangling": null,
