@@ -217,11 +217,33 @@ export function isPermanentSummaryError(message) {
 export function classifySummaryError(message) {
   const text = String(message ?? "");
   if (text === "") return "other";
-  if (isPermanentSummaryError(text)) return "permanent";
+  // ★ C467：**先分流"不是我们的错"的那几类**，再谈提示词/参数。
+  //   顺序很重要：`isPermanentSummaryError` 里也认 400，若放在前面，普通 400 会被它吞成 permanent，
+  //   就再也分不出「被路由到别的上游」这种最需要人干预的情况（真机 2026-11-03T05:38 那次就是）。
+  if (/(^|[^0-9])402([^0-9]|$)/.test(text) || /insufficient balance|余额/i.test(text)) return "balance";
+  if (/上游返回|upstream returned|Lingxi|灵犀/i.test(text)) return "upstream-routing";
   if (/(^|[^0-9])429([^0-9]|$)/.test(text) || /rate limit/i.test(text)) return "rate-limit";
   if (/(^|[^0-9])(500|503)([^0-9]|$)/.test(text) || /overload|server error/i.test(text)) return "overload";
   if (/timeout|timed out|aborted|etimedout/i.test(text)) return "timeout";
+  if (/(^|[^0-9])400([^0-9]|$)/.test(text) || /invalid format|invalid_request/i.test(text)) return "invalid-request";
+  if (isPermanentSummaryError(text)) return "permanent";
   return "other";
+}
+
+/**
+ * ★ C467：每类错误**该做什么**（一句话，给 doctor 与日志直接用）。
+ * @param {string} kind
+ * @returns {string}
+ */
+export function summaryErrorHint(kind) {
+  if (kind === "upstream-routing") return "模型组把请求路由到了别的上游 ⇒ 查 magpie 分组/换非 group 模型；改提示词没有用";
+  if (kind === "balance") return "余额不足（402）⇒ 充值是唯一解；期间走规则摘要";
+  if (kind === "invalid-request") return "400 先看错误正文里的上游名字，再查 max_tokens 是否超过该模型上限";
+  if (kind === "rate-limit") return "限流 ⇒ 放慢节奏（已加最小等待）";
+  if (kind === "overload") return "上游过载 ⇒ 稍后重试";
+  if (kind === "timeout") return "超时 ⇒ 调大 closeoutTimeoutMs 或减小单段上限";
+  if (kind === "permanent") return "永久性错误 ⇒ 已强制走规则摘要，别再重试同一路径";
+  return "";
 }
 
 /**
@@ -1923,6 +1945,22 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       st.lastFoldFailureSeq = session.seq;
       st.lastFoldError = String(error?.message ?? error).slice(0, 180); st.lastFoldErrorKind = classifySummaryError(st.lastFoldError); st.lastFoldFailureAt = Date.now(); // C350/C367
       this.#flush(session, { tree: true });
+      // ★ C467：失败分类要**落到图上**。以前它只活在内存的退避状态里（st），进程一退就没了，
+      //   doctor 只能看到日志里那句原始错误。现在图上留下 {at, kind, message, seq}，健康检查直接可读。
+      try {
+        const gFail = this.graphs.get(session.id);
+        if (gFail !== undefined && gFail !== null) {
+          gFail.lastFoldFailure = {
+            at: st.lastFoldFailureAt,
+            kind: st.lastFoldErrorKind,
+            message: st.lastFoldError,
+            hint: summaryErrorHint(st.lastFoldErrorKind),
+            seq: Number(session.seq) || null,
+          };
+        }
+      } catch {
+        /* 记账失败不影响主流程 */
+      }
       // ★ C242（K-13）：永久性错误 ⇒ ①退避顶到上限（别每 30 个事件白试一次）
       //   ②下次折叠强制走规则摘要（压缩不能因此不落地）。
       if (isPermanentSummaryError(st.lastFoldError)) {

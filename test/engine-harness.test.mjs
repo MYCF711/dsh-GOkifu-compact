@@ -2777,7 +2777,11 @@ tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基�
     ["500 Server Error", "overload"],
     ["request timeout after 90000ms", "timeout"],
     ["422 Invalid Parameters", "permanent"],
-    ["400 invalid format", "permanent"],
+    // ★ C467：400 不再一律当"永久性"——它分「格式/参数错」与「被路由到别的上游」两种，
+    //   后者重试同一路由无意义但仍要**规则摘要兜底**，所以单独成类。
+    ["400 invalid format", "invalid-request"],
+    ["400: {\"message\":\"WPS Lingxi 上游返回 400\"}", "upstream-routing"],
+    ["402 Insufficient Balance", "balance"],
     ["something odd happened", "other"],
   ];
   for (const [msg, want] of cases) {
@@ -2965,4 +2969,19 @@ tests["C445 空折不消耗配额：连折不动 4 次后，一旦有内容仍�
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const mark = ((await readGraphReplayed(dir, "sess-loop-nofold")).foldMarks ?? []).at(-1);
   if (mark?.trigger !== "loop") throw new Error(`foldMark.trigger 应为 loop，实际 ${JSON.stringify(mark?.trigger)}`);
+};
+
+
+tests["C467 400 要分出「被路由到别的上游」：这类改提示词没用，规则摘要才是救场"] = async (t) => {
+  const { mod } = await load();
+  const real = '400: {"code":"invalid_request","message":"WPS 灵犀 Lingxi: WPS 灵犀上游返回 400：{\"code\":\"InvalidArgument\"}"}';
+  t.eq(mod.classifySummaryError(real), "upstream-routing", "真机这条要单列一类");
+  t.includes(mod.summaryErrorHint("upstream-routing"), "路由", "提示要指向路由，不是提示词");
+  t.eq(mod.isPermanentSummaryError(real), true, "同一路由重试无意义 ⇒ 当永久性处理（但会强制走规则摘要）");
+  t.eq(mod.classifySummaryError("402 Insufficient Balance"), "balance", "余额不足单独一类");
+  t.eq(mod.isPermanentSummaryError("402 Insufficient Balance"), true, "余额不足重试也没用");
+  t.includes(mod.summaryErrorHint("balance"), "充值", "提示要说得能执行");
+  // 普通 400 仍是可重试的"格式/参数"类
+  // 普通 400 在**退避**层面仍按"重试同一路径无意义"处理（参数错不会自己好），这点不变
+  t.eq(mod.isPermanentSummaryError("400 invalid format"), true, "退避口径不变：400 仍会强制走规则摘要兜底");
 };

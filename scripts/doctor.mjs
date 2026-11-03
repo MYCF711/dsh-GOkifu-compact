@@ -65,6 +65,8 @@ function loadGraphCached(file) {
 
 const TRACE = process.env.DSH_DOCTOR_TRACE === "1";
 const T0 = Date.now();
+// ★ C467：折叠失败按类别统计（图上的 lastFoldFailure）—— 报告块在文件前部就要用，所以在这里声明
+const foldFailures = [];
 /** 分段计时（DSH_DOCTOR_TRACE=1 打到 stderr）—— 回答「doctor 到底慢在哪」。 */
 function mark(name) {
   if (TRACE) console.error(`[${String(Date.now() - T0).padStart(6)} ms] ${name}`);
@@ -351,6 +353,29 @@ add(
     `${lastErrors.length ? `；最近错误：${lastErrors[0]}` : ""}`,
 );
 
+// ★ C467：**失败也要分类**。真机那次 400 的正文写着别家上游的名字（WPS 灵犀）——
+//   那说明请求根本没到 DeepSeek，改提示词是白费力气。分类落图之后这里才说得清。
+if (foldFailures.length > 0) {
+  const byKind = {};
+  for (const f of foldFailures) byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
+  const newest = foldFailures.sort((a, b) => b.at - a.at)[0];
+  const hintOf = (kind) => {
+    if (kind === "upstream-routing") return "⇒ 查 magpie 分组/换非 group 模型（改提示词没用）";
+    if (kind === "balance") return "⇒ 余额不足，充值是唯一解";
+    if (kind === "invalid-request") return "⇒ 先看错误正文里的上游名字，再查 max_tokens 上限";
+    if (kind === "rate-limit") return "⇒ 放慢节奏（已加最小等待）";
+    if (kind === "overload") return "⇒ 上游过载，稍后重试";
+    if (kind === "timeout") return "⇒ 调大 closeoutTimeoutMs 或减小单段上限";
+    return "";
+  };
+  add(
+    "折叠失败分类（C467）",
+    newest.kind === "upstream-routing" || newest.kind === "balance" ? "warn" : "ok",
+    `${foldFailures.length} 个会话记着失败：${Object.entries(byKind).map(([k, n]) => `${k}=${n}`).join(" / ")}` +
+      ` · 最近一次 ${fmtAt(newest.at)}（${newest.session}）：${newest.message.slice(0, 80)} ${hintOf(newest.kind)}`,
+  );
+}
+
 mark('会话日志扫描 ★');
 /* ── 4. 棋谱健康 ── */
 let sessions = 0;
@@ -392,6 +417,7 @@ export function indexFreshness({
 }
 
 let indexStale = 0;
+// ★ C467：折叠失败按类别统计（图上的 lastFoldFailure）—— **必须在用到它的报告块之前声明**（TDZ 会直接崩）
 // ★ C461：换过任务的会话数（旧任务的历史之后每轮都在付费）
 let pivotSessions = 0;
 let pivotTotal = 0;
@@ -469,6 +495,11 @@ if (nodeFs.existsSync(chessRoot)) {
             else if (rec.seq !== null && typeof rec.seq !== "number") mergeBad += 1;
           }
         }
+      }
+      // ★ C467：最近一次折叠失败（分类落图）—— 以前只看得到日志里那句原始错误
+      if (g.lastFoldFailure && typeof g.lastFoldFailure === "object") {
+        const f0 = g.lastFoldFailure;
+        if (foldFailures.length < 20) foldFailures.push({ session: d.name.slice(0, 20), kind: String(f0.kind ?? "other"), message: String(f0.message ?? "").slice(0, 120), at: Number(f0.at) || 0 });
       }
       // ★ C461：任务切换记账（由 keeper 落盘，这里只读）
       if (Number(g.pivots) > 0) {

@@ -34,3 +34,21 @@
 - 官方页没有给 `402` 的**恢复方式**（充值后是否需要重建 client），我们没测；
 - 我们的折叠统计目前把所有 `compaction/end` 错误一视同仁 —— **没有按错误码分类**，
   所以"是余额问题还是格式问题"现在还得人眼看日志（记为候选）。
+
+---
+
+## 4. 我们的分类口径（C467 · **已核实**：`classifySummaryError` + 测试）
+
+折叠失败不再笼统记成"失败"，而是分五类，每类对应**不同动作**（改代码≠改配置≠充值）：
+
+| 类别 | 判据 | 该做什么 |
+|---|---|---|
+| `upstream-routing` | 正文含「上游返回 / upstream returned / 灵犀 / Lingxi」 | **查路由**（magpie 分组、换非 group 模型）——改提示词没用 |
+| `balance` | `402` / Insufficient Balance / 余额 | 充值；期间走规则摘要 |
+| `invalid-request` | `400` / invalid format / invalid_request | 先看正文里的上游名字，再查 `max_tokens` 上限 |
+| `rate-limit` / `overload` / `timeout` | `429` / `5xx` / timeout | 放慢、稍后重试、调超时 |
+
+**顺序很重要**：`isPermanentSummaryError()` 里也认 400，如果先判它，普通 400 会被吞成 `permanent`，
+就再也分不出"被路由到别的上游"这种**最需要人干预**的情况（真机 2026-11-03T05:38 那次正是如此）。
+
+失败分类现在**落在图上**（`lastFoldFailure = {at, kind, message, hint, seq}`），doctor 直接读，不用翻日志。
