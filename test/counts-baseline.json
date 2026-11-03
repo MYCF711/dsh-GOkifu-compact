@@ -1,5 +1,5 @@
 {
- "total": 949,
+ "total": 950,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -130,7 +130,7 @@
   "ui-perf.test.mjs": 10,
   "ui-security.test.mjs": 25,
   "ui-update.test.mjs": 19,
-  "ui.test.mjs": 10,
+  "ui.test.mjs": 11,
   "unverified-tier.test.mjs": 4,
   "user-patch-heal.test.mjs": 10,
   "user-patch-shadow.test.mjs": 5,
@@ -141,6 +141,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1268,
- "passedAt": "2026-11-03T14:00:10.569Z"
+ "passed": 1269,
+ "passedAt": "2026-11-03T15:40:56.519Z"
 }

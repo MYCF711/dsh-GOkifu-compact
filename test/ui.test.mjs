@@ -380,3 +380,19 @@ tests["C396 没有 web 端口的进程不许覆盖心跳（真机：无服务进
   t.includes(src, 'payload?.state === "open" && (payload?.port === null', "必须在无端口时不写 open 心跳（C396）");
   t.includes(src, "return;", "不写就要早退，不许落到 writeFileSync");
 };
+
+tests["C507 客户端用到的 React hook 必须都从 React 解构出来（否则运行时 ReferenceError）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  const m = /const \{([^}]*)\} = React;/.exec(src);
+  t.eq(m !== null, true, "必须有 React hook 解构行");
+  const declared = new Set((m?.[1] ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+  const used = new Set([...src.matchAll(/\b(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]));
+  // 本地自定义 hook（`function useX(...)` / `const useX = ...`）不是 React 的，别误报
+  const local = new Set([
+    ...[...src.matchAll(/function\s+(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]),
+    ...[...src.matchAll(/const\s+(use[A-Z][A-Za-z]*)\s*=/g)].map((x) => x[1]),
+  ]);
+  const missing = [...used].filter((name) => !declared.has(name) && !local.has(name));
+  // React.useXxx 形式不算（它自带命名空间）
+  t.eq(missing, [], `这些 hook 用了却没解构：${missing.join(", ")}`);
+};
