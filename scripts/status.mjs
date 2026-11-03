@@ -45,6 +45,15 @@ export function renderStatus(data) {
       ? "未采集"
       : `命中 ${d.bench.hitRate === null ? "?" : (d.bench.hitRate * 100).toFixed(1) + "%"} · 全量 $${d.bench.totalCost === null ? "?" : d.bench.totalCost.toFixed(2)}`,
   ]);
+  // ★ C454：**动作开销**也进日常视图。C451 做了 `action-cost`，但"要专门跑的脚本"= 没人跑（C447 同一个坑）。
+  //   这里只报两个数：累计最贵的工具 + 单次最贵 —— 都不需要跑全量报告就能看出趋势。
+  rows.push([
+    "动作开销",
+    d.actionCost === null || d.actionCost === undefined
+      ? "未采集"
+      : `${d.actionCost.topByTotal} 累计 ${Math.round((d.actionCost.topTotal ?? 0) / 1000).toLocaleString("en-US")}k tok` +
+        `（${d.actionCost.topCount} 次 × 中位 ${d.actionCost.topMedian}）· 单次最贵 ${d.actionCost.topMedianMax ?? "—"} tok`,
+  ]);
   // ★ C447：**循环形状**要出现在日常视图里。C446 做了 loop-report，但"要专门去跑的脚本"
   //   等于没有 —— 这条项目的坑一直是"仪器能跑，但没人跑，于是假绿"。
   rows.push([
@@ -164,6 +173,34 @@ export async function main(argv = process.argv.slice(2)) {
     };
   } catch {
     data.bench = null;
+  }
+
+  // ⑤b 动作开销（C451/C454）—— 解一个会话日志，实测 ~1s
+  try {
+    const mod = await import("./action-cost.mjs");
+    const files = mod.sessionFiles(process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home");
+    if (files.length === 0) {
+      data.actionCost = null;
+    } else {
+      const { events } = mod.loadEvents(files[0].file);
+      const { steps } = mod.attributeCosts(events);
+      const tools = mod.byTool(steps);
+      const byTotal = [...tools].sort((a, b) => (b.deltaTotal ?? 0) - (a.deltaTotal ?? 0));
+      const top = byTotal[0] ?? null;
+      const maxSingle = steps.reduce((m, x) => (Number.isFinite(x.inputDelta) ? Math.max(m, x.inputDelta) : m), 0);
+      data.actionCost =
+        top === null
+          ? null
+          : {
+              topByTotal: top.tool,
+              topTotal: top.deltaTotal ?? 0,
+              topCount: top.count,
+              topMedian: Math.round(top.deltaMedian ?? 0),
+              topMedianMax: Math.round(maxSingle),
+            };
+    }
+  } catch {
+    data.actionCost = null;
   }
 
   // ⑥ 循环形状（C447）—— 直接 import 纯函数，不 spawn；实测 36 个会话 0.36s

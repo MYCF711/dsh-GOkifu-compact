@@ -108,3 +108,16 @@ tests["C447 循环形状行：有数据就给数字，没有就明说未采集�
 
   t.eq(renderStatus({}).find(([k]) => k === "循环形状")[1], "未采集", "没数据时明说未采集，不许空着");
 };
+
+tests["C454 动作开销行：给「累计最贵的工具 + 单次最贵」，没数据说未采集"] = (t) => {
+  const rows = renderStatus({
+    actionCost: { topByTotal: "bash", topTotal: 2_157_749, topCount: 2986, topMedian: 576, topMedianMax: 6708 },
+  });
+  const line = rows.find(([k]) => k === "动作开销")[1];
+  t.includes(line, "bash", "要点名是哪个工具");
+  t.includes(line, "2,158k tok", "累计值（以 k 为单位，避免 7 位数字挤爆一行）");
+  t.includes(line, "2986 次", "次数 —— 累计高到底是单次贵还是次数多，必须能分开看");
+  t.includes(line, "576", "单次中位");
+  t.includes(line, "6708", "单次最贵");
+  t.eq(renderStatus({}).find(([k]) => k === "动作开销")[1], "未采集", "没数据说未采集，不许空着");
+};
