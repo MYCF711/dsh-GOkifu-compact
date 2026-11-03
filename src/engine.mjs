@@ -1684,7 +1684,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const result = await Promise.race([work, timeout]);
       if (result === "timeout") this.ctx.logger?.warn?.(`chess-context: 归档收尾折叠超时（${limitMs}ms），已放弃本次收尾`);
       else if (result !== null && result !== undefined) this.ctx.logger?.info?.("chess-context: 归档收尾折叠完成");
-      return result === "timeout" ? null : result;
+      if (result === "timeout") return { tier: "single", skipped: "timeout" };
+      // ★ C474：null 不等于"没东西可折" —— 把 skip 原因一起带回去，让 closeout 能说清
+      if (result === null || result === undefined) return { tier: "single", skipped: this._foldSkipReason ?? "unknown" };
+      return result;
     } finally {
       if (timer !== null) clearTimeout(timer);
     }
@@ -1783,7 +1786,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal);
     const session = agent.session;
     const target = routedTarget(session);
-    if (target === undefined) return null;
+    if (target === undefined) {
+      this._foldSkipReason = "no-target";
+      return null;
+    }
 
     // tier-2 先跑：surface 上的 checkpoint 太多时，把最老的两条合并成一条。
     // 它与压力无关（checkpoint 常驻本身就是成本），因此放在阈值判断之前。
@@ -2150,7 +2156,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       balancedBefore: (seq) => toolPairingBalancedBefore(session, seq),
       balancedAfter: (seq) => toolPairingBalancedAfter(session, seq),
     });
-    if (planned.range === null) this.ctx.logger?.debug?.(`chess-context: 本次不 fold（${planned.reason}）`);
+    if (planned.range === null) {
+      // ★ C474：**跳过原因必须留得住**。归档收尾那次返回 null，closeout 只写了个 "nothing-to-fold"，
+      //   而那个会话有 163 节点 / 191 边、从没折过 —— 到底是"没内容"还是"拿不到 surface/区间"，靠猜没用。
+      this._foldSkipReason = String(planned.reason ?? "planner-null");
+      this.ctx.logger?.debug?.(`chess-context: 本次不 fold（${planned.reason}）`);
+    }
     // ★ C189：规划器按**下标**工作，而 surface 顺序不保证按 seq 递增（C187 在 live 上证明过）。
     //   主 fold 也走同一条规划器 ⇒ 这里做最后一道防线：区间反向就交换并留一行日志，
     //   绝不让 `seqStart > seqEnd` 的 foldMark 落到磁盘（doctor「结构自洽」会红）。

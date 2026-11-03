@@ -42,3 +42,14 @@ tests["C466 错误文本要截断（别让一整段 HTML 错误页把图撑爆�
   t.eq(legacy.foldAttempted, true, "补齐标记");
   t.eq(legacy.eventsSinceLastFold, 7706, "原有尾巴数保留（验证单要对账这个数）");
 };
+
+tests["C474 「没折」必须带原因：foldNote 要能区分'没内容'与'拿不到区间/超时'"] = (t) => {
+  const noContent = applyCloseoutOutcome({ source: "archive" }, { tier: "single", skipped: "below-min-tokens" }, null);
+  t.eq(noContent.folded, 0, "没折");
+  t.includes(noContent.foldNote ?? "", "below-min-tokens", "原因要写进 closeout，而不是一句笼统的 nothing-to-fold");
+  const timeout = applyCloseoutOutcome({}, { tier: "single", skipped: "timeout" }, null);
+  t.includes(timeout.foldNote ?? "", "timeout", "超时也要单独能看出来");
+  // 老行为（没有 skipped 字段）仍然是 nothing-to-fold
+  const legacy = applyCloseoutOutcome({}, null, null);
+  t.eq(legacy.foldNote, "nothing-to-fold", "没有原因时保持旧文案");
+};

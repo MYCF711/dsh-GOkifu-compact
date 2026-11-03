@@ -195,6 +195,12 @@ export function applyCloseoutOutcome(closeout, result, error = null, at = Date.n
     next.foldNote = "nothing-to-fold";
     return next;
   }
+  // ★ C474：`skipped` 说明"为什么没折"，必须写进 closeout —— 否则 folded:0 只能读成"没内容"
+  if (typeof result.skipped === "string" && result.skipped !== "") {
+    next.folded = 0;
+    next.foldNote = `nothing-to-fold:${result.skipped}`;
+    return next;
+  }
   if (result.tier === "chunked") {
     next.folded = Number(result.folded) || 0;
     next.chunkedFolded = Number(result.folded) || 0;

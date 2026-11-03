@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C474 | 收尾折叠：「没折」必须带原因（nothing-to-fold 太笼统） |
 | C473 | 逐会话表改成生成物；三条守卫不再 pin 死会变的数值 |
 | C472 | 真机证明 C458 有效：清洗 10/6 条，越界归零 |
 | C471 | 折叠观测字段判据挑错了对象：规则折叠不是'未接管' |
@@ -546,6 +547,52 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C474 · 收尾折叠：「没折」必须带原因（nothing-to-fold 太笼统）
+
+**用户归档了「发布代码仓库并公开」那个会话 —— C466 的三个字段全出现了，但那句 `nothing-to-fold` 很可疑。**
+
+### 一、实测（真机，第三次归档）
+
+```json
+"closeout": { "source": "archive", "eventsSinceLastFold": 1210, "folds": 0,
+              "foldAttempted": true, "folded": 0, "foldNote": "nothing-to-fold" }
+```
+
+| 检查 | 结果 |
+|---|---|
+| 归档信号 | ✅ `source: "archive"` |
+| 折叠被尝试过 | ✅ `foldAttempted: true` |
+| 结局被记录 | ✅ `folded: 0` + `foldNote` |
+
+**C466 的三件事全部达成** —— 以前这一格是空的。
+
+### 二、但 `nothing-to-fold` 说不通
+
+那个会话的棋谱：**163 节点 / 191 条边，`foldMarks` 为 0**（从来没折过），尾部 1,210 事件。
+这种会话说"没东西可折"，更可能是**拿不到可折区间**（surface/区间算不出来），而不是真没内容。
+
+而现在 `folded: 0` 后面只有一个笼统的词 —— **四种完全不同的原因被压成了一句**：
+没内容 / 低于最小阈值 / 规划器算不出区间 / 超时。
+
+### 三、改法（C474）
+
+把"为什么没折"一路带回来：
+
+- `#selectRange` 与 `compactIfNeeded` 的每个静默 `return null` 都写 `this._foldSkipReason`；
+- `#closeoutFold` 把 `null` 变成 `{ skipped: reason }`（超时也单列）；
+- `applyCloseoutOutcome` 写成 `foldNote: "nothing-to-fold:<reason>"`。
+
+下次归档就能直接看到是 `below-min-tokens` / `planner-null` / `timeout` / `no-target` 中的哪一个。
+
+### 四、测试
+
+一条：`skipped` 原因必须进 `foldNote`；超时要能单独看出来；没有原因时保持旧文案（向后兼容）。
+
+### 五、教训
+
+**`folded: 0` 是个结果，不是原因。** 只要一个字段能取"没做"的值，就必须同时能回答"为什么没做"——
+否则这个字段只会让人把四种情况混成一句"大概没内容吧"。
 
 ### C473 · 逐会话表改成生成物；三条守卫不再 pin 死会变的数值
 
