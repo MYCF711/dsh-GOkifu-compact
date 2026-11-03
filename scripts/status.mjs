@@ -83,8 +83,49 @@ export async function main(argv = process.argv.slice(2)) {
   // ③ 面板（可跳过）
   if (!argv.includes("--no-panel")) {
     try {
+      // ★ C439：**端口不能写死 64349**。这已经是第三个地方犯同一个错（C388/C412）：
+      //   GUI 重启后换到 56319，而这里还在探 64349 ⇒ 误报「面板不可达」。
+      //   这里复用 accept-after-restart 导出的两个纯函数：心跳端口 → 扫描发现 → 才回退 64349。
       const mod = await import("./post-restart-check.mjs");
-      const caps = await mod.checkPanelCapabilities(undefined, {});
+      const helper = await import("./accept-after-restart.mjs");
+      const nodePath2 = (await import("node:path")).default;
+      const nodeFs2 = (await import("node:fs")).default;
+      const { execFileSync } = await import("node:child_process");
+      const home = process.env.DSH_HOME ?? "";
+      const heartbeatPort = (() => {
+        try {
+          const file = nodePath2.join(home, "chess-context", "ui-route.json");
+          if (!nodeFs2.existsSync(file)) return null;
+          const hb = JSON.parse(nodeFs2.readFileSync(file, "utf8"));
+          // ★ C439：`Number(null)` 是 **0**，而 `Number.isFinite(0)` 是 **true** ⇒ `port:null` 会被当成端口 0。
+        return hb?.port === null || hb?.port === undefined ? null : Number.isFinite(Number(hb.port)) ? Number(hb.port) : null;
+        } catch {
+          return null;
+        }
+      })();
+      const discover = async () => {
+        try {
+          const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
+          for (const candidate of helper.listeningPorts(out)) {
+            try {
+              const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ action: "health" }),
+                signal: AbortSignal.timeout(4000),
+              });
+              if (helper.looksLikePanel(await res.json())) return candidate;
+            } catch {
+              /* 不是面板 */
+            }
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      };
+      const panelPort = heartbeatPort ?? (await discover()) ?? 64349;
+      const caps = await mod.checkPanelCapabilities(undefined, { port: panelPort });
       data.panel = { ok: caps.level === "ok", detail: caps.detail };
     } catch {
       data.panel = { ok: false, detail: "探测失败" };

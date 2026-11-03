@@ -204,3 +204,17 @@ tests["C438 验收脚本退出码必须区分三态（ready=0 / partial=1 / stal
   t.eq(src.includes('result.verdict === "stale" ? 1 : 0'), false, "不许只有 stale→1（partial 会被当成功）");
   t.includes(src, 'result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2', "必须三态映射");
 };
+
+tests["C439 面板端口解析：null 不许变 0，候选不许按前 12 个截断"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  for (const f of ["accept-after-restart.mjs", "post-restart-check.mjs", "status.mjs"]) {
+    const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", f), "utf8");
+    // Number(null) === 0 且 isFinite(0) 为 true ⇒ 旧写法把 port:null 当成端口 0
+    t.eq(src.includes("return Number.isFinite(Number(hb?.port)) ? Number(hb.port) : null;"), false, `${f}: null 会被当成 0（C439）`);
+    // 候选端口按数字升序，真正的面板（56319）排在第 20 个之后 ⇒ 截断前 12 个会永远找不到
+    t.eq(src.includes("listeningPorts(out).slice(0, 12)"), false, `${f}: 不许按前 12 个截断候选（C439）`);
+  }
+};

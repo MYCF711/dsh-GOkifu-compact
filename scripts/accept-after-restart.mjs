@@ -202,7 +202,8 @@ export async function main(argv = process.argv.slice(2)) {
       const file = nodePath.join(process.env.DSH_HOME ?? "", "chess-context", "ui-route.json");
       if (!nodeFs.existsSync(file)) return null;
       const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
-      return Number.isFinite(Number(hb?.port)) ? Number(hb.port) : null;
+      // ★ C439：`Number(null)` 是 **0**，而 `Number.isFinite(0)` 是 **true** ⇒ `port:null` 会被当成端口 0。
+        return hb?.port === null || hb?.port === undefined ? null : Number.isFinite(Number(hb.port)) ? Number(hb.port) : null;
     } catch {
       return null;
     }
@@ -214,13 +215,13 @@ export async function main(argv = process.argv.slice(2)) {
       const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
       // ★ C415：给发现一个**总预算**（最多 12 个候选、最多 6 秒），不让验收命令因扫端口而挂住。
       const deadline = Date.now() + 6000;
-      for (const candidate of listeningPorts(out).slice(0, 12)) {
+      for (const candidate of listeningPorts(out)) {
         try {
           const res = await fetch(`http://127.0.0.1:${candidate}/gokifu/api`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ action: "health" }),
-            signal: AbortSignal.timeout(1500),
+            signal: AbortSignal.timeout(4000),
           });
           if (!res.ok) continue;
           const json = await res.json();
