@@ -46,3 +46,17 @@ tests["C423 status 必须可发现：package.json 有脚本，HANDOFF/README 都
     t.includes(text, "npm run status", `${f} 必须指向 npm run status（工具必须可发现）`);
   }
 };
+
+tests["C425 关键文档不得被截断（进度页曾因异常写入变成 0 字节并被提交）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const root = nodePath.join(here, "..");
+  // 下限只防"被清空/被截断"，不是排版约束：进度页长期在 200KB 量级
+  const floors = { "docs/knowledge/进度.md": 100_000, "CHANGELOG.md": 100_000, "HANDOFF.md": 10_000 };
+  for (const [rel, min] of Object.entries(floors)) {
+    const size = nodeFs.statSync(nodePath.join(root, rel)).size;
+    t.eq(size >= min, true, `${rel} 只有 ${size} 字节（下限 ${min}）—— 可能被截断/清空，先 git checkout 恢复`);
+  }
+};
