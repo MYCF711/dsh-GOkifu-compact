@@ -1966,7 +1966,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           model: target0.model,
           messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
           maxTokens: Number(maxTokens) || 4000,
-          sessionId: id,
+          // ★ C525：**不传真实 sessionId**。传了之后宿主会为这个（已归档的）会话建/激活 surface ——
+          //   用户看到的就是「补账时把会话弹出来」。补账要的是**无头**：只读日志、只写自己的棋谱。
           purpose: "compaction",
         })) {
           assembler.push(chunk);
@@ -2004,6 +2005,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         model: target0.model,
       });
       const lastChunk = result.chunks[result.chunks.length - 1];
+      // ★ C525：**必须落盘**。`applyOfflineFoldToGraph` 只改内存里的图；
+      //   自动补账那条路没有 session、也没有后续 flush ⇒ 不写就等于白跑（还花了模型钱）。
+      try {
+        const written = this.persist.flush({ id, cwd: graph.cwd ?? "" }, graph, { full: true });
+        if (written !== null && written !== undefined && written.ok === false) {
+          this.ctx.logger?.warn?.(`chess-context: 离线补折落盘失败（不影响压缩）：${written.error}`);
+        }
+      } catch (error) {
+        this.ctx.logger?.warn?.(`chess-context: 离线补折落盘异常（不影响压缩）：${String(error)}`);
+      }
       this.ctx.logger?.info?.(
         `chess-context: 离线补折完成 ${applied.marksAdded} 段（段 ${lastChunk.start}-${lastChunk.end}，` +
           `摘要 ${String(lastChunk.text ?? "").length} 字符${outcome.partial ? "，仍有缺口" : ""}）`,

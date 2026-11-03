@@ -3139,3 +3139,16 @@ tests["C524 自动补账：默认开、限量、跳过活会话、失败只 warn
   t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MIN", "间隔用环境变量调（少一处 golden 漂移）");
   t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "每轮数量同理");
 };
+
+tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  // ① 无头：离线补折调用模型时**不许**带真实 sessionId（宿主会为它建/激活 surface ⇒ 会话被弹出来）
+  const offlineCall = src.slice(src.indexOf("async #offlineCloseoutFold"), src.indexOf("async #offlineCloseoutFold") + 6000);
+  t.eq(offlineCall.includes("sessionId: id"), false, "不许把真实 sessionId 传给 llm.stream（会把会话弹出来）");
+  t.includes(offlineCall, "purpose: \"compaction\"", "仍然标明用途");
+  // ② 落盘：改完内存必须 flush（自动补账那条路没有别的地方会写）
+  t.includes(offlineCall, "this.persist.flush({ id, cwd: graph.cwd ?? \"\" }, graph, { full: true })", "必须落盘");
+  // ③ 自动补账不碰 resume
+  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 6000);
+  t.eq(/resolveAgent|resume|closeoutNow/.test(tick), false, "自动补账不许 resume 会话");
+};
