@@ -3075,3 +3075,15 @@ tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默
   // 绝不许在引擎里自己拼 HTTP —— 模型调用必须走宿主 ctx.llm
   t.eq(/3425\/v1/.test(src), false, "引擎不许直连 magpie 端口，必须走 ctx.llm.stream");
 };
+
+tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;
+  // 3 处 = 两个调用点 + 方法定义本身
+  t.eq(calls, 3, `两个调用点 + 定义本身，实际 ${calls} 处`);
+  t.includes(src, '#tryOfflineCloseout(target, "timeout")', "超时分支必须尝试离线，而不是直接放弃");
+  t.includes(src, "shouldTryOfflineFold", "判定复用纯函数");
+  t.includes(src, "未走离线补折", "不走也要留痕（调参时靠这行）");
+  // graphDir 有两种形态，home 推导不能硬编码层数
+  t.includes(src, 'base0 === "chess-context"', "home 推导要按目录名判断（真机 graphDir = <home>/chess-context）");
+};

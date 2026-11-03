@@ -1707,34 +1707,57 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const result = await Promise.race([work, timeout]);
       if (result === "timeout") this.ctx.logger?.warn?.(`chess-context: 归档收尾折叠超时（${limitMs}ms），已放弃本次收尾`);
       else if (result !== null && result !== undefined) this.ctx.logger?.info?.("chess-context: 归档收尾折叠完成");
-      if (result === "timeout") return { tier: "single", skipped: "timeout" };
+      // ★ C501：**超时也不该直接放弃**。在线折叠撞 90s 预算时，日志仍在磁盘上 ——
+      //   离线补折（读日志 + 默认模型）比"这次就算了"有价值得多。走同一条判定。
+      if (result === "timeout") {
+        const offline = await this.#tryOfflineCloseout(target, "timeout");
+        if (offline !== null) return offline;
+        return { tier: "single", skipped: "timeout" };
+      }
       // ★ C474：null 不等于"没东西可折" —— 把 skip 原因一起带回去，让 closeout 能说清
       if (result === null || result === undefined) {
         const skipReason = this._foldSkipReason ?? "unknown";
-        // ★ C500：**算不出区间 ≠ 没办法**。归档后宿主的 surface 已经没了，`compactIfNeeded`
-        //   永远拿不到区间；但**会话日志还在** —— 那就自己读日志、用宿主默认模型压一次。
-        //   这不是"绕过对话模型"，是"绕过没有 surface 这件事"（模型仍然走 DSH 的默认模型）。
-        // `#closeoutFold(target)` 里没有 `session` 变量 —— target 可能是 agent 也可能是 session
-        const offlineSession = target?.session ?? target;
-        const offlineId = typeof offlineSession?.id === "string" ? offlineSession.id : "";
-        const live = offlineId === "" ? undefined : this.graphs.get(offlineId);
-        const tailEvents = Number(offlineSession?.seq) - Number((live?.foldMarks ?? []).at(-1)?.seqEnd ?? 0);
-        const decision = shouldTryOfflineFold({
-          closeout: live?.closeout ?? null,
-          reason: skipReason,
-          tailEvents: Number.isFinite(tailEvents) ? tailEvents : 0,
-          enabled: this.chess.offlineCloseout !== false,
-          minEvents: this.chess.closeoutMinEvents ?? 40,
-        });
-        if (decision.go) {
-          const offline = await this.#offlineCloseoutFold(target);
-          if (offline !== null) return offline;
-        }
+        const offline = await this.#tryOfflineCloseout(target, skipReason);
+        if (offline !== null) return offline;
         return { tier: "single", skipped: skipReason };
       }
       return result;
     } finally {
       if (timer !== null) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * ★ C501：**要不要走离线补折**，以及走了之后的结局。抽出来是因为有两个入口
+   * （"算不出区间" 与 "在线折叠超时"），两边判据必须一致 —— 否则又是"两条路径只改一条"。
+   *
+   * @param {object} target agent 或 session
+   * @param {string} reason 在线路径给出的跳过原因
+   * @returns {Promise<object|null>} 离线结局；不走/做不了返回 null
+   */
+  async #tryOfflineCloseout(target, reason) {
+    try {
+      const offlineSession = target?.session ?? target;
+      const offlineId = typeof offlineSession?.id === "string" ? offlineSession.id : "";
+      if (offlineId === "") return null;
+      const live = this.graphs.get(offlineId);
+      const tailEvents = Number(offlineSession?.seq) - Number((live?.foldMarks ?? []).at(-1)?.seqEnd ?? 0);
+      const decision = shouldTryOfflineFold({
+        closeout: live?.closeout ?? null,
+        reason,
+        tailEvents: Number.isFinite(tailEvents) ? tailEvents : 0,
+        enabled: this.chess.offlineCloseout !== false,
+        minEvents: this.chess.closeoutMinEvents ?? 40,
+      });
+      if (!decision.go) {
+        // ★ 留痕：为什么没走离线（调参时全靠这一行）
+        this.ctx.logger?.info?.(`chess-context: 未走离线补折（${decision.why}${reason === "timeout" ? " · 在线折叠超时" : ""}）`);
+        return null;
+      }
+      return await this.#offlineCloseoutFold(target);
+    } catch (error) {
+      this.ctx.logger?.warn?.(`chess-context: 离线补折判定失败（不影响归档）：${String(error)}`);
+      return null;
     }
   }
 
@@ -1762,7 +1785,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const graph = this.graphs.get(id);
       if (graph === undefined || graph === null) return null;
       // 会话日志在 <home>/sessions/**，而 graphDir = <home>/chess-context/sessions
-      const home = nodePath.dirname(nodePath.dirname(this.graphDir ?? ""));
+      // graphDir 的形态有两种（真机 = `<home>/chess-context`，测试里有人传 `<…>/chess-context/sessions`）——
+      // 按最后一级目录名判断，别硬编码层数（我第一版就多退了一层，日志直接找不到）。
+      const root0 = String(this.graphDir ?? "");
+      const base0 = nodePath.basename(root0);
+      const home = base0 === "chess-context" ? nodePath.dirname(root0) : nodePath.dirname(nodePath.dirname(root0));
       const logFile = findSessionLog(home, id);
       if (logFile === null) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-log", partial: true };
       const events = readSessionEvents(logFile);
@@ -1779,7 +1806,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       };
       if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
       const callModel = async (prompt, { maxTokens }) => {
-        const chunks = [];
+        // 与在线摘要**完全同一套**装配方式：stream → assembler.push(chunk) → assembler.blocks()
+        const assembler = new BlockAssembler();
         for await (const chunk of this.ctx.llm.stream({
           provider: target0.provider,
           model: target0.model,
@@ -1788,12 +1816,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           sessionId: id,
           purpose: "compaction",
         })) {
-          chunks.push(chunk);
+          assembler.push(chunk);
         }
-        const assembler = new BlockAssembler();
-        for (const chunk of chunks) assembler.push?.(chunk);
-        const blocks = typeof assembler.finish === "function" ? assembler.finish() : [];
-        const text = Array.isArray(blocks) ? blocks.map((b) => String(b?.text ?? "")).join("\n") : "";
+        const blocks = typeof assembler.blocks === "function" ? assembler.blocks() : [];
+        const text = Array.isArray(blocks)
+          ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
+          : "";
         return { text, usage: assembler.usage ?? null, model: target0.model };
       };
       const result = await runOfflineFold({
