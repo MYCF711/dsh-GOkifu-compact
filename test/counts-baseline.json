@@ -1,7 +1,8 @@
 {
-  "total": 855,
+  "total": 861,
   "files": {
     "accept-newcode.test.mjs": 3,
+    "action-cost.test.mjs": 6,
     "add-changelog.test.mjs": 4,
     "audit-duplicates.test.mjs": 4,
     "audit-field-reads.test.mjs": 3,
