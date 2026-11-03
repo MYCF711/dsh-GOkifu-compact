@@ -67,3 +67,26 @@ tests["C456 分母为 0 时不许除出 Infinity（空库上跑探针不能崩�
   t.eq(cmp.afterRatio, null, "分母 0 ⇒ null，不是 NaN/Infinity");
   t.includes(cmp.line, "—", "比例位显示破折号");
 };
+
+tests["C469 按「有没有跑过清洗」分队列：时间基线会把旧代码的折叠一直算进分子"] = (t) => {
+  const marks = [
+    // 修复前：没有 sanitizedIds 字段
+    mark(100, "pressure", { unknownIds: [], outOfRangeLater: ["n9"], outOfRangeEarlier: [] }),
+    mark(200, "pressure", { unknownIds: [], outOfRangeLater: [], outOfRangeEarlier: [] }),
+    // 修复后：字段存在（哪怕是 0）
+    // ★ 注意：`sanitizedIds` 在 **foldMark 顶层**（engine 就是这么写的），不在 quality 里
+    { ...mark(300, "pressure", { unknownIds: [], outOfRangeLater: [], outOfRangeEarlier: [] }), sanitizedIds: 0 },
+    { ...mark(400, "pressure", { unknownIds: [], outOfRangeLater: ["n7"], outOfRangeEarlier: [] }), sanitizedIds: 3 },
+  ];
+  const r = summarizeRefs(marks);
+  t.eq(r.protectedFolds, 2, "有字段的两条是修复后队列");
+  t.eq(r.protectedWithLater, 1, "修复后仍有一条带更晚实体（说明清洗没挡住，要查）");
+  t.eq(r.unprotectedFolds, 2, "没有字段的是修复前队列");
+  t.eq(r.unprotectedWithLater, 1, "修复前的历史账");
+  t.eq(r.foldsWithLater, 2, "总数仍然是 2（两个队列加起来）");
+  // 真实场景：7 条"新折叠"其实都是重启前旧代码跑的 ⇒ 不该算进修复后队列
+  const realish = [mark(500, "pressure", { outOfRangeLater: ["n1"] }), mark(600, "pressure", { outOfRangeLater: ["n2"] })];
+  const rr = summarizeRefs(realish, { since: 400 });
+  t.eq(rr.protectedFolds, 0, "时间过滤后仍然没有修复后样本");
+  t.includes(rr.protectedFolds === 0 ? "**还没有**" : "ok", "**还没有**", "空队列必须明说，别让人以为 0% 就是修好了");
+};

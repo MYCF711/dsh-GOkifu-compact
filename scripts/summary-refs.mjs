@@ -41,6 +41,13 @@ export function summarizeRefs(marks, { since = null } = {}) {
     earlier: 0,
     foldsWithLater: 0,
     foldsWithUnknown: 0,
+    // ★ C469：**按"这次折叠有没有跑过清洗（C458）"分队列**，而不是按时间。
+    //   时间基线会把"修复前的旧折叠"一直算进分子（上一轮就是这样：7 条新折叠 100% 带更晚实体，
+    //   而那 7 条其实全是**重启前的旧代码**跑的）。`sanitizedIds` 字段只有 C458 之后才会写。
+    protectedFolds: 0,
+    protectedWithLater: 0,
+    unprotectedFolds: 0,
+    unprotectedWithLater: 0,
     byTrigger: {},
     examples: { later: [], unknown: [] },
     newestAt: null,
@@ -59,6 +66,13 @@ export function summarizeRefs(marks, { since = null } = {}) {
     out.unknown += unknown.length;
     out.later += later.length;
     out.earlier += earlier.length;
+    if (mark.sanitizedIds !== undefined) {
+      out.protectedFolds += 1;
+      if (later.length > 0) out.protectedWithLater += 1;
+    } else {
+      out.unprotectedFolds += 1;
+      if (later.length > 0) out.unprotectedWithLater += 1;
+    }
     if (later.length > 0) {
       out.foldsWithLater += 1;
       const trigger = typeof mark.trigger === "string" ? mark.trigger : "(none)";
@@ -166,6 +180,12 @@ function main(argv) {
   console.log(`  · 图里根本没有的 id（编造/旧编号）：${cur.unknown} 个，分布在 ${cur.foldsWithUnknown} 条折叠`);
   console.log(`  · 引用**更早**实体（回溯历史 kifu，正常）：${cur.earlier} 个`);
   if (cur.examples.later.length > 0) console.log(`  例子（更晚）：${cur.examples.later.slice(0, 4).join(" | ")}`);
+  // ★ C469：两个队列分开报 —— 这是唯一能回答"C458 到底有没有用"的口径
+  console.log(
+    `  · 修复后队列（有 sanitizedIds，C458 起）：${cur.protectedFolds} 条折叠，其中带「更晚实体」${cur.protectedWithLater} 条` +
+      (cur.protectedFolds === 0 ? "（**还没有**：等下一次真机折叠）" : ""),
+  );
+  console.log(`  · 修复前队列（无该字段）：${cur.unprotectedFolds} 条折叠，带「更晚实体」${cur.unprotectedWithLater} 条（历史账，不会自己变好）`);
   const cmp = compareWithBaseline(cur, baseline);
   console.log(`  ${cmp.line}`);
   if (effectiveSince !== null && cur.withQuality === 0) {
