@@ -406,6 +406,24 @@ let objectHash = 0;
  * @param {Record<string,string>} titles 会话 id（可带或不带 `session-` 前缀）→ 标题
  * @returns {{label:string, title:string|null}}
  */
+/**
+ * ★ C484：算「输出 token ÷ 摘要本身」时，**分母要用我们记的那个 token 数**。
+ *
+ * 由来：这里以前写死 `chars / 3.5` —— 又一个"一律按英文算"的系数，而摘要里中文不少，
+ * 于是分母偏小、比值偏大。`foldMark.quality.summaryTokens` 是 `estimateTokens()` 按字符类别
+ * 加权算出来的（CJK 侧取上界），就在记录里躺着不用，没有理由再手搓一个 3.5。
+ *
+ * @param {object} mark foldMark
+ * @returns {number|null} 分母（token），拿不到就 null（调用方跳过，不编数字）
+ */
+export function summaryTokenDenominator(mark) {
+  const recorded = Number(mark?.quality?.summaryTokens);
+  if (Number.isFinite(recorded) && recorded > 0) return recorded;
+  const chars = Number(mark?.summaryChars);
+  if (Number.isFinite(chars) && chars > 0) return Math.max(1, Math.round(chars / 3.5)); // 老记录：留个兜底并标注
+  return null;
+}
+
 export function sessionLabel(sessionId, titles = {}) {
   const raw = String(sessionId ?? "");
   const bare = raw.replace(/^session-/, "");
@@ -1781,9 +1799,9 @@ mark('C219 注入动作');
       }
       for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
         const out = Number(mark?.usage?.outputTokens);
-        const chars = Number(mark?.summaryChars);
-        if (!Number.isFinite(out) || out <= 0 || !Number.isFinite(chars) || chars <= 0) continue;
-        samples.push(out / Math.max(1, Math.round(chars / 3.5)));
+        const denom = summaryTokenDenominator(mark);
+        if (!Number.isFinite(out) || out <= 0 || denom === null) continue;
+        samples.push(out / denom);
       }
     }
   }
