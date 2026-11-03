@@ -411,7 +411,8 @@ tests["U5-6 客户端：横幅/状态文案与时间格式，且「重新检查�
 
   t.eq(T.updateStatusText(null), "未检查", "没检查过");
   t.eq(T.updateStatusText({ latest: "1.18.0", hasUpdate: true, error: null }), "有新版本", "有新版本");
-  t.eq(T.updateStatusText({ latest: "1.17.6", hasUpdate: false, error: null }), "已是最新", "已是最新");
+  // ★ C428 起：服务端会给 `current` 与 `relation`；"已是最新"需要 relation=same（或字面相等）
+  t.eq(T.updateStatusText({ current: "1.17.6", latest: "1.17.6", hasUpdate: false, relation: "same", error: null }), "已是最新", "已是最新");
   t.eq(T.updateStatusText({ latest: null, hasUpdate: false, error: "registry HTTP 503" }), "检查失败", "检查失败");
   t.eq(T.updateStatusText({ latest: "", hasUpdate: false, error: null }), "未知", "拿不到版本号 ⇒ 未知");
 
@@ -686,4 +687,16 @@ tests["C420 面板必须显示 warnings 与 applied（算了不显示=没算；�
   // 没有这些字段时不许凭空加行
   const plain = T.backfillLines({ dryRun: true, due: 0, scanned: 1, items: [] });
   t.eq(plain.some((l) => l.includes("⚠") || l.includes("只处理你指定的")), false, "没有字段就不许多渲染");
+};
+
+tests["C428 更新文案不许把「本地更新」说成「已是最新」（relation=ahead）"] = async (t) => {
+  const T = loadClientBundle().mod.__testables;
+  // 本地 1.17.6 比 registry 1.17.5 新 —— 旧文案会显示"已是最新"，那是误读
+  t.eq(T.updateStatusText({ current: "1.17.6", latest: "1.17.5", hasUpdate: false, relation: "ahead" }).includes("本地更新"), true,
+    "ahead 必须说「本地更新」（C428）");
+  t.eq(T.updateStatusText({ current: "1.17.6", latest: "1.17.6", hasUpdate: false, relation: "same" }), "已是最新", "same 才是已是最新");
+  t.eq(T.updateStatusText({ current: "1.17.5", latest: "1.17.6", hasUpdate: true, relation: "behind" }), "有新版本", "behind 要有新版本");
+  // 没有 relation（老服务端）⇒ 不许猜"已是最新"
+  const noRel = T.updateStatusText({ current: "1.17.6", latest: "1.17.5", hasUpdate: false });
+  t.eq(noRel === "已是最新", false, "没有 relation 时不许说「已是最新」");
 };
