@@ -89,3 +89,22 @@ tests["C431 status --fast 跳过门禁（快看一眼 vs 交付前验一遍，�
   t.includes(src, "未跑（--fast）", "--fast 时门禁那行要明说未跑（不能留空或假装通过）");
   t.includes(src, "!fast && gateOut", "--fast 时不许把测试标成「门禁内全绿」");
 };
+
+tests["C447 循环形状行：有数据就给数字，没有就明说未采集（仪器不许静默）"] = (t) => {
+  const withData = renderStatus({
+    loop: { sessions: 37, loopSessions: 9, loopRate: 9 / 37, longest: 6, pressureFolds: 86, pressureAfterLoop: 5, pressureBroke: 5, sigEdges: 0 },
+  });
+  const line = withData.find(([k]) => k === "循环形状")[1];
+  t.includes(line, "9/37", "必须给分子/分母（没有分母的数字没法判断严重程度）");
+  t.includes(line, "24.3%", "比例要算出来");
+  t.includes(line, "最长 6", "最长连击");
+  t.includes(line, "5/5", "折叠前有循环形状的次数 / 折完变短的次数");
+  t.includes(line, "老棋谱无指纹", "sig 覆盖为 0 时必须标注口径偏宽（否则会当成生产口径读）");
+
+  const clean = renderStatus({
+    loop: { sessions: 37, loopSessions: 0, loopRate: 0, longest: 0, pressureFolds: 0, pressureAfterLoop: 0, pressureBroke: 0, sigEdges: 100 },
+  });
+  t.eq(clean.find(([k]) => k === "循环形状")[1].includes("老棋谱无指纹"), false, "全部带指纹时不许挂口径警告");
+
+  t.eq(renderStatus({}).find(([k]) => k === "循环形状")[1], "未采集", "没数据时明说未采集，不许空着");
+};

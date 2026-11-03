@@ -168,6 +168,10 @@ export function summarize(reports) {
     pressureBroke: broke(pressureFolds),
     loopAfterLoop: candidates(loopFolds),
     loopBroke: broke(loopFolds),
+    // ★ C447：**口径透明度**。加了 sig 之前落的棋谱没有指纹，只能按动作串算 ——
+    //   而动作串会把"同一文件的不同编辑"算成连击（真机 3 个会话就是这么来的）。
+    //   所以报告必须自己说清楚：这次统计里有多少条边真的带了指纹。
+    sigEdges: reports.reduce((s, r) => s + (r.overall.sigEdges ?? 0), 0),
   };
 }
 
@@ -187,6 +191,7 @@ function main(argv) {
   const reports = graphs.map(({ id, graph }) => {
     const edges = orderedEdges(graph);
     const overall = streakRuns(edges, { minRepeat: min });
+    overall.sigEdges = edges.filter((e) => typeof e.sig === "string" && e.sig !== "").length;
     return { id, overall: { ...overall, edges: edges.length }, folds: streaksAroundFolds(graph, edges) };
   });
   const s = summarize(reports);
@@ -213,7 +218,9 @@ function main(argv) {
   } else {
     console.log(`  ✅ 没有任何会话出现连续 ${min} 次相同动作`);
   }
-  console.log("  ⚠ 口径：只算**逐字相同且连续**的 action；中间插了别的动作就断。折叠后窗口到下一次折叠（或 200 条边）。");
+  const sigPct = s.edges === 0 ? 0 : (s.sigEdges / s.edges) * 100;
+  console.log(`  ⚠ 口径：只算**逐字相同且连续**的动作；中间插了别的动作就断。折叠后窗口到下一次折叠（或 200 条边）。`);
+  console.log(`  ⚠ 指纹覆盖：${s.sigEdges}/${s.edges} 条边（${sigPct.toFixed(1)}%）—— ${sigPct < 100 ? "老棋谱没有 sig，只能按动作串算，**会把同一文件的不同编辑算成连击**（偏宽）" : "全部带指纹，与生产判据同口径"}`);
   return 0;
 }
 

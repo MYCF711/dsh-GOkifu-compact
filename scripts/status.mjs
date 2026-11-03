@@ -45,6 +45,15 @@ export function renderStatus(data) {
       ? "未采集"
       : `命中 ${d.bench.hitRate === null ? "?" : (d.bench.hitRate * 100).toFixed(1) + "%"} · 全量 $${d.bench.totalCost === null ? "?" : d.bench.totalCost.toFixed(2)}`,
   ]);
+  // ★ C447：**循环形状**要出现在日常视图里。C446 做了 loop-report，但"要专门去跑的脚本"
+  //   等于没有 —— 这条项目的坑一直是"仪器能跑，但没人跑，于是假绿"。
+  rows.push([
+    "循环形状",
+    d.loop === null || d.loop === undefined
+      ? "未采集"
+      : `${d.loop.loopSessions}/${d.loop.sessions} 会话（${(d.loop.loopRate * 100).toFixed(1)}%）· 最长 ${d.loop.longest} 连击 · 折叠后变短 ${d.loop.pressureBroke}/${d.loop.pressureAfterLoop}` +
+        (d.loop.sigEdges === 0 ? " · ⚠ 老棋谱无指纹（口径偏宽）" : ""),
+  ]);
   return rows;
 }
 
@@ -155,6 +164,21 @@ export async function main(argv = process.argv.slice(2)) {
     };
   } catch {
     data.bench = null;
+  }
+
+  // ⑥ 循环形状（C447）—— 直接 import 纯函数，不 spawn；实测 36 个会话 0.36s
+  try {
+    const mod = await import("./loop-report.mjs");
+    const home = process.env.DSH_HOME ?? mod.defaultHome();
+    const reports = mod.listGraphs(home).map(({ graph }) => {
+      const edges = mod.orderedEdges(graph);
+      const overall = mod.streakRuns(edges, { minRepeat: 4 });
+      overall.sigEdges = edges.filter((e) => typeof e.sig === "string" && e.sig !== "").length;
+      return { overall, folds: mod.streaksAroundFolds(graph, edges) };
+    });
+    data.loop = mod.summarize(reports);
+  } catch {
+    data.loop = null;
   }
 
   const rows = renderStatus(data);
