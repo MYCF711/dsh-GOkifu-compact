@@ -250,3 +250,52 @@ tests["C521 工具行有预算上限：不许把用户诉求挤掉"] = async (t)
   t.eq(userChars > 0, true, "用户那条必须还在");
   t.eq(toolChars <= 6000 * 0.4 + 200, true, `工具行不能超过 40% 预算（实际 ${toolChars}）`);
 };
+
+tests["C522 被截断的摘要不许当完整：撞上限就放大 2× 重试一次"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const budgets = [];
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    maxTokens: 1000,
+    callModel: async (prompt, { maxTokens }) => {
+      budgets.push(maxTokens);
+      if (budgets.length === 1) return { text: "## 目标\n- 半句话", usage: { completion_tokens: 1000 }, model: "fake" };
+      return { text: "## 目标\n- 把构建跑通\n\n## 已验证事实\n- 全须全尾\n- 不许动 prod 配置\n- 不要粉色大象", usage: { completion_tokens: 300 }, model: "fake" };
+    },
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(budgets.length, 2, "撞上限要重试一次");
+  t.eq(budgets[1], 2000, "第二次预算放大 2×");
+  t.eq(out.chunks[0].truncated, false, "重试成功就不算截断");
+  t.includes(out.chunks[0].text, "全须全尾", "用的是第二次的正文");
+};
+
+tests["C522 重试仍截断 ⇒ 明确标 truncated（账上不许记成功）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    maxTokens: 500,
+    callModel: async () => ({ text: "## 目标\n- 还是半句", usage: { completion_tokens: 500 }, model: "fake" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks[0].truncated, true, "两次都撞上限 ⇒ 必须标出来");
+};
+
+tests["C522 约束判重忽略空白差异（模型排版不一样不该重复补）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    callModel: async () => ({ text: "## 目标\n- 把构建跑通\n- 不许动 prod 配置\n- 不要 粉色 大象", usage: null, model: "fake" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks[0].repaired, 0, "空格式差异不算丢失，不许重复补");
+};

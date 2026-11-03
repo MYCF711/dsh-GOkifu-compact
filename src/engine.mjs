@@ -1875,6 +1875,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         rangeEnd,
         maxChars: Number(this.chess.offlineMaxChars) || 60_000,
         maxChunks: 1,
+        // ★ C522：有前段缺口时必须**从头取**，否则永远只压尾巴、缺口原地不动
+        fromHead: debt.gap !== undefined && debt.gap !== null,
         callModel,
         measureQuality: ({ range, summaryText }) => measureFoldQuality({ graph, range, summaryText }),
       });
@@ -1887,6 +1889,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const applied = applyOfflineFoldToGraph(graph, result, {
         rangeStart,
         rangeEnd,
+        // ★ C522：把"旧缺口有多大"告诉写回方 —— 它要按这次真压掉的量把游标往前推
+        previousGapEvents: debt.gap !== undefined && debt.gap !== null ? Number(debt.gap.events) : undefined,
         provider: target0.provider,
         model: target0.model,
       });

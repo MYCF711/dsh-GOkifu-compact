@@ -121,7 +121,7 @@ export function toolDigestLine(data, maxArgChars = 80) {
   return `→ ${name}(${body})`;
 }
 
-export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4 } = {}) {
+export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4, perMessageChars = 2000 } = {}) {
   const picked = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (e === null || typeof e !== "object") continue;
@@ -151,46 +151,67 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
   let toolChars = 0;
   let textChars = 0;
   let dropped = 0;
+  /** ★ C522：单条就超预算时**截断它**，而不是把后面所有内容一起放弃。
+   *  真机 `8cc34e32` 开头就是一条两万字的大提示 —— 老逻辑下 head 模式只装进 1 条就 break，
+   *  于是"补缺口"补了个寂寞（覆盖 8-11 四步）。 */
+  const clamp = (len, room) => {
+    if (room < 500) return null;
+    const keepHead = Math.floor(room * 0.7);
+    const keepTail = room - keepHead - 10;
+    return { keepHead, keepTail, len };
+  };
+  const truncateFor = (m, room) => {
+    const plan = clamp(m.text.length, room);
+    if (plan === null) return null;
+    const text = `${m.text.slice(0, plan.keepHead)}
+…[本轮截断 ${m.text.length - plan.keepHead - Math.max(0, plan.keepTail)} 字符]…
+${plan.keepTail > 0 ? m.text.slice(-plan.keepTail) : ""}`;
+    return { ...m, text, truncated: true };
+  };
   const take = (m) => {
-    if (m.role === "tool") {
-      if (toolChars + m.text.length > toolCap) return false;
-      toolChars += m.text.length;
-      out.push(m);
-      return true;
+    const cap = m.role === "tool" ? toolCap : textCap;
+    const used = m.role === "tool" ? toolChars : textChars;
+    let item = m;
+    // ★ C522：**单条也设上限**（默认 2000 字符）。真机 8cc34e32 的头几条是两万字的大提示，
+    //   不设上限时它们会把整个预算吃光，覆盖区间只有 seq 8-12（两万多个事件里的 4 步）。
+    const perCap = m.role === "tool" ? 120 : Math.max(500, Number(perMessageChars) || 2000);
+    if (item.text.length > perCap) {
+      const cut = truncateFor(m, perCap);
+      if (cut === null) return false;
+      item = cut;
     }
-    if (textChars + m.text.length > textCap) return false;
-    textChars += m.text.length;
-    out.push(m);
+    if (used + item.text.length > cap) {
+      item = truncateFor(item, cap - used);
+      if (item === null) return false;
+    }
+    if (m.role === "tool") toolChars += item.text.length;
+    else textChars += item.text.length;
+    out.push(item);
     return true;
   };
-  // ★ C521：**工具行超预算只是"这条不要"，不是"到此为止"**（一开始写成 break，结果什么都进不去）。
-  //   只有**文本行**超预算才是真正的预算边界。
-  const overCap = (m) => (m.role === "tool" ? toolChars + m.text.length > toolCap : textChars + m.text.length > textCap);
+  // ★ C521/C522：**工具行超预算只是"这条不要"**（跳过继续）；文本行走 `take`（单条超预算会被截断）；
+  //   只有当文本行连 500 字符都放不下时，才算真正到边界。
   if (fromSeq !== null) {
     for (let i = 0; i < merged.length; i += 1) {
       const m = merged[i];
-      if (overCap(m)) {
-        if (m.role === "tool") {
-          dropped += 1;
-          continue;
-        }
-        dropped = merged.length - i;
-        break;
+      if (take(m)) continue;
+      if (m.role === "tool") {
+        dropped += 1;
+        continue;
       }
-      take(m);
+      dropped = merged.length - i;
+      break;
     }
   } else {
     for (let i = merged.length - 1; i >= 0; i -= 1) {
       const m = merged[i];
-      if (overCap(m)) {
-        if (m.role === "tool") {
-          dropped += 1;
-          continue;
-        }
-        dropped = i + 1;
-        break;
+      if (take(m)) continue;
+      if (m.role === "tool") {
+        dropped += 1;
+        continue;
       }
-      take(m);
+      dropped = i + 1;
+      break;
     }
     out.reverse();
   }
@@ -337,6 +358,12 @@ export async function runOfflineFold({
   rangeEnd,
   maxChars = 60_000,
   maxChunks = 1,
+  maxTokens = 4000,
+  /**
+   * ★ C522：**从区间开头取**（而不是从尾巴）。补缺口时必须为 true ——
+   *   否则"欠账区间 1-21543"永远只压最后那段，缺口原地不动。
+   */
+  fromHead = false,
   callModel,
   measureQuality,
 }) {
@@ -350,7 +377,7 @@ export async function runOfflineFold({
     const chunkStart = cursor;
     const { messages, chars, dropped } = collectMessages(events, {
       maxChars,
-      fromSeq: limit > 1 ? chunkStart : null,
+      fromSeq: limit > 1 || fromHead === true ? chunkStart : null,
     });
     if (messages.length === 0) break;
     const seqs = messages.map((m) => m.seq);
@@ -360,7 +387,27 @@ export async function runOfflineFold({
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages });
     const startedAt = Date.now();
-    const out = await callModel(prompt, { maxTokens: 4000 });
+    const budget = Math.max(256, Number(maxTokens) || 4000);
+    let out = await callModel(prompt, { maxTokens: budget });
+    // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
+    //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
+    //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
+    const looksTruncated = (r) => {
+      const used = Number(r?.usage?.completion_tokens ?? r?.usage?.outputTokens ?? NaN);
+      return String(r?.finish ?? r?.finishReason ?? "").toLowerCase().includes("max") || (Number.isFinite(used) && used >= budget);
+    };
+    let truncated = looksTruncated(out);
+    if (truncated) {
+      try {
+        const bigger = await callModel(prompt, { maxTokens: budget * 2 });
+        if (!looksTruncated(bigger) && String(bigger?.text ?? "").trim() !== "") {
+          out = bigger;
+          truncated = false;
+        }
+      } catch {
+        /* 重试失败就保留第一次的结果，并标记截断 */
+      }
+    }
     let text = String(out?.text ?? "").trim();
     if (text === "") {
       return { chunks, coveredStart, coveredEnd, uncoveredHead: 0, uncoveredTail: Math.max(0, rangeEnd - (coveredEnd ?? rangeStart)), failed: "empty-response" };
@@ -374,7 +421,11 @@ export async function runOfflineFold({
     const sanitized = cleaned.removed.length;
 
     // 约束补回：用**全量**缺失清单（质量报告只给前 5 条）
-    const missing = allConstraints(graph).filter((c) => !text.includes(c));
+    // ★ C522：判重要**忽略空白差异**。真机 8cc34e32：模型写的是「开启 superagent 模式」，
+    //   原文是「开启superagent模式」—— 逐字比较判不出来，于是整段约束被重复补了一遍。
+    const squeeze = (x) => String(x ?? "").replace(/\s+/g, "");
+    const squeezedText = squeeze(text);
+    const missing = allConstraints(graph).filter((c) => !squeezedText.includes(squeeze(c)));
     let repaired = 0;
     if (missing.length > 0) {
       const fixed = repairMissingConstraints(text, missing);
@@ -391,6 +442,7 @@ export async function runOfflineFold({
       text,
       repaired,
       sanitized,
+      truncated,
       quality,
       usage: out?.usage ?? null,
       model: out?.model ?? null,
@@ -521,7 +573,18 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
     foldOffline: true,
     offlineCovered: { start: result.coveredStart ?? last.start, end: result.coveredEnd ?? last.end },
     ...(partial ? { partial: true } : {}),
-    ...(uncoveredHead > 0 ? { offlineUncoveredHead: { events: uncoveredHead } } : {}),
+    // ★ C522：**缺口要带游标，而且要往前走**。只记 events 的话，下次还是从同一个起点开始，
+    //   每次都在补同一段（真机 8cc34e32 就这样原地打转）。
+    ...(() => {
+      const prevGap = Number(meta?.previousGapEvents ?? NaN);
+      const gapFrom = Number(meta?.rangeStart ?? 1) || 1;
+      const covered = Math.max(0, Number(result?.coveredEnd ?? 0) - Number(result?.coveredStart ?? 0) + 1);
+      // 有旧缺口 ⇒ 扣掉这次真压掉的事件，游标推到 coveredEnd+1
+      const remaining = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(0, prevGap - covered) : uncoveredHead;
+      if (remaining <= 0) return {};
+      const nextFrom = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(gapFrom, Number(result?.coveredEnd ?? gapFrom) + 1) : gapFrom;
+      return { offlineUncoveredHead: { events: remaining, from: nextFrom } };
+    })(),
     ...(uncoveredTail > 0 ? { offlineUncoveredTail: { events: uncoveredTail } } : {}),
   };
   return { marksAdded: chunks.length, partial };

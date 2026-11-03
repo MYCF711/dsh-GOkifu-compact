@@ -207,7 +207,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       continue;
     }
     const events = readSessionEvents(logFile);
-    const rangeStart0 = debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
+    // ★ C522：**有前段缺口就从缺口开始**（C519 把缺口计成欠账，脚本这边也要认，否则永远"没有欠账区间"）
+    const rangeStart0 = debt.gap !== undefined && debt.gap !== null ? Number(debt.gap.from) : debt.lastFoldSeq === null ? 1 : debt.lastFoldSeq + 1;
     const rangeEnd = debt.maxSeq;
     // ★ C493：`--chunks N` 分段覆盖（**从头往后**），默认 1 段 = 只压尾部（与 C491 行为一致）
     const maxChunks = Math.max(1, Number(get("chunks", 1)) || 1);
@@ -216,7 +217,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     for (let chunkNo = 1; chunkNo <= maxChunks; chunkNo += 1) {
     const rangeStart = cursor;
     if (rangeEnd < rangeStart) break;
-    const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 ? rangeStart : null });
+    // ★ C522：补缺口时必须**从头取**（否则 1 段模式永远只压尾巴）
+    const fromHead = debt.gap !== undefined && debt.gap !== null;
+    const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 || fromHead ? rangeStart : null });
     // ★ C491：**记录真正覆盖的区间**。预算只装得下尾部若干条消息，
     //   若把 `seqEnd` 写成整个欠账区间的末尾，等于宣称"这段都压过了" —— 剩下的就再也看不见了。
     // ★ C491：**没有可做区间就别写**。真机踩过：`--session` 强制重跑一个已结清的会话，
