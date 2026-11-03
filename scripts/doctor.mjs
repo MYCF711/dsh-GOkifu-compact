@@ -318,7 +318,44 @@ add(
 let sessions = 0;
 let agents = 0;
 let objectHash = 0;
+/**
+ * ★ C459：`index.md` 到底陈不陈旧 —— 纯函数（判据必须可单测，否则又会变成"看着像"）。
+ *
+ * 由来：真机上 doctor 报「index.md 落后 graph.json 超过 5 分钟的会话：2 个」，
+ * 把两个都打开复验 —— **最新节点 id 都在 index.md 里**（`n2467` / `n72`）。
+ * ⇒ 那是 **mtime 假阳性**：`graph.json` 因标量/增量写入不断刷新（foldCount、压力快照、预算计数），
+ *   而 `index.md` **只在节点集合变化时**才追加。两个文件的 mtime 本来就不该同步。
+ *
+ * 所以：mtime 只当**预筛**（便宜），真判据是「**最新节点 id 有没有出现在 index.md 里**」（准）。
+ * @param {{graphMtime:number, indexMtime:number, now?:number, indexText?:string|null,
+ *          lastNodeId?:string|null, idleMs?:number, lagMs?:number}} input
+ * @returns {{stale:boolean, reason:string}}
+ */
+export function indexFreshness({
+  graphMtime,
+  indexMtime,
+  now = Date.now(),
+  indexText = null,
+  lastNodeId = null,
+  idleMs = 5 * 60 * 1000,
+  lagMs = 5 * 60 * 1000,
+}) {
+  if (!(now - graphMtime > idleMs)) return { stale: false, reason: "graph-active" };
+  if (!(indexMtime > 0)) return { stale: true, reason: "no-index" };
+  if (graphMtime - indexMtime <= lagMs) return { stale: false, reason: "mtime-fresh" };
+  // 到这里才是"看着陈旧"——必须再用内容确认
+  if (typeof indexText === "string" && typeof lastNodeId === "string" && lastNodeId !== "") {
+    return indexText.includes(lastNodeId)
+      ? { stale: false, reason: "content-fresh" }
+      : { stale: true, reason: "content-missing-node" };
+  }
+  // 拿不到内容 ⇒ 只能按 mtime 保守判陈旧，并让调用方知道这是"没复验过的"
+  return { stale: true, reason: "mtime-only" };
+}
+
 let indexStale = 0;
+let indexMtimeFalsePositives = 0; // ★ C459：mtime 看着陈旧、内容其实是最新的
+let lastNodeId = null;
 let newestFlush = 0;
 let lastFold = null;
 /** ★ P2-2（task-192）：跨会话收集 foldMarks（带 session 名），供「最近 5 次 fold」展示。 */
@@ -392,6 +429,8 @@ if (nodeFs.existsSync(chessRoot)) {
           }
         }
       }
+      // ★ C459：给「树新鲜度」用 —— 最新节点 id（内容复验的判据）
+      lastNodeId = (g.order ?? []).at(-1) ?? null;
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
       // ★ C216：归档收尾 —— closeout 是「归档那一刻」的记账，archive foldMark 是「真的补折了」。
@@ -442,8 +481,19 @@ if (nodeFs.existsSync(chessRoot)) {
     //   index.md 只在 tree 落盘（fold）时重写。只看「index 比 graph 旧 5 分钟」会把**所有**
     //   正在跑、还没 fold 的会话都算成陈旧（本轮 live 立刻出现 1 个）。
     //   判据改成：**图自己也不再更新**（静止 > 5 分钟）却仍比 index 新 5 分钟 ⇒ 才是真陈旧。
-    const graphIdle = Date.now() - mtime > 5 * 60 * 1000;
-    if (indexMtime === 0 ? graphIdle : graphIdle && mtime - indexMtime > 5 * 60 * 1000) indexStale += 1;
+    // ★ C459：mtime 只做预筛；预筛通过才读 index.md 做**内容复验**（最新节点在不在里面）。
+    const prefilterStale = indexMtime === 0 ? Date.now() - mtime > 5 * 60 * 1000 : Date.now() - mtime > 5 * 60 * 1000 && mtime - indexMtime > 5 * 60 * 1000;
+    let indexText = null;
+    if (prefilterStale && indexMtime > 0) {
+      try {
+        indexText = nodeFs.readFileSync(indexPath, "utf8");
+      } catch {
+        indexText = null;
+      }
+    }
+    const verdictIndex = indexFreshness({ graphMtime: mtime, indexMtime, indexText, lastNodeId });
+    if (verdictIndex.stale) indexStale += 1;
+    else if (verdictIndex.reason === "content-fresh") indexMtimeFalsePositives += 1;
   }
 }
 /* ── 3.3d 新观测字段覆盖（C193）──
@@ -473,7 +523,7 @@ if (nodeFs.existsSync(chessRoot)) {
 }
 
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
-add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个` + (indexMtimeFalsePositives > 0 ? `（另有 ${indexMtimeFalsePositives} 个 mtime 看着陈旧、**内容复验是最新的** —— graph.json 会因标量写入刷新，index.md 只在节点变化时追加，两者 mtime 本来不同步）` : ""));
 
 // ★ C230：抗干扰度的累加器（3.3c 里逐会话累加，报告在该块之后）
 const interference = { total: 0, resolved: 0, worst: [] };
