@@ -3262,10 +3262,19 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
   const session = makeSession({ id: sid });
   await engine.closeoutNow({ session }, { source: "archive" });
 
+  // ★ C558：**沙盒的图必须真的被读到**。否则引擎会"新建空图"，测试就退化成空转自证。
+  //   （坑：图的目录名要跟 `session.id` 一致 —— engine 用 safeId(id) 定位，不是 `session-<id>`。）
+  const revivesEmpty = (ctx.warns ?? []).some((w) => String(w).includes("新建空图"));
+  t.eq(revivesEmpty, false, "沙盒图没被读到（引擎新建了空图）⇒ 这条测试不算数：" + (ctx.warns ?? []).join(" | "));
+
   const written = JSON.parse(nodeFs.readFileSync(nodePath.join(gdir, "graph.json"), "utf8"));
   const marks = (written.foldMarks ?? []).length;
   const folded = written.closeout?.folded === true;
   t.eq(folded && marks === 0, false, "不许假成功：folded=" + String(written.closeout?.folded) + " / marks=" + marks);
   t.eq(folded ? marks >= 1 : true, true, "说折了就必须有 mark");
+  // ★ C558（诚实边界）：这个沙盒**没有**走到离线补折（`streamCalls` 为 0）。
+  //   所以这条测试只证明「不再假成功」，**不证明**「离线补折在引擎里能跑起来」——
+  //   后者只有重启后的真机才算数（脚本路径已真机验证过，但它不走引擎的 #tryOfflineCloseout）。
+  t.eq(Array.isArray(ctx.streamCalls), true, "只做形状断言，不对离线路径下结论");
   nodeFs.rmSync(home, { recursive: true, force: true });
 };
