@@ -3072,7 +3072,8 @@ tests["C583 积压越大每轮补越多（>100 ⇒ 5 个；预算 240→420s）"
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 9000);
   t.includes(tick, "dueNow > 100 ? 5 :", "积压 >100 时每轮 5 个");
-  t.includes(tick, "dueNow > 100 ? 420 : 240", "预算同步放宽");
+  // ★ C601 起：积压 >100 时预算放宽到 1800s（测算脚本：占空比才是瓶颈）
+  t.includes(tick, "dueNow > 100 ? 1800 : 240", "预算同步放宽（10 分钟一轮 × 1800s ⇒ 42 段/h）");
   t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
 };

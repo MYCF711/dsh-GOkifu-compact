@@ -2019,7 +2019,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   #startAutoBackfill() {
     try {
       if (this.chess.autoBackfill === false) return;
-      const everyMs = Math.max(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MIN) || 30) * 60_000;
+      // ★ C601（测算脚本给出）：清偿期的瓶颈是**占空比**（预算 420s ÷ 间隔 1800s = 23%），
+      //   不是模型、不是每轮会话数。实测 8.2 段/小时 ⇒ 1065 段要 130 小时。
+      //   把间隔降到 10 分钟、预算提到 1800 秒 ⇒ 42 段/小时 ⇒ **31 小时（4.2×）**，
+      //   同模型、并发仍是 1，零额外成本。仍可用环境变量覆盖。
+      const everyMs = Math.max(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MIN) || 10) * 60_000;
       const delayMs = Math.max(10, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_DELAY_SEC) || 120) * 1000;
       const kick = () => {
         // ★ C600：**定时器只置待办**。后台定时器里宿主服务容器是 inactive 的
@@ -2027,7 +2031,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   直接折必然失败、而且会把"一轮一次"的预算白白烧掉。
         //   真正的折叠等下一次活跃回合（`compactIfNeeded`）带着捕获的 llm 句柄来做。
         this._backfillPending = true;
-        if (this._llmHandle === null || this._llmHandle === undefined) return;
+        // ★ C601：**没有句柄也要跑一轮**。这一轮只做「选人 + 算区间 + 落状态」，
+        //   会在状态文件里留下 `stopped:"inactive-context"` —— 让 doctor 能说出
+        //   「在等活跃回合」，而不是让状态文件停在几小时前、看起来像"停了"。
+        //   （不调模型 ⇒ 不花钱，也不制造假 progress。）
         void this.#autoBackfillTick().catch((error) => {
           this.ctx?.logger?.warn?.(`chess-context: 自动补账异常（不影响压缩）：${String(error)}`);
         });
@@ -2185,7 +2192,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       let done = 0;
       // ★ C587：**整轮墙钟**。以前 `t0` 在 for 内的每个会话各自重置 ⇒ 一轮根本没有总预算。
       // ★ C583/C587：本轮时间预算。按秒夹到 [20, 3600]（原来单位写错成 ×1000，等于没有预算）。
-      const budgetSecRaw = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 420 : 240);
+      const budgetSecRaw = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 1800 : 240);
       const budgetMs = Math.max(20, Math.min(3600, budgetSecRaw)) * 1000;
       const tickStart = Date.now();
       // ★ C599：实测段耗时的滚动均值（跨轮保留；理由见方法上的 docblock）
