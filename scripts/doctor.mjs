@@ -29,6 +29,8 @@ import { splitDanglingProblems } from "./dangling-audit.mjs";
 // ★ C608：折叠证据字段的**判据只有一份** —— 「这条 fold 该不该有这些字段」由写入点决定，
 //   口径落在 instrument-audit.mjs（脚本本体也是它的 CLI）。两边各写一套，就会重演下面那条假红。
 import { summarizeFoldEvidence } from "./instrument-audit.mjs";
+// ★ T27：正文在不在的判据只有一份（C642 的 `summaryTextFor`）—— doctor 只读，不重写规则。
+import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -1600,6 +1602,12 @@ mark('C347 成本模型');
   }
 }
 
+/** ★ T27：这条折痕的正文能不能复判 —— 判据只有一份（`summaryTextFor`，与三个审计器同源）。 */
+function bodyOf(mark) {
+  const graph = graphCache.get(nodePath.join(chessRoot, String(mark.session), "graph.json"))?.graph ?? null;
+  return summaryTextFor(graph, mark).text !== null;
+}
+
 mark('C20 成本效率');
 /* ★ P2-2（task-192）：最近 5 次 fold 的 route / fallback / ms / usage。
    旧图的 foldMark 没有这些字段 ⇒ 明确写「—」（不许用 0/undefined 冒充数据）。
@@ -1621,6 +1629,8 @@ mark('C20 成本效率');
       //   指令预算约 920 字符（40/死路 + 600），模型偶尔会不遵守，长了要能看见。
       const charsRaw = m.summaryChars;
       const chars = charsRaw === null || charsRaw === undefined ? "—" : `${charsRaw}${charsRaw > 3000 ? "!" : ""}`;
+      // ★ T27：正文在不在（与「摘要 N 字符」是两个问题）—— 老折痕只有 summaryChars ⇒ 明确写「无」。
+      const body = bodyOf(m) ? "有" : `无（生产者早于 ${SUMMARY_TEXT_SINCE}）`;
       const shadow = fmt(m.shadowedTokens);
       const ms = fmt(m.ms);
       const fb = fmt(m.fallback);
@@ -1629,7 +1639,7 @@ mark('C20 成本效率');
       const trigger = fmt(m.trigger);
       // ★ 2026-11-02（C24）：可寻址闭包 —— 这一次 fold 覆盖了图里多少节点/边（老 foldMark 无该字段 ⇒ 不显示）。
       const closure = m.closure && typeof m.closure === "object" ? ` · closure ${fmt(m.closure.nodes)}n/${fmt(m.closure.edges)}e` : "";
-      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger}${closure} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger}${closure} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 正文 ${body} · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
     });
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
@@ -1897,6 +1907,8 @@ mark('C12 触发原因');
       (m) => !(Number(m.quality.expectedConstraints) > 0) && !(Number(m.quality.expectedFailures) > 0),
     ).length;
     const allVacuum = vacuumCount === withQuality.length;
+    // ★ T27：已知存量（老折痕的正文永远补不回来）—— 判据同源，N 与 summary-persistence-audit 的 `unreadable` 同一个数。
+    const unreadableMarks = recentFoldMarks.filter((m) => !bodyOf(m)).length;
     add(
       "压缩保真度（最近 fold）",
       // ★ C552：系统性丢（中位 <1）才 error；偶发（个别次不满）warn
@@ -1905,6 +1917,7 @@ mark('C12 触发原因');
         `failureRecall 中位=${fMed}（最低 ${fMin}，${fBelow}/${fAll.length} 次不满）${ratioText}` +
         `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
         `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}` +
+        ` · 历史不可复判 ${unreadableMarks} 条（生产者早于 ${SUMMARY_TEXT_SINCE}，正文当时就没落盘）—— 不是缺陷，新折痕起为 0` +
         (allVacuum ? ` —— 全部 ${withQuality.length} 次样本都是真空（折叠区间内没有约束/失败边可丢），保真度实际未被检验` : ""),
     );
     // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了
