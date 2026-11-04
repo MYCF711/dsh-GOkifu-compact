@@ -16,17 +16,93 @@ import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-qu
 const CJK_RE = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 
 /**
- * 把内容块拼成纯文本。
- * @param {unknown} content
+ * ★ C639：reasoning 块里**值得占用摘要预算**的句子（结论句启发式，闭集）。
+ *
+ * 由来（真机 2026-11-05，`node scripts/reasoning-share-audit.mjs` 原样输出；718 条 foldMark 重放、
+ * 221 个会话）：折叠区间内的字符构成是 `assistant:reasoning` **63.8%** / `<system-reminder>` 样板 16.5% /
+ * 真实用户输入 14.5% / assistant 正文 5.2% —— 也就是说摘要的输入预算**有 63% 花在模型自己的草稿纸**上，
+ * 而折叠要回答的是「区间里发生了什么」。
+ *
+ * 重放 `collectMessages`（maxChars=60,000、perMessageChars=2,000、fromSeq=seqStart，与生产同参）：
+ *   · 装下的**真实事件** 10.61 → 15.47 条/段（**+45.9%**）；
+ *   · 真实字符 19,487 → 26,533（**+36.2%**）；
+ *   · 区间真实事件覆盖率 55.2% → **75.2%**（+20.0pp）；
+ *   · 输入字符总量几乎不动（40,044 → 40,304）—— 换的是**构成**，不是变贵。
+ *
+ * 但**不能一刀切**：reasoning 里确实有"只有这里说过"的结论（"这条死路别再试"）。
+ * 真机统计：结论句占 reasoning 字符的 **1.91%**（15,515 / 989,791 句），
+ * 其中"非 reasoning 的输入里找不到同 8-gram"的只占 reasoning 字符的 **0.72%** —— 便宜，留着。
+ *
+ * 判据刻意只认**高信号**句式（死路 / 已验证 / 根因 / 别再试 / do not retry），
+ * 不认"因为 / 所以 / 必须"这类连接词：宽口径实测会捞回 **7.5%** 的 reasoning 字符，等于没剔。
+ */
+export const REASONING_CONCLUSION_RE =
+  /不要|别再|勿|禁止|不许|严禁|不可|死路|走不通|行不通|证伪|已验证|已确认|结论|根因|注意|当心|坑|失败|报错|错误|do not retry|don't retry|never retry|must not|dead end|already verified|root cause|the bug is|the fix is|keep in mind|gotcha|the trap/i;
+
+/** 「思考摘录」的可见标记 —— 摘要里必须能分辨**这句话不是 assistant 说的**。 */
+export const THINKING_EXCERPT_MARK = "（思考摘录）";
+
+/** 单条消息保留的思考摘录上限（字符）。真机 p99 = 728、max = 4,324（病态数据），超过就截断留痕。 */
+export const REASONING_CONCLUSION_MAX_CHARS = 800;
+
+/**
+ * 把 reasoning 文本切成句子（CJK 句末 / 英文「句号 + 空白」/ 换行）。
+ * 为什么不能直接按 `.` 切：路径与文件名（`ledger.mjs`、`0.6`）会被切碎。
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function reasoningSentences(text) {
+  const out = [];
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    for (const part of line.split(/(?<=[。；！？!?])|(?<=\.)\s+/)) {
+      const sentence = part.trim();
+      if (sentence !== "") out.push(sentence);
+    }
+  }
+  return out;
+}
+
+/**
+ * reasoning 文本 → **只保留结论句**的摘录（空串 = 这条思考没有值得留的东西）。
+ * @param {string} text
+ * @param {number} [maxChars]
  * @returns {string}
  */
-export function plainText(content) {
+export function reasoningConclusionText(text, maxChars = REASONING_CONCLUSION_MAX_CHARS) {
+  const kept = reasoningSentences(text).filter((sentence) => REASONING_CONCLUSION_RE.test(sentence));
+  if (kept.length === 0) return "";
+  const joined = kept.join(" ");
+  const cap = Math.max(0, Number(maxChars) || 0);
+  if (cap === 0 || joined.length <= cap) return joined;
+  return `${joined.slice(0, cap)}…`;
+}
+
+/**
+ * 把内容块拼成纯文本。
+ *
+ * ★ C639：`reasoning` 块**默认保留**（`message-size-audit` 之类要的是"这条消息的全部文本"）；
+ * 摘要输入在 `collectMessages` 里显式传 `{ reasoning: "conclude" }` —— 只留结论句（理由见上）。
+ *
+ * @param {unknown} content
+ * @param {{reasoning?: "keep"|"drop"|"conclude"}} [options] `keep` = 老行为（含 reasoning）；
+ *   `drop` = 整块丢掉；`conclude` = 只留结论句（带 `（思考摘录）` 标记）。
+ * @returns {string}
+ */
+export function plainText(content, { reasoning = "keep" } = {}) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content
-    .map((b) => (b !== null && typeof b === "object" && typeof b.text === "string" ? b.text : ""))
-    .filter((x) => x !== "")
-    .join("\n");
+  const parts = [];
+  for (const b of content) {
+    if (b === null || typeof b !== "object" || typeof b.text !== "string" || b.text === "") continue;
+    if (reasoning !== "keep" && b.type === "reasoning") {
+      if (reasoning === "drop") continue;
+      const conclusions = reasoningConclusionText(b.text);
+      if (conclusions !== "") parts.push(`${THINKING_EXCERPT_MARK}${conclusions}`);
+      continue;
+    }
+    parts.push(b.text);
+  }
+  return parts.join("\n");
 }
 
 /**
@@ -156,7 +232,11 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
     if (e.type !== "user/message" && e.type !== "assistant/message") continue;
     // ★ C493：分段离线时**从头往后**取（`fromSeq` 之后），与"尾巴优先"是两种取法
     if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
-    const text = plainText(e.data?.message?.content ?? e.data?.content);
+    // ★ C639：**摘要输入只取「发生了什么」** —— reasoning 块（模型自己的草稿纸）占折叠区间字符的 63.8%，
+    //   剔掉后同样预算能多装 45.9% 的真实事件（覆盖率 55.2% → 75.2%）。
+    //   但**不整块丢**：只留结论句（`REASONING_CONCLUSION_RE`），因为"这条死路别再试"这类话常常只在思考里说。
+    //   原样输出与判据见 `scripts/reasoning-share-audit.mjs`。
+    const text = plainText(e.data?.message?.content ?? e.data?.content, { reasoning: "conclude" });
     if (text.trim() === "") continue;
     picked.push({ role: e.type === "user/message" ? "user" : "assistant", text: withId(e.seq, text), nodeId: idOf(e.seq), seq: Number(e.seq) || null });
   }
