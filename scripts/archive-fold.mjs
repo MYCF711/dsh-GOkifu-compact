@@ -123,6 +123,12 @@ async function callModel({ baseUrl, apiKey, model, prompt, maxTokens, timeoutMs 
         messages: [{ role: "user", content: prompt }],
         max_tokens: maxTokens,
         thinking: { type: "disabled" },
+        // ★ C574：**给补账一个独立的 user_id**。官方《限速与隔离》逐字：
+        //   「user_id 用于我们对您业务侧用户进行 KVCache 隔离，以进行隐私管理」。
+        //   补账的输入是几万字符的长前缀（每段都不同），和交互会话共用 user_id 会**抢同一片缓存**；
+        //   交互会话的前缀一旦被挤掉，下一次请求就要按全价重算 —— 那正是"折叠完反而更贵"的一种来源。
+        //   补账是后台批处理，本来就该跟交互流量分开记账、分开占缓存。
+        user_id: "gokifu-backfill",
         stream: false,
       }),
       signal: controller.signal,

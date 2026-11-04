@@ -41,3 +41,9 @@ tests["C560 两条路径都从 agent-default-model 取模型（不自选）"] = 
   const at = engine.indexOf("async #offlineCloseoutFold");
   t.includes(engine.slice(at, at + 9000), "readDefaultModel(", "引擎读默认模型");
 };
+
+tests["C574 补账用独立 user_id（官方：user_id 做 KVCache 隔离）"] = (t) => {
+  const script = read("scripts/archive-fold.mjs");
+  t.includes(script, 'user_id: "gokifu-backfill"', "补账必须与交互会话分开占缓存");
+  t.includes(script, "KVCache 隔离", "注释要写明官方出处（免得被当成无用参数删掉）");
+};
