@@ -31,7 +31,58 @@ const failures = [];
 // ★ C201：**每次都从干净的临时目录开始**。上一次运行若被中断（Ctrl-C / 超时 / 崩溃），
 //   `.harness/graphs` 里的 graph.json 会留在磁盘上；下一轮某些用例（尤其数 foldMark 条数的）
 //   会把上一轮的状态当历史加载 ⇒ 偶发「应为 1 条实际 2 条」的假失败。
+// ★ C589：**同一时刻只许一个 run.mjs**。上面那一清（rmSync）会把**另一个正在跑的**实例的
+//   harness 目录抽掉，于是双方各自出现"应为 1 条实际 2 条"这种**假红**（2026-11-04 实测：
+//   同一份代码在并发下跑出 1356/1357/1363/1364 四种计数，串行才稳定）。
+//   做法：`.harness.lock` 里放 pid；活着就**等**（最多 300 秒），死了就直接接管。
 if (!dirArg) {
+  const lockFile = nodePath.join(HERE, ".harness.lock");
+  const pidAlive = (pid) => {
+    try {
+      process.kill(Number(pid), 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const acquire = () => {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      try {
+        nodeFs.writeFileSync(lockFile, String(process.pid), { flag: "wx" });
+        return true;
+      } catch {
+        let other = null;
+        try {
+          other = Number(nodeFs.readFileSync(lockFile, "utf8").trim());
+        } catch {
+          /* 读不到就当过期 */
+        }
+        if (!Number.isFinite(other) || !pidAlive(other)) {
+          try {
+            nodeFs.rmSync(lockFile, { force: true });
+          } catch {
+            /* 忽略 */
+          }
+          continue;
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+      }
+    }
+    return false;
+  };
+  if (!acquire()) {
+    console.error("✗ 另一个 test/run.mjs 正在跑（等 300 秒仍未释放）—— 并发跑会互相抽掉 .harness 造成假红。");
+    process.exit(2);
+  }
+  const release = () => {
+    try {
+      nodeFs.rmSync(lockFile, { force: true });
+    } catch {
+      /* 忽略 */
+    }
+  };
+  process.on("exit", release);
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => release() + process.exit(130));
   const harness = nodePath.join(HERE, ".harness");
   try {
     nodeFs.rmSync(harness, { recursive: true, force: true });

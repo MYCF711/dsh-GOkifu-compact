@@ -174,3 +174,11 @@ tests["C585 状态页要给「近 1 小时」速率（24h 总量看不出快慢�
     .find((r) => r[0] === "自动补账");
   t.eq(noHour[1].includes("近 1h"), false, "没这个字段时不显示（老数据兼容）");
 };
+
+tests["C589 测试运行器必须串行（并发跑会互相抽掉 .harness ⇒ 假红）"] = (t) => {
+  const root = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
+  const src = nodeFs.readFileSync(nodePath.join(root, "test", "run.mjs"), "utf8");
+  t.includes(src, ".harness.lock", "要有锁文件");
+  t.includes(src, "pidAlive", "要能判断持锁进程是否还活着");
+  t.includes(src, "并发跑会互相抽掉", "注释要写清为什么需要锁");
+};
