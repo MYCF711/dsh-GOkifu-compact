@@ -153,6 +153,30 @@ function advisorySummary(out) {
   return bad === undefined ? stat.trim() : `${stat.trim()} · ${bad}`;
 }
 
+/**
+ * ★ 文档计数漂移专项（2026-11-05）：文档里那些**手写的计数**（全量 `passed` / `C1–C<n>` /
+ * `xxx 条条目` / `xxx 个编号`）交给 `sync-doc-numbers.mjs` 一处维护，这里挂**参考位**：
+ * 只报告、不判分。
+ *
+ * 为什么不在 `GATES` 里：判分门/参考门的清单被 `test/gate.test.mjs` 逐项钉死（多一项就红），
+ * 而这条只要求「每次门禁都出现在同一份输出里」—— 走汇总区就够了，不必动清单。
+ * 红的时候该跑什么直接写在输出里，下一个改 CHANGELOG 的人不用猜。
+ */
+function docNumbersAdvisory() {
+  const res = spawnSync(process.execPath, [nodePath.join(HERE, "sync-doc-numbers.mjs"), "--check"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const out = `${String(res.stdout ?? "")}${String(res.stderr ?? "")}`.replace(ANSI, "");
+  const bad = out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("✗") || line.startsWith("!"));
+  const tail = (out.match(/[❌✅][^\n]*/) ?? [])[0] ?? "跑不了 sync-doc-numbers.mjs";
+  return { ok: res.status === 0, tail: tail.trim(), bad: bad.slice(0, 3), more: Math.max(0, bad.length - 3) };
+}
+
 export function main(argv = process.argv.slice(2)) {
   const skipPack = argv.includes("--no-pack");
   const gates = GATES.filter((g) => !(skipPack && g.optional));
@@ -178,6 +202,17 @@ export function main(argv = process.argv.slice(2)) {
       const tail = r.out.replace(ANSI, "").trim().split("\n").slice(-12).join("\n");
       process.stdout.write(`     ↳ exit=${r.status}\n${tail.replace(/^/gm, "     ")}\n`);
     }
+  }
+
+  // ★ 文档计数漂移专项：跑完所有门再看一眼「文档里的数字 vs 权威源」（参考位，永不影响退出码）
+  const docNumbers = docNumbersAdvisory();
+  process.stdout.write("  — 文档数字（passed / CHANGELOG 条目）—— 仅供参考\n");
+  if (docNumbers.ok) {
+    process.stdout.write(`     ↳ ${docNumbers.tail}\n`);
+  } else {
+    process.stdout.write(`     ↳ ${docNumbers.tail}｜跑 node scripts/sync-doc-numbers.mjs --write 一次改完\n`);
+    for (const line of docNumbers.bad) process.stdout.write(`       ${line}\n`);
+    if (docNumbers.more > 0) process.stdout.write(`       …另 ${docNumbers.more} 条\n`);
   }
 
   const judged = results.filter((r) => r.advisory !== true);

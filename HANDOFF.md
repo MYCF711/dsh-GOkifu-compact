@@ -8,7 +8,7 @@
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1395 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1399 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
 | 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
@@ -22,6 +22,26 @@
 | 怎么读这份文件 | 本块 = 现状；下面是**追加日志**（旧在上、新在下）。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` |
 
 ---
+
+## 🔁 每轮命令（改完代码 / 加完 CHANGELOG 就按顺序跑）
+
+```bash
+node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
+node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
+npm run gate                                # 6 判分门；跑完把实测 passed 回写 test/counts-baseline.json
+node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（10 处锚点一次改完）
+node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
+```
+
+> **为什么第 4 条不是可有可无的**：`passed` / `C1–C<n>` / `xxx 条条目` / `xxx 个编号` 这四类数字
+> 以前在 4 份文档里被手抄了 10 处，每加一条 CHANGELOG 或一个测试就要人肉改一遍，下一轮又漂
+> （连续 5 轮的工时都耗在这上面）。
+> 现在它们**只有一个来源**：`test/counts-baseline.json` 的 `passed` + `CHANGELOG.md`（经
+> `scripts/changelog-index.mjs` 的 `parseEntries` 解析），由 `scripts/sync-doc-numbers.mjs` 写回；
+> `--check` 也挂在 `npm run gate` 的「仅供参考」区，每次门禁都会出现一次。
+> **不要再手改那 10 处** —— 改了要么被下一次 `--write` 覆盖，要么被 `--check` 点名。
+> bench tokens / doctor 警告数 / live fold 数 **不在**本机制内：它们各自由 `bench-repro` /
+> `doctor` / `live-folds` 重新生成。
 
 ## 🗒 追加日志（旧在上、新在下；最后更新到 C171）
 
