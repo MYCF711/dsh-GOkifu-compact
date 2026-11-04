@@ -439,6 +439,38 @@ export function repairMissingFailures(text, missing) {
 }
 
 /**
+ * ★ C641：**死路补回的共享接线**（引擎的 `runOfflineFold` 与写回点 `applyOfflineFoldToGraph` 共用）。
+ *
+ * 为什么要有这一层：C607 把补回写进了 `runOfflineFold`，但 `trigger=archive-offline` 的折痕
+ * 有**两个**生产者 —— 引擎（走 `runOfflineFold`）与脚本（`scripts/archive-fold.mjs`：
+ * 自己 `measureFoldQuality` 之后直接调 `applyOfflineFoldToGraph`）。脚本那条路**从不调用**补回，
+ * 于是它的折痕必然 `failureRecall < 1` 且没有 `failuresRepaired`（真机 18 条里属于这一类的那部分）。
+ *
+ * 接线点选在**写回点**而不是各生产者内部：那是所有折痕的必经之路，与
+ * `test/archive-fold.test.mjs` 的「写回必须走共享实现（否则字段又会分叉）」同一条纪律。
+ * 判据与探针同源（`failuresInFoldRange` + `mentionsEdge`），补完 `failureRecall` 必然 = 1。
+ *
+ * 幂等：引擎那条路已经补过，这里 `missing` 为空 ⇒ 原样返回（不会重复堆砌）。
+ *
+ * @param {object} graph 棋谱
+ * @param {{start:number, end:number}} range 这一段遮蔽的 seq 区间
+ * @param {string} text 摘要正文（模型输出，可能已被 sanitize / 约束补回）
+ * @returns {{text:string, repaired:string[]}} 补回后的正文 + 补回的 id（空数组 = 一条都没漏）
+ */
+export function repairFailuresInText(graph, { start, end } = {}, text) {
+  const body = String(text ?? "");
+  let missing = [];
+  try {
+    missing = failuresInFoldRange(graph, { start, end }).filter((edge) => !mentionsEdge(body, edge.id));
+  } catch {
+    // 诊断/补回失败都不许影响压缩主链路（C64 同一纪律）
+    return { text: body, repaired: [] };
+  }
+  if (missing.length === 0) return { text: body, repaired: [] };
+  return repairMissingFailures(body, missing);
+}
+
+/**
  * 从棋谱渲染「硬事实块」（目标 / 约束 / 死路 / 已验证 / 坐标）—— 与在线折叠同一套事实。
  * @param {object} graph
  * @param {{start:number, end:number}} range
@@ -818,20 +850,13 @@ export async function runOfflineFold({
     //   为什么必须兜底：`docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，
     //   而真机已经出现过合并（session-fdd814b1：e693—e698 六条并一行，丢 4 条 id）。
     //   判据与探针同源（`failuresInFoldRange` + `mentionsEdge`），补完 `failureRecall` 必然 = 1。
-    const missingFailureEdges = (() => {
-      try {
-        return failuresInFoldRange(graph, { start, end }).filter((edge) => !mentionsEdge(text, edge.id));
-      } catch {
-        // 诊断/补回失败都不许影响压缩主链路（C64 同一纪律）
-        return [];
-      }
-    })();
-    let repairedFailures = [];
-    if (missingFailureEdges.length > 0) {
-      const fixedFailures = repairMissingFailures(text, missingFailureEdges);
-      text = fixedFailures.text;
-      repairedFailures = fixedFailures.repaired;
-    }
+    // ★ C641：**接线搬到 `repairFailuresInText`** —— 写回点（`applyOfflineFoldToGraph`）也要调它。
+    //   原来这段只长在本函数里，而 `trigger=archive-offline` 有**两个**生产者：
+    //   引擎（本函数）与脚本（`scripts/archive-fold.mjs`，自己算 quality 再调写回点）。
+    //   脚本那条路**从不**经过这里 ⇒ 它写出的折痕永远 `failureRecall < 1` 且没有 `failuresRepaired`。
+    const fixedFailures = repairFailuresInText(graph, { start, end }, text);
+    text = fixedFailures.text;
+    const repairedFailures = fixedFailures.repaired;
     const measured = typeof measureQuality === "function" ? measureQuality({ graph, range: { start, end }, summaryText: text }) : null;
     // ★ C607：**补回了几条要留痕**。`failureRecall` 按设计恒 = 1（最终产物口径），
     //   于是「模型自己漏了多少」在指标上看不见 —— 用这两个字段让它可见（doctor 只读已知字段，多出来的不碍事）。
@@ -1000,13 +1025,63 @@ export function normalizeUsage(u) {
   };
 }
 
+/**
+ * ★ C641：把「补回了几条死路」写进质量记录，并让 `failuresRepaired` **恒在场**（0 也写）。
+ *
+ * 为什么 0 也要写（原来只在 > 0 时写）：字段**缺失**同时意味着两件事 ——
+ *   · 「补回跑了，一条都没漏」；
+ *   · 「补回的代码根本没跑」。
+ * 真机统计就栽在这上面：`failuresRepaired 出现 0 次` 被读成「补回一次都没生效」，而真相是
+ * **写这些折痕的进程里还没有这段代码**（宿主启动时加载 ESM，改代码不重启不生效）。
+ * 恒写之后只有三种读法：`> 0` 补了 N 条 · `=== 0` 跑了没漏 · **字段缺失** = 生产者比 C641 老。
+ *
+ * 补回后正文变了 ⇒ 记录里的 `failureRecall` / `missingFailures` 按**定义**重算
+ * （补回的每一行都带 id ⇒ `mentionsEdge` 必真 ⇒ 召回 = 1）。这里没有整份重算，是因为
+ * `measureFoldQuality` 的越界探针需要 `allowedIds`（事实块里的 id 跨整个会话），写回点拿不到 ——
+ * 拿不到就别拿空的去重算，否则会凭空长出「越界引用」的假红。
+ *
+ * @param {object|null} recorded 生产者交上来的质量记录（可能为空）
+ * @param {string[]} repairedIds 这一次在写回点补回的 id
+ * @param {string} text 补回后的最终正文
+ * @returns {object|null}
+ */
+function qualityWithFailureRepair(recorded, repairedIds, text) {
+  if (recorded === null || typeof recorded !== "object") return recorded ?? null;
+  const repaired = (Array.isArray(repairedIds) ? repairedIds : []).filter((id) => typeof id === "string" && id !== "");
+  const previous = Number(recorded.failuresRepaired);
+  const previousIds = (Array.isArray(recorded.failuresRepairedIds) ? recorded.failuresRepairedIds : []).filter((id) => typeof id === "string" && id !== "");
+  const count = Math.max(Number.isFinite(previous) ? previous : 0, repaired.length);
+  if (count === 0) return { ...recorded, failuresRepaired: 0 };
+  const ids = (repaired.length > 0 ? repaired : previousIds).slice(0, 10);
+  if (repaired.length === 0) return { ...recorded, failuresRepaired: count, failuresRepairedIds: ids };
+  const tokens = estimateTokens(String(text ?? ""));
+  const shadowed = Number(recorded.shadowedTokens);
+  return {
+    ...recorded,
+    failureRecall: 1,
+    missingFailures: [],
+    failuresRepaired: count,
+    failuresRepairedIds: ids,
+    summaryTokens: Math.max(Number(recorded.summaryTokens) || 0, tokens),
+    compressionRatio: Number.isFinite(shadowed) && tokens > 0 ? Math.round((shadowed / tokens) * 100) / 100 : recorded.compressionRatio,
+  };
+}
+
 export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
   const now = Number.isFinite(meta.now) ? meta.now : Date.now();
   if (chunks.length === 0) return { marksAdded: 0, partial: true };
   const graphRef = graph ?? {};
   graphRef.foldMarks = Array.isArray(graphRef.foldMarks) ? graphRef.foldMarks : [];
+  /** 补回后的正文（最后一段要原样进 `lastOfflineSummary`，与 mark 里那份**逐字一致**）。 */
+  const texts = [];
   for (const chunk of chunks) {
+    // ★ C641：**补回接在写回点**（见 `repairFailuresInText` 的注释）。这里是所有
+    //   `trigger=archive-offline` 折痕的必经之路 —— 引擎那条路已经补过（幂等空转），
+    //   脚本那条路**只在这里**补；补完再按最终正文写留痕字段（否则记录描述的是一份不存在的摘要）。
+    const filled = repairFailuresInText(graphRef, { start: chunk.start, end: chunk.end }, chunk.text);
+    const text = filled.text;
+    texts.push(text);
     graphRef.foldMarks.push({
       at: now,
       seqStart: chunk.start,
@@ -1018,8 +1093,8 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       fallback: null,
       ms: chunk.ms ?? null,
       usage: normalizeUsage(chunk.usage),
-      summaryChars: String(chunk.text ?? "").length,
-      quality: chunk.quality ?? null,
+      summaryChars: text.length,
+      quality: qualityWithFailureRepair(chunk.quality, filled.repaired, text),
       qualityRepaired: chunk.repaired ?? 0,
       // ★ C584：`truncated` 一直没写进 mark —— 而 status 用它判"跑的是不是新代码"
       //   ⇒ 无论代码多新，那行永远报「⚠ 新字段一个都没写」。写下来，让探测器不再撒谎。
@@ -1036,7 +1111,9 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
     });
   }
   const last = chunks[chunks.length - 1];
-  graphRef.lastOfflineSummary = { at: now, range: { start: last.start, end: last.end }, text: String(last.text ?? ""), model: last.model ?? meta.model ?? null };
+  // ★ C641：用**补回后**的正文 —— 否则 `lastOfflineSummary` 与 mark 里那份对不上，
+  //   而审计（`scripts/repair-coverage-audit.mjs`）正是拿这份原文重放补回的。
+  graphRef.lastOfflineSummary = { at: now, range: { start: last.start, end: last.end }, text: texts[texts.length - 1] ?? "", model: last.model ?? meta.model ?? null };
   const uncoveredHead = Number(result?.uncoveredHead) || 0;
   const uncoveredTail = Number(result?.uncoveredTail) || 0;
   // ★ C586：**"还有剩余缺口"也算没折完**。以前 `partial` 只看 uncoveredHead/Tail，
