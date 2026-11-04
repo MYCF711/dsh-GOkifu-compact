@@ -60,8 +60,23 @@ tests["C572④ closeoutNow 必须合并写并补 foldAttempted / chunkedFolded"]
   const src = engine();
   const at = src.indexOf("g.closeout = {");
   const seg = src.slice(at, at + 700);
-  t.includes(seg, "...(g.closeout ?? {})", "合并写（否则抹掉 partial/gap/chunked）");
-  t.includes(seg, "foldAttempted: true", "补齐 foldAttempted");
+  // 合并写：可以是 `...(g.closeout ?? {})`，也可以是先 `const carried = {...(g.closeout ?? {})}` 再 `...carried`
+  t.eq(seg.includes("...(g.closeout ?? {})") || (src.includes("const carried = { ...(g.closeout ?? {}) }") && seg.includes("...carried")), true, "合并写（否则抹掉 partial/gap/chunked）");
+  t.includes(seg, "foldAttempted: true", "补齐 foldAttempted（只在真尝试时写）");
+  // ★ C575：两处 `g.closeout = {` 都必须是合并写（第一轮只改了一处，审核当场抓到第二处）
+  const all = src.match(/g\.closeout = \{/g) ?? [];
+  t.eq(all.length, 2, `目前应有两处 closeout 落账（实际 ${all.length}）`);
+  const sites = [];
+  let idx = src.indexOf("g.closeout = {");
+  while (idx >= 0) {
+    sites.push(src.slice(idx, idx + 160));
+    idx = src.indexOf("g.closeout = {", idx + 1);
+  }
+  const merges = src.split("g.closeout = {").slice(1);
+  for (const site of merges) {
+    const ok = site.slice(0, 200).includes("...(g.closeout ?? {})") || site.slice(0, 200).includes("...carried");
+    t.eq(ok, true, "每一处都必须合并写（抹掉证据会让 154 条欠账消失）");
+  }
   t.eq(src.includes("chunkedEvidence"), true, "分段/离线的证据要一起写");
 };
 

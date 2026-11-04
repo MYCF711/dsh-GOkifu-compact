@@ -1048,12 +1048,14 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     let folded = false;
     let foldError = null;
     let chunkedEvidence = null;
+    let attemptedFold = false;
     if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
       try {
         // ★ C557：**"返回了非空对象"不等于"折了"**。彩排测试（C557）发现：
         //   `compactIfNeeded` 返回一个 `{tier:"single", skipped:"…"}`（或任何非空对象）
         //   都会被算成 `folded: true` ⇒ closeout 写着"折了"，图里一条 foldMark 都没有。
         //   证据只有两种：① 结果自报 `folded > 0`（分段/离线）；② 图里**真的多了一条 mark**（单段）。
+        attemptedFold = true;
         const marksBefore = (g.foldMarks ?? []).length;
         const result = await this.#closeoutFold(agent, source);
         const marksAfter = (g.foldMarks ?? []).length;
@@ -1077,14 +1079,35 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     //   于是「折了但没有证据」→ `debtOfGraph` 判欠 → 同一段尾巴反复付钱；C519 的前段缺口也会丢。
     //   改成**合并写**，并且补上 `foldAttempted`（缺了它，`closeoutSettles` 会把 `folded:false`
     //   当成"老记录 ⇒ 结清"，于是一次失败的补账就把欠账从列表里抹掉）。
+    // ★ C575（第二轮复核 P1）：合并写会**沿用**上一次的 `partial` / `offlineUncoveredHead`，
+    //   而 chunked/single 成功路径从不清理它们 ⇒ `closeoutSettles` 说结清、`debtOfGraph` 说还欠，
+    //   两套口径打架，同一段缺口每轮从同一个 `gap.from` 重排 ⇒ 反复付钱。
+    //   ⇒ 折叠之后重新算一次欠账：**缺口真的没了就把过期字段删掉**；还在就保留（交给离线路径）。
+    const debtAfter = (() => {
+      try {
+        return debtOfGraph(g);
+      } catch {
+        return null;
+      }
+    })();
+    const stillGap = Number(debtAfter?.gapEvents ?? 0) > 0;
+    const carried = { ...(g.closeout ?? {}) };
+    if (!stillGap) {
+      delete carried.partial;
+      delete carried.offlineUncoveredHead;
+      delete carried.offlineUncoveredTail;
+    }
     g.closeout = {
-      ...(g.closeout ?? {}),
+      ...carried,
       at: Date.now(),
       eventsSinceLastFold,
       folds: (g.foldMarks ?? []).length,
       source,
-      folded,
-      foldAttempted: true,
+      // ★ C575：**保住段数**。`applyOfflineFoldToGraph` 已经写下 `folded: 段数`，
+      //   这里原来是布尔 `folded` ⇒ 把数字覆盖成 `true`（信息丢失，且 `Number(true)=1` 掩盖了段数）。
+      folded: Number(g.closeout?.folded ?? 0) > 0 ? Number(g.closeout.folded) : folded ? 1 : 0,
+      // ★ C575：`foldAttempted` 只在**真的尝试过折叠**时写（以前写在 if 外，"没尝试"也会被标成尝试过）
+      ...(attemptedFold ? { foldAttempted: true } : {}),
       ...(chunkedEvidence ?? {}),
     };
     this.closedOutAt.set(session.id, { at: Date.now(), source });
@@ -1162,9 +1185,25 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       ) {
         return;
       }
-      g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source };
+      // ★ C575（第二轮复核 P0）：这里**原来也是整体替换**，而且是**主路径**（GUI 归档 /
+      //   session/disposed 都走 `#closeout`）。它先把「没折」写进磁盘再异步去折 —— 后果有三：
+      //   ① 抹掉 `chunkedFolded / partial / offlineUncoveredHead / foldError` ⇒ 证据凭空消失；
+      //   ② 这个字面量会被 `closeoutSettles` 判成"老记录 ⇒ 结清"（真机实测：154/154 条欠账
+      //      被这样擦一次后全部翻成 due:false）；
+      //   ③ 它在折叠**之前**就 flush 了，若这中间重启/退出，磁盘上留下的是"已结清"的假账。
+      //   ⇒ 合并写；并且**只要这次确实要折**，就先写 `foldAttempted:true, folded:0`
+      //     （在飞期间不许看起来结清，最小必须把它从"结清"里摘出来）。
+      const willFold = this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40);
+      g.closeout = {
+        ...(g.closeout ?? {}),
+        at: Date.now(),
+        eventsSinceLastFold,
+        folds: (g.foldMarks ?? []).length,
+        source,
+        ...(willFold ? { foldAttempted: true, folded: 0 } : {}),
+      };
       this.#flush(session, { full: true });
-      if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
+      if (willFold) {
         // ★ C298：分段收尾**不进 foldMarks**（走 compactRegion ⇒ 只记 ledger-budget.externalFolds），
         //   所以收尾账里 `folds` 永远停在折之前。这里等它跑完把"分段折了几段"补记到 closeout 上，
         //   否则 doctor/审计只会看到"记了 closeout 但没折过"，把已经折完的会话误报成欠账。
@@ -2125,7 +2164,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         : debt.lastFoldSeq === null || debt.lastFoldSeq === undefined
           ? 1
           : Number(debt.lastFoldSeq) + 1;
-      const rangeEnd = Number(debt.maxSeq) || 0;
+      // ★ C575（第二轮复核 P1）：**有缺口时范围要夹到缺口末端**。
+      //   否则 `fromHead` 从头向前填，会把缺口**之后已经折过的尾巴**一起塞进同一个 prompt：
+      //   实测 gap{from:21,events:30} + 已有 mark[51,100] ⇒ 本次 chunk = [21,100]，重叠 50 个事件、
+      //   写出第二条重叠的 foldMark ——「每段只摘要一次」这条核心承诺被破坏，而且按整段重新付钱。
+      const gapFromForEnd = Number(debt?.gap?.from ?? 0);
+      const gapEventsForEnd = Number(debt?.gap?.events ?? 0);
+      const gapEnd = gapFromForEnd > 0 && gapEventsForEnd > 0 ? gapFromForEnd + gapEventsForEnd - 1 : 0;
+      const rangeEndRaw = Number(debt.maxSeq) || 0;
+      const rangeEnd = gapEnd > 0 ? Math.min(rangeEndRaw, gapEnd) : rangeEndRaw;
       if (rangeEnd < rangeStart) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-range", partial: false };
       // ★ C506：**优先用"上下文压缩设置里选的那个模型"**（summarizationProvider/Model），
       //   这才是用户能控制的地方；没选才退回 DSH 默认模型 / 当前路由。

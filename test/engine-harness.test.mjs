@@ -2205,7 +2205,11 @@ tests["C216 closeoutNow（面板补账入口）：await 到折叠真的出结果
   if ((engine.compactCalls ?? []).length <= before) throw new Error("closeoutNow 返回前必须已经调用过 compactRegion");
   const g = await readGraphReplayed(dir, "sess-c216h");
   if (g.closeout?.source !== "backfill") throw new Error(`closeout.source 应为 backfill，实际 ${JSON.stringify(g.closeout)}`);
-  if (g.closeout.folded !== true) throw new Error("closeout 必须记下这次到底折没折（folded）");
+  // ★ C575：`folded` 在别处是**数字**（`applyCloseoutOutcome` 写段数），`closeoutNow` 以前写布尔。
+  //   统一成"有值且 >0 就算真折了"，同时保住段数不丢 —— 所以这里两种形态都接受。
+  if (!(g.closeout.folded === true || Number(g.closeout.folded) > 0)) {
+    throw new Error(`closeout 必须记下这次到底折没折（folded），实际 ${JSON.stringify(g.closeout.folded)}`);
+  }
 };
 tests["C216 归档收尾不会碰「启动前就已归档」的历史会话（没有会话对象 ⇒ 不白跑模型）"] = async () => {
   const { Engine, graphDir } = await load();
