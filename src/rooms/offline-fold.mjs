@@ -361,11 +361,33 @@ export function renderFacts(graph, range) {
  * @param {number} [configured] 配置值（默认 8192）
  * @returns {number} 实际 max_tokens（夹在 [1024, 16384]）
  */
-export function foldBudgetFor(inputChars, configured = 8192) {
-  const fed = Number(inputChars);
+/**
+ * ★ C582：**按语言估 token**。官方《Token 用量计算》逐字：
+ *   「1 个英文字符 ≈ 0.3 个 token；1 个中文字符 ≈ 0.6 个 token」。
+ *
+ * 旧写法一律用 `字符数 / 4`（≈0.25/字符），对**中文为主的 prompt 低估约 2.4 倍** ——
+ * 于是 `foldBudgetFor` 给的输出预算偏小，摘要容易被截断（真机 12,000 字符的 prompt
+ * 实际 6,751 tok，而旧估算只说 3,000）。
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+export function estimateTokens(text) {
+  const s = String(text ?? "");
+  let wide = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0;
+    // CJK 统一表意文字 / 兼容表意 / 全角标点：按 0.6 计
+    if ((c >= 0x2e80 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xffef)) wide += 1;
+  }
+  return Math.ceil(wide * 0.6 + (s.length - wide) * 0.3);
+}
+
+export function foldBudgetFor(input, configured = 8192) {
   const base = Number(configured) || 8192;
-  if (!Number.isFinite(fed) || fed <= 0) return Math.max(1024, Math.min(16384, base));
-  return Math.max(1024, Math.min(16384, Math.max(base, Math.ceil(fed / 4))));
+  const tokens = typeof input === "string" ? estimateTokens(input) : Math.ceil((Number(input) || 0) * 0.6);
+  if (!Number.isFinite(tokens) || tokens <= 0) return Math.max(1024, Math.min(16384, base));
+  return Math.max(1024, Math.min(16384, Math.max(base, tokens)));
 }
 
 /**
@@ -655,6 +677,35 @@ export function offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq } = {}
  * @param {{rangeStart:number, rangeEnd:number, provider?:string|null, model?:string|null, now?:number}} meta
  * @returns {{marksAdded:number, partial:boolean}}
  */
+/**
+ * ★ C581：把两种 usage 形状归一。
+ *
+ * 真机（2026-11-04）发现两条路记的字段名不同：
+ *   · 脚本（HTTP 原始响应）⇒ `prompt_tokens` / `completion_tokens` / `prompt_tokens_details.cached_tokens`
+ *   · 引擎（宿主 Assembler）⇒ `inputTokens` / `outputTokens` / `totalTokens`（**没有** cache/reasoning）
+ * 于是"这次折了多少钱、命中多少缓存、推理吃了多少"在图上读不出来。
+ *
+ * @param {object|null|undefined} u
+ * @returns {{input:number|null, output:number|null, cached:number|null, reasoning:number|null, total:number|null}|null}
+ */
+export function normalizeUsage(u) {
+  if (u === null || u === undefined || typeof u !== "object") return null;
+  const pick = (...xs) => {
+    for (const x of xs) {
+      if (x === null || x === undefined) continue;
+      const n = Number(x);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    return null;
+  };
+  const input = pick(u.inputTokens, u.prompt_tokens);
+  const output = pick(u.outputTokens, u.completion_tokens);
+  const cached = pick(u.cachedTokens, u.cacheReadTokens, u.prompt_tokens_details?.cached_tokens);
+  const reasoning = pick(u.reasoningTokens, u.completion_tokens_details?.reasoning_tokens);
+  const total = pick(u.totalTokens, u.total_tokens) ?? (input === null && output === null ? null : (input ?? 0) + (output ?? 0));
+  return { input, output, cached, reasoning, total };
+}
+
 export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
   const now = Number.isFinite(meta.now) ? meta.now : Date.now();
@@ -672,7 +723,7 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       route: { provider: meta.provider ?? "offline", model: chunk.model ?? meta.model ?? null },
       fallback: null,
       ms: chunk.ms ?? null,
-      usage: chunk.usage ?? null,
+      usage: normalizeUsage(chunk.usage),
       summaryChars: String(chunk.text ?? "").length,
       quality: chunk.quality ?? null,
       qualityRepaired: chunk.repaired ?? 0,

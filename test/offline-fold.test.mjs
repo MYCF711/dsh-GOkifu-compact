@@ -400,3 +400,22 @@ tests["C555 「已折过」要有证据：folded>0 但没有 marks 就是假冒�
   t.eq(m.shouldTryOfflineFold({ ...base, marks: 3 }).go, false, "真有 3 条 marks ⇒ 已折过，别再花钱");
   t.eq(m.shouldTryOfflineFold({ ...base }).go, false, "没给证据时退回旧行为（保守）");
 };
+
+tests["C581 usage 两种形状归一（脚本 snake_case / 引擎 camelCase）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  t.eq(m.normalizeUsage(null), null, "null 不炸");
+  const eng = m.normalizeUsage({ inputTokens: 14889, outputTokens: 6686, totalTokens: 21575 });
+  t.eq(eng.input, 14889, "引擎形输入");
+  t.eq(eng.output, 6686, "引擎形输出");
+  t.eq(eng.total, 21575, "引擎形总量");
+  const scr = m.normalizeUsage({
+    prompt_tokens: 6623,
+    completion_tokens: 7558,
+    total_tokens: 14181,
+    prompt_tokens_details: { cached_tokens: 9216 },
+    completion_tokens_details: { reasoning_tokens: 4638 },
+  });
+  t.eq(scr.cached, 9216, "脚本形缓存命中");
+  t.eq(scr.reasoning, 4638, "脚本形推理");
+  t.eq(scr.total, 14181, "脚本形总量");
+};

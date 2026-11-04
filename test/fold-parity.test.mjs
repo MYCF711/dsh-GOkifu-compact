@@ -18,12 +18,13 @@ const read = (rel) => nodeFs.readFileSync(nodePath.join(ROOT, rel), "utf8");
 
 tests["C560 预算算法是共用的（脚本不再固定 8192）"] = (t) => {
   const script = read("scripts/archive-fold.mjs");
-  t.includes(script, "foldBudgetFor(prompt.length", "脚本必须用共用算法");
+  t.includes(script, "foldBudgetFor(prompt,", "脚本必须用共用算法（C582 起传文本，按语言估 token）");
   t.eq(script.includes("maxTokens: maxTokensArg"), true, "调用点仍然用它");
-  // 同一算法在两端得到同一个数
-  t.eq(foldBudgetFor(40_000, 8192), 10_000, "40k 字符 ⇒ 10k 预算");
-  t.eq(foldBudgetFor(4_000, 8192), 8192, "小输入不低于配置值");
-  t.eq(foldBudgetFor(200_000, 8192), 16_384, "上限 16384");
+  // ★ C582：改成**按语言估 token**（官方：中文 0.6 tok/字、英文 0.3 tok/字），不再一律 chars/4。
+  //   旧口径对中文低估约 2.4 倍，预算偏小 ⇒ 摘要被截断。
+  t.eq(foldBudgetFor("中".repeat(40_000), 8192), 16_384, "4 万中文字 ≈ 2.4 万 tok ⇒ 撞上限");
+  t.eq(foldBudgetFor("中".repeat(4_000), 8192), 8192, "小输入不低于配置值");
+  t.eq(foldBudgetFor("a".repeat(200_000), 8192), 16_384, "英文 20 万字 ≈ 6 万 tok ⇒ 撞上限");
 };
 
 tests["C560 两条路径都必须关思考（C559 的教训固化）"] = (t) => {

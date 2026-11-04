@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
-import { applyOfflineFoldToGraph, foldBudgetFor } from "../src/rooms/offline-fold.mjs";
+import { applyOfflineFoldToGraph, estimateTokens, foldBudgetFor } from "../src/rooms/offline-fold.mjs";
 import { COLD_INPUT_PER_MTOK, OUTPUT_PER_MTOK, PEAK_MULTIPLIER, SUMMARY_OUTPUT_TOKENS } from "./backfill-plan.mjs";
 import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 
@@ -286,7 +286,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     //   于是所有"这次大约多少钱"都被系统性低估。改成 import 计划脚本的常量（唯一口径）。
     const priceIn = Number(get("price-in", COLD_INPUT_PER_MTOK));
     const priceOut = Number(get("price-out", OUTPUT_PER_MTOK));
-    const estInTok = Math.round(prompt.length * 0.3); // 粗估：以 ASCII 为主
+    // ★ C582：按语言估（官方：中文 0.6 tok/字、英文 0.3 tok/字），不再一律按 ASCII 算
+    const estInTok = estimateTokens(prompt);
     const estOutTok = Number(get("est-out", SUMMARY_OUTPUT_TOKENS));
     const estCost = (estInTok / 1e6) * priceIn + (estOutTok / 1e6) * priceOut;
     console.log(
@@ -304,7 +305,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     let result;
     try {
       // ★ C560：**预算与引擎同一算法**（按输入自适应），不再固定 8192
-      const maxTokensArg = foldBudgetFor(prompt.length, Number(get("max-tokens", 8192)));
+      const maxTokensArg = foldBudgetFor(prompt, Number(get("max-tokens", 8192)));
       result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: maxTokensArg, timeoutMs: Number(get("timeout", 180_000)) });
       // ★ C494：有些上游**忽略** `thinking:{type:"disabled"}`（真机：wps-lingxi 那路），
       //   reasoning 会把 max_tokens 吃光、`content` 回 null。这里自动**放大预算重试一次**。
