@@ -165,3 +165,12 @@ tests["C550 自动补账行要能区分新代码（新字段在不在）"] = asy
   t.includes(src, "sectionsMissing", "判据用 C528 写的字段");
   t.includes(src, "跑的还是旧代码", "没有新字段时要直说");
 };
+
+tests["C585 状态页要给「近 1 小时」速率（24h 总量看不出快慢）"] = (t) => {
+  const row = renderStatus({ autoBackfill: { enabled: true, lastAt: Date.now() - 60_000, last24h: 53, last1h: 9, newFields: 3 } })
+    .find((r) => r[0] === "自动补账");
+  t.includes(row[1], "近 1h 9 段", "必须显示一小时速率");
+  const noHour = renderStatus({ autoBackfill: { enabled: true, lastAt: Date.now(), last24h: 3, newFields: 1 } })
+    .find((r) => r[0] === "自动补账");
+  t.eq(noHour[1].includes("近 1h"), false, "没这个字段时不显示（老数据兼容）");
+};

@@ -53,6 +53,7 @@ export function renderStatus(data) {
       ? "未采集"
       : (d.autoBackfill.enabled === false ? "已关闭（设置里勾上就恢复）" : "开") +
         ` · 近 24h 折了 ${d.autoBackfill.last24h} 段` +
+        (Number.isFinite(Number(d.autoBackfill.last1h)) ? `（近 1h ${d.autoBackfill.last1h} 段）` : "") +
         (d.autoBackfill.lastAt === null ? " · **还没跑过**" : ` · 最近 ${Math.max(0, Math.round((Date.now() - d.autoBackfill.lastAt) / 60000))} 分钟前`) +
         // ★ C550：折了但一个"新字段"都没有 ⇒ 说明这些折叠是**旧代码**跑的
         (Number(d.autoBackfill.last24h) > 0 && Number(d.autoBackfill.newFields ?? 0) === 0
@@ -151,8 +152,10 @@ export async function main(argv = process.argv.slice(2)) {
       if (!nodeFs.existsSync(dir)) return { enabled: null, lastAt: null, last24h: 0 };
       let lastAt = null;
       let last24h = 0;
+      let last1h = 0;
       let newFields = 0;
       const cutoff = Date.now() - 24 * 3600 * 1000;
+      const cutoff1h = Date.now() - 3600 * 1000;
       for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const file = nodePath.join(dir, entry.name, "graph.json");
@@ -169,6 +172,7 @@ export async function main(argv = process.argv.slice(2)) {
           if (!Number.isFinite(at)) continue;
           if (lastAt === null || at > lastAt) lastAt = at;
           if (at >= cutoff) last24h += 1;
+          if (at >= cutoff1h) last1h += 1;
           // ★ C550/C584：**新字段在不在 = 跑的是不是新代码**。
           //   旧口径要求 `truncated` 与 `quality.sectionsMissing` **同时**在，而 `truncated`
           //   从来没被写进 mark ⇒ 无论代码多新都报「跑的还是旧代码」。现在任一在就算新代码。
@@ -188,7 +192,7 @@ export async function main(argv = process.argv.slice(2)) {
       } catch {
         /* 读不到就当默认开 */
       }
-      return { enabled, lastAt, last24h, newFields };
+      return { enabled, lastAt, last24h, last1h, newFields };
     } catch {
       return { enabled: null, lastAt: null, last24h: 0 };
     }
