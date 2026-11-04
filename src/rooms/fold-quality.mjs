@@ -149,7 +149,11 @@ export function findUnknownIds(graph, summaryText) {
  * `range` 为空（手动/tier-2 合并等无法界定）时不判，返回空数组。
  * @returns {{checked:number, outOfRange:string[]}}
  */
-export function findOutOfRangeIds(graph, range, summaryText) {
+export function findOutOfRangeIds(graph, range, summaryText, { allow = null } = {}) {
+  // ★ C539：**硬事实里的 id 不算越界**。摘要的"已探明死路/已验证事实"整段来自 `renderFacts`，
+  //   那些 e### 本来就跨整个会话（seq 远超本次折叠区间）—— 以前一律记成 `outOfRangeLater`，
+  //   于是真机上每次离线折叠都背 13–18 条"越界"，而它们全是合法引用。
+  const allowSet = allow instanceof Set ? allow : new Set(Array.isArray(allow) ? allow : []);
   const text = String(summaryText ?? "");
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) {
     return { checked: 0, outOfRange: [], earlier: [], later: [] };
@@ -166,6 +170,7 @@ export function findOutOfRangeIds(graph, range, summaryText) {
     const after = text[at + match[0].length] ?? "";
     if (/[A-Za-z0-9_]/.test(before) || /[A-Za-z0-9_]/.test(after)) continue;
     const id = match[0];
+    if (allowSet.has(id)) continue;
     if (seen.has(id) || outOfRange.length >= 20) continue;
     seen.add(id);
     const isEdge = id[0] === "e";
@@ -236,6 +241,8 @@ export function measureFoldQuality({
   modelText = "",
   summaryTokens = null,
   shadowedTokens = null,
+  /** ★ C539：来自硬事实块的 id（不参与越界判定）。 */
+  allowedIds = null,
 } = {}) {
   const text = String(summaryText ?? "");
   const constraints = collectConstraints(graph);
@@ -279,7 +286,7 @@ export function measureFoldQuality({
     //   那是**仪器在撒谎**：真正"引用更晚（折叠时还不存在的实体）"的问题永远看不见。
     //   这里把三段都存下来：合并 / 更早（回溯 kifu，合法）/ 更晚（真问题）。
     ...((() => {
-      const probe = findOutOfRangeIds(graph, range, summaryText || modelText);
+      const probe = findOutOfRangeIds(graph, range, summaryText || modelText, { allow: allowedIds });
       return {
         outOfRangeIds: probe.outOfRange,
         outOfRangeEarlier: probe.earlier,

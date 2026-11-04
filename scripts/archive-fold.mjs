@@ -324,7 +324,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     // ★ C523：**写回走共享实现**（引擎与脚本必须记同一套字段）。
     //   之前脚本自己写 `offlineUncoveredHead:{start,end,events}`，而 `debtOfGraph` 读的是 `from`
     //   ⇒ 缺口游标永远回到 1，补缺口原地打转。
-    const quality = measureFoldQuality({ graph, range: { start, end }, summaryText: text });
+    // ★ C539：事实块里的 id（死路/已验证边）跨整个会话，越界探针要放行
+    const factsIds = (() => {
+      const ids = new Set();
+      for (const edge of Object.values(graph?.edges ?? {})) {
+        if (edge?.result === "failure" || edge?.result === "success") ids.add(String(edge.id));
+      }
+      return ids;
+    })();
+    const quality = measureFoldQuality({ graph, range: { start, end }, summaryText: text, allowedIds: factsIds });
     const applied = applyOfflineFoldToGraph(
       graph,
       {

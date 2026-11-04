@@ -303,3 +303,19 @@ tests["C528 结构契约：截断的摘要必须能被机器看出来（别只�
   t.eq(Array.isArray(q.sectionsMissing), true, "必须带这个字段（哪怕是空的）");
   t.eq(q.endedCleanly, false, "质量指标里要带这个判据");
 };
+
+tests["C539 硬事实里的 id 不算越界（真机每次折叠背 13–18 条假越界）"] = async (t) => {
+  const m = await import("../src/rooms/fold-quality.mjs");
+  const g = {
+    nodes: { n1: { id: "n1", kind: "user", seq: 1, text: "目标" }, n9: { id: "n9", kind: "agent", seq: 900, text: "后来的事" } },
+    edges: { e5: { id: "e5", result: "failure", evidence: { start: 800, end: 820 } } },
+    order: ["n1", "n9"],
+  };
+  const range = { start: 1, end: 100 };
+  const text = "见 e5 失败；也提到 n9";
+  const raw = m.findOutOfRangeIds(g, range, text);
+  t.eq(raw.later.includes("n9"), true, "不传白名单时 n9 会被判越界（基线）");
+  const allowed = m.findOutOfRangeIds(g, range, text, { allow: new Set(["e5"]) });
+  t.eq(allowed.later.includes("n9"), true, "白名单只放行 e5，n9 仍算越界");
+  t.eq(allowed.outOfRange.includes("e5"), false, "e5 来自硬事实，不算越界");
+};

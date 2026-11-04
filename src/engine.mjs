@@ -2069,8 +2069,27 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   前面 543-1980 悬着；虽然缺口被记下来了，但"第一段从中间开始"对人读也不友好）。
         fromHead: (debt.gap !== undefined && debt.gap !== null) || (Array.isArray(graph.foldMarks) ? graph.foldMarks.length : 0) === 0,
         callModel,
-        measureQuality: ({ range, summaryText }) => measureFoldQuality({ graph, range, summaryText }),
+        measureQuality: ({ range, summaryText }) => measureFoldQuality({
+          graph,
+          range,
+          summaryText,
+          // ★ C539：硬事实块里的 id 跨整个会话，不算"越界引用"
+          allowedIds: factsIds,
+        }),
       });
+      // ★ C539：事实块里出现的 id（e###/n###）—— 它们跨整个会话，越界探针要放行
+      const factsIds = (() => {
+        try {
+          // 与离线 renderFacts 同源：死路 + 已验证边（它们跨整个会话）
+          const ids = new Set();
+          for (const edge of Object.values(graph?.edges ?? {})) {
+            if (edge?.result === "failure" || edge?.result === "success") ids.add(String(edge.id));
+          }
+          return ids;
+        } catch {
+          return null;
+        }
+      })();
       const outcome = offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq: rangeEnd });
       if ((result?.chunks ?? []).length === 0) {
         this.ctx.logger?.warn?.(`chess-context: 离线补折没产出（${result?.failed ?? "empty"}），保持原结局`);
