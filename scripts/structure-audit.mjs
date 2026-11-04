@@ -22,6 +22,11 @@
  *   · `graph.lastOfflineSummary.text` —— 只有**区间对得上**的那一次 fold 才落盘；
  *     更早的 fold 只留下 `summaryChars`（正文没存），本脚本**如实标「无法判定」，不猜**。
  *
+ * ★ C642：正文的读取口径**只有一份**（`summary-persistence-audit.mjs` 的 `summaryTextFor`）——
+ *   C642 起写回点给每条折痕都落 `summaryText`（最后一段走 `summaryTextRef` 引用），
+ *   于是「可复判」的分母 = **有正文的 mark 数**，而不是「最后一次折叠」。剩下拿不到正文的
+ *   一律是**生产者早于 C642**，报告里单独点出来（不是正文丢了，等新折痕即可）。
+ *
  * 用法：
  *   node scripts/structure-audit.mjs                    # 最近 10 条（有正文的）
  *   node scripts/structure-audit.mjs --limit=10
@@ -46,6 +51,7 @@ import {
   SECTION_ALIASES,
 } from "../src/rooms/fold-quality.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
+import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 void HERE;
@@ -66,27 +72,14 @@ export function resolveHome(env = process.env) {
 }
 
 /**
- * 摘要正文的取法：离线 fold 落在 `lastOfflineSummary`，**区间必须对得上**。
- * 对不上就是「正文没落盘」—— 这时宁可说不知道，也不拿别的段冒充（那会把审计变成编造）。
+ * 摘要正文的取法 —— ★ C642 起**只有一个实现**（`summary-persistence-audit.mjs` 的 `summaryTextFor`），
+ * 这里原样转出。四个读侧（本脚本 / fold-loss / repair-coverage / 成本审计）各写一份，
+ * 就是 C587「写侧改了字段名、读侧还是老名字」的老路。
  *
- * @param {any} graph
- * @param {any} mark
- * @returns {{text:string|null, why:string}}
+ * 判据没变：`mark.summaryText` 优先，其次 `lastOfflineSummary` 的**区间必须全等**；
+ * 对不上就是「正文没落盘」—— 这时宁可说不知道，也不拿别的段冒充（那会把审计变成编造）。
  */
-export function summaryTextFor(graph, mark) {
-  const last = graph?.lastOfflineSummary;
-  if (last === null || last === undefined || typeof last.text !== "string" || last.text === "") {
-    return { text: null, why: "没有 lastOfflineSummary" };
-  }
-  const same = Number(last?.range?.start) === Number(mark?.seqStart) && Number(last?.range?.end) === Number(mark?.seqEnd);
-  if (!same) {
-    return {
-      text: null,
-      why: `lastOfflineSummary 是另一段（${last?.range?.start}-${last?.range?.end}），本次正文未落盘（只有 summaryChars=${mark?.summaryChars ?? "?"}）`,
-    };
-  }
-  return { text: last.text, why: `lastOfflineSummary.range=${last.range.start}-${last.range.end}` };
-}
+export { summaryTextFor };
 
 /**
  * ★ **旧判据（C638 之前）**：`body.includes("## 名")` —— 逐字全等，认不出别名。
@@ -141,7 +134,7 @@ export function judgeMark({ session, index, mark, graph, text }) {
       probeMissing: null,
       legacyMissing: null,
       verdict: "无法判定",
-      why: "正文未落盘（只有 summaryChars）—— 不猜",
+      why: `正文未落盘（只有 summaryChars；生产者早于 ${SUMMARY_TEXT_SINCE}）—— 不猜`,
     };
   }
   const headings = sectionNames(text);
@@ -269,7 +262,7 @@ export function conclusionOf({ rows, candidates, readable, unreadable }) {
     `（点名段分布 ${nameText || "—"}）⇒ ${verdict}；` +
     `同一批正文按**旧判据** \`body.includes("## 名")\` 复判：${judged} 条里 ${legacyMissing} 条仍报缺段（恒假红），` +
     `按**当前** describeStructure 复判：${stillMissing} 条仍报缺段（段名按别名全等比：${aliasText}）；` +
-    `候选共 ${candidates} 条，其中正文未落盘 ${unreadable} 条（可复判 ${readable}）。`
+    `候选共 ${candidates} 条，其中正文未落盘 ${unreadable} 条（生产者早于 ${SUMMARY_TEXT_SINCE} ⇒ 不可复判；可复判 ${readable}）。`
   );
 }
 
@@ -299,7 +292,7 @@ function main() {
   } else {
     console.log(`== 结构契约审计（sectionsMissing 到底是不是真的）==`);
     console.log(`   home         ${home}`);
-    console.log(`   候选         ${result.candidates} 条（可复判 ${result.readable} · 正文未落盘 ${result.unreadable} · 扫了 ${result.sessions} 个会话${includeUnreadable ? " · --all" : ""}）`);
+    console.log(`   候选         ${result.candidates} 条（可复判 ${result.readable} · 不可复判 ${result.unreadable} —— 正文未落盘，生产者早于 ${SUMMARY_TEXT_SINCE} · 扫了 ${result.sessions} 个会话${includeUnreadable ? " · --all" : ""}）`);
     console.log(`   判据         sectionNames（## 名，去括号注记）+ SECTION_ALIASES 全等；${Object.entries(SECTION_ALIASES).map(([k, v]) => `${k}⇐${v.join("/")}`).join(" · ")}`);
     if (result.bad.length > 0) console.log(`   读不动       ${result.bad.map((b) => `${b.session}（${b.error}）`).join(" · ")}`);
     console.log("");

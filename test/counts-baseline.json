@@ -1,5 +1,5 @@
 {
- "total": 1206,
+ "total": 1227,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -35,6 +35,7 @@
   "core.test.mjs": 8,
   "dangling-edge.test.mjs": 0,
   "dangling-exclusion.test.mjs": 0,
+  "deadend-adherence.test.mjs": 11,
   "doc-numbers.test.mjs": 12,
   "docs-cli-commands.test.mjs": 2,
   "docs-commands.test.mjs": 8,
@@ -141,6 +142,7 @@
   "stale-claims.test.mjs": 3,
   "status.test.mjs": 14,
   "structure-audit.test.mjs": 9,
+  "summary-persistence.test.mjs": 10,
   "summary-refs.test.mjs": 8,
   "syntax.test.mjs": 1,
   "test-counts-write.test.mjs": 1,
@@ -174,6 +176,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1532,
- "passedAt": "2026-11-04T21:39:33.946Z"
+ "passed": 1553,
+ "passedAt": "2026-11-04T21:59:52.520Z"
 }

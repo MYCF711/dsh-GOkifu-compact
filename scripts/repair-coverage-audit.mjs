@@ -49,6 +49,7 @@ import { collectGraphFiles } from "../src/ui.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { failuresInFoldRange, mentionsEdge, measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 import { repairMissingFailures } from "../src/rooms/offline-fold.mjs";
+import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 
 /** 补回段标题（`repairMissingFailures` 写进摘要的那一行）—— 留痕的**直接**证据。 */
 export const REPAIR_HEADING = "## 已探明死路（逐字补充";
@@ -145,7 +146,7 @@ export function classifyMark(mark, replay) {
 export function audit({ home = resolveHome(), limit = 0, session = "" } = {}) {
   const { files } = collectGraphFiles(home);
   const rows = [];
-  const epoch = { marks: 0, hasFailuresRepaired: 0, hasInputTruncated: 0, repairedPositive: 0, qualityNull: 0, byFr: new Map() };
+  const epoch = { marks: 0, hasFailuresRepaired: 0, hasInputTruncated: 0, repairedPositive: 0, qualityNull: 0, readable: 0, byFr: new Map() };
   for (const file of files) {
     if (session !== "" && !file.dir.includes(session)) continue;
     let graph;
@@ -159,6 +160,10 @@ export function audit({ home = resolveHome(), limit = 0, session = "" } = {}) {
     marks.forEach((mark, index) => {
       if (String(mark?.trigger) !== "archive-offline") return;
       epoch.marks += 1;
+      // ★ C642：**可复判分母 = 有正文的 mark 数**。正文读取统一走 `summaryTextFor`
+      //   （写回点 C642 起给每条折痕落 `summaryText`，最后一段走 `lastOfflineSummary` 引用）。
+      const resolved = summaryTextFor(graph, mark);
+      if (resolved.text !== null) epoch.readable += 1;
       if (mark?.quality && Object.prototype.hasOwnProperty.call(mark.quality, "failuresRepaired")) epoch.hasFailuresRepaired += 1;
       if (Object.prototype.hasOwnProperty.call(mark, "inputTruncated")) epoch.hasInputTruncated += 1;
       if (Number(mark?.quality?.failuresRepaired) > 0) epoch.repairedPositive += 1;
@@ -169,15 +174,9 @@ export function audit({ home = resolveHome(), limit = 0, session = "" } = {}) {
       epoch.byFr.set(key, (epoch.byFr.get(key) ?? 0) + 1);
       if (!(recall < 1)) return;
 
-      // 重放：只有「最后一段」的摘要原文被保留在 `graph.lastOfflineSummary` 里。
-      const summary = graph?.lastOfflineSummary;
-      const sameRange =
-        summary !== undefined &&
-        summary !== null &&
-        Number(summary?.range?.start) === Number(mark.seqStart) &&
-        Number(summary?.range?.end) === Number(mark.seqEnd);
-      const text = sameRange ? String(summary?.text ?? "") : null;
-      const hasText = text !== null && text !== "";
+      // 重放：正文来自 `mark.summaryText`（C642 起）或 `lastOfflineSummary`（区间全等才认）。
+      const text = resolved.text;
+      const hasText = text !== null;
       let missingNow = null;
       let repaired = null;
       let after = null;
@@ -231,6 +230,8 @@ export function audit({ home = resolveHome(), limit = 0, session = "" } = {}) {
       hasInputTruncated: epoch.hasInputTruncated,
       repairedPositive: epoch.repairedPositive,
       qualityNull: epoch.qualityNull,
+      readable: epoch.readable,
+      unreadable: epoch.marks - epoch.readable,
       byFr: Object.fromEntries(epoch.byFr),
     },
   };
@@ -317,6 +318,11 @@ function render(result, { generation = null } = {}) {
       `带 \`quality.failuresRepaired\` 的 **${result.epoch.hasFailuresRepaired}** 条 · ` +
       `带 \`inputTruncated\` 的 **${result.epoch.hasInputTruncated}** 条 · ` +
       `补回数 > 0 的 **${result.epoch.repairedPositive}** 条`,
+  );
+  // ★ C642：可复判分母 = **有正文**的折痕数（不是「最后一次折叠」）。
+  lines.push(
+    `- **可复判**（有正文）**${result.epoch.readable}** / ${result.epoch.marks} 条；` +
+      `不可复判 **${result.epoch.unreadable}** 条 —— 生产者早于 ${SUMMARY_TEXT_SINCE}，正文当时就没落盘`,
   );
   if (generation !== null) {
     lines.push(`- 补回代码（\`repairMissingFailures\`）进仓库：${generation.repair ?? "—"}`);

@@ -1073,9 +1073,38 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   if (chunks.length === 0) return { marksAdded: 0, partial: true };
   const graphRef = graph ?? {};
   graphRef.foldMarks = Array.isArray(graphRef.foldMarks) ? graphRef.foldMarks : [];
-  /** 补回后的正文（最后一段要原样进 `lastOfflineSummary`，与 mark 里那份**逐字一致**）。 */
+  // ★ C642：**先把上一份正文落进它自己那条折痕**。`lastOfflineSummary` 是单槽的（只存最后一次
+  //   折叠），本次写回就要覆盖它 —— 不搬走，那条折痕的正文从此永久消失。真机 541 条「不可复判」
+  //   全是这么攒出来的：每一条都曾经是「最后一次折叠」，下一次折叠把它挤掉了。
+  //   搬一次之后：每条折痕各存一份，`lastOfflineSummary` 只当最后一段的引用目标 ⇒ 全库无副本。
+  //   判据与读取侧同源（区间全等 + 那条折痕还没存正文），且只认 `archive-offline`（只有它们
+  //   走过本函数、才会写 `lastOfflineSummary`）。
+  const previous = graphRef.lastOfflineSummary;
+  if (previous !== null && previous !== undefined && typeof previous.text === "string" && previous.text !== "") {
+    const start = Number(previous?.range?.start);
+    const end = Number(previous?.range?.end);
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      const owner = graphRef.foldMarks.find(
+        (mark) =>
+          mark !== null &&
+          typeof mark === "object" &&
+          String(mark.trigger) === "archive-offline" &&
+          typeof mark.summaryText !== "string" &&
+          Number(mark.seqStart) === start &&
+          Number(mark.seqEnd) === end,
+      );
+      if (owner !== undefined) {
+        owner.summaryText = previous.text;
+        // 那条折痕当初只留了引用 ⇒ 正文已就地落盘，引用必须撤掉（留着等于「正文在哪」有两个
+        // 说法，而它们迟早对不上 —— C587 就是同一个字段两个名字的代价）。
+        delete owner.summaryTextRef;
+      }
+    }
+  }
+  /** 补回后的正文（最后一段原样进 `lastOfflineSummary` —— 它的折痕只存引用，不存副本）。 */
   const texts = [];
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
+    const isLast = index === chunks.length - 1;
     // ★ C641：**补回接在写回点**（见 `repairFailuresInText` 的注释）。这里是所有
     //   `trigger=archive-offline` 折痕的必经之路 —— 引擎那条路已经补过（幂等空转），
     //   脚本那条路**只在这里**补；补完再按最终正文写留痕字段（否则记录描述的是一份不存在的摘要）。
@@ -1094,6 +1123,11 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       ms: chunk.ms ?? null,
       usage: normalizeUsage(chunk.usage),
       summaryChars: text.length,
+      // ★ C642：**正文落盘**。三个审计器（structure / fold-loss / repair-coverage）要复判「模型
+      //   到底写没写这一段」，唯一的依据是正文；只留 `summaryChars` 时它们只能报「不可复判，不猜」。
+      //   最后一段例外：它的正文马上要原样写进 `lastOfflineSummary`（同一个字符串），这里只留
+      //   **引用** —— 一条摘要只存一遍（写两份 = 磁盘成本凭空翻倍，这正是本轮的硬约束）。
+      ...(isLast ? { summaryTextRef: "lastOfflineSummary" } : { summaryText: text }),
       quality: qualityWithFailureRepair(chunk.quality, filled.repaired, text),
       qualityRepaired: chunk.repaired ?? 0,
       // ★ C584：`truncated` 一直没写进 mark —— 而 status 用它判"跑的是不是新代码"

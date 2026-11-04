@@ -37,6 +37,7 @@ import { evidenceSpan } from "../src/rooms/kifu-model.mjs";
 import { failuresInFoldRange, mentionsEdge } from "../src/rooms/fold-quality.mjs";
 import { renderFacts } from "../src/rooms/offline-fold.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
+import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 void HERE;
@@ -162,19 +163,10 @@ export function foldPathOf(mark) {
   return { path: "model", why: `route=${provider ?? "?"}/${model ?? "?"} · fallback=null · offline=${mark?.offline === true}` };
 }
 
-/** 摘要正文的取法：离线 fold 落在 `lastOfflineSummary`（区间要能对上）。 */
-export function summaryTextFor(graph, mark) {
-  const last = graph?.lastOfflineSummary;
-  if (last === null || last === undefined || typeof last.text !== "string" || last.text === "") return { text: null, why: "没有 lastOfflineSummary" };
-  const same = Number(last?.range?.start) === Number(mark?.seqStart) && Number(last?.range?.end) === Number(mark?.seqEnd);
-  if (!same) {
-    return {
-      text: null,
-      why: `lastOfflineSummary 是另一段（${last?.range?.start}-${last?.range?.end}），本次 fold 的正文未落盘（只有 summaryChars）`,
-    };
-  }
-  return { text: last.text, why: `lastOfflineSummary.range=${last.range.start}-${last.range.end}` };
-}
+/** 摘要正文的取法 —— ★ C642 起**只有一个实现**（`summary-persistence-audit.mjs` 的 `summaryTextFor`），
+ * 这里原样转出：四个读侧各写一份就是 C587「写侧改名、读侧没跟」的老路。
+ * 判据：`mark.summaryText` 优先，其次 `lastOfflineSummary` 的区间必须全等。 */
+export { summaryTextFor };
 
 /** 扫描全部会话，找出「missingFailures 与目标边有交集」的 fold。 */
 export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}) {
@@ -183,7 +175,7 @@ export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}
   let sessions = 0;
   let marksWithQuality = 0;
   /** 全库口径：**到底几次里丢几条**（报告 ⑤ 要的「偶发」概率）。 */
-  const stats = { foldsWithMissing: 0, missingEdges: 0, sessionsWithMissing: new Set() };
+  const stats = { foldsWithMissing: 0, missingEdges: 0, sessionsWithMissing: new Set(), readable: 0 };
   /** 全库「不满」的 fold（报告 ⑤ 要看它是偶发还是系统性）。 */
   const missingFolds = [];
   for (const name of nodeFs.existsSync(sessionsDir) ? nodeFs.readdirSync(sessionsDir) : []) {
@@ -201,6 +193,9 @@ export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}
       const quality = mark?.quality;
       if (quality === null || typeof quality !== "object") continue;
       marksWithQuality += 1;
+      // ★ C642：**可复判分母 = 有正文的 mark 数**（不是「最后一次折叠」）。正文读取统一走
+      //   `summaryTextFor`（写回点 C642 起给每条折痕落 summaryText，最后一段走引用）。
+      if (summaryTextFor(graph, mark).text !== null) stats.readable += 1;
       const missing = Array.isArray(quality.missingFailures) ? quality.missingFailures.map(String) : [];
       if (missing.length > 0) {
         stats.foldsWithMissing += 1;
@@ -212,7 +207,7 @@ export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}
       hits.push({ session: name, file, graph, index, mark, missing });
     }
   }
-  return { hits, sessions, marksWithQuality, stats: { ...stats, sessionsWithMissing: stats.sessionsWithMissing.size }, missingFolds };
+  return { hits, sessions, marksWithQuality, stats: { ...stats, sessionsWithMissing: stats.sessionsWithMissing.size, unreadable: marksWithQuality - stats.readable }, missingFolds };
 }
 
 function fmtTime(ms) {
@@ -371,6 +366,11 @@ export function main(argv = process.argv.slice(2)) {
       ` ⇒ 偶发率 ${marksWithQuality === 0 ? "—" : `${stats.foldsWithMissing}/${marksWithQuality}`}`,
   );
   console.log(`命中        ${hits.length} 次 fold 的 missingFailures 与目标边有交集`);
+  // ★ C642：可复判分母 = **有正文**的折痕数（不是「最后一次折叠」）。
+  console.log(
+    `可复判      ${stats.readable} / ${marksWithQuality} 条带 quality 的折痕有正文` +
+      `（不可复判 ${stats.unreadable} 条 —— 生产者早于 ${SUMMARY_TEXT_SINCE}，正文当时就没落盘）`,
+  );
   if (hits.length === 0) {
     console.log("\n没有命中 —— 检查 --edges / --session，或该图早于 quality 字段（老 foldMark）。");
     return 1;
