@@ -1465,7 +1465,17 @@ function applyInner(ctx) {
             });
           }
           const home = resolveHome();
-          const root = graphRoot({ dshHome: home });
+          // ★ C577（第二轮复核发现）：这里原来**只看 dshHome**，忽略了用户在设置里自定义的
+          //   `chess.graphDir`（引擎侧四处都用 `this.chess.graphDir`）⇒ 一旦用户改过棋谱目录，
+          //   面板「补做收尾」就会列 0 条（看着像没欠账，其实扫错了目录）。
+          const configuredGraphDir = (() => {
+            try {
+              return String(bridge?.chess?.graphDir ?? "");
+            } catch {
+              return "";
+            }
+          })();
+          const root = graphRoot({ graphDir: configuredGraphDir, dshHome: home });
           const minEvents = Number.isFinite(Number(body.minEvents)) ? Number(body.minEvents) : 40;
           const limit = Number.isFinite(Number(body.limit)) ? Math.max(1, Math.min(20, Number(body.limit))) : 20;
           // ★ C261：**单个会话的硬超时也要能设**（默认 3 分钟 × 5 个 = 15 分钟挂在一个请求上，

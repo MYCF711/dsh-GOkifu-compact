@@ -86,7 +86,9 @@ export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKEN
   if (tooBig === null && gapEvents === 0) return null;
   const tailEvents = Math.max(0, Number(tooBig?.tail ?? 0)) + gapEvents;
   // 起点就用缺口的 `from`（seq 从 1 开始，别减成 0）
-  const fromSeq = gapEvents > 0 ? Math.max(1, Number(gap?.from ?? 1)) : Number(debt?.lastFoldSeq ?? 0);
+  // ★ C577（复核发现的 off-by-one）：没有缺口时从 `lastFoldSeq` 起，会把**已经折过的那 1 个事件**
+  //   再算一次（`lastFoldSeq` 本身已被覆盖）。起点必须是它的下一个。
+  const fromSeq = gapEvents > 0 ? Math.max(1, Number(gap?.from ?? 1)) : Math.max(1, Number(debt?.lastFoldSeq ?? 0) + 1);
   const chunks = planCloseoutChunks({
     fromSeq,
     tail: tailEvents,

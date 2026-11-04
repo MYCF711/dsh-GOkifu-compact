@@ -109,9 +109,17 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   // 有没有一条真正由收尾触发的折叠（archive / backfill）—— 只有 closeout 记录不算折过。
   // ★ C299：**分段收尾不进 foldMarks**（走 compactRegion），只留 `closeout.chunkedFolded`；
   //   不把它算进来，已经折完的会话会被当成"没折过"（与 doctor 的判断口径分裂）。
+  // ★ C577（复核发现）：这里与上面的 `foldedEvidence` **必须同一口径** ——
+  //   否则同一个函数对同一条 mark 给出相反判断（`disposed` 收尾折过的会话：
+  //   `closedOut` 说结清、`folded` 说没折）。
   const folded =
-    marks.some((mark) => mark?.trigger === "archive" || mark?.trigger === "backfill" || mark?.trigger === "archive-offline") ||
-    Number(graph?.closeout?.chunkedFolded) > 0;
+    marks.some(
+      (mark) =>
+        mark?.trigger === "archive" ||
+        mark?.trigger === "backfill" ||
+        mark?.trigger === "archive-offline" ||
+        mark?.trigger === "disposed",
+    ) || Number(graph?.closeout?.chunkedFolded) > 0;
   // ★ C286：估一下这次收尾折叠**大概要花多少输入 token**。
   //   为什么能估：每个 foldMark 都记了「折了多少事件(seqEnd-seqStart) / 遮蔽多少 token(shadowedTokens)」，
   //   用本会话自己的比值最准；没有历史 fold 时退回 0（调用方会跳过估计，不编数字）。

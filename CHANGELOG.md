@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C565 | 清掉复核遗留三处（含面板扫错目录） |
 | C564 | 缓存命中 92-96%：官方机制核实 + 推理挤占预算的兜底 |
 | C563 | 补账用独立 user_id：官方明确它做 KVCache 隔离 |
 | C562 | 彩排跑进离线后立刻崩：factsIds TDZ（模型答完才失败） |
@@ -636,6 +637,47 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C565 · 清掉复核遗留三处（含面板扫错目录）
+
+**第二轮复核留了三处"可选"没修。这轮全部清掉，其中一处是面板真的会列错目录。**
+
+### 一、面板「补做收尾」忽略 `graphDir`
+
+```js
+const root = graphRoot({ dshHome: home });   // ❌ 只看 dshHome
+```
+
+引擎侧四处都用 `this.chess.graphDir`，**只有面板这一处没跟上**。
+后果：用户一旦在设置里改过棋谱目录，面板「补做收尾」就会扫错目录、**列 0 条** ——
+看起来像"没有欠账"，其实是看错了地方。
+
+**改法（C577）**：`graphRoot({ graphDir: bridge?.chess?.graphDir, dshHome: home })`。
+
+### 二、`debtOfGraph.folded` 与证据口径不一致
+
+同一个函数里，`foldedEvidence` 认 `disposed`，`folded` 不认 ⇒ **对同一条 mark 给出相反判断**
+（`disposed` 收尾折过的会话：`closedOut` 说结清、`folded` 说没折）。已统一。
+
+### 三、分段起点 off-by-one
+
+```js
+const fromSeq = debt.lastFoldSeq;      // lastFoldSeq 本身已经被覆盖过
+```
+
+⇒ 第一段会把**已经折过的那个事件**再算一次。改成 `lastFoldSeq + 1`（有缺口时仍从 `gap.from`）。
+
+### 四、① 外部复核
+
+Tool Calls 文档（HTTP 200）：工具结果就是 `messages` 里的一条普通消息，**没有独立计费/上下文通道**
+⇒ 我们"工具结果占上下文 12%–77%"的观测与压缩口径一致，**无设计变更**。
+
+### 五、验证
+
+```
+node test/run.mjs → 1354 passed, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
 
 ### C564 · 缓存命中 92-96%：官方机制核实 + 推理挤占预算的兜底
 

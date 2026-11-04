@@ -119,3 +119,10 @@ tests["C572⑤ factsIds 必须声明在 runOfflineFold 之前（否则 TDZ 崩�
   t.eq(factsAt < callAt, true, "factsIds 必须先声明（闭环里被 measureQuality 读取）");
   t.includes(seg, "Cannot access before initialization", "注释要留下这个坑");
 };
+
+tests["C577 面板「补做收尾」必须认 graphDir（否则自定义目录时列 0 条）"] = (t) => {
+  const ui = nodeFs.readFileSync(nodePath.join(ROOT, "src", "ui.mjs"), "utf8");
+  t.includes(ui, "graphRoot({ graphDir: configuredGraphDir, dshHome: home })", "要用配置里的 graphDir");
+  t.includes(ui, "bridge?.chess?.graphDir", "从引擎实例取配置（不是从参数猜）");
+  t.eq(/graphRoot\(\{ dshHome: home \}\)/.test(ui), false, "不许再忽略 graphDir");
+};
