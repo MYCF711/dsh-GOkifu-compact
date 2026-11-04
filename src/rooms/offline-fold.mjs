@@ -335,7 +335,10 @@ export function renderFacts(graph, range) {
     lines.push("", "## 已验证事实");
     for (const e of ok) lines.push(`- ${e.id} ${String(e.action ?? "").slice(0, 80)} → ${e.verify?.summary ?? "ok"}`);
   }
-  lines.push("", "## 原始坐标", `- 本段遮蔽 seq ${range.start}-${range.end}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
+  // ★ C546：**把会变的东西从事实块里拿掉**。这行原来写在这里（`seq start-end` 每段都不同），
+  //   而它排在消息前面 ⇒ 每一段的请求前缀立刻分叉，分段跑 6 段就是 6 次全价重读
+  //   （真机 fold 缓存命中只有 10%）。现在改由 buildOfflinePrompt 追加在**末尾**。
+  void range;
   // ★ C533：**事实块也要有上限**。`maxChars` 只管消息，事实块以前是无界的 ——
   //   病态数据（超长约束/死路行）会把 prompt 撑到几十万字符，模型直接 400 或超窗。
   const text = lines.join("\n");
@@ -365,7 +368,8 @@ export function suggestedLength(inputChars) {
   return { min, max };
 }
 
-export function buildOfflinePrompt({ facts, messages }) {
+export function buildOfflinePrompt({ facts, messages, range = null }) {
+  const rangeSafe = range === null || range === undefined ? { start: "?", end: "?" } : range;
   const inputChars = (messages ?? []).reduce((n, m) => n + String(m?.text ?? "").length, 0) + String(facts ?? "").length;
   const len = suggestedLength(inputChars);
   // ★ C538：id **单独标在标题行** —— 混在正文里模型不认（真机连着 3 次全写 n?）。
@@ -393,7 +397,10 @@ export function buildOfflinePrompt({ facts, messages }) {
     `- 篇幅 **${len.min}–${len.max} 字**（按输入规模算出来的）；宁可少写，不要为凑篇幅重复。`,
     "- 只能写上面出现过的事实；推不出来的不要写（**不许编造**）。遇到不确定的引用写 `n?`。",
     "- 结尾另起一节 `## 约束（逐字）`，把「硬事实」里的约束**原样**抄一遍（这是机读的，不是给人看的）。",
-  ].join("\n");
+    // ★ C546：**易变内容放最后**（段范围每段都变）—— 这样同一轮分段的请求共享同一段前缀，
+  //   第 2 段起就能命中缓存。
+    "","## 原始坐标（本段）",`- 本段遮蔽 seq ${rangeSafe.start}-${rangeSafe.end}；逐字原文在 DSH 会话日志中（seq 可定位）。`,
+].join("\n");
 }
 
 /**
@@ -462,7 +469,7 @@ export async function runOfflineFold({
     const start = limit > 1 ? chunkStart : cov.start;
     const end = cov.end;
     const facts = renderFacts(graph, { start, end });
-    const prompt = buildOfflinePrompt({ facts, messages });
+    const prompt = buildOfflinePrompt({ facts, messages, range: { start: chunkStart, end: rangeEnd } });
     const startedAt = Date.now();
     // ★ C540：**预算跟着输入长**。真机：13k 字符输入时 reasoning 就吃掉 6,936/8,192；
     //   38k 输入的思考只会更多 —— 固定 8192 会在大会话上再次"思考吃光"。

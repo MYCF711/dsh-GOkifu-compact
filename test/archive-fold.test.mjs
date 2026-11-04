@@ -43,9 +43,15 @@ tests["C490 事实块必须带目标/约束/死路/坐标（这几样不许压�
     },
   };
   const facts = renderFacts(graph, { start: 1, end: 99 });
-  for (const needle of ["把构建跑通", "不许动 prod 配置", "e1", "EACCES", "e2", "12 passed", "seq 1-99"]) {
+  for (const needle of ["把构建跑通", "不许动 prod 配置", "e1", "EACCES", "e2", "12 passed"]) {
     t.includes(facts, needle, `事实块缺 ${needle}`);
   }
+  // ★ C546：**「本段遮蔽 seq」从事实块挪到了 prompt 末尾**（它每段都变，放前面会让分段跑
+  //   每段的请求前缀都分叉 ⇒ 缓存全废）。事实块里不该再有它，但 prompt 里必须有。
+  t.eq(facts.includes("本段遮蔽"), false, "事实块里不许再有会变的那行（C546）");
+  const prompt = buildOfflinePrompt({ facts, messages: [{ role: "user", text: "hi" }], range: { start: 1, end: 99 } });
+  t.includes(prompt, "seq 1-99", "坐标要出现在 prompt 里（挪到末尾）");
+  t.eq(prompt.indexOf("seq 1-99") > prompt.indexOf("hi"), true, "坐标必须在消息**之后**（缓存友好）");
 };
 
 tests["C490 prompt 要明说：这是归档会话、只输出摘要、不许给行动建议"] = (t) => {

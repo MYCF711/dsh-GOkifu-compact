@@ -261,7 +261,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const start = maxChunks > 1 ? rangeStart : cov.start;
     const end = cov.end;
     const facts = renderFacts(graph, { start, end });
-    const prompt = buildOfflinePrompt({ facts, messages });
+    const prompt = buildOfflinePrompt({ facts, messages, range: { start, end } });
     const uncoveredHead = Math.max(0, start - rangeStart);
     const uncoveredTail = Math.max(0, rangeEnd - end);
     console.log(
