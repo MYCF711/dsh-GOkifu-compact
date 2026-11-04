@@ -86,3 +86,11 @@ tests["C548 折叠缓存命中要拆在线/离线，并说明低是结构性的"
   t.includes(src, "在线 ${on.pct}% / 离线 ${off.pct}%", "拆开报");
   t.includes(src, "低是结构性的", "要说清原因（每次压的都是新区间），免得下一个人再去追");
 };
+
+tests["C551 折叠性价比判据要用中位数（一个离群样本不该驱动调参）"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "medianShare", "要有中位数");
+  t.includes(src, "medianShare < 0.3 ? \"warn\"", "判级用中位数");
+  t.includes(src, "个别样本低不影响结论", "要说清为什么不用最小值");
+  t.eq(/minShare < 0\.3 \? "warn"/.test(src), false, "不许再用最小值判级");
+};

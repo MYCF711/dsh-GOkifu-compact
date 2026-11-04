@@ -1315,10 +1315,18 @@ mark('C347 成本模型');
     const ratios = rows.map((r) => r.ratio);
     const rois = rows.map((r) => r.roi);
     const minShare = Math.min(...shares);
+    // ★ C551：**判据要用中位数，不能用最小值**。真机（2026-11-06）：遮蔽占读入 中位 **63%**，
+    //   121 次里只有 **1 次**不足 30% —— 而旧判据拿 `Math.min` 一算就告警，
+    //   还给出"考虑提高增长闸"的建议。**一个离群样本不该驱动调参。**
+    const medianShare = (() => {
+      const sorted = [...shares].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    })();
     add(
       "fold 成本口径（遮蔽占读入）",
-      minShare < 0.3 ? "warn" : "ok",
-      `遮蔽占读入 ${(minShare * 100).toFixed(0)}–${(Math.max(...shares) * 100).toFixed(0)}%` +
+      medianShare < 0.3 ? "warn" : "ok",
+      `遮蔽占读入 中位 ${(medianShare * 100).toFixed(0)}%（区间 ${(minShare * 100).toFixed(0)}–${(Math.max(...shares) * 100).toFixed(0)}%）` +
         `（${rows.length} 次 fold；input/shadowed ${Math.min(...ratios).toFixed(2)}–${Math.max(...ratios).toFixed(2)} 含 host 工具/system 固定开销，不单独判错）` +
         ` · 每读 1 token 换回 ${Math.min(...rois).toFixed(2)}–${Math.max(...rois).toFixed(2)} token 永久缩减` +
         // ★ C236：折叠调用的**缓存命中率**（与每步注入的 97% 是两个世界：折叠每次都是新区间）。
@@ -1355,7 +1363,9 @@ mark('C347 成本模型');
           const share = known.reduce((n, m) => n + m.usage.instructionTokens / m.usage.inputTokens, 0) / known.length;
           return ` · 我们的指令占输入 ${(share * 100).toFixed(1)}%（${known.length} 次；其余是宿主送进来的消息 —— input/shadowed 的差额不归我们）`;
         })() +
-        (minShare < 0.3 ? " —— 折得太碎/太早：遮蔽段占读入不足 30%，考虑提高增长闸" : ""),
+        (medianShare < 0.3
+          ? " —— 折得太碎/太早：**中位数**遮蔽段占读入不足 30%，考虑提高增长闸"
+          : " —— 性价比正常（判据是中位数，不是最低值：个别样本低不影响结论）"),
     );
   }
 }
