@@ -1517,7 +1517,23 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           : typeof finishRaw?.reason?.kind === "string"
             ? finishRaw.reason.kind
             : null;
-    this._lastSummaryFinishReason = finishNormalized;
+    // ★ C535：**finish 读不到时，用 token 数反推"很可能被截断"**。
+    //   真机：近 3 天 146 次折叠里 **95 次（65%）没有 finishReason** —— 那 65% 的截断我们完全看不见。
+    //   判据：completion 已经顶到 maxTokens 的 98% 以上 ⇒ 记 "max(assumed)"；
+    //   明明是 max_tokens 传进去的，撞满基本就是被截断。
+    let finishReason2 = finishNormalized;
+    if (finishReason2 === null) {
+      try {
+        const usedOut = Number(assembler.usage?.completion_tokens ?? assembler.usage?.outputTokens ?? NaN);
+        const budgetOut = Number(this.chess?.maxTokens ?? NaN);
+        if (Number.isFinite(usedOut) && Number.isFinite(budgetOut) && budgetOut > 0 && usedOut >= budgetOut * 0.98) {
+          finishReason2 = "max(assumed)";
+        }
+      } catch {
+        /* 推不出来就留 null */
+      }
+    }
+    this._lastSummaryFinishReason = finishReason2;
     this.#markFoldMode(g, mode);
     return {
       summary,

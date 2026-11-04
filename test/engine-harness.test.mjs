@@ -3181,3 +3181,14 @@ tests["C530 已结清且没有新增事件的会话，不许再收尾一次（�
   t.includes(fn, "Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold", "事件数没变才跳过（有新增必须重新收尾）");
   t.includes(fn, "return;", "命中就直接返回，不再调模型");
 };
+
+tests["C535 finish 读不到时用 token 数反推截断（真机 65% 的折叠没有 finishReason）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "max(assumed)", "撞满时要能推出 max(assumed)");
+  t.includes(src, ">= budgetOut * 0.98", "判据写清楚（98% 阈值）");
+  t.includes(src, "this.chess?.maxTokens", "预算取真实配置");
+  // 抽出纯函数式的行为校验：直接比对源码里的三段（读不到 → 反推 → 赋值）
+  const at = src.indexOf("let finishReason2 = finishNormalized;");
+  t.eq(at > 0, true, "必须有一个可测的反推段落");
+  t.eq(src.slice(at, at + 800).includes("this._lastSummaryFinishReason = finishReason2;"), true, "反推结果要落回 _lastSummaryFinishReason");
+};
