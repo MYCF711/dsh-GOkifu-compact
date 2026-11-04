@@ -59,7 +59,7 @@ import { fileURLToPath } from "node:url";
 //   旧写法 import "../scripts/install.mjs" 是本仓库唯一的反向依赖（R-A 红点）。
 import { countResolvedFailures, isTruncatedFinish } from "./rooms/kifu-model.mjs";
 import { readProfileBundles, readTextOrNull } from "./rooms/profile-io.mjs";
-import { repoVersion, repoBuildId } from "./rooms/build-stamp.mjs";
+import { repoVersion, repoBuildId, processIsAlive } from "./rooms/build-stamp.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
@@ -1723,6 +1723,155 @@ function applyInner(ctx) {
  */
 export function routeHeartbeatFile(home = resolveHome()) {
   return nodePath.join(home, "chess-context", "ui-route.json");
+}
+
+/**
+ * 心跳判定的**结论词表**（读侧唯一出口，见 {@link judgeRouteHeartbeat}）。
+ *
+ * 为什么要把它做成显式的四个词：`closed` 有两种完全相反的含义 ——
+ *   · 进程还活着、面板被正常卸载 ⇒ 面板**未在服务**（`not-serving`，可以下结论）；
+ *   · 写心跳的那个进程**已经退出** ⇒ 这条心跳是**遗嘱**，它对现状一字不知 ⇒ **无法判断**（`unknown`）。
+ * 旧实现把两者混成一句话（`state==="open" ? 在服务 : 不可用`），于是 2026-11-05 真机上
+ * 「pid 22508 已退出、64535 无监听，真正活着的是另一个 pid」被读成「面板死了」。
+ */
+export const ROUTE_HEARTBEAT_VERDICT = Object.freeze({
+  /** 心跳说 open，且记录的 pid 仍存活 —— 面板在服务。 */
+  SERVING: "serving",
+  /** 记录的 pid 仍存活，但它自己说 closed/failed —— 面板未在服务（**可以**下结论）。 */
+  NOT_SERVING: "not-serving",
+  /** 记录的 pid 已不存在（或没有可用 pid）—— **无法判断**，不是「不可用」。 */
+  UNKNOWN: "unknown",
+  /** 文件不存在 / 损坏 —— 明确的缺失态（不抛、也不猜）。 */
+  MISSING: "missing",
+});
+
+/**
+ * ★ T5（2026-11-05）：pid 还活着吗？—— 只探测，不发信号。
+ *
+ * 真机事实（2026-11-05 01:45）：`ui-route.json` 写着 `{state:"closed", pid:22508, port:64535}`，
+ * 而 22508 早已退出、64535 无监听；真正活着的 DSH 是另一个 pid、面板在别的端口。
+ * 于是所有「只读心跳、把 state 当结论」的工具（doctor / accept-after-restart / panel-probe）
+ * **把活着判成了死了**。根因不在 state，在于**没验这份心跳是谁留下的**。
+ *
+ * 语义与 `scripts/post-restart-check.mjs:pidAlive()` 一致（src 不许反向依赖 scripts，各留一份）：
+ *   · `true`  —— 进程存在（`EPERM` = 存在但没权限看，也算活着）
+ *   · `false` —— 进程不存在（`ESRCH`）
+ *   · `null`  —— 无法判断（pid 不是正整数 / 平台不支持）
+ *
+ * @param {unknown} pid
+ * @returns {boolean|null}
+ */
+export function pidAlive(pid) {
+  // ★ C604（集成去重）：**存活判定只有一份**，在 `src/rooms/build-stamp.mjs` 的 `processIsAlive`。
+  //   这里原来是第二份实现（同样 `process.kill(pid,0)` + EPERM/ESRCH 分支）。
+  //   两份判据迟早漂移（T4/T5 两条并行线就各自写了一份），所以改成薄委托：
+  //   build-stamp = 「读文件 + 判定 state」，ui.mjs = 「把判定渲染成面板文案」。
+  // 三态契约（build-stamp 的 `processIsAlive` 是二态）：非法 pid 必须回 `null`（无法判断），
+  // 不能回 `false` —— 那会让「没有 pid 的老格式心跳」被误判成「进程已死」。
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return processIsAlive(n);
+}
+
+/**
+ * 心跳的**状态判定**（纯函数，不读盘）：把「文件里写了什么」+「pid 还在不在」变成一句人话。
+ *
+ * 三种必须分开的形状：
+ *   ① pid 活着 + `state:"closed"` ⇒ `stale:false` / `verdict:"not-serving"` —— 正常关闭，**照旧**；
+ *   ② pid 已退出                  ⇒ `stale:true`  / `verdict:"unknown"`   —— **无法判断**，
+ *      绝不能说成「面板不可用」：说话的那个进程已经不在了；
+ *   ③ 没有可用 pid（老格式）      ⇒ `alive:null` / `verdict:"unknown"`   —— 同样不下结论。
+ *
+ * @param {object} heartbeat 已解析的心跳对象
+ * @returns {{present:boolean, state:string, pid:number|null, alive:boolean|null, stale:boolean, serving:boolean, verdict:string, text:string, error:string|null}}
+ */
+export function judgeRouteHeartbeat(heartbeat) {
+  const hb = heartbeat !== null && typeof heartbeat === "object" && !Array.isArray(heartbeat) ? heartbeat : {};
+  const rawPid = Number(hb.pid);
+  const pid = Number.isInteger(rawPid) && rawPid > 0 ? rawPid : null;
+  const alive = pid === null ? null : pidAlive(pid);
+  const stale = alive === false;
+  const state = String(hb.state ?? "?");
+  const at = Number.isFinite(Number(hb.at)) ? new Date(Number(hb.at)).toISOString() : null;
+  const port = hb.port === null || hb.port === undefined ? null : Number(hb.port);
+  const serving = state === "open" && alive === true;
+
+  let verdict;
+  let text;
+  if (stale) {
+    // 心跳的**主人**已经不在了：它写下的 closed 只说明「它退出时关了」，不说明现在没有面板。
+    verdict = ROUTE_HEARTBEAT_VERDICT.UNKNOWN;
+    text = `无法判断面板是否在服务：心跳记录的 pid ${pid} 已不存在（${at ?? "?"} 的遗留心跳，state=${state}）`;
+  } else if (alive === null) {
+    verdict = ROUTE_HEARTBEAT_VERDICT.UNKNOWN;
+    text = `无法判断面板是否在服务：心跳没有可用的 pid（state=${state}）`;
+  } else if (serving) {
+    verdict = ROUTE_HEARTBEAT_VERDICT.SERVING;
+    text = `面板在服务（pid ${pid}${port === null ? "" : `，端口 ${port}`}）`;
+  } else if (state === "closed") {
+    verdict = ROUTE_HEARTBEAT_VERDICT.NOT_SERVING;
+    text = `面板未在服务（pid ${pid} 仍存活，state=closed${at === null ? "" : `，${at} 标记关闭`}）`;
+  } else if (state === "failed") {
+    verdict = ROUTE_HEARTBEAT_VERDICT.NOT_SERVING;
+    text = `面板未在服务（pid ${pid} 仍存活，注册失败：${String(hb.error ?? "无错误信息").slice(0, 160)}）`;
+  } else {
+    verdict = ROUTE_HEARTBEAT_VERDICT.UNKNOWN;
+    text = `无法判断面板是否在服务（pid ${pid} 存活，但 state=${state} 不认识）`;
+  }
+
+  return { present: true, state, pid, alive, stale, serving, verdict, text, error: hb.error ?? null };
+}
+
+/**
+ * ★ T5：读 `ui-route.json` —— **先验 pid 存活，再谈 state**。
+ *
+ * 这是心跳的**唯一**读侧入口：任何「面板在不在服务」的结论都必须经由它，否则就会重演
+ * 2026-11-05 的误判（死 pid 的遗嘱被当成现状）。缺文件 / 半截 JSON / 合法但非对象
+ * 一律**不抛**，返回明确的缺失态（`state:"missing" | "corrupt" | "unreadable"`、`verdict:"missing"`）。
+ *
+ * @param {string} [home]
+ * @returns {{file:string, present:boolean, state:string, pid:number|null, alive:boolean|null, stale:boolean, serving:boolean, verdict:string, text:string, error:string|null, heartbeat:object|null}}
+ */
+export function readRouteHeartbeat(home = resolveHome()) {
+  const file = routeHeartbeatFile(home);
+  const missing = (state, error, text) => ({
+    file,
+    present: false,
+    state,
+    pid: null,
+    alive: null,
+    stale: false,
+    serving: false,
+    verdict: ROUTE_HEARTBEAT_VERDICT.MISSING,
+    text,
+    error: error ?? null,
+    heartbeat: null,
+  });
+
+  let text;
+  try {
+    text = nodeFs.readFileSync(file, "utf8");
+  } catch (error) {
+    const message = String(error?.message ?? error).slice(0, 160);
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+      return missing("missing", null, `没有可用心跳：${file} 不存在`);
+    }
+    return missing("unreadable", message, `没有可用心跳：${file} 读不了（${message}）`);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    const message = String(error?.message ?? error).slice(0, 160);
+    return missing("corrupt", message, `没有可用心跳：${file} 不是合法 JSON（${message}）`);
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    const kind = payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload;
+    return missing("corrupt", `解析结果不是对象（${kind}）`, `没有可用心跳：${file} 解析结果不是对象（${kind}）`);
+  }
+
+  return { file, ...judgeRouteHeartbeat(payload), heartbeat: payload };
 }
 
 function readVersion() {

@@ -2820,7 +2820,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           `chess-context: no context capacity for ${target.provider}/${target.model}; configure contextWindow on that adapter model`,
         );
       }
-      const reserved = session.requestHeader()?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
+      // ★ C605（真机状态文件 + 子代理定位）：`?.` 只挡「返回 null」，挡不住**方法不存在**。
+      //   离线补折走 `#offlineCloseoutFold → compactIfNeeded(#asAgent(target))`，而 `#asAgent`
+      //   对合成 target 返回的是 `{session:{id,cwd}}` —— 没有 `requestHeader` 方法 ⇒
+      //   `TypeError: session.requestHeader is not a function`（C597 只补了 `routedTarget`，漏了这里和 summarizeTarget）。
+      const headerInfo = typeof session?.requestHeader === "function" ? session.requestHeader() : null;
+      const reserved = headerInfo?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
       // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
       spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
       spec.contextWindow = info.context.contextWindow;
@@ -3314,7 +3319,8 @@ function summarizeTarget(chess, session, agent) {
   if (chess.summarizationProvider.length > 0 && chess.summarizationModel.length > 0) {
     return { provider: chess.summarizationProvider, model: chess.summarizationModel };
   }
-  const latest = session.requestHeader()?.config;
+  // ★ C605：同族第二处（合成会话没有 requestHeader）
+  const latest = typeof session?.requestHeader === "function" ? session.requestHeader()?.config : undefined;
   if (latest && latest.provider && latest.model) return { provider: latest.provider, model: latest.model };
   if (agent?.options?.provider && agent.options.model) return { provider: agent.options.provider, model: agent.options.model };
   return undefined;

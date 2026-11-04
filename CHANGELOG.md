@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C585 | 并行 5 条线集成：补全 requestHeader 根因 + doctor 11→8 警 |
 | C584 | 一条命令看全部：重启后体检（含「先重启」判定） |
 | C583 | 瓶颈是占空比：间隔 30→10 分钟、预算 420→1800 秒 |
 | C582 | 补账在后台拿不到宿主服务：改为活跃回合捕获句柄 |
@@ -656,6 +657,62 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C585 · 并行 5 条线集成：补全 requestHeader 根因 + doctor 11→8 警
+
+**并行 5 条线全部回来，其中 T2 直接指出了**真正的生产错误**：`session.requestHeader` 还有两处没修。**
+
+### 一、根因补全（C605）
+
+C597 只给 `routedTarget` 加了 `typeof` 护栏，**漏了另两处**：
+
+```js
+src/engine.mjs:2827  const reserved = session.requestHeader()?.config?.maxTokens ?? ...
+src/engine.mjs:3323  const latest = session.requestHeader()?.config ?? ...
+```
+
+`?.` 只挡「返回 null」，**挡不住方法不存在**。链路：
+`#offlineCloseoutFold → compactIfNeeded(#asAgent(target))` → `#asAgent` 对合成 target 返回
+`{session:{id,cwd}}`（**没有 requestHeader**）→ 直接抛 `TypeError: session.requestHeader is not a function`。
+
+⇒ 这就是状态文件里「5 个结局全是 error、0 段折叠」的原样。
+
+### 二、doctor 11 警 → 8 警（T2）
+
+修掉 4 条**判据恒红**（全是"探测器自己有问题"），每条都配「旧判据真红 + 修完不恒绿」双向用例：
+
+| 检查项 | 旧判据的错 |
+|---|---|
+| `fold 触发原因` | 全历史累计 `overflow>0` ⇒ **恒真**（那两个会话之后都又 fold 过） |
+| `fold 悬空` | 全历史求和，而同族检查用 `.slice(0,10)` ⇒ 同一次 fold 一条绿一条永久红 |
+| `热清单预算` | 与本文件 C244/C49/C44 冲突（L5=已最省），16/16 全设计内却报 `!` |
+| `成本口径` | 只读 `usage.model`；核账 **199 条**其实写在 `route.model` 上 |
+
+外加一条**编造值**：`eventsSinceLastFold ?? lastEnd` 把「折到哪」当「还剩多少」⇒ 凭空造出 3002 的尾巴。
+
+### 三、并行线其余产出
+
+| ID | 产出 |
+|---|---|
+| T1 | 文档数字脚本覆盖 4 → **8 份 / 14 处锚点**（`1101 passed` 全部失效） |
+| T4 | `readBuildStamp` 多态 + pid 存活校验；死 pid 的戳 ⇒ `!`「无法据此判断」 |
+| T5 | 面板心跳 pid 存活；`stale` 时**不许**断言「面板不可用」 |
+| T6 | 6 条真机教训进 `docs/knowledge/live-踩坑-后台job与探测器.md` |
+| T7 | 测算器 `--max=8` 情景 + 24/48/72 三档反解 |
+
+### 四、集成时我做的两件去重
+
+1. **存活判定只留一份**：`ui.mjs` 的 `pidAlive` 改成委托 `build-stamp.processIsAlive`（保留三态契约：非法 pid ⇒ `null`）；
+2. `test/.harness.lock` 从库里移除 + 加 `.gitignore`（它被误提交过）。
+
+### 五、验证
+
+```
+node test/run.mjs → 1442 passed, 0 skipped, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+node scripts/sync-doc-numbers.mjs --check → ✅ 全部一致（8 份 / 14 锚点）
+node scripts/checkup.mjs → 折叠速率 近 24h 133 段（近 1h 37 段）· 欠账 225 个 / 996 段
+```
 
 ### C584 · 一条命令看全部：重启后体检（含「先重启」判定）
 

@@ -45,6 +45,150 @@ export const DEFAULT_SCHEDULE = {
 };
 
 /**
+ * ★ **每轮会话数的代码硬上限** = `src/engine.mjs:2114` 的 `Math.max(0, Math.min(5, adaptive))`。
+ *
+ * 环境变量 `DSH_GOKIFU_AUTO_BACKFILL_MAX` 只是喂给 `adaptive` 的**输入**，进来之后**仍要过这道
+ * `Math.min(5, ...)`** ⇒ 把它设成 8 不会多补一个会话，只会让人以为改过了。
+ * 所以测算器可以模拟 `--max=8`，但必须在输出里把这件事说破（见 `HARD_CAP_MARK`），
+ * 否则"值不值得改代码"会被答成"改个环境变量就行"。
+ */
+export const HARD_MAX_SESSIONS = 5;
+
+/** 超过硬上限时输出里**必须原样出现**的那句话（别让人误以为改个 env 就行）。 */
+export const HARD_CAP_MARK = "需改代码（`Math.min(5, ...)`）";
+
+/** 结论要给的三个追平档位（小时）。 */
+export const TARGET_HOURS = [24, 48, 72];
+
+/** 敏感性矩阵：`[max, rounds, budgetSec, maxTokensCap]`。 */
+export const SENSITIVITY_MATRIX = [
+  [5, 3, 420, 8192],
+  [5, 3, 900, 8192],
+  [5, 3, 1800, 8192],
+  [5, 8, 900, 8192],
+  [5, 8, 1800, 8192],
+  [8, 8, 1800, 8192],
+  [5, 8, 900, 4096],
+  [5, 8, 900, 16384],
+];
+
+/* ───────────────────────── 命令行解析（纯函数，便于单测） ───────────────────────── */
+
+/**
+ * 每个 `--选项` 的取值契约。
+ *
+ * 为什么要有这张表：旧版用 `argv.indexOf("--max")` 取值，**等号写法 `--max=8` 匹配不上**
+ * ⇒ 静默回落到 5，输出看起来跟没传一样。测算器的用途是回答"值不值得改代码提高上限"，
+ * 静默夹一个数就是给出错误结论 —— 所以这里改成"两种写法都认 + 越界就明说 + 非法就退出"。
+ */
+const OPTION_SPECS = {
+  home: { key: "home", kind: "string", label: "DSH_HOME 路径" },
+  "graph-dir": { key: "graphDir", kind: "string", label: "图目录路径" },
+  "seg-sec": { key: "segSec", kind: "num", min: 0, max: 86_400, label: "每段秒数（0 = 用实测均值）" },
+  window: { key: "window", kind: "num", min: 0.1, max: 8760, label: "实测窗口（小时）" },
+  "interval-min": { key: "intervalMin", kind: "num", min: 1, max: 1440, label: "每轮间隔（分钟）" },
+  max: { key: "max", kind: "int", min: 1, max: 1000, label: "每轮会话数" },
+  rounds: { key: "rounds", kind: "int", min: 1, max: 100, label: "每会话轮数" },
+  "budget-sec": { key: "budgetSec", kind: "num", min: 1, max: 86_400, label: "每轮预算（秒）" },
+  "max-tokens-cap": { key: "maxTokensCap", kind: "int", min: 1024, max: 65_536, label: "单段输出上限（token）" },
+};
+
+/** 用法说明（`--help` 与参数报错时都打它）。 */
+export function usage() {
+  return [
+    "用法：node scripts/backfill-forecast.mjs [选项]",
+    "  --home <dir>            DSH_HOME（默认 $DSH_HOME）",
+    "  --graph-dir <dir>       图目录（默认 <home>/chess-context/sessions）",
+    `  --max=<n>               每轮会话数；>${HARD_MAX_SESSIONS} 只是**情景模拟**：${HARD_CAP_MARK}`,
+    "  --rounds=<n>            每会话轮数",
+    "  --budget-sec=<s>        每轮时间预算（秒）",
+    "  --interval-min=<min>    每轮间隔（分钟）",
+    "  --max-tokens-cap=<n>    单段输出上限（token）",
+    "  --seg-sec=<s>           直接钉住每段秒数（0 = 用真机实测均值）",
+    "  --window=<h>            实测速率窗口（小时，默认 6）",
+    "  --json                  输出 JSON",
+    "  --help                  打这张表",
+    "两种写法都认：`--max 8` 与 `--max=8`。",
+  ].join("\n");
+}
+
+/**
+ * 解析命令行。**纯函数**（不碰磁盘），返回 `{options, errors, help}`。
+ * 任何非法取值都进 `errors`（人话），由 `main` 转成退出码 1。
+ *
+ * @param {string[]} [argv]
+ * @returns {{options:object, errors:string[], help:boolean}}
+ */
+export function parseCli(argv = []) {
+  const options = {
+    home: process.env.DSH_HOME ?? "",
+    graphDir: null,
+    segSec: 0,
+    window: 6,
+    intervalMin: DEFAULT_SCHEDULE.intervalMin,
+    max: DEFAULT_SCHEDULE.max,
+    rounds: DEFAULT_SCHEDULE.rounds,
+    budgetSec: DEFAULT_SCHEDULE.budgetSec,
+    maxTokensCap: DEFAULT_SCHEDULE.maxTokensCap,
+    json: false,
+  };
+  const errors = [];
+  let help = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    const raw = String(argv[i] ?? "");
+    if (raw === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (raw === "--help" || raw === "-h") {
+      help = true;
+      continue;
+    }
+    if (!raw.startsWith("--")) {
+      errors.push(`多余的参数 "${raw}"（本脚本只认 --选项，见 --help）`);
+      continue;
+    }
+    const eq = raw.indexOf("=");
+    const name = eq >= 0 ? raw.slice(2, eq) : raw.slice(2);
+    const spec = OPTION_SPECS[name];
+    if (spec === undefined) {
+      errors.push(`未知参数 --${name}（见 --help）`);
+      continue;
+    }
+    let value;
+    if (eq >= 0) value = raw.slice(eq + 1);
+    else {
+      value = argv[i + 1];
+      i += 1;
+      if (value === undefined || String(value).startsWith("--")) {
+        errors.push(`--${name} 缺少取值（应为：--${name}=<${spec.label}>）`);
+        continue;
+      }
+    }
+    if (spec.kind === "string") {
+      if (String(value) === "") errors.push(`--${name} 不能是空字符串（应为：${spec.label}）`);
+      else options[spec.key] = String(value);
+      continue;
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      errors.push(`--${name} 必须是数字（${spec.label}），收到 "${value}"`);
+      continue;
+    }
+    if (spec.kind === "int" && !Number.isInteger(num)) {
+      errors.push(`--${name} 必须是整数（${spec.label}），收到 "${value}"`);
+      continue;
+    }
+    if (num < spec.min || num > spec.max) {
+      errors.push(`--${name} 超出范围 ${spec.min}..${spec.max}（${spec.label}），收到 "${value}"`);
+      continue;
+    }
+    options[spec.key] = num;
+  }
+  return { options, errors, help };
+}
+
+/**
  * ★ C599：**真机实测的段耗时模型**（`maxTokensCap` → 每段要几秒）。纯函数，便于单测。
  *
  * 依据（2026-11-05，88 条 `archive-offline` mark）：
@@ -253,6 +397,154 @@ export function invert({ totalSegments = 0, hours = 48, intervalMin = 30, rounds
 }
 
 /**
+ * 把「实测 + 欠账 + 调度」算成完整报告对象。**纯函数**（不碰磁盘、不调模型），便于单测。
+ *
+ * 从 `main` 里抽出来的原因：`--max=8` 那条情景必须能被**离线**断言（不能靠跑真机数据），
+ * 否则"旧实现会静默夹到 5"这件事永远没测试守着。
+ *
+ * @param {object} args
+ * @param {Array<object>} [args.items] `listDebts` 的产出
+ * @param {object} [args.measured] `measureFromMarks` 的产出（`meanSec` 必须是真的实测值）
+ * @param {number} [args.recent] 近 `windowH` 小时的实测段数
+ * @param {number} [args.windowH] 实测窗口（小时）
+ * @param {typeof DEFAULT_SCHEDULE} [args.schedule]
+ * @param {number} [args.segOverride] `--seg-sec` 的钉死值（0 = 用实测均值）
+ * @returns {object}
+ */
+export function buildReport({ items = [], measured = {}, recent = 0, windowH = 6, schedule = DEFAULT_SCHEDULE, segOverride = 0 } = {}) {
+  const sched = { ...DEFAULT_SCHEDULE, ...(schedule ?? {}) };
+  const windowHNum = Math.max(0.1, Number(windowH) || 6);
+  const meanSec = Number(measured.meanSec) > 0 ? Number(measured.meanSec) : 48;
+  // 出字速度：段耗时与输出 token 都是实测的，别在这里塞常数（硬规矩：数字必须来自真机折痕）
+  const speed = Number(measured.outputTokens) > 0 && Number(measured.segmentSec) > 0 ? Number(measured.outputTokens) / Number(measured.segmentSec) : 127.6;
+  const capPlan = segmentPlan(sched.maxTokensCap, { outputTokens: measured.outputTokens, speed, reasoningTokens: measured.reasoningMax });
+  // ★ 容量按**均值**算，不按中位：一轮能装几段由平均值决定（p90=197s 的段会吃掉半轮预算）。
+  //   用中位算会把容量高估 1.6 倍（48.5s vs 79s），于是"应该 99 小时"会被写成 60 小时。
+  const segmentSec = Number(segOverride) > 0 ? Number(segOverride) : meanSec;
+  const measuredForRun = { ...measured, segmentSec, capSeconds: capPlan.seconds };
+  const base = forecast({ items, measured: measuredForRun, schedule: sched, efficiency: 1 });
+  const observedPerHour = Number(recent) / windowHNum;
+  // ★ 用满率一律相对**真机默认调度**（间隔 30min / 预算 420s）算 —— 它描述的是"这台机器
+  //   在现有配置下把预算用掉了多少"。若拿命令行改过的预算当基准，`--budget-sec 1800`
+  //   会把用满率算成 19%，于是所有"要多少预算"的结论都虚高 4 倍（第一版就踩了这个）。
+  const defaultCeiling = forecast({ items, measured: measuredForRun, schedule: DEFAULT_SCHEDULE, efficiency: 1 }).perHour;
+  const efficiency = defaultCeiling > 0 ? Math.max(0.01, Math.min(1, observedPerHour / defaultCeiling)) : 1;
+  const real = forecast({ items, measured: measuredForRun, schedule: sched, efficiency });
+  const out = {
+    at: Date.now(),
+    scanMs: 0,
+    due: items.length,
+    noLog: 0,
+    hardMax: HARD_MAX_SESSIONS,
+    overHardCap: Number(sched.max) > HARD_MAX_SESSIONS,
+    hardCapNote: HARD_CAP_MARK,
+    measured: { ...measuredForRun, inputTokens: Number.isFinite(Number(measured.inputTokens)) && Number(measured.inputTokens) > 0 ? Number(measured.inputTokens) : null, speed },
+    observed: { windowH: windowHNum, segments: Number(recent) || 0, perHour: observedPerHour },
+    schedule: sched,
+    base,
+    real,
+    sensitivity: [],
+    // ★ 反解一律按**真实硬上限**（5）判可行性：`--max=8` 只是"如果改了代码会怎样"，
+    //   不能让 invert 拿 8 当上限，否则它会说"做得到"—— 那就是骗人。
+    targets: TARGET_HOURS.map((hours) =>
+      invert({
+        totalSegments: base.totalSegments,
+        hours,
+        intervalMin: sched.intervalMin,
+        rounds: sched.rounds,
+        segmentSec: base.segmentSec,
+        efficiency,
+        maxSessions: HARD_MAX_SESSIONS,
+      }),
+    ),
+  };
+  for (const [max, rounds, budgetSec, cap] of SENSITIVITY_MATRIX) {
+    const plan = segmentPlan(cap, { outputTokens: measured.outputTokens, speed, reasoningTokens: measured.reasoningMax });
+    // 相对 cap 的缩放：以**实测均值**为锚，只让 cap 改变倍数（否则 base 用均值、表用"典型段"会自相矛盾）
+    const segSec = Number(segOverride) > 0 ? Number(segOverride) : meanSec * (plan.seconds / Math.max(1, capPlan.seconds));
+    const rate = throughputPerHour({ ...sched, max, rounds, budgetSec, maxTokensCap: cap, segmentSec: segSec });
+    out.sensitivity.push({
+      max,
+      rounds,
+      budgetSec,
+      cap,
+      segmentSec: segSec,
+      retried: plan.retried === true,
+      segmentsPerTick: rate.segmentsPerTick,
+      perHour: rate.perHour,
+      duty: rate.duty,
+      hoursPerfect: rate.perHour === 0 ? Infinity : base.totalSegments / rate.perHour,
+      hoursReal: rate.perHour === 0 ? Infinity : base.totalSegments / (rate.perHour * efficiency),
+    });
+  }
+  return out;
+}
+
+/**
+ * 把报告对象渲染成文本。**纯函数**，`main` 只负责 `console.log`。
+ *
+ * 三处必须说到的实话（否则"值不值得改代码"会被答错）：
+ *   ① `--max>5` 的调度是**情景模拟**，真机跑不到（`Math.min(5, ...)` 写死在引擎里）；
+ *   ② 敏感性表里 max>5 的行同样要标出来 —— 那张表最容易被当成"配置建议"；
+ *   ③ 末尾三条反解（T = 24 / 48 / 72 小时）是这份报告的**结论行**，要能一眼看出每轮要几个会话。
+ *
+ * @param {object} out `buildReport` 的产出
+ * @returns {string}
+ */
+export function formatReport(out) {
+  const { base, real, measured, schedule, observed } = out;
+  const windowH = observed.windowH;
+  const efficiency = real.efficiency;
+  const h = (x) => (Number.isFinite(x) ? `${x < 100 ? x.toFixed(1) : Math.round(x)}h` : "∞");
+  const lines = [];
+  lines.push(`== 补账测算（只读）==  ${base.sessions} 个欠账 · ${base.totalEvents.toLocaleString()} 欠账事件 · 需 **${base.totalSegments} 段**`);
+  lines.push(`  每会话段数：中位 ${base.segmentsMedian} · p90 ${base.segmentsP90} · max ${base.segmentsMax}（按实测 ${measured.eventsPerSegment} 事件/段）`);
+  lines.push(
+    `  段耗时实测（${measured.n} 条 archive-offline）：中位 ${measured.segmentSec}s · **均值 ${measured.meanSec.toFixed(0)}s** · p90 ${measured.p90Sec}s · ` +
+      `出字 ${measured.outputTokens} tok/段（${measured.speed.toFixed(0)} tok/s）`,
+  );
+  lines.push(`  容量一律按**均值**算（一轮装几段由平均决定；按中位算会高估 ${(measured.meanSec / measured.segmentSec).toFixed(1)} 倍）`);
+  lines.push(`  日志已不在、补不了的：${out.noLog} 个`);
+  lines.push(`  估价（段数 × ${base.perSessionInput} in / ${base.perSessionOutput} out，$0.15/$0.60 每 M）：**$${base.costUsd.toFixed(2)}**`);
+  lines.push(
+    `  当前调度：每 ${schedule.intervalMin}min 一轮 · ≤${schedule.max} 会话 × ${schedule.rounds} 轮 · 预算 ${schedule.budgetSec}s ⇒ ` +
+      `${base.segmentsPerTick} 段/轮（受限于${base.limitedBy === "budget" ? "预算" : "会话数×轮数"}）· 占空比 ${(base.duty * 100).toFixed(0)}%`,
+  );
+  // ★ 情景标注：`--max>5` 必须当场说破，否则读的人会以为"改个 env 就行"。
+  if (out.overHardCap === true) {
+    lines.push(
+      `  ⚠ 上面这行是**情景模拟**（--max=${schedule.max}），真机配不出来：每轮会话数硬上限 ${out.hardMax} —— ` +
+        `${out.hardCapNote}，改 env 不管用（DSH_GOKIFU_AUTO_BACKFILL_MAX 进来后仍过 Math.min(${out.hardMax}, adaptive)）`,
+    );
+  }
+  lines.push(
+    `    ⇒ 配置上限 ${base.perHour.toFixed(1)} 段/h ⇒ 清偿 **${h(base.hoursPerfect)}**；` +
+      `实测近 ${windowH}h ${observed.perHour.toFixed(1)} 段/h（用满率 ${(efficiency * 100).toFixed(0)}%）⇒ 清偿 **${h(real.hoursReal)}**`,
+  );
+  lines.push("");
+  lines.push(`-- 敏感性（清偿小时 = ${base.totalSegments} 段 ÷ 段/h；max 是硬上限，>${out.hardMax} ${out.hardCapNote}）--`);
+  lines.push(`  max 轮 预算s    cap  段/轮  段/h   用满      按实测 ${(efficiency * 100).toFixed(0)}%`);
+  for (const row of out.sensitivity) {
+    const flag = row.retried ? "*" : " ";
+    const over = row.max > out.hardMax ? `   ← ${out.hardCapNote}` : "";
+    lines.push(
+      `   ${String(row.max).padStart(3)} ${String(row.rounds).padStart(2)} ${String(row.budgetSec).padStart(5)} ${String(row.cap).padStart(6)}${flag} ${String(row.segmentsPerTick).padStart(5)} ${row.perHour.toFixed(1).padStart(6)} ${h(row.hoursPerfect).padStart(7)} ${h(row.hoursReal).padStart(12)}${over}`,
+    );
+  }
+  lines.push(`   * cap 太低：真机 reasoning 就有 3,436 token，正文档不下 ⇒ 触发"截断⇒放大 2 倍重试"，反而更慢`);
+  lines.push("");
+  lines.push(`-- 结论：要 T 小时追平 ⇒ 每轮 X 个会话 / Y 秒预算（T = ${out.targets.map((t) => t.hours).join(" / ")} 小时）--`);
+  for (const t of out.targets) {
+    const sessions = Math.max(1, t.requiredSessions);
+    const over = sessions > out.hardMax ? `   ← ${out.hardCapNote}（每轮会话数 ${sessions} > 硬上限 ${out.hardMax}）` : "";
+    lines.push(
+      `  要 ${t.hours} 小时追平 ⇒ 每轮 ${sessions} 个会话 / ${t.requiredBudgetSec} 秒预算（${t.requiredPerHour.toFixed(1)} 段/h · 间隔 ≤ ${t.requiredIntervalMin}min）${over}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
  * 读真机所有 foldMark（只要 `archive-offline` 的统计用，别的不留）。
  * ★ 吃**已经加载好的图**：`listDebts` 那趟已经把每张图读过一次，再读一遍要多花一倍时间
  *   （435 张图 × delta 重放）。真机实测这一趟就值几十秒 —— 测算器是给人随手跑的，不能这么慢。
@@ -270,16 +562,23 @@ function readMarks(graphs) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const getArg = (name, fallback) => {
-    const i = argv.indexOf(`--${name}`);
-    return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : fallback;
-  };
-  const home = getArg("home", process.env.DSH_HOME ?? "");
+  const { options, errors, help } = parseCli(argv);
+  if (help === true) {
+    console.log(usage());
+    return 0;
+  }
+  // ★ 参数非法必须真红：静默取值会让"值不值得改代码"这个结论建立在错的调度上
+  //   （旧版 `--max=8` 就是这么被静默夹成 5 的 —— 见 test/backfill-forecast.test.mjs）
+  if (errors.length > 0) {
+    console.error(`✗ 参数不合法：\n  · ${errors.join("\n  · ")}\n\n${usage()}`);
+    return 1;
+  }
+  const home = options.home;
   if (home === "") {
-    console.log("需要 --home <DSH_HOME>（或设 DSH_HOME）");
+    console.error("需要 --home <DSH_HOME>（或设 DSH_HOME）");
     return 2;
   }
-  const sessionsRoot = getArg("graph-dir", nodePath.join(home, "chess-context", "sessions"));
+  const sessionsRoot = options.graphDir ?? nodePath.join(home, "chess-context", "sessions");
   if (!nodeFs.existsSync(sessionsRoot)) {
     console.log(`找不到图目录：${sessionsRoot}（这台机器上没有欠账数据可测）`);
     return 2;
@@ -318,126 +617,29 @@ export async function main(argv = process.argv.slice(2)) {
     if (!allLogs.some((p) => p.includes(want))) noLog += 1;
   }
   // 实测最近窗口的段速度（默认 6 小时，避开更早的死窗口）
-  const windowH = Math.max(1, Number(getArg("window", 6)) || 6);
+  const windowH = Math.max(1, Number(options.window) || 6);
   const now = Date.now();
   const recent = marks.filter((m) => String(m?.trigger) === "archive-offline" && now - (Number(m?.at) || 0) < windowH * 3600e3).length;
   const schedule = {
     ...DEFAULT_SCHEDULE,
-    intervalMin: Number(getArg("interval-min", DEFAULT_SCHEDULE.intervalMin)) || DEFAULT_SCHEDULE.intervalMin,
-    max: Number(getArg("max", DEFAULT_SCHEDULE.max)) || DEFAULT_SCHEDULE.max,
-    rounds: Number(getArg("rounds", DEFAULT_SCHEDULE.rounds)) || DEFAULT_SCHEDULE.rounds,
-    budgetSec: Number(getArg("budget-sec", DEFAULT_SCHEDULE.budgetSec)) || DEFAULT_SCHEDULE.budgetSec,
-    maxTokensCap: Number(getArg("max-tokens-cap", DEFAULT_SCHEDULE.maxTokensCap)) || DEFAULT_SCHEDULE.maxTokensCap,
+    intervalMin: options.intervalMin,
+    max: options.max,
+    rounds: options.rounds,
+    budgetSec: options.budgetSec,
+    maxTokensCap: options.maxTokensCap,
   };
   // `--seg-sec` 直接把"每段秒数"钉成一个假设（真机报告里常见的 169s 就是这么来的）
-  const segOverride = Number(getArg("seg-sec", 0));
-  const speed = measured.outputTokens > 0 && measured.segmentSec > 0 ? measured.outputTokens / measured.segmentSec : 127.6;
-  const capPlan = segmentPlan(schedule.maxTokensCap, { outputTokens: measured.outputTokens, speed, reasoningTokens: measured.reasoningMax });
-  // ★ 容量按**均值**算，不按中位：一轮能装几段由平均值决定（p90=197s 的段会吃掉半轮预算）。
-  //   用中位算会把容量高估 1.6 倍（48.5s vs 79s），于是"应该 99 小时"会被写成 60 小时。
-  const segmentSec = segOverride > 0 ? segOverride : measured.meanSec;
-  const measuredForRun = { ...measured, segmentSec, capSeconds: capPlan.seconds };
-  const base = forecast({ items: listed.items, measured: measuredForRun, schedule, efficiency: 1 });
-  const observedPerHour = recent / windowH;
-  const ceilingPerHour = base.perHour;
-  // ★ 用满率一律相对**真机默认调度**（间隔 30min / 预算 420s）算 —— 它描述的是"这台机器
-  //   在现有配置下把预算用掉了多少"。若拿命令行改过的预算当基准，`--budget-sec 1800`
-  //   会把用满率算成 19%，于是所有"要多少预算"的结论都虚高 4 倍（第一版就踩了这个）。
-  const defaultCeiling = forecast({ items: listed.items, measured: measuredForRun, schedule: DEFAULT_SCHEDULE, efficiency: 1 }).perHour;
-  const efficiency = defaultCeiling > 0 ? Math.max(0.01, Math.min(1, observedPerHour / defaultCeiling)) : 1;
-  const real = forecast({ items: listed.items, measured: measuredForRun, schedule, efficiency });
-  const out = {
-    at: now,
-    scanMs: Date.now() - t0,
-    due: listed.due,
-    noLog,
-    measured: { ...measuredForRun, inputTokens: measured.inputTokens ?? null, speed },
-    observed: { windowH, segments: recent, perHour: observedPerHour },
-    schedule,
-    base,
-    real,
-    sensitivity: [],
-    targets: [24, 48, 72, 120].map((hours) =>
-      invert({
-        totalSegments: base.totalSegments,
-        hours,
-        intervalMin: schedule.intervalMin,
-        rounds: schedule.rounds,
-        segmentSec: base.segmentSec,
-        efficiency,
-        maxSessions: schedule.max,
-      }),
-    ),
-  };
-  for (const [max, rounds, budgetSec, cap] of [
-    [5, 3, 420, 8192],
-    [5, 3, 900, 8192],
-    [5, 3, 1800, 8192],
-    [5, 8, 900, 8192],
-    [5, 8, 1800, 8192],
-    [8, 8, 1800, 8192],
-    [5, 8, 900, 4096],
-    [5, 8, 900, 16384],
-  ]) {
-    const plan = segmentPlan(cap, { outputTokens: measured.outputTokens, speed, reasoningTokens: measured.reasoningMax });
-    // 相对 cap 的缩放：以**实测均值**为锚，只让 cap 改变倍数（否则 base 用均值、表用"典型段"会自相矛盾）
-    const segSec = segOverride > 0 ? segOverride : measured.meanSec * (plan.seconds / Math.max(1, capPlan.seconds));
-    const rate = throughputPerHour({ ...schedule, max, rounds, budgetSec, maxTokensCap: cap, segmentSec: segSec });
-    out.sensitivity.push({
-      max,
-      rounds,
-      budgetSec,
-      cap,
-      segmentSec: segSec,
-      retried: plan.retried === true,
-      segmentsPerTick: rate.segmentsPerTick,
-      perHour: rate.perHour,
-      duty: rate.duty,
-      hoursPerfect: rate.perHour === 0 ? Infinity : base.totalSegments / rate.perHour,
-      hoursReal: rate.perHour === 0 ? Infinity : base.totalSegments / (rate.perHour * efficiency),
-    });
-  }
-  if (argv.includes("--json")) {
+  const out = buildReport({ items: listed.items, measured, recent, windowH, schedule, segOverride: options.segSec });
+  // 扫描耗时是 IO 事实，由 `main` 补上（`buildReport` 是纯函数，不读时钟）
+  out.at = now;
+  out.scanMs = Date.now() - t0;
+  out.due = listed.due;
+  out.noLog = noLog;
+  if (options.json === true) {
     console.log(JSON.stringify(out, null, 2));
     return 0;
   }
-
-  const h = (x) => (Number.isFinite(x) ? `${x < 100 ? x.toFixed(1) : Math.round(x)}h` : "∞");
-  const lines = [];
-  lines.push(`== 补账测算（只读）==  ${base.sessions} 个欠账 · ${base.totalEvents.toLocaleString()} 欠账事件 · 需 **${base.totalSegments} 段**`);
-  lines.push(`  每会话段数：中位 ${base.segmentsMedian} · p90 ${base.segmentsP90} · max ${base.segmentsMax}（按实测 ${measured.eventsPerSegment} 事件/段）`);
-  lines.push(
-    `  段耗时实测（${measured.n} 条 archive-offline）：中位 ${measured.segmentSec}s · **均值 ${measured.meanSec.toFixed(0)}s** · p90 ${measured.p90Sec}s · ` +
-      `出字 ${measured.outputTokens} tok/段（${speed.toFixed(0)} tok/s）`,
-  );
-  lines.push(`  容量一律按**均值**算（一轮装几段由平均决定；按中位算会高估 ${(measured.meanSec / measured.segmentSec).toFixed(1)} 倍）`);
-  lines.push(`  日志已不在、补不了的：${noLog} 个`);
-  lines.push(`  估价（段数 × ${base.perSessionInput} in / ${base.perSessionOutput} out，$0.15/$0.60 每 M）：**$${base.costUsd.toFixed(2)}**`);
-  lines.push(
-    `  当前调度：每 ${schedule.intervalMin}min 一轮 · ≤${schedule.max} 会话 × ${schedule.rounds} 轮 · 预算 ${schedule.budgetSec}s ⇒ ` +
-      `${base.segmentsPerTick} 段/轮（受限于${base.limitedBy === "budget" ? "预算" : "会话数×轮数"}）· 占空比 ${(base.duty * 100).toFixed(0)}%`,
-  );
-  lines.push(
-    `    ⇒ 配置上限 ${ceilingPerHour.toFixed(1)} 段/h ⇒ 清偿 **${h(base.hoursPerfect)}**；` +
-      `实测近 ${windowH}h ${observedPerHour.toFixed(1)} 段/h（用满率 ${(efficiency * 100).toFixed(0)}%）⇒ 清偿 **${h(real.hoursReal)}**`,
-  );
-  lines.push("");
-  lines.push(`-- 敏感性（清偿小时 = ${base.totalSegments} 段 ÷ 段/h；max 是硬上限，>5 需改代码）--`);
-  lines.push(`  max 轮 预算s    cap  段/轮  段/h   用满      按实测 ${(efficiency * 100).toFixed(0)}%`);
-  for (const row of out.sensitivity) {
-    const flag = row.retried ? "*" : " ";
-    lines.push(
-      `   ${String(row.max).padStart(3)} ${String(row.rounds).padStart(2)} ${String(row.budgetSec).padStart(5)} ${String(row.cap).padStart(6)}${flag} ${String(row.segmentsPerTick).padStart(5)} ${row.perHour.toFixed(1).padStart(6)} ${h(row.hoursPerfect).padStart(7)} ${h(row.hoursReal).padStart(12)}`,
-    );
-  }
-  lines.push(`   * cap 太低：真机 reasoning 就有 3,436 token，正文档不下 ⇒ 触发"截断⇒放大 2 倍重试"，反而更慢`);
-  lines.push("");
-  for (const t of out.targets) {
-    lines.push(
-      `  ⇒ 要 **${t.hours}h** 内追平：${t.requiredPerHour.toFixed(1)} 段/h ⇒ 每轮 **${Math.max(1, t.requiredSessions)} 个会话 / ${t.requiredBudgetSec}s 预算**（间隔 ≤ ${t.requiredIntervalMin}min）· ${t.blocker}`,
-    );
-  }
-  console.log(lines.join("\n"));
+  console.log(formatReport(out));
   return 0;
 }
 

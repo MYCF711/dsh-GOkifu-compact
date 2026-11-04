@@ -16,6 +16,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readBuildStamp, readUiRouteHeartbeat } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -42,30 +43,60 @@ const run = (script, args = [], timeout = 180_000) => {
 };
 
 // ① 运行实例 vs 磁盘
-const buildFile = path(buildDir(), "build.json");
-function buildDir() {
-  return graphRootDir;
-}
-function path(dir, name) {
-  return nodePath.join(dir, name);
-}
-if (nodeFs.existsSync(buildFile)) {
-  try {
-    const b = JSON.parse(nodeFs.readFileSync(buildFile, "utf8"));
-    const disk = diskBuildId();
-    if (disk === null) add("warn", "运行实例版本", "读不到磁盘 buildId（脚本异常）");
-    else if (disk === b.buildId) add("ok", "运行实例版本", `build ${String(b.buildId).slice(0, 12)} = 磁盘（pid ${b.pid}）`);
-    else
-      add(
-        "bad",
-        "运行实例版本",
-        `运行 ${String(b.buildId).slice(0, 12)} ≠ 磁盘 ${String(disk).slice(0, 12)} —— 新代码**未生效**，需要重启 DSH`,
-      );
-  } catch {
-    add("warn", "运行实例版本", "build.json 不是合法 JSON");
-  }
-} else {
+// ★ 2026-11-05（真机事故）：build.json 可能是**已退出进程**写的。真机上 pid 22508 早就没了，
+//   戳里却还留着它的 buildId ⇒ 本脚本把「旧构建」当成「功能坏了」的依据，连续误判多次。
+//   现在分三态 + 一个「不知道」：新鲜才谈一致/落后；写戳的进程死了就**明说不可信**，不许据此断言。
+//   ⚠ 合成夹具（DSH_GOKIFU_FAKE_DISK_BUILD）里的 pid 是编的，不拿它判死 —— 否则临时 home 的用例
+//     会全部变成「过期」，而它们要测的是 buildId 比对的另外两态。
+const fakeDisk = process.env.DSH_GOKIFU_FAKE_DISK_BUILD;
+const synthetic = typeof fakeDisk === "string" && fakeDisk !== "";
+const aliveProbe = synthetic ? () => true : undefined;
+const shortId = (id) => (typeof id === "string" && id !== "" ? id.slice(0, 12) : "?");
+const agoText = (ms) =>
+  Number.isFinite(ms) ? (ms >= 3_600_000 ? `${Math.round(ms / 3_600_000)} 小时前` : `${Math.max(1, Math.round(ms / 60_000))} 分钟前`) : "时间未知";
+
+const stampRead = readBuildStamp({ dir: graphRootDir, isAlive: aliveProbe });
+if (stampRead.state === "missing") {
   add("warn", "运行实例版本", "没有 build.json（插件可能没加载）");
+} else if (stampRead.state === "invalid") {
+  add("warn", "运行实例版本", "build.json 不是合法 JSON");
+} else if (stampRead.state === "unverifiable") {
+  add("warn", "运行实例版本", `${stampRead.reason} —— 运行版本**不可知**`);
+} else if (stampRead.state === "stale") {
+  // ★ 关键一行：pid 已退出 ⇒ 戳里的 build 既不能证明「新代码生效」，也不能证明「没生效」。
+  add(
+    "warn",
+    "运行实例版本",
+    `${stampRead.reason}（写于 ${agoText(stampRead.ageMs)}，戳里的 build ${shortId(stampRead.buildId)}）—— 这份戳不构成「新代码没生效」的证据，先确认现在跑的是哪个 pid`,
+  );
+} else {
+  const disk = diskBuildId();
+  if (disk === null) add("warn", "运行实例版本", "读不到磁盘 buildId（脚本异常）");
+  else if (disk === stampRead.buildId)
+    add("ok", "运行实例版本", `build ${shortId(stampRead.buildId)} = 磁盘（stamp 由 pid ${stampRead.pid} 写，该进程仍存活）`);
+  else
+    add(
+      "bad",
+      "运行实例版本",
+      `运行 ${shortId(stampRead.buildId)} ≠ 磁盘 ${shortId(disk)} —— 新代码**未生效**，需要重启 DSH（stamp 由 pid ${stampRead.pid} 写，该进程仍存活）`,
+    );
+}
+
+// ①b 面板心跳（同一类陷阱）：心跳里的端口/state 可能属于一个早就退出的进程。
+//   ⚠ `missing` 时**不加行**：doctor 已经会报「未采集」，这里再报一次只会让既有判定漂移。
+const hbRead = readUiRouteHeartbeat({ dir: graphRootDir, isAlive: aliveProbe });
+if (hbRead.state === "stale") {
+  add(
+    "warn",
+    "面板心跳",
+    `${hbRead.reason}（state=${hbRead.routeState ?? "?"}、端口 ${hbRead.port ?? "?"} 都是旧值，写于 ${agoText(hbRead.ageMs)}）—— 面板现在是什么状态，这份文件答不了`,
+  );
+} else if (hbRead.state === "invalid") {
+  add("warn", "面板心跳", "ui-route.json 不是合法 JSON（写盘可能中断）");
+} else if (hbRead.state === "unverifiable") {
+  add("warn", "面板心跳", `${hbRead.reason} —— 面板状态**不可知**`);
+} else if (hbRead.state === "fresh") {
+  add("ok", "面板心跳", `pid ${hbRead.pid} 存活 · state=${hbRead.routeState ?? "?"} · 端口 ${hbRead.port ?? "?"}（${agoText(hbRead.ageMs)}）`);
 }
 function diskBuildId() {
   // 测试专用：允许覆盖"磁盘 buildId"，否则临时 home 永远与真实磁盘不一致（无法测绿/黄态）
@@ -150,15 +181,20 @@ if (json) {
   console.log("== 重启后体检 ==");
   for (const r of rows) console.log(`  ${icon(r.level)} ${r.name} — ${r.detail}`);
   // ★ C602：**别让人把"没重启"读成"功能坏了"**。build 不一致时，其余红项多半是它的后果。
-  const stale = rows.some((r) => r.name === "运行实例版本" && r.level === "bad");
+  // ★ 2026-11-05：只有「stamp 新鲜且 buildId 与磁盘不同」才算「没重启」；stamp 过期（pid 已退出）
+  //   是另一种结论 —— 运行版本**不可知**，不许被读成「未生效」。
+  const buildMismatch = rows.some((r) => r.name === "运行实例版本" && r.level === "bad");
+  const buildUnknown = rows.some((r) => r.name === "运行实例版本" && r.level === "warn");
   console.log(
     verdict === "green"
       ? "  ⇒ **全绿**：新代码已生效，补账在动。"
-      : stale
+      : buildMismatch
         ? "  ⇒ **先重启**：运行实例还是旧构建，下面那些红项很可能只是它的后果；重启后重跑这一条。"
-        : verdict === "yellow"
-          ? "  ⇒ **有黄项**：能跑，但上面 `!` 的每一条都值得看一眼。"
-          : "  ⇒ **有红项**：补账真的停了，按上面的具体原因查（不会再是「零产出」这种模糊话）。",
+        : verdict === "red"
+          ? `  ⇒ **有红项**：补账真的停了，按上面的具体原因查（不会再是「零产出」这种模糊话）。${buildUnknown ? "另：运行实例版本不可知（见上），别拿它当红项的成因。" : ""}`
+          : buildUnknown
+            ? "  ⇒ **运行版本不可知**：build.json 是已退出进程写的（见「运行实例版本」那行），它既不能证明新代码生效、也不能证明没生效。"
+            : "  ⇒ **有黄项**：能跑，但上面 `!` 的每一条都值得看一眼。",
   );
 }
 process.exit(verdict === "red" ? 1 : verdict === "yellow" ? 2 : 0);

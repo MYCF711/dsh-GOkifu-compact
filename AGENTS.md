@@ -396,5 +396,5 @@ AGENTS.md  本文件（不进包）
 
 - 先读 `default-workspace/tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/independent-review.md` 与 `staged-v2/`。rc.1 官方模型切换走 `agent/request → compactPressure → compactRegion/summarize`，绕过原 `compactIfNeeded()`；适配必须保留 growth gate、foldFailures backoff、tier2After、loop guard、planFold 增量区间和旧 committed route 摘要。
 - 两个阻断必须闭合：① fold 成功但切换仍失败时，`lastFoldTotalTokens` 等账本不得按未采纳的新 header 污染旧路由；② `modelPolicies[].compactionRetries` 必须按目标路由合并，不能只看全局值。新增 header-dependent token meter、global/target 重试矩阵和后续普通 pressure 回归。
-- 验收保留原 rc.1 6/6、0.2.1-rc.5 5/5、engine/tier2/loop 子套件与完整新版宿主；生产采用前需独立 reviewer approve。
+- 验收保留原 rc.1 6/6、0.2.1-rc.5 5/5、engine/tier2/loop 子套件与完整新版宿主；生产采用前需独立 reviewer approve。所有复用当前 home 的隔离探针必须设 `DSH_GOKIFU_NO_HEAL=1`，禁止退出时的 home-patch 自动登记写 live 根配置。
 - 完成或继续修改后，在 `default-workspace/AGENTS.md` 的「插件兼容回信」追加本项目回信：实际改动、证据路径、命令/结果、未验证项、回退位置。只改本项目段落，不覆盖其他插件回信。

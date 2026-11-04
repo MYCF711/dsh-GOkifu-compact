@@ -1,5 +1,5 @@
 {
- "total": 1089,
+ "total": 1123,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -8,10 +8,12 @@
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "backfill-e2e.test.mjs": 1,
+  "backfill-forecast.test.mjs": 5,
   "backfill-plan.test.mjs": 10,
   "backfill-throughput.test.mjs": 9,
   "bench-cli.test.mjs": 3,
   "boundary-audit.test.mjs": 8,
+  "build-stamp-stale.test.mjs": 8,
   "build-stamp.test.mjs": 7,
   "bundle.test.mjs": 0,
   "c17-path-at-every-level.test.mjs": 16,
@@ -31,12 +33,13 @@
   "context-curve.test.mjs": 3,
   "core.test.mjs": 8,
   "dangling-exclusion.test.mjs": 0,
-  "doc-numbers.test.mjs": 8,
+  "doc-numbers.test.mjs": 12,
   "docs-cli-commands.test.mjs": 2,
   "docs-commands.test.mjs": 8,
   "docs-index-check.test.mjs": 4,
   "docs-numbers.test.mjs": 12,
   "doctor-cli.test.mjs": 46,
+  "doctor-fixes.test.mjs": 12,
   "doctor-perf.test.mjs": 11,
   "doctor-silent-stop.test.mjs": 7,
   "engine-harness.test.mjs": 114,
@@ -139,6 +142,7 @@
   "ui-backfill.test.mjs": 12,
   "ui-config.test.mjs": 13,
   "ui-health.test.mjs": 0,
+  "ui-heartbeat.test.mjs": 5,
   "ui-layout.test.mjs": 3,
   "ui-models.test.mjs": 7,
   "ui-perf.test.mjs": 10,
@@ -156,6 +160,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1408,
- "passedAt": "2026-11-04T17:25:12.727Z"
+ "passed": 1442,
+ "passedAt": "2026-11-04T18:16:27.693Z"
 }

@@ -94,8 +94,54 @@ export function writeBuildStamp({ dir, version = repoVersion(), buildId = repoBu
   }
 }
 
-/** 读戳；没有/坏文件都返回 null（doctor 自己决定怎么报「未采集」）。 */
-export function readBuildStamp(dir) {
+/* ─────────────────────────────────────────────────────────────────────────────
+ * ★ 2026-11-05（真机事故）：戳可能是**已退出进程**写的
+ *
+ * 现场：`build.json` 里写着 pid 22508，而那个进程当晚早就没了；当前真正在跑的是 pid 4532。
+ * 旧实现只做 `JSON.parse` 就把 stamp 当「运行实例的现状」交出去 ⇒ 所有据此判断
+ * 「跑的是哪一版 / 面板活着吗」的诊断（checkup / doctor / accept-after-restart）都在
+ * **拿死进程的旧值当真**：把「旧构建」误判成「功能 bug」，连续误判多次。
+ *
+ * 现在的口径：**不可信时明说不可信**。读戳必须校验写戳的 pid 是否还活着：
+ *   · pid 活 ⇒ `state:"fresh"`、`usable:true`（可以据此判断运行版本）
+ *   · pid 死 ⇒ `state:"stale"`、`stale:true`、`usable:false`（旧值**不许**当现值）
+ *   · pid 缺失 / 探测出错 ⇒ `state:"unverifiable"`、`usable:false`（不知道就说不知道）
+ *
+ * 已知局限（写在这里免得下一个人重新踩）：pid 会被复用 —— 存活探测只能说「这个号有进程」，
+ * 说不了「它是不是当初写戳的那个」。要更硬的证据得比对进程启动时间，那超出了这一层的范围。
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/** 有效 pid：正整数（`"22508"` 这种字符串也认，写盘方偶尔给字符串）。 */
+function normalizePid(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * 进程是否还活着（只用 `process.kill(pid, 0)`，不起外部命令）。
+ *
+ * 语义（Windows 实测）：
+ *   · 能发信号 ⇒ 活；
+ *   · `EPERM` ⇒ 进程**存在**但没权限给它发信号（Windows 上 pid 4 / System 就是这种）⇒ 也算活；
+ *   · 其余（`ESRCH` / `ERR_INVALID_ARG_TYPE` …）⇒ 死。
+ *
+ * @param {number|string} pid
+ * @param {{kill?:(pid:number, signal:number)=>void}} [options] 测试注入用（默认 process.kill）
+ * @returns {boolean}
+ */
+export function processIsAlive(pid, { kill = (target, signal) => process.kill(target, signal) } = {}) {
+  const n = normalizePid(pid);
+  if (n === null) return false;
+  try {
+    kill(n, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+/** 旧口径的读法（原样保留）：返回原始 stamp 对象或 null，**不校验 pid**。 */
+function readRawStamp(dir) {
   try {
     const file = buildStampPath(dir);
     if (!nodeFs.existsSync(file)) return null;
@@ -105,6 +151,160 @@ export function readBuildStamp(dir) {
   } catch {
     return null;
   }
+}
+
+/** 读一个 JSON 文件，并把「没有文件」与「文件坏了」分开（旧读法把两者都归成 null）。 */
+function readJsonFile(file) {
+  if (!nodeFs.existsSync(file)) return { status: "missing", value: null, path: file };
+  try {
+    const value = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return { status: "invalid", value: null, path: file };
+    return { status: "ok", value, path: file };
+  } catch {
+    return { status: "invalid", value: null, path: file };
+  }
+}
+
+/**
+ * 读 stamp，并判断它**能不能**代表「现在在跑的是哪一版」。
+ *
+ * 两种调用方式（⚠ 向后兼容）：
+ *   `readBuildStamp(dir)`            → 旧签名，返回原始 stamp 对象或 null（doctor.mjs、
+ *                                     post-restart-check.mjs 仍这么用；本函数**不改变**它们的语义）
+ *   `readBuildStamp({ dir, isAlive })` → 新签名，返回下面的判定对象
+ *
+ * @param {string|{dir?:string, isAlive?:(pid:number)=>boolean, now?:number}} target
+ * @returns {{
+ *   state:"fresh"|"stale"|"missing"|"invalid"|"unverifiable",
+ *   stale:boolean, usable:boolean, path:string, dir:string,
+ *   stamp:object|null, buildId:string|null, version:string|null,
+ *   pid:number|null, pidAlive:boolean|null, startedAt:number|null, ageMs:number|null,
+ *   reason:string
+ * }} 新签名下：`stale:true` ⇔ 写戳的进程已退出（旧值不可当现值）；
+ *    `usable:true` ⇔ 可以据此判断运行版本（只有 fresh 是）。
+ */
+export function readBuildStamp(target) {
+  if (typeof target !== "object" || target === null) return readRawStamp(target);
+
+  const { dir, isAlive = processIsAlive, now = Date.now() } = target;
+  const file = buildStampPath(dir);
+  const read = readJsonFile(file);
+  const base = {
+    path: file,
+    dir: String(dir ?? ""),
+    stamp: read.value,
+    buildId: null,
+    version: null,
+    pid: null,
+    pidAlive: null,
+    startedAt: null,
+    ageMs: null,
+  };
+
+  if (read.status === "missing") {
+    return { ...base, state: "missing", stale: false, usable: false, reason: "没有 build.json（插件没写过戳，或版本早于该机制）" };
+  }
+  if (read.status === "invalid") {
+    return { ...base, state: "invalid", stale: false, usable: false, reason: "build.json 不是合法 JSON（写盘可能中断）" };
+  }
+
+  const stamp = read.value;
+  const buildId = typeof stamp.buildId === "string" && stamp.buildId !== "" ? stamp.buildId : null;
+  const version = typeof stamp.version === "string" && stamp.version !== "" ? stamp.version : null;
+  const pid = normalizePid(stamp.pid);
+  // ⚠ `Number(null)` 是 0、`Number.isFinite(0)` 是 true ⇒ 必须先排除 null/0，否则「没写启动时间」会被当成 1970 年。
+  const startedAt = Number.isFinite(Number(stamp.startedAt)) && Number(stamp.startedAt) > 0 ? Number(stamp.startedAt) : null;
+  const ageMs = startedAt === null ? null : Math.max(0, Number(now) - startedAt);
+  const filled = { ...base, buildId, version, pid, startedAt, ageMs };
+
+  if (pid === null) {
+    return { ...filled, state: "unverifiable", stale: false, usable: false, reason: "stamp 里没有可用的 pid，无法校验写它的进程是否还活着" };
+  }
+
+  let alive;
+  try {
+    alive = Boolean(isAlive(pid));
+  } catch {
+    alive = null;
+  }
+  if (alive === false) {
+    return {
+      ...filled,
+      state: "stale",
+      stale: true,
+      usable: false,
+      pidAlive: false,
+      reason: `stamp 是 pid ${pid} 写的，那个进程已退出；无法据此判断运行版本`,
+    };
+  }
+  if (alive === null) {
+    return {
+      ...filled,
+      state: "unverifiable",
+      stale: false,
+      usable: false,
+      pidAlive: null,
+      reason: `pid ${pid} 的存活性探测出错，无法校验写这个 stamp 的进程是否还活着`,
+    };
+  }
+  return { ...filled, state: "fresh", stale: false, usable: true, pidAlive: true, reason: `stamp 由 pid ${pid} 写、该进程仍存活` };
+}
+
+/** `dir/ui-route.json` 的绝对路径（dir 传 `<home>/chess-context`；测试传临时目录）。 */
+export function uiRoutePath(dir) {
+  return nodePath.join(String(dir ?? ""), "ui-route.json");
+}
+
+/**
+ * 读面板心跳（`ui-route.json`），同样**校验写它的 pid**：心跳里的端口/state 可能属于
+ * 一个早就退出的进程（真机：heartbeat 写着 pid 22508 / 端口 64535，而 64535 无人监听）。
+ *
+ * 返回形状与 `readBuildStamp({dir,isAlive})` 同构：
+ * `{state, stale, usable, path, dir, heartbeat, pid, pidAlive, port, routeState, at, ageMs, reason}`
+ * `state` ∈ `fresh | stale | missing | invalid | unverifiable`。
+ *
+ * @param {{dir?:string, isAlive?:(pid:number)=>boolean, now?:number}} [target]
+ */
+export function readUiRouteHeartbeat(target = {}) {
+  const { dir, isAlive = processIsAlive, now = Date.now() } = target ?? {};
+  const file = uiRoutePath(dir);
+  const read = readJsonFile(file);
+  const base = { path: file, dir: String(dir ?? ""), heartbeat: read.value, pid: null, pidAlive: null, port: null, routeState: null, at: null, ageMs: null };
+
+  if (read.status === "missing") {
+    return { ...base, state: "missing", stale: false, usable: false, reason: "没有 ui-route.json（该实例没写过面板心跳）" };
+  }
+  if (read.status === "invalid") {
+    return { ...base, state: "invalid", stale: false, usable: false, reason: "ui-route.json 不是合法 JSON（写盘可能中断）" };
+  }
+
+  const heartbeat = read.value;
+  const pid = normalizePid(heartbeat.pid);
+  const rawPort = Number(heartbeat.port);
+  const port = Number.isInteger(rawPort) && rawPort > 0 ? rawPort : null;
+  const routeState = typeof heartbeat.state === "string" ? heartbeat.state : null;
+  // 同上：`at:null` 不许被当成 1970 年（那会让「多久前」变成一个巨大的假数）。
+  const at = Number.isFinite(Number(heartbeat.at)) && Number(heartbeat.at) > 0 ? Number(heartbeat.at) : null;
+  const ageMs = at === null ? null : Math.max(0, Number(now) - at);
+  const filled = { ...base, heartbeat, pid, port, routeState, at, ageMs };
+
+  if (pid === null) {
+    return { ...filled, state: "unverifiable", stale: false, usable: false, reason: "心跳里没有可用的 pid，无法校验写它的进程是否还活着" };
+  }
+
+  let alive;
+  try {
+    alive = Boolean(isAlive(pid));
+  } catch {
+    alive = null;
+  }
+  if (alive === false) {
+    return { ...filled, state: "stale", stale: true, usable: false, pidAlive: false, reason: `心跳过期：ui-route.json 是 pid ${pid} 写的，那个进程已退出` };
+  }
+  if (alive === null) {
+    return { ...filled, state: "unverifiable", stale: false, usable: false, pidAlive: null, reason: `pid ${pid} 的存活性探测出错，无法校验这份心跳是否还新鲜` };
+  }
+  return { ...filled, state: "fresh", stale: false, usable: true, pidAlive: true, reason: `心跳新鲜：pid ${pid} 仍存活` };
 }
 
 /**
