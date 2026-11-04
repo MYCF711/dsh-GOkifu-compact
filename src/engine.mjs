@@ -2013,6 +2013,19 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const timer = setInterval(kick, everyMs);
       timer?.unref?.();
       this._autoBackfill = { first, timer };
+      // ★ C593：**启动就落一个"已布防"标记**。否则"补账没跑"和"定时器压根没起来"
+      //   在磁盘上完全一样（都是没有 auto-backfill-state.json 的下一轮结果）。
+      try {
+        const dir = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
+        nodeFs.mkdirSync(dir, { recursive: true });
+        nodeFs.writeFileSync(
+          nodePath.join(dir, "auto-backfill-state.json"),
+          JSON.stringify({ at: Date.now(), armed: true, everyMs, firstDelayMs: delayMs, pid: process.pid }, null, 2),
+          "utf8",
+        );
+      } catch {
+        /* 写不进状态文件不影响补账 */
+      }
     } catch {
       /* 定时器起不来不影响主路径 */
     }
@@ -2112,7 +2125,21 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (pickPool !== withLog) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账避开 ${withLog.length - pickPool.length} 个刚补过的会话（冷却 45 分钟）`);
       }
+      // ★ C593：**后台 job 必须有可查的状态文件**。真机教训（2026-11-04 21:37 / 21:57 两次重启）：
+      //   补账 6 分钟零产出，而日志在宿主控制台里看不到、图上一个字段都没写 ⇒ 只能靠猜。
+      //   这里把每轮的决策写成 `auto-backfill-state.json`（谁被挑中、为什么走/不走、结局是什么）。
+      const report = { at: Date.now(), due: Number(listed?.due ?? 0), max, picked: [], results: [] };
+      const writeReport = () => {
+        try {
+          const dir = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
+          nodeFs.mkdirSync(dir, { recursive: true });
+          nodeFs.writeFileSync(nodePath.join(dir, "auto-backfill-state.json"), JSON.stringify(report, null, 2), "utf8");
+        } catch {
+          /* 状态文件写不进去不影响补账 */
+        }
+      };
       const picked = rankDebts(pickPool, { limit: max });
+      report.picked = picked.map((x) => String(x?.sessionId ?? ""));
       let done = 0;
       // ★ C587：**整轮墙钟**。以前 `t0` 在 for 内的每个会话各自重置 ⇒ 一轮根本没有总预算。
       // ★ C583/C587：本轮时间预算。按秒夹到 [20, 3600]（原来单位写错成 ×1000，等于没有预算）。
@@ -2167,6 +2194,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           if (Date.now() - tickStart > budgetMs) break;
         }
         done += 1;
+        report.results.push({
+          id,
+          marks,
+          folded: Number(lastOutcome?.folded ?? 0),
+          stopped: lastOutcome?.stopped ?? null,
+          partial: lastOutcome?.partial ?? null,
+          error: lastOutcome?.error ?? null,
+        });
         try {
           this._backfillLastPicked.set(id, Date.now());
         } catch {
@@ -2181,8 +2216,22 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (done > 0) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账完成 ${done} 个会话（${Math.round((Date.now() - started) / 1000)}s，剩余欠账 ${Math.max(0, listed.due - done)}）`);
       }
+      report.doneMs = Date.now() - started;
+      writeReport();
     } catch (error) {
       this.ctx?.logger?.warn?.(`chess-context: 自动补账失败（不影响压缩）：${String(error)}`);
+      // ★ C593：**异常也要落盘** —— 否则"零产出"和"从没跑"在磁盘上长得一模一样
+      try {
+        const dir = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
+        nodeFs.mkdirSync(dir, { recursive: true });
+        nodeFs.writeFileSync(
+          nodePath.join(dir, "auto-backfill-state.json"),
+          JSON.stringify({ at: Date.now(), error: String(error?.message ?? error).slice(0, 500) }, null, 2),
+          "utf8",
+        );
+      } catch {
+        /* 状态文件写不进去不影响主流程 */
+      }
     } finally {
       this._autoBackfillBusy = false;
     }
@@ -2310,31 +2359,37 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const callModel = async (prompt, { maxTokens }) => {
         // 与在线摘要**完全同一套**装配方式：stream → assembler.push(chunk) → assembler.blocks()
         const assembler = new BlockAssembler();
-        for await (const chunk of this.ctx.llm.stream({
-          provider: target0.provider,
-          model: target0.model,
-          messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-          maxTokens: Number(maxTokens) || 8192,
-          // ★ C525：**不传真实 sessionId**。传了之后宿主会为这个（已归档的）会话建/激活 surface ——
-          //   用户看到的就是「补账时把会话弹出来」。补账要的是**无头**：只读日志、只写自己的棋谱。
-          purpose: "compaction",
-          // ★ C559：**关掉思考**（官方《思考模式》：默认开启、effort 默认 high，reasoning 也吃
-          //   max_tokens）。脚本那条路早就关了，引擎这条路一直没关 —— 真机实测 reasoning 曾吃掉
-          //   3816/4000，正文只剩 715 字符。摘要这种"照事实改写"的活不需要思考。
-          thinking: { type: "disabled" },
-          // ★ C578：**`reasoning_effort` 的 `none` 才是关闭开关**。官方 API 参考逐字：
-          //   「none 关闭思考模式；low / high / max 开启思考模式」。有些上游忽略 `thinking:disabled`，
-          //   真机（2026-11-06）加 `none` 后 reasoning 从 4,638–14,585 掉到 **455**，
-          //   同一段摘要从 3.8k 字符（被截断）变成 **14,787 字符**（完整）。
-          reasoning_effort: "none",
-        })) {
-          assembler.push(chunk);
+        // ★ C594：**关思考的两个参数不是所有上游都认**。真机（2026-11-04 21:5x）默认模型换成
+        //   `group/kimi-k3.1-pro` 之后补账连续零产出：HTTP 那条路认这两个字段，
+        //   宿主的 `llm.stream` 未必 —— 一旦它严格校验，这里就抛错，而错误只在控制台里。
+        //   所以：**先带、抛了再去掉重试一次**，并把降级记进 notes（可被状态文件带出来）。
+        const streamOnce = async (extra) => {
+          const a = new BlockAssembler();
+          for await (const chunk of this.ctx.llm.stream({
+            provider: target0.provider,
+            model: target0.model,
+            messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+            maxTokens: Number(maxTokens) || 8192,
+            ...extra,
+          })) {
+            a.push(chunk);
+          }
+          return a;
+        };
+        let usedAssembler = assembler;
+        try {
+          usedAssembler = await streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
+        } catch (error) {
+          this.ctx.logger?.warn?.(`chess-context: 离线补折首次调用失败（${String(error?.message ?? error).slice(0, 120)}），去掉 thinking/reasoning_effort 重试`);
+          usedAssembler = await streamOnce({ purpose: "compaction" });
         }
-        const blocks = typeof assembler.blocks === "function" ? assembler.blocks() : [];
+        // ★ C525/C559/C578 的注释留在 streamOnce 的第一次调用里：
+        //   不传真实 sessionId（无头）、thinking:disabled、reasoning_effort:none。
+        const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
         const text = Array.isArray(blocks)
           ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
           : "";
-        return { text, usage: assembler.usage ?? null, model: target0.model };
+        return { text, usage: usedAssembler.usage ?? null, model: target0.model };
       };
       // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
       //   `measureQuality` 闭包在调用期间读它 ⇒ `ReferenceError: Cannot access before initialization`

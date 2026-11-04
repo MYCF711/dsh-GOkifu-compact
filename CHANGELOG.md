@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C577 | 零产出查不出来：加状态文件 + 关思考参数降级重试 |
 | C576 | already-folded 把缺口封印：重启后 12 分钟零折叠 |
 | C575 | 补账没有截止时间：卡一次就把后台停掉，且无日志 |
 | C574 | 给测试运行器加锁：并发跑会造出四种不同的计数 |
@@ -648,6 +649,59 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C577 · 零产出查不出来：加状态文件 + 关思考参数降级重试
+
+**重启后仍然零折叠。这次不再猜 —— 加了三样东西让它自己说话。**
+
+### 一、发现：默认模型已经换成 kimi，单段要 169 秒
+
+干跑同一段（`226dbf4f`）：
+
+```
+模型 group/kimi-k3.1-pro · 估价 $0.0020（低谷）
+✓ 已写回：摘要 8,783 字符 · 168,981ms · reasoning 3,436
+```
+
+**169 秒/段**，而且 `reasoning_effort: "none"` 对 kimi **无效**（照样 3,436 reasoning）。
+
+### 二、C594：关思考的参数不一定被认，抛了要去掉重试
+
+`thinking:{type:"disabled"}` / `reasoning_effort:"none"` 是 DeepSeek 的口径。
+宿主 `llm.stream` 对**别的上游**可能严格校验 —— 一旦抛错，只在控制台留一句，图上一个字段都不写。
+
+改法：**先带、抛了再去掉这两个字段重试一次**，并把降级原因写进日志（下一步进状态文件）。
+
+### 三、C593：后台 job 必须有可查的状态文件
+
+真机两次重启（21:37 / 21:57）都出现「零产出」，而：
+
+- 日志在宿主控制台里 —— 我看不到；
+- `chunks.length === 0` 时引擎**直接 return**，图上什么都不写。
+
+⇒ **"零产出" 和 "从没跑过" 在磁盘上长得一模一样**，只能猜。
+
+现在每轮写 `chess-context/auto-backfill-state.json`：
+
+```json
+{ "at": ..., "due": 195, "max": 5, "picked": ["..."], "results": [{ "id": "...", "folded": 0, "stopped": "timeout", "error": null }], "doneMs": 1234 }
+```
+
+启动时先落一条 `{armed:true, everyMs, firstDelayMs, pid}` —— 若过了首轮时间还是这条，就说明**定时器根本没跑**；
+抛错时也落 `{error: "..."}`。配套命令：
+
+```
+node scripts/backfill-state.mjs        # 一条命令看它现在在干什么
+node scripts/backfill-state.mjs --json
+```
+
+### 四、验证
+
+```
+node test/run.mjs → 1370 passed, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+node scripts/backfill-state.mjs → 还没有状态文件（本版未重启，符合预期）
+```
 
 ### C576 · already-folded 把缺口封印：重启后 12 分钟零折叠
 

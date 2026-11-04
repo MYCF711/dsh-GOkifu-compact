@@ -166,3 +166,10 @@ tests["C591 补账要轮转：刚补过的会话 45 分钟内不再优先（否�
   t.includes(seg, "pickPool", "冷却后不够时要退回完整列表");
   t.eq(seg.includes("rankDebts(withLog, { limit: max })"), false, "不许再直接对完整列表取头部");
 };
+
+tests["C593 后台补账必须有状态文件（否则零产出与没跑过长得一样）"] = (t) => {
+  const src = engine();
+  t.includes(src, "auto-backfill-state.json", "要写状态文件");
+  t.includes(src, "armed: true", "启动要落一个已布防标记");
+  t.includes(src, "异常也要落盘", "抛错也要能看出来");
+};
