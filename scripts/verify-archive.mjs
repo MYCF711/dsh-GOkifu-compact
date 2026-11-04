@@ -70,8 +70,9 @@ const LABEL = { folded: "✅ 真折了", fake: "❌ 假成功", unfolded: "⚠ �
 export function main(argv = process.argv.slice(2)) {
   const i = argv.indexOf("--session");
   const want = i >= 0 ? argv[i + 1] : null;
-  if (want === null || String(want).startsWith("--")) {
-    console.log("用法：node scripts/verify-archive.mjs --session <会话 id 或前缀>");
+  const all = argv.includes("--all");
+  if (!all && (want === null || String(want).startsWith("--"))) {
+    console.log("用法：node scripts/verify-archive.mjs --session <会话 id 或前缀> | --all");
     return 2;
   }
   const home = resolveHome();
@@ -81,7 +82,7 @@ export function main(argv = process.argv.slice(2)) {
     return 2;
   }
   const dirs = nodeFs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-  const hits = dirs.filter((name) => name.includes(String(want)));
+  const hits = all ? dirs : dirs.filter((name) => name.includes(String(want)));
   if (hits.length === 0) {
     console.log(`找不到含「${want}」的会话`);
     return 2;
@@ -103,6 +104,23 @@ export function main(argv = process.argv.slice(2)) {
       debt = null;
     }
     rows.push({ session: name, ...verdictOfGraph(graph, { debt }), debt });
+  }
+  if (all) {
+    const tally = { folded: 0, fake: 0, unfolded: 0, none: 0 };
+    for (const r of rows) tally[r.verdict] += 1;
+    const bad = rows.filter((r) => r.verdict === "fake" || r.verdict === "unfolded");
+    if (argv.includes("--json")) {
+      process.stdout.write(`${JSON.stringify({ tally, needWork: bad }, null, 1)}\n`);
+    } else {
+      console.log(`== 全部 ${rows.length} 个会话的归档判决 ==`);
+      console.log(`  ✅ 真折了 ${tally.folded} · ❌ 假成功 ${tally.fake} · ⚠ 未折 ${tally.unfolded} · — 无记录 ${tally.none}`);
+      if (bad.length > 0) {
+        console.log("  需要处理的：");
+        for (const r of bad.slice(0, 10)) console.log(`    ${LABEL[r.verdict]} · ${r.session.slice(0, 24)} · ${r.detail}`);
+        if (bad.length > 10) console.log(`    …另 ${bad.length - 10} 个`);
+      }
+    }
+    return bad.length === 0 ? 0 : 1;
   }
   if (argv.includes("--json")) {
     process.stdout.write(`${JSON.stringify(rows, null, 1)}\n`);

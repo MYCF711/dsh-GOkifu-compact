@@ -40,9 +40,19 @@ tests["C476 debtOfGraph 真的会因此重新算账（真机会话的形状）"]
   t.eq(r.folded, false, "没有 archive/backfill 折叠记录");
   t.eq(r.closedOut, false, "这次尝试不算结清");
   t.eq(r.due, true, "于是它重新出现在欠账里 —— 重开该会话时还能补");
-  // 真折过一次之后就不再欠
-  const done = debtOfGraph({ ...graph, closeout: { ...graph.closeout, folded: 1 } });
-  t.eq(done.due, false, "折完之后不再欠");
+  // ★ C569：**"说折了"不算数，要有折叠记录**。旧版本这里只改 folded 字段就当折完了 ——
+  //   而真机有 74 个会话正是这个形状（closeout.folded>0 / foldMarks=0），于是永远不进欠账。
+  const claimOnly = debtOfGraph({ ...graph, closeout: { ...graph.closeout, folded: 1 } });
+  t.eq(claimOnly.due, true, "只写 folded:1、没有 mark ⇒ 仍然欠着（假成功不许当结清）");
+  t.eq(claimOnly.closedOut, false, "没证据就不算结清");
+
+  // 真折过一次（有 mark）之后才不再欠
+  const done = debtOfGraph({
+    ...graph,
+    foldMarks: [{ trigger: "archive", seqStart: 1, seqEnd: 1205, at: 1 }],
+    closeout: { ...graph.closeout, folded: 1 },
+  });
+  t.eq(done.due, false, "有 archive mark ⇒ 折完了，不再欠");
 };
 
 tests["C477 引擎补账与账本必须共用同一条判据（同一个坑不能在两处各挖一个）"] = (t) => {

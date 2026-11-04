@@ -87,7 +87,17 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   }
   const tail = lastFoldSeq === null ? maxSeq : Math.max(0, maxSeq - lastFoldSeq);
   // ★ C476：不是"有 closeout 就算结清"，而是**看结局**（见 closeoutSettles）
-  const closedOut = closeoutSettles(graph?.closeout);
+  // ★ C569：**「说折了」还要「真有折叠记录」**。真机（2026-11-06 全库扫描 312 个会话）：
+  //   **74 个**会话的 closeout 写着 `folded > 0`，而 `foldMarks` 是 **0** —— 旧代码空转留下的假成功。
+  //   若仍然按 closeout 判结清，这 74 个会话的尾巴**永远不会进欠账**，也就永远不会被补。
+  //   证据与 `folded` 同口径：有 archive/backfill/archive-offline 的 mark，或有 chunkedFolded。
+  const closeoutSettlesRaw = closeoutSettles(graph?.closeout);
+  const foldedEvidence =
+    (Array.isArray(graph?.foldMarks) ? graph.foldMarks : []).some(
+      (m) => m?.trigger === "archive" || m?.trigger === "backfill" || m?.trigger === "archive-offline",
+    ) || Number(graph?.closeout?.chunkedFolded) > 0;
+  const claimsFolded = Number(graph?.closeout?.folded) > 0;
+  const closedOut = closeoutSettlesRaw && (claimsFolded ? foldedEvidence : true);
   // 有没有一条真正由收尾触发的折叠（archive / backfill）—— 只有 closeout 记录不算折过。
   // ★ C299：**分段收尾不进 foldMarks**（走 compactRegion），只留 `closeout.chunkedFolded`；
   //   不把它算进来，已经折完的会话会被当成"没折过"（与 doctor 的判断口径分裂）。
