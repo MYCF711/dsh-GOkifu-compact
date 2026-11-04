@@ -2324,7 +2324,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           return null;
         }
       })();
-      const result = await runOfflineFold({
+      // ★ C590：**离线补折必须有截止时间**。一次模型调用卡住 ⇒ `_autoBackfillBusy` 一直为真
+      //   ⇒ 后续每个 tick 都直接 return（整机停补，而且没有任何报错）。
+      //   这里两重保险：① 编排内部按 deadline 提前收工；② 整体再 race 一次，防止单次调用挂死。
+      const foldDeadline = Date.now() + Math.max(30_000, Number(this.chess.offlineFoldTimeoutMs ?? 240_000));
+      const result = await Promise.race([
+        runOfflineFold({
+          deadline: foldDeadline,
         graph,
         events,
         rangeStart,
@@ -2343,7 +2349,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           // ★ C539：硬事实块里的 id 跨整个会话，不算"越界引用"
           allowedIds: factsIds,
         }),
-      });
+        }),
+        new Promise((resolve) => {
+          const ms = Math.max(0, foldDeadline - Date.now());
+          const timer = setTimeout(() => resolve({ chunks: [], coveredStart: null, coveredEnd: null, uncoveredHead: 0, uncoveredTail: 0, failed: "deadline" }), ms);
+          timer?.unref?.();
+        }),
+      ]);
       const outcome = offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq: rangeEnd });
       if ((result?.chunks ?? []).length === 0) {
         this.ctx.logger?.warn?.(`chess-context: 离线补折没产出（${result?.failed ?? "empty"}），保持原结局`);

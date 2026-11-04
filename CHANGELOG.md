@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C575 | 补账没有截止时间：卡一次就把后台停掉，且无日志 |
 | C574 | 给测试运行器加锁：并发跑会造出四种不同的计数 |
 | C573 | 审核又抓 6 处：面板补账 100% 不可用 + 我自己的 4 个回归 |
 | C572 | 三个并发/长跑才暴露的边界：指纹判据、partial、emoji |
@@ -646,6 +647,43 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C575 · 补账没有截止时间：卡一次就把后台停掉，且无日志
+
+**审核最后一条没修的：离线补折**没有截止时间**。一次模型调用卡住，整个后台补账就停了 —— 而且没有任何报错。**
+
+### 一、坏在哪
+
+```js
+for await (const chunk of this.ctx.llm.stream(options)) { ... }   // 没有超时
+```
+
+`#offlineCloseoutFold` 靠 `_autoBackfillBusy` 防重入：
+
+```js
+if (this._autoBackfillBusy) return;   // 真值期间，后续每个 tick 直接 return
+```
+
+⇒ 上游一旦不返回（挂住、不报错、不断连接），`busy` 永远为真，
+**之后每 30 分钟的 tick 全部空转**，用户只会看到"补账不动了"，日志里一条都没有。
+
+### 二、改法（C590）：两重截止
+
+1. **编排内部**：`runOfflineFold({ deadline })` 每段开始前检查，到点带着 `stopped:"deadline"` 收工
+   （**已折的段照常写回**，`partial` 记着还剩多少）；
+2. **整体 race**：`Promise.race([runOfflineFold(...), 定时器])`，防单次调用挂死。
+
+默认 240 秒，可用 `offlineFoldTimeoutMs` 覆盖，下限 30 秒。
+
+### 三、验证
+
+```
+node test/run.mjs → 1367 passed, 0 failed
+（守卫：deadline 已过期 ⇒ 一段不折 + failed:"deadline" + outcome.partial true + **不许调模型**）
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
+
+> 这类"没有报错的停摆"最难查：它不写日志、不报错、不红测试，只是**再也不动了**。
 
 ### C574 · 给测试运行器加锁：并发跑会造出四种不同的计数
 

@@ -479,16 +479,28 @@ export async function runOfflineFold({
    *   否则"欠账区间 1-21543"永远只压最后那段，缺口原地不动。
    */
   fromHead = false,
+  /**
+   * ★ C590：**截止时间（ms 时间戳）**。补账在后台跑，一次模型调用卡住会让
+   *   `_autoBackfillBusy` 一直为真 ⇒ **后续每个 tick 都直接 return**（整机停补）。
+   *   到了 deadline 就带着 `stopped:"deadline"` 提前收工，已折的段照常写回。
+   */
+  deadline = null,
   callModel,
   measureQuality,
 }) {
   const chunks = [];
+  let stoppedEarly = null;
   const limit = Math.max(1, Number(maxChunks) || 1);
   let cursor = rangeStart;
   let coveredStart = null;
   let coveredEnd = null;
   for (let n = 1; n <= limit; n += 1) {
     if (rangeEnd < cursor) break;
+    // ★ C590：到点就收工（已折的段照常写回；outcome 会带 stopped:"deadline"、partial:true）
+    if (deadline !== null && Number.isFinite(Number(deadline)) && Date.now() > Number(deadline)) {
+      stoppedEarly = "deadline";
+      break;
+    }
     const chunkStart = cursor;
     // ★ C538：seq → 节点 id（同一 seq 多个节点时取第一个；没有就留空）
     const idBySeq = (() => {
@@ -595,7 +607,7 @@ export async function runOfflineFold({
   }
   const uncoveredHead = coveredStart === null ? 0 : Math.max(0, coveredStart - rangeStart);
   const uncoveredTail = coveredEnd === null ? Math.max(0, rangeEnd - rangeStart + 1) : Math.max(0, rangeEnd - coveredEnd);
-  return { chunks, coveredStart, coveredEnd, uncoveredHead, uncoveredTail };
+  return { chunks, coveredStart, coveredEnd, uncoveredHead, uncoveredTail, ...(stoppedEarly !== null ? { failed: stoppedEarly } : {}) };
 }
 
 /**

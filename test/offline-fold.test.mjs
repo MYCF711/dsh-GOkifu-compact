@@ -447,3 +447,24 @@ tests["C586 剩余缺口也算 partial（两套口径不许打架）"] = async (
   t.eq(g.closeout.partial, true, "旧缺口还剩 300 ⇒ 必须标 partial");
   t.eq(Number(g.closeout.offlineUncoveredHead?.events), 300, "剩余缺口要写清");
 };
+
+tests["C590 补账必须有截止时间（卡死一次会停掉整个后台补账）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  // deadline 已过期 ⇒ 一段都不折，并老实写 stopped:"deadline"
+  const out = await m.runOfflineFold({
+    graph: { nodes: { n1: { id: "n1", seq: 1 } }, edges: {}, foldMarks: [] },
+    events: Array.from({ length: 50 }, (_, i) => ({ seq: i + 1, type: "user/message", text: "x" })),
+    rangeStart: 1,
+    rangeEnd: 50,
+    deadline: Date.now() - 1,
+    callModel: async () => {
+      throw new Error("不该被调用");
+    },
+    measureQuality: () => null,
+  });
+  t.eq(out.chunks.length, 0, "到点就不折");
+  t.eq(out.failed, "deadline", "要写明为什么没折");
+  const oc = m.offlineFoldOutcome(out, { rangeStart: 1, rangeEnd: 50, maxSeq: 50 });
+  t.eq(oc.stopped, "deadline", "outcome 要带出去");
+  t.eq(oc.partial, true, "没折完必须 partial");
+};

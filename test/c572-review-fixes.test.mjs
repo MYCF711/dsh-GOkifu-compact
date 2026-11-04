@@ -114,7 +114,7 @@ tests["C572⑤ factsIds 必须声明在 runOfflineFold 之前（否则 TDZ 崩�
   const at = src.indexOf("async #offlineCloseoutFold");
   const seg = src.slice(at, at + 9000);
   const factsAt = seg.indexOf("const factsIds = (() =>");
-  const callAt = seg.indexOf("await runOfflineFold({");
+  const callAt = seg.indexOf("runOfflineFold({", seg.indexOf("const foldDeadline") >= 0 ? 0 : 0);
   t.eq(factsAt >= 0 && callAt >= 0, true, "两处都要在");
   t.eq(factsAt < callAt, true, "factsIds 必须先声明（闭环里被 measureQuality 读取）");
   t.includes(seg, "Cannot access before initialization", "注释要留下这个坑");
