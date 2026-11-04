@@ -17,6 +17,8 @@ import nodePath from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readBuildStamp, readUiRouteHeartbeat } from "../src/rooms/build-stamp.mjs";
+// ★ 2026-11-05：补账状态由 backfill-state.mjs 统一聚合（多实例共享同一目录），不在这里复制读盘逻辑。
+import { readBackfillState, describeInstance } from "./backfill-state.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -24,7 +26,6 @@ const json = process.argv.includes("--json");
 
 const home = process.env.DSH_HOME ?? nodePath.join(nodePath.dirname(nodePath.dirname(process.env.USERPROFILE ?? "")), "DeepSeek Harness", "home");
 const graphRootDir = nodePath.join(home, "chess-context");
-const stateFile = nodePath.join(graphRootDir, "auto-backfill-state.json");
 
 const rows = [];
 const add = (level, name, detail) => rows.push({ level, name, detail });
@@ -115,29 +116,49 @@ function diskBuildId() {
 }
 
 // ② 自动补账状态
-if (!nodeFs.existsSync(stateFile)) {
-  add("warn", "自动补账状态", "还没有 auto-backfill-state.json —— 本版可能未重启，或自动补账被关掉");
-} else {
-  try {
-    const s = JSON.parse(nodeFs.readFileSync(stateFile, "utf8"));
-    const minutes = Math.round((Date.now() - Number(s.at ?? 0)) / 60_000);
-    if (s.armed === true && s.picked === undefined) {
-      add("warn", "自动补账状态", `已布防但还没跑过（${minutes} 分钟前启动）`);
+// ★ 2026-11-05：`<chess-context>` 被**多个实例共享**，一个 `auto-backfill-state.json` 只能说明
+//   「最后写者是谁」（实测 02:30/02:34 被不同实例互相覆盖，pid 读到时就已退出）。
+//   ⇒ 这里不再自己 parse 单文件，改用 backfill-state.mjs 的聚合口径：取「最新且存活」的那份，
+//   已退出 pid 的旧值**不当现值**（只报不可信，不许据此说「补账停了」）。
+{
+  const agg = readBackfillState({ dir: graphRootDir });
+  if (agg.missing) {
+    add("warn", "自动补账状态", "还没有 auto-backfill-state.json —— 本版可能未重启，或自动补账被关掉");
+  } else {
+    const latest = agg.latest;
+    const s = latest?.data ?? {};
+    const minutes = Math.round((Date.now() - Number(latest?.at ?? 0)) / 60_000);
+    const othersNote =
+      agg.others.length > 0
+        ? ` · 另有 ${agg.others.length} 个实例状态（${agg.others.map((e) => `${describeInstance(e)} ${agoText(Number(e.ageMs ?? 0))}`).join("、")}）`
+        : "";
+    if (latest?.parseError) {
+      add("warn", "自动补账状态", "状态文件不是合法 JSON（写盘可能中断）");
+    } else if (latest?.alive === false) {
+      // 写这份的进程已经没了 ⇒ 它既不能证明「补账在跑」，也不能证明「补账停了」。
+      add(
+        "warn",
+        "自动补账状态",
+        `${describeInstance(latest)} 写的状态（${minutes} 分钟前）—— 已退出实例的旧值**不是**现在在跑的实例，先确认当前 pid${othersNote}`,
+      );
+    } else if (s.armed === true && s.picked === undefined) {
+      add("warn", "自动补账状态", `已布防但还没跑过（${minutes} 分钟前启动）${othersNote}`);
     } else if (typeof s.error === "string") {
-      add("bad", "自动补账状态", `最近一轮抛错：${s.error.slice(0, 160)}`);
+      add("bad", "自动补账状态", `最近一轮抛错：${s.error.slice(0, 160)}${othersNote}`);
     } else {
       const results = Array.isArray(s.results) ? s.results : [];
       const folded = results.reduce((n, r) => n + (Number(r.folded) || 0), 0);
       const done = results.filter((r) => (r.stopped ?? "done") === "done" && (Number(r.folded) || 0) > 0).length;
       const inactive = results.filter((r) => r.stopped === "inactive-context").length;
-      const detail = `${minutes} 分钟前 · 挑中 ${(s.picked ?? []).length} 个 · 折了 ${folded} 段（${done} 个会话有产出）` + (inactive > 0 ? ` · ${inactive} 个在等活跃回合` : "");
+      const detail =
+        `${minutes} 分钟前 · 挑中 ${(s.picked ?? []).length} 个 · 折了 ${folded} 段（${done} 个会话有产出）` +
+        (inactive > 0 ? ` · ${inactive} 个在等活跃回合` : "") +
+        othersNote;
       if (minutes > 90) add("bad", "自动补账状态", `${detail} —— **超过 90 分钟没更新**，可能停了`);
       else if (folded === 0 && results.length > 0 && inactive === results.length) add("warn", "自动补账状态", `${detail} —— 全部在等活跃回合（无人用机时正常）`);
       else if (folded === 0 && results.length > 0) add("bad", "自动补账状态", `${detail} —— 跑了但一段都没折`);
       else add("ok", "自动补账状态", detail);
     }
-  } catch {
-    add("warn", "自动补账状态", "状态文件不是合法 JSON（写盘可能中断）");
   }
 }
 

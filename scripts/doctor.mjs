@@ -34,7 +34,7 @@ import { accumulateCacheUsage, createCacheUsage, summarizeCacheUsage } from "./c
 import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
-import { compareBuildId, compareBuildStamp, readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
+import { compareBuildId, compareBuildStamp, readBuildStamp, readUiRouteHeartbeat, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
 import { foldCostMetrics, normalizeUsage } from "../src/rooms/fold-quality.mjs";
 // ★ C599：欠账口径只留一份（`debtOfGraph` 就是引擎/面板/补账共用的那个实现）——
 //   doctor 自己再写一遍"还欠多少"，迟早会和补账的口径打架。
@@ -2253,17 +2253,30 @@ mark('C219 注入动作');
    `/gokifu/api` 变成 GET 404 / POST 405，而 doctor、全量测试、门禁**全是绿的** ——
    面板静默死掉几十分钟没人发现。UI 侧在注册时写心跳、卸载时标 closed，这里只读文件、不探网。 */
 {
-  const heartbeat = nodePath.join(home, "chess-context", "ui-route.json");
-  if (!nodeFs.existsSync(heartbeat)) {
+  // ★ C604（2026-11-05 真机）：心跳可能是**已退出进程**写的 —— `ui-route.json` 写着 pid 22508 /
+  //   端口 64535，而 22508 早已退出、64535 无人监听。旧实现只 `JSON.parse` 就把里面的 `state`
+  //   当「面板现在的状态」⇒ 把「写心跳的进程死了」读成「面板**被卸载、重启才能恢复**」，
+  //   **这就是今晚误判的源头**。现在先验写心跳的 pid：过期心跳只陈述「这份文件答不了面板现状」。
+  const read = readUiRouteHeartbeat({ dir: nodePath.join(home, "chess-context") });
+  if (read.state === "missing") {
     add("面板路由心跳", "warn", "未采集（没有 ui-route.json —— C332 之前启动的实例不会写；重启后才有）");
   } else {
-    let hb = null;
-    try {
-      hb = JSON.parse(nodeFs.readFileSync(heartbeat, "utf8"));
-    } catch {
-      hb = null;
-    }
-    if (hb === null || typeof hb !== "object") {
+    let hb = read.state === "fresh" ? read.heartbeat : null;
+    if (read.state === "stale") {
+      // 死进程写的心跳：state/port 都是旧值 —— 只许说「答不了面板现状」，**不许**断言被卸载/需要重启
+      add(
+        "面板路由心跳",
+        "warn",
+        `**心跳过期**：ui-route.json 由 pid ${read.pid ?? "?"} 写成、该进程已退出 —— ` +
+          `面板现在是什么状态，这份文件答不了（旧值 state=${read.routeState ?? "?"} · port=${read.port ?? "?"} 不作数）`,
+      );
+    } else if (read.state === "invalid" || read.state === "unverifiable") {
+      add(
+        "面板路由心跳",
+        "warn",
+        read.state === "invalid" ? "心跳文件解析失败（内容不是 JSON）" : `心跳无法校验（${read.reason}）—— 端口/state 都不能当现值`,
+      );
+    } else if (hb === null || typeof hb !== "object") {
       add("面板路由心跳", "warn", "心跳文件解析失败（内容不是 JSON）");
     } else {
       const at = Number.isFinite(hb.at) ? new Date(hb.at).toISOString() : "?";

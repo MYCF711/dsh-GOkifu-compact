@@ -19,7 +19,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { checkPanelCapabilities } from "./post-restart-check.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { currentGoalOf } from "../src/rooms/ledger.mjs";
-import { repoBuildId } from "../src/rooms/build-stamp.mjs";
+import { readUiRouteHeartbeat, repoBuildId } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -262,21 +262,40 @@ export async function main(argv = process.argv.slice(2)) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
   };
+  const home = getArg("home", process.env.DSH_HOME ?? "");
+  const graphDir = nodePath.join(home, "chess-context");
+  /**
+   * ★ 2026-11-05（C604，真机事故）：心跳可能是**已退出进程**写的。
+   *
+   * 现场：`ui-route.json` 写着 `pid 22508 / port 64535`，那个 pid 当晚早已退出、64535 无人监听，
+   * 而面板实际在别的端口。旧实现直接取 `hb.port` ⇒ 去探一个没人监听的端口、报「面板不可达」；
+   * 又直接拿 `hb.buildId` 跟磁盘比 ⇒ 报「跑的不是仓库里这份代码」。**两个结论都是反的。**
+   *
+   * 现在的口径（C604 / build-stamp 的 `readUiRouteHeartbeat`）：**只有 `state === "fresh"`
+   * （写心跳的 pid 还活着）才许取 `port` / `buildId`**；过期就明说「心跳过期，无法判断面板状态」，
+   * 端口交给发现逻辑（C410/C412）去扫 —— 它找的是「现在真的在服务的那个」，不是旧值。
+   */
+  const hbRead = readUiRouteHeartbeat({ dir: graphDir });
+  const heartbeatFresh = hbRead.state === "fresh";
+  const heartbeatUnusable = hbRead.state === "stale" || hbRead.state === "invalid" || hbRead.state === "unverifiable";
+  const heartbeatDetail = (() => {
+    if (!heartbeatUnusable) return "";
+    // `readUiRouteHeartbeat` 的 reason 已带「心跳过期：」前缀，这里去掉避免同一句说两遍。
+    const why = String(hbRead.reason ?? "").replace(/^心跳(过期|不可信)[:：]/, "");
+    const old = hbRead.port === null ? "" : `；端口 ${hbRead.port} 是旧值、不作数`;
+    return `${hbRead.state === "stale" ? "心跳过期" : "心跳不可信"}，无法判断面板状态：${why}${old}`;
+  })();
   // ★ C332：优先用**面板自己写的心跳**里的端口 —— 真机上可能同时有多个 DSH 进程，
   //   硬编码端口会探到别人身上（实测：心跳写着 pid 19540，而 64349 是另一个进程）。
-  const heartbeatPort = (() => {
-    try {
-      const file = nodePath.join(process.env.DSH_HOME ?? "", "chess-context", "ui-route.json");
-      if (!nodeFs.existsSync(file)) return null;
-      const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
-      // ★ C439：`Number(null)` 是 **0**，而 `Number.isFinite(0)` 是 **true** ⇒ `port:null` 会被当成端口 0。
-        return hb?.port === null || hb?.port === undefined ? null : Number.isFinite(Number(hb.port)) ? Number(hb.port) : null;
-    } catch {
-      return null;
-    }
-  })();
+  const heartbeatPort = heartbeatFresh ? hbRead.port : null;
+  // 心跳里的 buildId：`readUiRouteHeartbeat` 不透传它，只能从原始心跳对象取（同样是**只在 fresh 时**才作数）。
+  const rawHeartbeatBuildId =
+    typeof hbRead.heartbeat?.buildId === "string" && hbRead.heartbeat.buildId !== "" ? hbRead.heartbeat.buildId : null;
+  const heartbeatBuildId = heartbeatFresh ? rawHeartbeatBuildId : null;
   // ★ C410：心跳拿不到端口时，**自己去找**（扫本机监听端口）。
   const explicitPort = Number(getArg("port", ""));
+  // 测试用：`DSH_GOKIFU_NO_PORT_DISCOVER=1` 关掉端口发现 —— 否则用例会依赖本机当时开着哪些服务。
+  const discoverAllowed = !/^(0|false|no|off)$/i.test(String(process.env.DSH_GOKIFU_NO_PORT_DISCOVER ?? ""));
   const discoverPort = async () => {
     try {
       const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
@@ -303,20 +322,34 @@ export async function main(argv = process.argv.slice(2)) {
       return null;
     }
   };
-  const port = explicitPort || heartbeatPort || (await discoverPort()) || 64349;
-  const home = getArg("home", process.env.DSH_HOME ?? "");
-  // ★ C338：端口属主 vs 心跳 pid —— 真机上这俩经常不是同一个进程
-  const heartbeatPid = (() => {
-    try {
-      const file = nodePath.join(home, "chess-context", "ui-route.json");
-      if (!nodeFs.existsSync(file)) return null;
-      const hb = JSON.parse(nodeFs.readFileSync(file, "utf8"));
-      return Number.isInteger(Number(hb?.pid)) ? Number(hb.pid) : null;
-    } catch {
-      return null;
+  /**
+   * 端口来源要记住：`default` 表示「心跳不可信 + 没指定 + 也没扫到」时的兜底值 ——
+   * 那种端口的探测结果**不能**当面板结论（真机事故里正是这一步报出了「面板不可达」）。
+   */
+  let port = null;
+  let portSource = "none";
+  if (Number.isInteger(explicitPort) && explicitPort > 0) {
+    port = explicitPort;
+    portSource = "explicit";
+  } else if (heartbeatPort !== null) {
+    port = heartbeatPort;
+    portSource = "heartbeat";
+  } else {
+    const found = discoverAllowed ? await discoverPort() : null;
+    if (found !== null) {
+      port = found;
+      portSource = "discovered";
+    } else if (!heartbeatUnusable) {
+      // 心跳**缺失/读不到**（不是过期）时保留旧行为：兜底端口至少能试一次。
+      port = 64349;
+      portSource = "default";
     }
-  })();
+  }
+  // ★ C338：端口属主 vs 心跳 pid —— 真机上这俩经常不是同一个进程
+  //   ★ C604：心跳过期 ⇒ 那个 pid 是历史值，拿它跟端口比只会造出一句假结论。
+  const heartbeatPid = heartbeatFresh ? hbRead.pid : null;
   const ownerPid = (() => {
+    if (port === null) return null;
     try {
       const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15000 });
       return listeningPidOf(out, port);
@@ -324,28 +357,35 @@ export async function main(argv = process.argv.slice(2)) {
       return null;
     }
   })();
-  const caps = await checkPanelCapabilities(undefined, { port });
+  const caps =
+    port === null
+      ? { level: "warn", detail: heartbeatDetail, known: [], unknown: [] }
+      : await checkPanelCapabilities(undefined, { port });
 
-  let backfill = { reachable: false, due: null, error: null };
+  // ★ C604：端口不可知时**不许**探、更不许报「通道不通」—— `reachable:null` 在 `verdictOf` 里
+  //   既不算通也不算不通（只是「没测」），比一个假的 `false` 诚实。
+  let backfill = { reachable: null, due: null, error: null };
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "backfill", dryRun: true }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    const text = await res.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
+    if (port !== null) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "backfill", dryRun: true }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const text = await res.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      if (json !== null && typeof json.error === "string") backfill = { reachable: false, due: null, error: json.error };
+      else backfill = { reachable: true, due: Number(json?.due ?? NaN), error: null };
     }
-    if (json !== null && typeof json.error === "string") backfill = { reachable: false, due: null, error: json.error };
-    else backfill = { reachable: true, due: Number(json?.due ?? NaN), error: null };
   } catch (error) {
     backfill = { reachable: false, due: null, error: String(error) };
   }
@@ -357,6 +397,8 @@ export async function main(argv = process.argv.slice(2)) {
 
   // ★ C353：`buildOk` 不许写死 true —— 真机上"跑的是旧代码"是最常见的情形，
   //   验收脚本自己撒谎就等于没有验收。这里用心跳里的 buildId 与磁盘比。
+  // ★ 2026-11-05（C604）：但心跳里的 buildId **只有写它的进程还活着**时才算「运行实例的版本」。
+  //   心跳过期 ⇒ 那是已退出进程留下的旧值，比出来的「不一致」是假的（真机：pid 22508 / build e880016159fa）。
   const build = (() => {
     let disk = null;
     try {
@@ -364,43 +406,54 @@ export async function main(argv = process.argv.slice(2)) {
     } catch {
       disk = null;
     }
-    let heartbeat = null;
-    try {
-      const file = nodePath.join(home, "chess-context", "ui-route.json");
-      if (nodeFs.existsSync(file)) heartbeat = JSON.parse(nodeFs.readFileSync(file, "utf8"))?.buildId ?? null;
-    } catch {
-      heartbeat = null;
-    }
+    const heartbeat = heartbeatBuildId;
     if (disk === null || heartbeat === null) return { ok: null, disk, heartbeat };
     return { ok: String(disk) === String(heartbeat), disk, heartbeat };
   })();
   // ★ C395：字段级探针（面板跑的代码是否已含最新字段）
-  const fieldProbe = await (async () => {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "state" }),
-      });
-      return panelFieldProbe(await res.json());
-    } catch {
-      return null;
-    }
-  })();
+  const fieldProbe =
+    port === null
+      ? null
+      : await (async () => {
+          try {
+            const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "state" }),
+            });
+            return panelFieldProbe(await res.json());
+          } catch {
+            return null;
+          }
+        })();
   // ★ C409：参数级探针（干跑 + 不存在的 id，不花钱）
-  const paramProbe = await (async () => {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "backfill", dryRun: true, sessionIds: ["__probe__"] }),
-      });
-      return sessionIdsProbe({ status: res.status, json: await res.json() });
-    } catch {
-      return "unknown";
-    }
-  })();
+  const paramProbe =
+    port === null
+      ? "unknown"
+      : await (async () => {
+          try {
+            const res = await fetch(`http://127.0.0.1:${port}/gokifu/api`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ action: "backfill", dryRun: true, sessionIds: ["__probe__"] }),
+            });
+            return sessionIdsProbe({ status: res.status, json: await res.json() });
+          } catch {
+            return "unknown";
+          }
+        })();
   const result = verdictOf({ caps, backfill, ...evidence, buildOk: build.ok });
+  // ★ C604：把「心跳不可信」变成**一条明的结论**，而不是让它悄悄退化成「面板不可达」。
+  if (heartbeatDetail !== "") {
+    result.todo.push(heartbeatDetail);
+    if (result.verdict === "ready") result.verdict = "partial";
+  }
+  if (hbRead.state === "stale" && rawHeartbeatBuildId !== null) {
+    result.todo.push(
+      `心跳里的 build ${rawHeartbeatBuildId} 是由**已退出的 pid ${hbRead.pid}** 写成的旧值 —— ` +
+        `它不构成「新代码没生效」的证据（磁盘 build ${build.disk ?? "?"} 才是现状）`,
+    );
+  }
   if (paramProbe === "unsupported") {
     result.todo.push("面板不认识 `sessionIds` 参数（C408）—— 别带着它发真补账请求，否则会静默跑 20 个");
   }
@@ -416,7 +469,23 @@ export async function main(argv = process.argv.slice(2)) {
         : `（**端口 ${port} 属 pid ${ownerPid}，而心跳来自 pid ${heartbeatPid}** —— 插件没注册到 GUI 进程里）`;
   if (ownerNote !== "") result.line = `${result.line} ${ownerNote}`;
   if (argv.includes("--json")) {
-    console.log(JSON.stringify({ caps, backfill, ...evidence, newCode, ...result }, null, 2));
+    // ★ C604：心跳读数单独给出（诊断要能看见「结论是从哪份证据得来的」）。
+    console.log(
+      JSON.stringify(
+        {
+          caps,
+          backfill,
+          ...evidence,
+          newCode,
+          heartbeat: { state: hbRead.state, pid: hbRead.pid, port: hbRead.port, note: heartbeatDetail },
+          panelPort: port,
+          panelPortSource: portSource,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
     // ★ C438：退出码必须区分三态 —— 否则脚本里 `if accept; then …` 会把 partial 也当成成功。
     return result.verdict === "ready" ? 0 : result.verdict === "partial" ? 1 : 2;
   }

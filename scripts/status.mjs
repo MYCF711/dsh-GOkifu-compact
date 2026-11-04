@@ -15,6 +15,7 @@
 import nodePath from "node:path";
 import nodeFs from "node:fs";
 import { graphRoot } from "../src/rooms/kifu-persist.mjs";
+import { readUiRouteHeartbeat } from "../src/rooms/build-stamp.mjs";
 /** ★ C530：与引擎同口径的 home（`DSH_HOME` 优先）。 */
 function resolveHome() {
   const env = String(process.env.DSH_HOME ?? "").trim();
@@ -221,6 +222,20 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   // ③ 面板（可跳过）
+  // ★ C604：心跳**先验写它的 pid**。真机（2026-11-05）：`ui-route.json` 写着 pid 22508 / 端口 64535，
+  //   而 22508 早已退出、64535 无人监听 —— 死进程写的端口不是现值，里面的 `state` 也只是旧值。
+  const heartbeat = (() => {
+    try {
+      return readUiRouteHeartbeat({ dir: nodePath.join(resolveHome(), "chess-context") });
+    } catch {
+      return null;
+    }
+  })();
+  // 过期心跳必须**明说**（即使 --no-panel 也要说，否则读的人会以为文件里的端口还是现值）
+  const heartbeatNote =
+    heartbeat?.state === "stale"
+      ? `**心跳过期**（pid ${heartbeat.pid ?? "?"} 已退出）—— 心跳里的 state=${heartbeat.routeState ?? "?"} · port=${heartbeat.port ?? "?"} 都不是现值`
+      : null;
   if (!argv.includes("--no-panel")) {
     try {
       // ★ C439：**端口不能写死 64349**。这已经是第三个地方犯同一个错（C388/C412）：
@@ -228,21 +243,11 @@ export async function main(argv = process.argv.slice(2)) {
       //   这里复用 accept-after-restart 导出的两个纯函数：心跳端口 → 扫描发现 → 才回退 64349。
       const mod = await import("./post-restart-check.mjs");
       const helper = await import("./accept-after-restart.mjs");
-      const nodePath2 = (await import("node:path")).default;
-      const nodeFs2 = (await import("node:fs")).default;
       const { execFileSync } = await import("node:child_process");
-      const home = process.env.DSH_HOME ?? "";
-      const heartbeatPort = (() => {
-        try {
-          const file = nodePath2.join(home, "chess-context", "ui-route.json");
-          if (!nodeFs2.existsSync(file)) return null;
-          const hb = JSON.parse(nodeFs2.readFileSync(file, "utf8"));
-          // ★ C439：`Number(null)` 是 **0**，而 `Number.isFinite(0)` 是 **true** ⇒ `port:null` 会被当成端口 0。
-        return hb?.port === null || hb?.port === undefined ? null : Number.isFinite(Number(hb.port)) ? Number(hb.port) : null;
-        } catch {
-          return null;
-        }
-      })();
+      // ★ C439：`Number(null)` 是 **0**，而 `Number.isFinite(0)` 是 **true** ⇒ `port:null` 会被当成端口 0；
+      //   ★ C604：过期心跳（pid 已退出）里的端口同样不能当候选 —— 只认 fresh。
+      const heartbeatPort =
+        heartbeat?.state === "fresh" && Number.isFinite(Number(heartbeat.port)) && Number(heartbeat.port) > 0 ? Number(heartbeat.port) : null;
       const discover = async () => {
         try {
           const out = execFileSync("netstat", ["-ano"], { encoding: "utf8", timeout: 15_000 });
@@ -266,10 +271,12 @@ export async function main(argv = process.argv.slice(2)) {
       };
       const panelPort = heartbeatPort ?? (await discover()) ?? 64349;
       const caps = await mod.checkPanelCapabilities(undefined, { port: panelPort });
-      data.panel = { ok: caps.level === "ok", detail: caps.detail };
+      data.panel = { ok: caps.level === "ok", detail: heartbeatNote === null ? caps.detail : `${heartbeatNote} · ${caps.detail}` };
     } catch {
       data.panel = { ok: false, detail: "探测失败" };
     }
+  } else if (heartbeatNote !== null) {
+    data.panel = { ok: false, detail: `${heartbeatNote} · 面板探测已跳过（--no-panel）` };
   }
 
   // ④ 补账规模

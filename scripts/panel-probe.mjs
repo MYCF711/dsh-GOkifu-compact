@@ -31,6 +31,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import nodeUrl from "node:url";
 import { execFileSync } from "node:child_process";
+import { readUiRouteHeartbeat } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(nodeUrl.fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -85,14 +86,6 @@ function head(text, n = BODY_LIMIT) {
   const chars = [...squeeze(text)];
   if (chars.length <= n) return chars.join("");
   return chars.slice(0, n).join("") + `…(+${chars.length - n} 字)`;
-}
-
-function readJsonSafe(file) {
-  try {
-    return { ok: true, value: JSON.parse(nodeFs.readFileSync(file, "utf8")) };
-  } catch (error) {
-    return { ok: false, error: String(error?.message ?? error) };
-  }
 }
 
 /** 只读铁律 3：非回环 host 一律拒绝（含 0.0.0.0 / 局域网 IP / 域名 / 公网）。 */
@@ -248,11 +241,16 @@ async function main() {
   emit(`DSH_HOME      ：${DSH_HOME}`);
 
   /* ── 5.1 心跳 ── */
-  const hb = readJsonSafe(ROUTE_HEARTBEAT);
+  // ★ C604：心跳**先验写它的 pid**。真机（2026-11-05）：`ui-route.json` 写着 pid 22508 / port 64535，
+  //   而 22508 早已退出、64535 无人监听 —— 旧版只看 `state` 就把这个死端口当「端口来源」。
+  const hbRead = readUiRouteHeartbeat({ dir: nodePath.dirname(ROUTE_HEARTBEAT) });
+  const hb = { ok: hbRead.state === "fresh", stale: hbRead.state === "stale", value: hbRead.heartbeat, error: hbRead.reason };
   emit("");
   emit("── 1. 路由心跳（src/ui.mjs:routeHeartbeatFile）──");
   emit(`文件          ：${ROUTE_HEARTBEAT}`);
-  if (!hb.ok) {
+  if (hbRead.state === "missing") {
+    emit("读取          ：（没有 ui-route.json）");
+  } else if (hbRead.state === "invalid") {
     emit(`读取          ：❌ ${hb.error}`);
   } else {
     emit(`内容          ：${squeeze(JSON.stringify(hb.value))}`);
@@ -261,6 +259,12 @@ async function main() {
       `判定          ：state=${hb.value?.state ?? "?"} · port=${hb.value?.port ?? "null"} · pid=${hb.value?.pid ?? "null"}` +
         (Number.isFinite(at) ? ` · 写入于 ${new Date(at).toISOString()}` : ""),
     );
+    // 过期/不可校验的心跳：端口只是旧值，**不许**进候选
+    if (hb.stale) {
+      emit(`心跳过期 ⇒ 忽略其端口（pid ${hbRead.pid ?? "?"} 已退出，心跳里的 port=${hbRead.port ?? "null"} 不是现值）`);
+    } else if (!hb.ok) {
+      emit(`心跳不可校验 ⇒ 忽略其端口（${hb.error}）`);
+    }
   }
 
   /* ── 5.2 磁盘 buildId vs 运行 buildId ── */
@@ -271,17 +275,22 @@ async function main() {
   } catch (error) {
     diskBuild = `unknown(${String(error?.message ?? error).slice(0, 60)})`;
   }
-  const hbBuild = hb.ok ? String(hb.value?.buildId ?? "null") : "null";
+  const hbBuild = hb.ok ? String(hb.value?.buildId ?? "null") : hb.stale ? "null（心跳过期，不作数）" : "null";
   emit("");
   emit("── 2. 构建标识（运行实例 vs 磁盘）──");
   emit(`磁盘 buildId  ：${diskBuild}`);
   emit(`心跳 buildId  ：${hbBuild}`);
-  emit(`判定          ：${hbBuild === diskBuild ? "✅ 一致（跑的就是仓库这份）" : "⚠ 不一致（跑的是旧构建，源码改动要重启才生效）"}`);
+  emit(
+    `判定          ：${
+      hb.ok ? (hbBuild === diskBuild ? "✅ 一致（跑的就是仓库这份）" : "⚠ 不一致（跑的是旧构建，源码改动要重启才生效）") : "⚠ 心跳不是新鲜的 —— 不作「跑的是哪一版」的结论"
+    }`,
+  );
 
   /* ── 5.3 端口发现 ── */
   emit("");
   emit("── 3. 端口发现（只试本机回环）──");
-  const hbPort = Number.isFinite(Number(hb.value?.port)) && Number(hb.value?.port) > 0 ? Number(hb.value.port) : null;
+  // ★ C604：只有 fresh 心跳的端口才算候选（死进程的端口是旧值）
+  const hbPort = hb.ok && Number.isFinite(Number(hb.value?.port)) && Number(hb.value?.port) > 0 ? Number(hb.value.port) : null;
   const discovered = loopbackListenerPorts();
   emit(`心跳端口      ：${hbPort ?? "(无)"}`);
   emit(`netstat 回环  ：${discovered.length} 个 → ${discovered.join(", ") || "(无)"}`);
@@ -331,7 +340,12 @@ async function main() {
   // 若面板不可达，仍要把「未响应」写清楚，而不是空表或异常栈。
   if (panelPort === null) {
     // 任务书要求：连不上时**明写**「面板未响应 / 端口 X 无监听」，不许留空表。
-    const deadNote = hbPort !== null ? `面板未响应 / 端口 ${hbPort} 无监听` : "面板未响应 / 无已知端口（心跳缺失，回环端口也全部无应答）";
+    // ★ C604：过期心跳不许说成「端口 X 无监听」—— 那个端口本来就不是现值。
+    const deadNote = hb.stale
+      ? `面板未响应 / 心跳过期（pid ${hbRead.pid ?? "?"} 已退出，不拿它的 port 当现值），回环端口也全部无应答`
+      : hbPort !== null
+        ? `面板未响应 / 端口 ${hbPort} 无监听`
+        : "面板未响应 / 无已知端口（心跳缺失，回环端口也全部无应答）";
     emit("");
     for (const path of [...new Set([...source.routes.map((r) => r.path), ...DOC_CLAIMED_ROUTES])]) {
       emit(`${pad("GET", 6)}${pad(path, 24)} → 未探测 · ${deadNote}`);
@@ -340,7 +354,7 @@ async function main() {
     emit(`❌ ${deadNote} —— 上面没有任何一条真实状态码。`);
     emit("   排查：GUI 进程还在吗（netstat 找 LISTENING）？插件被热重载卸载了吗（心跳 state=closed）？");
     emit("   注意：只读探针不重启、不拉起任何进程。");
-    if (asJson) console.log(JSON.stringify({ reachable: false, port: hbPort, rows: [] }, null, 2));
+    if (asJson) console.log(JSON.stringify({ reachable: false, port: hbPort, heartbeatState: hbRead.state, stale: hb.stale, rows: [] }, null, 2));
     process.exitCode = 1;
     return;
   }

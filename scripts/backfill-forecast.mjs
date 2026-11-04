@@ -35,11 +35,51 @@ export const COLD_INPUT_PER_MTOK = 0.15;
 /** 摘要输出单价（美元 / 百万 token）——同上。 */
 export const OUTPUT_PER_MTOK = 0.6;
 
-/** 真机默认调度参数（`src/engine.mjs` 的 `#startAutoBackfill` / `#autoBackfillTick`）。 */
+/**
+ * ★ C602：**引擎实配**（不是历史口径）。每个字段都钉到源码行 —— 别再漂。
+ *
+ * 2026-11-05 之前这里写的是 30min / 420s / 写死 3 轮，而 C601 早把引擎换成
+ * 10min / 1800s / **动态轮数**了。测算器没跟着改，于是同一批欠账被算成 83h，
+ * 实配只要 19h —— 差 4.3 倍全是配置差出来的，不是模型变快了。
+ *
+ *   · `intervalMin`  = 10   —— `src/engine.mjs:2026`
+ *     `Math.max(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MIN) || 10) * 60_000`
+ *   · `max`          = 5    —— `src/engine.mjs:2113-2114`
+ *     （积压 >100 ⇒ 5 个；进来后仍过 `Math.max(0, Math.min(5, adaptive))`）
+ *   · `rounds`       = 3    —— `src/engine.mjs:2241` 的**保底**轮数（`roundsFloor`）
+ *   · `roundsCap`    = 8    —— `src/engine.mjs:2242` → `src/rooms/offline-fold.mjs:417-426`
+ *     （实际轮数 = `max(保底, min(8, floor(剩余预算 ÷ 实测段耗时)))`，**不是写死 3**）
+ *   · `budgetSec`    = 1800 —— `src/engine.mjs:2195`
+ *     （`|| (dueNow > 100 ? 1800 : 240)`；真机积压 >100，走 1800s 分支）
+ *   · `maxTokensCap` = 8192 —— `src/rooms/offline-fold.mjs:390` 的 `foldBudgetFor` 默认值
+ *
+ * `roundsCap <= 0` 表示**关掉动态轮数**（退回写死 `rounds` 轮的旧行为）。
+ */
 export const DEFAULT_SCHEDULE = {
+  // ★ C606（T9 未完成，Lead 收尾）：**默认值必须等于引擎实配**，否则同一个欠账会被算成两种清偿期。
+  //   引擎：间隔 `src/engine.mjs:2026` = 10 分钟；预算 `:2195` = 积压>100 时 1800 秒；
+  //   轮数由剩余预算 ÷ 实测段耗时动态算（`roundsCap` = 8）。
+  intervalMin: 10,
+  max: 5,
+  rounds: 3,
+  roundsCap: 8,
+  budgetSec: 1800,
+  maxTokensCap: 8192,
+};
+
+/**
+ * ★ C602：**旧口径**（C601 之前：30min 间隔 / 420s 预算 / 写死 3 轮）。
+ *
+ * 它只剩两个用途，别拿来当默认值：
+ *   ① 输出里的**对照行** —— 让人一眼看到"83h vs 19h"是配置差出来的；
+ *   ② **用满率的分母**（见 `buildReport`）—— `recent` 那批折痕是在旧口径下跑出来的，
+ *      拿实配当分母会把"配置升级"重复算成"用满率下降"，把 19h 又算回 83h。
+ */
+export const LEGACY_SCHEDULE = {
   intervalMin: 30,
   max: 5,
   rounds: 3,
+  roundsCap: 0, // 0 = 不按预算加轮（旧口径写死 3 轮）
   budgetSec: 420,
   maxTokensCap: 8192,
 };
@@ -100,7 +140,7 @@ export function usage() {
     "  --home <dir>            DSH_HOME（默认 $DSH_HOME）",
     "  --graph-dir <dir>       图目录（默认 <home>/chess-context/sessions）",
     `  --max=<n>               每轮会话数；>${HARD_MAX_SESSIONS} 只是**情景模拟**：${HARD_CAP_MARK}`,
-    "  --rounds=<n>            每会话轮数",
+    "  --rounds=<n>            每会话**保底**轮数（实际轮数 = max(保底, 预算÷段耗时)，天花板 8）",
     "  --budget-sec=<s>        每轮时间预算（秒）",
     "  --interval-min=<min>    每轮间隔（分钟）",
     "  --max-tokens-cap=<n>    单段输出上限（token）",
@@ -222,15 +262,38 @@ export function segmentPlan(cap, { outputTokens = 6190, speed = 127.6, reasoning
 }
 
 /**
+ * ★ C602：**每会话每轮能连开几段** —— 与引擎同一算术。
+ *
+ * 引擎：`const rounds = Math.max(roundsFloor, autoBackfillRounds(segMs, 剩余预算))`
+ * （`src/engine.mjs:2241-2242`），而 `autoBackfillRounds` 就是
+ * `roundsWithinBudget({ remainingMs, segmentMs, cap: 8 })`（`src/rooms/offline-fold.mjs:417-426`）：
+ * `max(保底, min(天花板, floor(剩余 ÷ 段耗时)))`。
+ *
+ * 为什么要单独一个函数：预算 1800s 时写死 3 轮只用掉 237s（**78% 预算空转**），
+ * 而按预算动态加轮才能算出"实配 19h"而不是旧口径的 83h。
+ *
+ * @param {{budgetSec?:number, segmentSec?:number, rounds?:number, roundsCap?:number}} [args]
+ * @returns {number} 整数轮数；`roundsCap <= 0` ⇒ 关掉动态，直接返回保底轮数
+ */
+export function roundsForBudget({ budgetSec = 0, segmentSec = 0, rounds = 3, roundsCap = 0 } = {}) {
+  const floor = Math.max(1, Math.floor(Number(rounds) || 1));
+  const cap = Number(roundsCap) > 0 ? Math.max(floor, Math.floor(Number(roundsCap))) : floor;
+  const fit = Math.floor(Math.max(0, Number(budgetSec) || 0) / Math.max(1, Number(segmentSec) || 1));
+  return Math.max(floor, Math.min(cap, fit));
+}
+
+/**
  * ★ C599：**一轮 tick 能开几段**。纯函数，便于单测。
  *
  * 两层上限都要算：会话数 × 每会话轮数（`max × rounds`），以及时间预算能装下几段。
  * 这里**不加 1**（引擎的预算判据是"已超预算才 break"，可以多开一段；测算取保守口径）。
  *
+ * `rounds` 是**已经解析好的**每会话轮数（动态轮数先过 `roundsForBudget`，见 `throughputPerHour`）。
+ *
  * @param {{budgetSec?:number, segmentSec?:number, max?:number, rounds?:number}} args
  * @returns {{segments:number, limitedBy:"sessions"|"budget"}}
  */
-export function segmentsPerTick({ budgetSec = 420, segmentSec = 48, max = 5, rounds = 3 } = {}) {
+export function segmentsPerTick({ budgetSec = DEFAULT_SCHEDULE.budgetSec, segmentSec = 48, max = DEFAULT_SCHEDULE.max, rounds = DEFAULT_SCHEDULE.rounds } = {}) {
   const bySessions = Math.max(0, Number(max) || 0) * Math.max(1, Number(rounds) || 1);
   const sec = Math.max(1, Number(segmentSec) || 1);
   const byBudget = Math.floor(Math.max(0, Number(budgetSec) || 0) / sec);
@@ -240,16 +303,27 @@ export function segmentsPerTick({ budgetSec = 420, segmentSec = 48, max = 5, rou
 /**
  * ★ C599：**调度吞吐模型**（段/小时）。纯函数，便于单测。
  *
- * 关键是"占空比"：预算 420s 而间隔 1800s ⇒ 一天里只有 23% 的时间在调模型，其余在等下一轮。
+ * 关键是"占空比"：预算只占间隔的一小部分时，一天里大部分时间在等下一轮。
  * 引擎的 `_autoBackfillBusy` 会让重叠的 tick 直接返回，所以当 `预算 > 间隔` 时，
  * 实际节奏是 `max(间隔, 本轮耗时)` —— 这一点必须建模，否则"把预算调到 3600s"会算成神仙数字。
  *
- * @param {{intervalMin?:number, budgetSec?:number, segmentSec?:number, max?:number, rounds?:number}} schedule
- * @returns {{segmentsPerTick:number, tickPeriodSec:number, perHour:number, duty:number, limitedBy:string}}
+ * ★ C602：轮数不再写死 —— `rounds` 是**保底**，`roundsCap` 是天花板，实际轮数由
+ * `roundsForBudget` 按 `预算 ÷ 段耗时` 算（与 `src/engine.mjs:2242` 同口径）。
+ *
+ * @param {{intervalMin?:number, budgetSec?:number, segmentSec?:number, max?:number, rounds?:number, roundsCap?:number}} schedule
+ * @returns {{segmentsPerTick:number, tickPeriodSec:number, perHour:number, duty:number, limitedBy:string, rounds:number}}
  */
-export function throughputPerHour({ intervalMin = 30, budgetSec = 420, segmentSec = 48, max = 5, rounds = 3 } = {}) {
-  const tick = segmentsPerTick({ budgetSec, segmentSec, max, rounds });
-  const intervalSec = Math.max(1, (Number(intervalMin) || 30) * 60);
+export function throughputPerHour({
+  intervalMin = DEFAULT_SCHEDULE.intervalMin,
+  budgetSec = DEFAULT_SCHEDULE.budgetSec,
+  segmentSec = 48,
+  max = DEFAULT_SCHEDULE.max,
+  rounds = DEFAULT_SCHEDULE.rounds,
+  roundsCap = DEFAULT_SCHEDULE.roundsCap,
+} = {}) {
+  const perSession = roundsForBudget({ budgetSec, segmentSec, rounds, roundsCap });
+  const tick = segmentsPerTick({ budgetSec, segmentSec, max, rounds: perSession });
+  const intervalSec = Math.max(1, (Number(intervalMin) || DEFAULT_SCHEDULE.intervalMin) * 60);
   const busySec = tick.segments * Math.max(1, Number(segmentSec) || 1);
   const period = Math.max(intervalSec, busySec);
   return {
@@ -258,6 +332,7 @@ export function throughputPerHour({ intervalMin = 30, budgetSec = 420, segmentSe
     perHour: tick.segments === 0 ? 0 : (tick.segments * 3600) / period,
     duty: Math.min(1, busySec / period),
     limitedBy: tick.limitedBy,
+    rounds: perSession,
   };
 }
 
@@ -337,6 +412,8 @@ export function forecast({ items = [], measured, schedule = DEFAULT_SCHEDULE, ef
     segmentsMax: perSession.length === 0 ? 0 : Math.max(...perSession),
     segmentSec,
     segmentsPerTick: rate.segmentsPerTick,
+    // ★ C602：本轮实际开的轮数（= max(保底, 预算÷段耗时)，天花板 8）—— 不是配置里的保底值
+    rounds: rate.rounds,
     tickPeriodSec: rate.tickPeriodSec,
     perHour: rate.perHour,
     limitedBy: rate.limitedBy,
@@ -359,11 +436,17 @@ export function forecast({ items = [], measured, schedule = DEFAULT_SCHEDULE, ef
  *   · 在现有间隔下每轮要开几段 ⇒ 需要**几个会话**（每会话最多 `rounds` 段）；
  *   · 按实测用满率折算后需要**多少秒预算** ⇒ 倒推出**间隔上限**（预算塞不进一个间隔就要缩短间隔）。
  *
+ * ★ C602：**整段取整**。引擎一轮只能开**整段**（`Math.floor(预算 ÷ 段耗时)`，
+ * `src/rooms/offline-fold.mjs:425`），所以反解不能拿"小数段"去算预算：
+ * 48h 档需要 10.49 段时，旧实现给 780s（只装得下 10 段）⇒ 实际 50.4h（慢 2.4h / +5%）。
+ * 现在：段数先 `ceil` 到整段，预算 = `ceil(整段数 ÷ 用满率) × 段耗时` ——
+ * 预算**一定是段耗时的整数倍**，装得下它自己报的整段数（见 `fitsSegments`）。
+ *
  * @param {object} args
  * @param {number} args.totalSegments 要折多少段
  * @param {number} args.hours 目标 T
  * @param {{intervalMin?:number, rounds?:number, segmentSec?:number, efficiency?:number, maxSessions?:number}} [args.schedule]
- * @returns {{hours:number, requiredPerHour:number, requiredSegmentsPerTick:number, requiredBudgetSec:number, requiredSessions:number, requiredIntervalMin:number, feasible:boolean, blocker:string}}
+ * @returns {{hours:number, requiredPerHour:number, requiredSegmentsPerTick:number, requiredWholeSegments:number, requiredBudgetSec:number, requiredBudgetSegments:number, fitsSegments:boolean, requiredSessions:number, requiredIntervalMin:number, segmentSec:number, feasible:boolean, blocker:string}}
  */
 export function invert({ totalSegments = 0, hours = 48, intervalMin = 30, rounds = 3, segmentSec = 48, efficiency = 1, maxSessions = 5 } = {}) {
   const target = Math.max(0.1, Number(hours) || 48);
@@ -374,9 +457,15 @@ export function invert({ totalSegments = 0, hours = 48, intervalMin = 30, rounds
   // 现有间隔能装下几段就装几段；装不下就缩短间隔（而不是假装能装下）
   const ticksNow = 3600 / Math.max(60, (Number(intervalMin) || 30) * 60);
   const requiredSegmentsPerTick = requiredPerHour / ticksNow;
-  const requiredSessions = Math.ceil(requiredSegmentsPerTick / perRound);
-  // 预算按"实测用满率"折算：用满率 52% 时，想要 10 段就得给 10/0.52 段的预算
-  const requiredBudgetSec = Math.ceil((requiredSegmentsPerTick * segSec) / eff / 30) * 30;
+  // ★ C602：引擎只开整段 ⇒ 小数段一律向上取整（10.49 段 = 11 段预算）
+  const requiredWholeSegments = Math.ceil(requiredSegmentsPerTick);
+  const requiredSessions = Math.ceil(requiredWholeSegments / perRound);
+  // 预算按"实测用满率"折算：用满率 52% 时，想要 10 段就得给 10/0.52 段的预算。
+  // 再 `ceil` 到**整段边界**：`ceil(整段数 ÷ 用满率)` 个段时长 —— 这样
+  // `floor(预算 ÷ 段耗时) ≥ 整段数` 恒成立（不再是"780s 只装得下 10 段"）。
+  const requiredBudgetSegments = Math.ceil(requiredWholeSegments / eff);
+  const requiredBudgetSec = Math.ceil(requiredBudgetSegments * segSec);
+  const fitsSegments = Math.floor(requiredBudgetSec / segSec + 1e-9) >= requiredWholeSegments;
   // 一个间隔里最多只能跑 预算 秒 ⇒ 需要的最小间隔
   const requiredIntervalMin = Math.max(1, Math.ceil(requiredBudgetSec / 60));
   const sessionCap = Math.max(1, Number(maxSessions) || 5);
@@ -388,9 +477,13 @@ export function invert({ totalSegments = 0, hours = 48, intervalMin = 30, rounds
     hours: target,
     requiredPerHour,
     requiredSegmentsPerTick,
+    requiredWholeSegments,
     requiredBudgetSec,
+    requiredBudgetSegments,
+    fitsSegments,
     requiredSessions,
     requiredIntervalMin,
+    segmentSec: segSec,
     feasible: blockers.length === 0,
     blocker: (blockers.length === 0 ? "现上限之内（只需调预算）" : blockers.join("；")) + `；${note}`,
   };
@@ -424,11 +517,13 @@ export function buildReport({ items = [], measured = {}, recent = 0, windowH = 6
   const measuredForRun = { ...measured, segmentSec, capSeconds: capPlan.seconds };
   const base = forecast({ items, measured: measuredForRun, schedule: sched, efficiency: 1 });
   const observedPerHour = Number(recent) / windowHNum;
-  // ★ 用满率一律相对**真机默认调度**（间隔 30min / 预算 420s）算 —— 它描述的是"这台机器
-  //   在现有配置下把预算用掉了多少"。若拿命令行改过的预算当基准，`--budget-sec 1800`
-  //   会把用满率算成 19%，于是所有"要多少预算"的结论都虚高 4 倍（第一版就踩了这个）。
-  const defaultCeiling = forecast({ items, measured: measuredForRun, schedule: DEFAULT_SCHEDULE, efficiency: 1 }).perHour;
-  const efficiency = defaultCeiling > 0 ? Math.max(0.01, Math.min(1, observedPerHour / defaultCeiling)) : 1;
+  // ★ 用满率一律相对**观测发生时的调度**算 —— 它描述的是"这台机器把那套调度用掉了多少"。
+  //   ★ C602：基准固定成**旧口径**（30min / 420s），不是 `DEFAULT_SCHEDULE`。`recent` 那批折痕
+  //   是在旧口径下跑出来的；拿实配（10min/1800s）当分母会把"配置升级"重复算成"用满率下降"，
+  //   把 19h 又算回 83h。命令行改过的预算更不许当基准（`--budget-sec 1800` 会把用满率算成 19%，
+  //   于是所有"要多少预算"的结论都虚高 4 倍 —— 第一版就踩了这个）。
+  const legacy = forecast({ items, measured: measuredForRun, schedule: LEGACY_SCHEDULE, efficiency: 1 });
+  const efficiency = legacy.perHour > 0 ? Math.max(0.01, Math.min(1, observedPerHour / legacy.perHour)) : 1;
   const real = forecast({ items, measured: measuredForRun, schedule: sched, efficiency });
   const out = {
     at: Date.now(),
@@ -443,6 +538,8 @@ export function buildReport({ items = [], measured = {}, recent = 0, windowH = 6
     schedule: sched,
     base,
     real,
+    // ★ C602：旧口径（30min/420s/写死 3 轮）的同一批欠账 —— 输出里的对照行靠它算"差几倍"
+    legacy,
     sensitivity: [],
     // ★ 反解一律按**真实硬上限**（5）判可行性：`--max=8` 只是"如果改了代码会怎样"，
     //   不能让 invert 拿 8 当上限，否则它会说"做得到"—— 那就是骗人。
@@ -465,7 +562,10 @@ export function buildReport({ items = [], measured = {}, recent = 0, windowH = 6
     const rate = throughputPerHour({ ...sched, max, rounds, budgetSec, maxTokensCap: cap, segmentSec: segSec });
     out.sensitivity.push({
       max,
-      rounds,
+      // ★ C602：显示**实际轮数**（= max(保底, min(8, 预算÷段耗时))），不是配置里的保底值 ——
+      //   否则 `5 会话 × 3 轮` 旁边写出 `25 段/轮` 会自相矛盾。
+      rounds: rate.rounds,
+      roundsFloor: rounds,
       budgetSec,
       cap,
       segmentSec: segSec,
@@ -487,6 +587,8 @@ export function buildReport({ items = [], measured = {}, recent = 0, windowH = 6
  *   ① `--max>5` 的调度是**情景模拟**，真机跑不到（`Math.min(5, ...)` 写死在引擎里）；
  *   ② 敏感性表里 max>5 的行同样要标出来 —— 那张表最容易被当成"配置建议"；
  *   ③ 末尾三条反解（T = 24 / 48 / 72 小时）是这份报告的**结论行**，要能一眼看出每轮要几个会话。
+ *   ④ ★ C602：**旧口径 / 实配对照行**必须打出来 —— 同一批欠账 83h 变 19h 是配置差出来的，
+ *      不是模型变快；不打这一行，读的人会以为测算器在挑好看的数字。
  *
  * @param {object} out `buildReport` 的产出
  * @returns {string}
@@ -507,7 +609,7 @@ export function formatReport(out) {
   lines.push(`  日志已不在、补不了的：${out.noLog} 个`);
   lines.push(`  估价（段数 × ${base.perSessionInput} in / ${base.perSessionOutput} out，$0.15/$0.60 每 M）：**$${base.costUsd.toFixed(2)}**`);
   lines.push(
-    `  当前调度：每 ${schedule.intervalMin}min 一轮 · ≤${schedule.max} 会话 × ${schedule.rounds} 轮 · 预算 ${schedule.budgetSec}s ⇒ ` +
+    `  当前调度：每 ${schedule.intervalMin}min 一轮 · ≤${schedule.max} 会话 × ${base.rounds} 轮 · 预算 ${schedule.budgetSec}s ⇒ ` +
       `${base.segmentsPerTick} 段/轮（受限于${base.limitedBy === "budget" ? "预算" : "会话数×轮数"}）· 占空比 ${(base.duty * 100).toFixed(0)}%`,
   );
   // ★ 情景标注：`--max>5` 必须当场说破，否则读的人会以为"改个 env 就行"。
@@ -520,6 +622,14 @@ export function formatReport(out) {
   lines.push(
     `    ⇒ 配置上限 ${base.perHour.toFixed(1)} 段/h ⇒ 清偿 **${h(base.hoursPerfect)}**；` +
       `实测近 ${windowH}h ${observed.perHour.toFixed(1)} 段/h（用满率 ${(efficiency * 100).toFixed(0)}%）⇒ 清偿 **${h(real.hoursReal)}**`,
+  );
+  // ★ C602：**新旧口径对照行**。同一批欠账、同一个段耗时，两套调度差几倍全在这一行里。
+  //   没有它，没人知道"83h 变 19h"是配置改出来的（模型没变快、并发也没加）。
+  const legacyHours = out.legacy?.hoursPerfect ?? NaN;
+  const speedup = Number.isFinite(legacyHours) && base.hoursPerfect > 0 ? legacyHours / base.hoursPerfect : NaN;
+  lines.push(
+    `  旧口径(30min/420s) = ${h(legacyHours)} · 实配(${schedule.intervalMin}min/${schedule.budgetSec}s) = ${h(base.hoursPerfect)}` +
+      (Number.isFinite(speedup) && speedup > 0 ? `（相差 ${speedup.toFixed(1)}×）` : ""),
   );
   lines.push("");
   lines.push(`-- 敏感性（清偿小时 = ${base.totalSegments} 段 ÷ 段/h；max 是硬上限，>${out.hardMax} ${out.hardCapNote}）--`);
@@ -537,8 +647,12 @@ export function formatReport(out) {
   for (const t of out.targets) {
     const sessions = Math.max(1, t.requiredSessions);
     const over = sessions > out.hardMax ? `   ← ${out.hardCapNote}（每轮会话数 ${sessions} > 硬上限 ${out.hardMax}）` : "";
+    // ★ C602：**当场验算**预算装得下几整段 —— 旧实现 48h 档给 780s 只装得下 10 段，
+    //   实际要跑 50.4h（+5%）。这里把 `floor(预算 ÷ 段耗时)` 与所需整段数并排放，装不下会打 ✗。
+    const fitSegments = Math.floor(t.requiredBudgetSec / t.segmentSec + 1e-9);
+    const fitNote = `；验算：floor(${Math.round(t.requiredBudgetSec)}s ÷ ${Math.round(t.segmentSec)}s) = ${fitSegments} 整段 ≥ 需 ${t.requiredWholeSegments} 段 ${t.fitsSegments ? "✓" : "✗"}`;
     lines.push(
-      `  要 ${t.hours} 小时追平 ⇒ 每轮 ${sessions} 个会话 / ${t.requiredBudgetSec} 秒预算（${t.requiredPerHour.toFixed(1)} 段/h · 间隔 ≤ ${t.requiredIntervalMin}min）${over}`,
+      `  要 ${t.hours} 小时追平 ⇒ 每轮 ${sessions} 个会话 / ${t.requiredBudgetSec} 秒预算（${t.requiredPerHour.toFixed(1)} 段/h · 间隔 ≤ ${t.requiredIntervalMin}min${fitNote}）${over}`,
     );
   }
   return lines.join("\n");

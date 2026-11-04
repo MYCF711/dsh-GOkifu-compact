@@ -1081,7 +1081,7 @@ tests["C317 摘要截断必须可观测：finish_reason=length 要报出来，�
 tests["C332 面板路由心跳：closed 必须警告「被卸载，重启恢复」，open 才是 ok"] = (t) => {
   // ① closed（真机事故的形状：热重载/卸载后路由 404，而门禁全绿）
   const closedHome = makeHome({
-    uiRoute: { state: "closed", at: Date.now() - 60000, pid: 123 },
+    uiRoute: { state: "closed", at: Date.now() - 60000, pid: process.pid },
   });
   try {
     const row = runDoctor(closedHome).find("面板路由心跳");
@@ -1094,7 +1094,7 @@ tests["C332 面板路由心跳：closed 必须警告「被卸载，重启恢复�
 
   // ② open
   const openHome = makeHome({
-    uiRoute: { state: "open", at: Date.now(), pid: 456 },
+    uiRoute: { state: "open", at: Date.now(), pid: process.pid },
   });
   try {
     const row = runDoctor(openHome).find("面板路由心跳");
@@ -1120,7 +1120,7 @@ tests["C333/C334 心跳要比构建、要看有没有 web 服务（多进程环�
   const disk = repoBuildId();
 
   // ① 构建一致 + 有 web 服务 ⇒ ok
-  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, port: 64349, hasWebServer: true, buildId: disk } });
+  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: process.pid, port: 64349, hasWebServer: true, buildId: disk } });
   try {
     const row = runDoctor(okHome).find("面板路由心跳");
     t.eq(row.status, "ok", `一致时应 ok：${JSON.stringify(row)}`);
@@ -1130,7 +1130,7 @@ tests["C333/C334 心跳要比构建、要看有没有 web 服务（多进程环�
   }
 
   // ② 旧构建 ⇒ warn「重启恢复」
-  const staleHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, hasWebServer: true, buildId: "deadbeef0000" } });
+  const staleHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: process.pid, hasWebServer: true, buildId: "deadbeef0000" } });
   try {
     const row = runDoctor(staleHome).find("面板路由心跳");
     t.eq(row.status, "warn", "旧构建必须 warn");
@@ -1140,7 +1140,7 @@ tests["C333/C334 心跳要比构建、要看有没有 web 服务（多进程环�
   }
 
   // ③ 没有 web 服务（真机：pid 50688 注册了却没有监听端口）⇒ warn
-  const noWeb = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, hasWebServer: false, buildId: disk } });
+  const noWeb = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: process.pid, hasWebServer: false, buildId: disk } });
   try {
     const row = runDoctor(noWeb).find("面板路由心跳");
     t.eq(row.status, "warn", "没有 web 服务必须 warn");
@@ -1228,7 +1228,7 @@ tests["C356 fold 成本行必须说明是「单次花费」（无状态 API 下�
 };
 
 tests["C371 心跳失败态必须点名（不许把「注册失败」读成「已注册」）"] = (t) => {
-  const home = makeHome({ uiRoute: { state: "failed", at: Date.now(), pid: 7, hasWebServer: true, error: "register threw" } });
+  const home = makeHome({ uiRoute: { state: "failed", at: Date.now(), pid: process.pid, hasWebServer: true, error: "register threw" } });
   try {
     const row = runDoctor(home).find("面板路由心跳");
     t.eq(row.status, "warn", "failed 必须 warn");
@@ -1253,7 +1253,7 @@ tests["C379 补账要「可发现」：doctor 必须指向 backfill-plan（金�
 };
 
 tests["C397 心跳被「无 web 服务进程」覆盖时要点名（端口/buildId 不可用）"] = async (t) => {
-  const home = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 14088, port: null, hasWebServer: true, version: "unknown", buildId: "unknown" } });
+  const home = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: process.pid, port: null, hasWebServer: true, version: "unknown", buildId: "unknown" } });
   try {
     const row = runDoctor(home).find("面板路由心跳");
     t.eq(row.status, "warn", "必须 warn");
@@ -1266,7 +1266,7 @@ tests["C397 心跳被「无 web 服务进程」覆盖时要点名（端口/build
 
   // 正常心跳（有端口、有 version）不许被误报成被覆盖
   const { repoBuildId } = await import("../src/rooms/build-stamp.mjs");
-  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: 1, port: 56319, hasWebServer: true, version: "1.17.6", buildId: repoBuildId() } });
+  const okHome = makeHome({ uiRoute: { state: "open", at: Date.now(), pid: process.pid, port: 56319, hasWebServer: true, version: "1.17.6", buildId: repoBuildId() } });
   try {
     const row = runDoctor(okHome).find("面板路由心跳");
     t.eq(row.status, "ok", "正常心跳应为 ok");

@@ -23,7 +23,7 @@ import { listeningPorts, looksLikePanel } from "./accept-after-restart.mjs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
+import { readBuildStamp, readUiRouteHeartbeat, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -89,9 +89,25 @@ export function pickFoldForFieldProbe(folds, fallbackLatest = null) {
   return { kind: "missing-field", instructionTokens: null, at: latest.at, note: "最近一次是模型折叠却没有 instructionTokens" };
 }
 
-export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null, latestFold = null, folds = null } = {}) {
+export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", version = "unknown", budget = null, latestFold = null, folds = null, stampState = null, stampReason = "" } = {}) {
   const checks = [];
   const push = (id, name, level, detail) => checks.push({ id, name, level, detail });
+  /**
+   * ★ 2026-11-05（C604，真机事故）：`stampState` / `stampReason` 由 `readBuildStamp({ dir })` 给出。
+   *
+   * 写戳的 pid 已退出 ⇒ 这份戳**既不能证明「新代码生效」，也不能证明「没生效」**。
+   * 旧实现照样拿戳里的旧 buildId 跟磁盘比 ⇒ 报「跑的是旧代码，需再重启」（真机：build.json 写着
+   * pid 22508，而那个进程当晚早已退出，真正在跑的是另一个 pid）—— 连续误判多次。
+   *
+   * ⚠ 旧调用方式（不给 `stampState`）**行为完全不变**：那条路径的存活判断由调用方自己负责。
+   */
+  const staleStamp = stampState === "stale";
+  const stampPid = Number.isFinite(Number(stamp?.pid)) ? Number(stamp.pid) : "?";
+  const staleWhy = (() => {
+    const r = String(stampReason ?? "");
+    const tail = r.includes("；") ? r.slice(r.indexOf("；") + 1) : "";
+    return tail !== "" ? tail : "无法据此判断运行版本";
+  })();
 
   if (stamp === null || typeof stamp !== "object") {
     push("stamp", "build.json 存在", "fail", "没有 build.json —— 插件没在本次进程里写过启动戳");
@@ -99,19 +115,28 @@ export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", ver
     // ★ C293：先确认「这个 pid 还活着」。
     //   实测（2026-11-02）：build.json 写着 pid 37616 / startedAt 12:30:05Z，
     //   而该进程**早已不存在** —— 启动戳是**已死进程**留下的，拿它当"运行实例就绪时间"会把人带沟里。
-    const pidValue = Number(stamp.pid);
-    const alive = pidAlive(pidValue);
+    const alive = staleStamp ? false : pidAlive(stampPid);
     push(
       "stamp",
       "build.json 存在",
       alive === false ? "warn" : "ok",
       alive === false
-        ? `⚠ 启动戳里的 pid ${pidValue} **已经不存在** —— 这份 stamp 是已退出的进程留下的，` +
+        ? `⚠ 启动戳里的 pid ${stampPid} **已经不存在** —— 这份 stamp 是已退出的进程留下的，` +
             `「启动于 …」不可信；判断代码是否生效请看下面的 buildId 与面板能力探针`
         : `启动于 ${Number.isFinite(stamp.startedAt) ? new Date(stamp.startedAt).toISOString() : "?"}（pid ${stamp.pid ?? "?"}）`,
     );
     const running = typeof stamp.buildId === "string" ? stamp.buildId : "unknown";
-    if (running === "unknown") {
+    if (staleStamp) {
+      // ★ C604：**不许**据此判「跑的是旧代码」。已退出进程写下的 buildId 只说明「当时那一版是什么」，
+      //   说明不了「现在跑的是哪一版」—— 后者只有面板能力探针能回答。
+      push(
+        "buildid",
+        "buildId 与磁盘一致",
+        "warn",
+        `stamp 由已退出的 pid ${stampPid} 写成，不构成「新代码没生效」的证据` +
+          `（戳里 build ${running} / 磁盘 ${diskBuildId}；${staleWhy}）—— 运行的是哪一版要问面板，不是问这份文件`,
+      );
+    } else if (running === "unknown") {
       push("buildid", "buildId 与磁盘一致", "fail", `戳里没有 buildId（旧进程写的）—— 磁盘 ${diskBuildId}；**重启后才会写**`);
     } else if (running !== diskBuildId) {
       push("buildid", "buildId 与磁盘一致", "fail", `运行 ${running} ≠ 磁盘 ${diskBuildId} —— 跑的是旧代码，需再重启`);
@@ -119,7 +144,13 @@ export function evaluatePostRestart({ stamp = null, diskBuildId = "unknown", ver
       push("buildid", "buildId 与磁盘一致", "ok", `运行 = 磁盘 = ${running}`);
     }
     const v = typeof stamp.version === "string" ? stamp.version : "unknown";
-    push("version", "版本号与磁盘一致", v === version ? "ok" : "fail", `运行 v${v} / 磁盘 v${version}`);
+    // ★ C604：同理 —— 旧戳里的版本号也只是那个已退出进程的版本，不比也不报红。
+    push(
+      "version",
+      "版本号与磁盘一致",
+      staleStamp ? "warn" : v === version ? "ok" : "fail",
+      `运行 v${v} / 磁盘 v${version}` + (staleStamp ? "（戳是已退出的进程写的，这个版本号不作数）" : ""),
+    );
   }
 
   if (budget === null || typeof budget !== "object") {
@@ -339,7 +370,14 @@ export async function main(argv = process.argv.slice(2)) {
   };
   const home = getArg("home", defaultHome());
   const asJson = argv.includes("--json");
-  const stamp = readBuildStamp(nodePath.join(home, "chess-context"));
+  const graphDir = nodePath.join(home, "chess-context");
+  /**
+   * ★ 2026-11-05（C604）：**新签名** `readBuildStamp({ dir })` —— 它会校验「写戳的 pid 还活着吗」。
+   * 旧签名 `readBuildStamp(dir)` 只做 `JSON.parse`，于是死进程写的旧 buildId 被当成「运行实例的版本」
+   * （真机：build.json 写着 pid 22508 / build e880016159fa，而那个进程早已退出 ⇒ 本脚本报「需再重启」）。
+   */
+  const stampRead = readBuildStamp({ dir: graphDir });
+  const stamp = stampRead.stamp;
   let budget = null;
   try {
     const file = nodePath.join(home, "chess-context", "ledger-budget.json");
@@ -375,7 +413,17 @@ export async function main(argv = process.argv.slice(2)) {
     }
     return best;
   })();
-  const result = evaluatePostRestart({ stamp, diskBuildId: repoBuildId(), version: repoVersion(), budget, latestFold, folds: allFolds });
+  const result = evaluatePostRestart({
+    stamp,
+    diskBuildId: repoBuildId(),
+    version: repoVersion(),
+    budget,
+    latestFold,
+    folds: allFolds,
+    // ★ C604：把「这份戳能不能代表运行实例」一起交给判定层（它决定要不要据此判「没生效」）。
+    stampState: stampRead.state,
+    stampReason: stampRead.reason,
+  });
 
   // ④ doctor 0 错误；⑤ boundary-audit 0 findings（两者都是仓库/运行态红线，独立于上面的纯评估）
   let doctor = null;
