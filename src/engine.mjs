@@ -2410,10 +2410,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C590：**离线补折必须有截止时间**。一次模型调用卡住 ⇒ `_autoBackfillBusy` 一直为真
       //   ⇒ 后续每个 tick 都直接 return（整机停补，而且没有任何报错）。
       //   这里两重保险：① 编排内部按 deadline 提前收工；② 整体再 race 一次，防止单次调用挂死。
-      const foldDeadline = Date.now() + Math.max(30_000, Number(this.chess.offlineFoldTimeoutMs ?? 240_000));
+      // ★ C595：截止时间按**预算**给足（慢模型 20ms/token），并保证至少 240 秒。
+      //   以前固定 240 秒，遇到 169 秒/段以上的模型就必然判 deadline。
+      const offlineTokens = Math.max(1024, Math.min(16_384, Number(this.chess.offlineMaxTokens) || 8192));
+      const foldDeadline =
+        Date.now() + Math.max(Number(this.chess.offlineFoldTimeoutMs ?? 240_000), Math.round(offlineTokens * 25));
       const result = await Promise.race([
         runOfflineFold({
           deadline: foldDeadline,
+          maxTokensCap: offlineTokens,
         graph,
         events,
         rangeStart,

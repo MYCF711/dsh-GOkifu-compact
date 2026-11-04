@@ -478,3 +478,20 @@ tests["C592 还有欠账就必须允许再折（already-folded 不许封印缺�
   t.eq(done.go, false, "确实没欠账才算已折过");
   t.eq(done.why, "already-folded", "原因要对");
 };
+
+tests["C595 单段输出预算默认封顶 8192（慢模型下预算翻倍就跑不完）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  let seenMax = null;
+  await m.runOfflineFold({
+    graph: { nodes: { n1: { id: "n1", seq: 1 } }, edges: {}, foldMarks: [] },
+    events: Array.from({ length: 400 }, (_, i) => ({ seq: i + 1, type: "user/message", text: "中".repeat(40) })),
+    rangeStart: 1,
+    rangeEnd: 400,
+    callModel: async (_prompt, opts) => {
+      seenMax = opts.maxTokens;
+      return { text: "## 目标" + "中".repeat(50), usage: { inputTokens: 1, outputTokens: 1 }, model: "m" };
+    },
+    measureQuality: () => null,
+  });
+  t.eq(seenMax <= 8192, true, `预算必须 ≤ 8192（实际 ${seenMax}）——真机 kimi 8k≈169s、16k≈340s>240s 截止`);
+};

@@ -485,6 +485,8 @@ export async function runOfflineFold({
    *   到了 deadline 就带着 `stopped:"deadline"` 提前收工，已折的段照常写回。
    */
   deadline = null,
+  /** ★ C595：单段输出预算上限（默认 8192）。慢模型下这个数直接决定"跑不跑得完"。 */
+  maxTokensCap = 8192,
   callModel,
   measureQuality,
 }) {
@@ -531,7 +533,12 @@ export async function runOfflineFold({
     //   口径：max(配置值, 输入字符/4)，夹到 [1024, 16384]。
     // ★ C587（审核发现）：这里原来传的是 `.length`（数字）⇒ 走 `*0.6` 的退化分支，
     //   C582 的"中文 0.6 / 英文 0.3"**在生产里根本没生效**（只有脚本那条路生效）。
-    const budget = foldBudgetFor(String(prompt ?? ""), maxTokens);
+    // ★ C595（真机 2026-11-04 22:1x）：**预算越大，慢模型越跑不完**。
+    //   默认模型换成 `kimi-k3.1-pro` 后实测：8,192 预算 ≈ 169 秒/段；若按 C582 的语言估算
+    //   放到 16,384，生成时间翻倍 ⇒ 撞上 C590 的 240 秒截止 ⇒ **每次都判 deadline、一段都不折**。
+    //   摘要本身受 `suggestedLength` 约束（真机 8.8k 字符已够），没必要为了"给足"而让它慢一倍。
+    const budgetCap = Math.max(1024, Math.min(16_384, Number(maxTokensCap) || 8_192));
+    const budget = Math.min(budgetCap, foldBudgetFor(String(prompt ?? ""), maxTokens));
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
