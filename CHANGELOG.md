@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C576 | already-folded 把缺口封印：重启后 12 分钟零折叠 |
 | C575 | 补账没有截止时间：卡一次就把后台停掉，且无日志 |
 | C574 | 给测试运行器加锁：并发跑会造出四种不同的计数 |
 | C573 | 审核又抓 6 处：面板补账 100% 不可用 + 我自己的 4 个回归 |
@@ -647,6 +648,53 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C576 · already-folded 把缺口封印：重启后 12 分钟零折叠
+
+**重启后连续 12 分钟零折叠。查下去发现补账每轮挑的 5 个会话，**全部**被判成「已经折过」—— 而账本同时说它们还欠。**
+
+### 一、真机现场（21:37 重启，21:49 检查）
+
+```
+21:37 后折了: 0 段
+前五名：226dbf4f(gap 10158) · 32a78774(gap 4591) · b8a92777(tail 3432) · c0a5847a(3323) · fdd814b1(3156)
+每一条：due true · go false · already-folded
+```
+
+**两套判据互相打架**：
+
+- `debtOfGraph`：还有缺口/尾巴 ⇒ `due: true`（要补）
+- `shouldTryOfflineFold`：`closeout.folded > 0` 且有 mark ⇒ `already-folded`（不补）
+
+于是每轮的 5 个名额**全被"已折过"占满**，一个都没真折。而且它**不报错、不写日志**，
+只表现为"补账不动了"。
+
+### 二、改法（C592）
+
+`folded > 0` 不等于"没活了"。给判据加一个 `stillDue`：
+
+```js
+if (closeout?.folded > 0 && hasMarks !== false && stillDue !== true) return { go: false, why: "already-folded" };
+```
+
+引擎在调用处传 `stillDue: debtOfGraph(live).due === true`。
+
+### 三、修完立刻复验（同一批会话）
+
+```
+1e82afca · due true · go true (会尝试)
+8a73e06b · due true · go true
+226dbf4f · due true · go true
+62bcb7d2 · due true · go true
+32a78774 · due true · go true
+```
+
+### 四、验证
+
+```
+node test/run.mjs → 1369 passed, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
 
 ### C575 · 补账没有截止时间：卡一次就把后台停掉，且无日志
 

@@ -2211,6 +2211,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         minEvents: this.chess.closeoutMinEvents ?? 40,
         // ★ C555：把"图里到底有没有折叠记录"一起传下去 —— 只信 closeout.folded 会漏掉空转
         marks: (live?.foldMarks ?? []).length,
+        // ★ C592：**还有欠账就必须允许再折**（否则"已折过"会把缺口永远封印）
+        stillDue: (() => {
+          try {
+            return debtOfGraph(live)?.due === true;
+          } catch {
+            return null;
+          }
+        })(),
       });
       if (!decision.go) {
         // ★ 留痕：为什么没走离线（调参时全靠这一行）

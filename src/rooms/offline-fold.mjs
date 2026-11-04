@@ -622,7 +622,7 @@ export async function runOfflineFold({
  * @param {{closeout?:object|null, reason?:string|null, tailEvents?:number, enabled?:boolean, minEvents?:number}} args
  * @returns {{go:boolean, why:string}}
  */
-export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40, marks = null } = {}) {
+export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40, marks = null, stillDue = null } = {}) {
   if (enabled !== true) return { go: false, why: "disabled" };
   // 顺序有意义：**已经折过**先判（不管原因写着什么，都不该再花一次钱）
   // ★ C555：**"已经折过"要有证据**。真机（2026-11-04 4f3cae10）：旧代码写下 `folded: 1`，
@@ -630,7 +630,11 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
   //   这类"假冒成功"的会话会被判定"已折过"，永远走不到离线补折。
   //   `marks === null` 表示调用方没给证据 ⇒ 退回旧行为（保守）。
   const hasMarks = marks === null || marks === undefined ? null : Number(marks) > 0;
-  if (closeout?.folded > 0 && hasMarks !== false) return { go: false, why: "already-folded" };
+  // ★ C592（真机发现，**补账彻底停摆**）：`folded > 0` 不等于"没活了"。真机 21:37 重启后
+  //   连续 12 分钟零折叠，前五名**全部**返回 `already-folded` —— 而 `debtOfGraph` 同时说 `due:true`
+  //   （缺口 10158 / 4591、尾巴 3432…）。两套判据相反，于是每轮 5 个名额全被"已折过"占掉，
+  //   一个都没真折。**还有欠账就必须允许再折**。
+  if (closeout?.folded > 0 && hasMarks !== false && stillDue !== true) return { go: false, why: "already-folded" };
   const note = String(reason ?? closeout?.foldNote ?? "");
   // ★ C503：**「在线路径放弃了」都算触发条件**。
   //   这里原来只认 `no-foldable-span`，于是 C501 加的"超时也走离线"实际是**死代码** ——

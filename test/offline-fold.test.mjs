@@ -468,3 +468,13 @@ tests["C590 补账必须有截止时间（卡死一次会停掉整个后台补�
   t.eq(oc.stopped, "deadline", "outcome 要带出去");
   t.eq(oc.partial, true, "没折完必须 partial");
 };
+
+tests["C592 还有欠账就必须允许再折（already-folded 不许封印缺口）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const base = { reason: "no-foldable-span", tailEvents: 5000, minEvents: 40 };
+  const sealed = m.shouldTryOfflineFold({ ...base, closeout: { folded: 1 }, marks: 1, stillDue: true });
+  t.eq(sealed.go, true, "due=true ⇒ 必须允许再折（真机前五名全被封印、12 分钟零折叠）");
+  const done = m.shouldTryOfflineFold({ ...base, closeout: { folded: 1 }, marks: 1, stillDue: false });
+  t.eq(done.go, false, "确实没欠账才算已折过");
+  t.eq(done.why, "already-folded", "原因要对");
+};
