@@ -1207,11 +1207,125 @@ export function markNodeDeleted(g, id) {
  *
  * 所以语义是：**图 + dirty 一起回到快照那一刻**。调用方应把 `snapshotDirty` 传进来；不传则按
  * 「快照是干净的」处理（仅旧调用方兼容）。
+ *
+ * ── ★ C640：回滚**不许跨过「已成功落盘」的边界**（数据一致性，不是显示问题）─────────
+ *
+ * 反例链（真机 session-8cc34e32 实测，n3780 就是这么没的）：
+ *   ① `compactIfNeeded` 入口拍快照；
+ *   ② fold 的 `await compactRegion(...)` 期间 keeper 照常落账，**1.2s debounce 的 flush 真的写了** ——
+ *      这些节点在快照之后创建，所以**快照里没有它们**，但它们是磁盘上的真实记录（dirty 已被清空）；
+ *   ③ fold 失败 / 折不动 ⇒ 本函数把图**整体**换回快照 ⇒ 那些节点从内存消失，而 dirty 只回填
+ *      「快照时刻的 dirty」⇒ 再没有任何路径会把它们写出来；
+ *   ④ 回滚后 engine 立刻 `#flush({tree:true})`；只要满足 `full || deltaBytes > compactLimit`，
+ *      `kifu-persist.flush()` 就会**重写基线 + 清空 delta** ⇒ 连 delta 层也没了。
+ *   图上没有、delta 也没有 ⇒ **记录永久丢失**；而引用它的边（回滚后新写的）留在 delta 里
+ *   ⇒ 全库审计里那条「from 节点不存在」，派生视图 `nodes/n3780.md` 还在。
+ *   注意 ④ 只是**最早**的一次机会：就算这次没跨阈值（delta 完好），下一次 `agent/status idle` 的
+ *   `#flush({full:true})` 照样重写基线并清空 delta ⇒ 同样丢。所以修复必须落在**回滚这一步**。
+ *
+ * 为什么选「保留 + 重新标脏」（方案 A 的完整形态），而不是「回滚路径上不重写基线」（方案 B）：
+ *   · B 只把丢失**推迟一步**（上段最后一句），而且会让内存与磁盘长期分叉（内存说没有、
+ *     重放说有）；它还要给 `flush` 加一个「这次是回滚」的参数穿过 60+ 个调用点 —— 改动更大。
+ *   · A 的**字面**形态（只把 id 重新标 dirty）是**空操作**：`deltaFromDirty()` 会跳过不在
+ *     `g.nodes` 里的 id，回滚已经把内容删了 ⇒ 那一帧什么都写不出来（`rollback-persist.test.mjs`
+ *     的 C640-4 把这个死路钉住了）。所以 A 必须连**内容**一起保留，否则等于没修。
+ *
+ * 实现口径（四条，缺一条就会修出更糟的东西）：
+ *   ① 只保留「快照之后的 + **已落盘**的」：判据是「在回滚前的图里、但不在快照里、且**不在回滚前的
+ *      dirty 里**」。dirty 只在落盘成功后才被清（`clearDirty` 只有 flush 成功与回滚两个调用点），
+ *      所以「不在 dirty」= 它已经写进基线或 delta 了；
+ *   ② 边必须**两端都在回滚后的图里**才保留 —— 否则我们就是在亲手**造一条悬空边**，比丢记录更糟；
+ *   ③ `nextNode` / `nextEdge` 只增不减：回滚若把 id 计数器退回去，后来的新节点会**复用已落盘记录的
+ *      id**（真机正是 n3780 缺失、n3781 却存在 —— 同一批 id 被两次分配）。
+ *   ④ 只**多写一帧** delta，绝不删任何已落盘的东西 —— 宁可重复写，也不许让落盘的东西消失。
+ *
+ * stateIndex 不在这里补：它是**派生数据**，`fromJSON()` 每次加载都按 `order` 重建。
  */
 export function restoreFromSnapshot(g, snapshot, snapshotDirty = null) {
-  Object.assign(g, fromJSON(snapshot));
+  // 回滚前的 dirty = 「快照之后创建、但还没落盘」的那一批 —— 判据①的另一半
+  const beforeDirty = peekDirty(g);
+  // 只解析一次（真机图 3.6MB，解析两遍是白烧 30ms）
+  const parsed = fromJSON(snapshot);
+  // 先把引用抓出来：下面 `Object.assign` 会把 `g.nodes` / `g.edges` 换成快照的表
+  const kept = rollbackFloor(g, parsed, beforeDirty);
+
+  Object.assign(g, parsed);
   clearDirty(g);
   if (snapshotDirty) applyDirtySnapshot(g, snapshotDirty);
+  // ★ 必须放在 applyDirtySnapshot 之后：这些标记不许被 dirty 快照的「回填」覆盖掉
+  keepPersisted(g, kept);
+  return g;
+}
+
+/**
+ * ★ C640：挑出「快照之后**已经成功落盘**」的节点 / 边（只取引用，不复制）。
+ *
+ * 判据（两句，都不需要问落盘层）：
+ *   · 在**当前图**里、但**快照图**里没有 ⇒ 它是快照之后才出现的；
+ *   · **回滚前的 dirty 里没有**它 ⇒ 它已经落盘了（dirty 只在落盘成功后才被清空）。
+ * 从没被标脏的东西不可能出现在图里：所有 mutator 都会顺手 `markNodeDirty` / `markEdgeDirty`。
+ *
+ * @returns {{nodes: Array<{id:string,node:any}>, edges: Array<{id:string,edge:any}>}} 按 id 数字序（= 创建序）
+ */
+function rollbackFloor(g, snapshotGraph, beforeDirty) {
+  const pendingNodes = new Set(beforeDirty?.nodes ?? []);
+  const pendingEdges = new Set(beforeDirty?.edges ?? []);
+  const num = (id) => {
+    const n = Number(String(id).slice(1));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const nodes = [];
+  for (const [id, node] of Object.entries(g.nodes ?? {})) {
+    if (!node) continue;
+    if (snapshotGraph.nodes?.[id] !== undefined) continue; // 快照里有 ⇒ 回滚会带回来，不用管
+    if (pendingNodes.has(id)) continue; // 还没落盘 ⇒ 丢掉才是回滚的本意
+    nodes.push({ id, node });
+  }
+  nodes.sort((a, b) => num(a.id) - num(b.id));
+  const edges = [];
+  for (const [id, edge] of Object.entries(g.edges ?? {})) {
+    if (!edge) continue;
+    if (snapshotGraph.edges?.[id] !== undefined) continue;
+    if (pendingEdges.has(id)) continue;
+    edges.push({ id, edge });
+  }
+  edges.sort((a, b) => num(a.id) - num(b.id));
+  return { nodes, edges };
+}
+
+/**
+ * ★ C640：把「已落盘」的那批放回图里**并重新标脏**，让下一次落盘把它们再写一遍。
+ *
+ * 语义上这不是「恢复」，而是「拒绝回滚一个已经发生的事实」：磁盘上已经有了，内存就不能假装没有。
+ * 重复写一帧 delta 的代价只是一次 upsert；丢掉它的代价是一条永久悬空边 + 一个再也读不到的局面。
+ */
+function keepPersisted(g, kept) {
+  if (kept.nodes.length === 0 && kept.edges.length === 0) return g;
+  const orderSet = new Set(g.order ?? []);
+  for (const { id, node } of kept.nodes) {
+    g.nodes[id] = node;
+    // order 是「创建顺序」：这些是快照之后创建的，追加到尾部才是对的顺序
+    if (!orderSet.has(id)) {
+      g.order.push(id);
+      orderSet.add(id);
+      markOrderAppend(g, id);
+    }
+    markNodeDirty(g, id);
+    // ★ id 计数器只增不减（见上面的 ③）：否则后来的节点会复用这条已落盘记录的 id
+    const n = Number(String(id).slice(1));
+    if (Number.isFinite(n) && n >= Number(g.nextNode ?? 1)) g.nextNode = n + 1;
+  }
+  for (const { id, edge } of kept.edges) {
+    // ★ 端点必须都在**回滚后的图**里（快照 ∪ 已保留）；缺一个就不保留 —— 不许自己造悬空边
+    if (edge.from && g.nodes?.[edge.from] === undefined) continue;
+    if (edge.to && g.nodes?.[edge.to] === undefined) continue;
+    g.edges[id] = edge;
+    markEdgeDirty(g, id);
+    const n = Number(String(id).slice(1));
+    if (Number.isFinite(n) && n >= Number(g.nextEdge ?? 1)) g.nextEdge = n + 1;
+  }
+  g.updatedAt = Date.now();
+  bumpRev(g);
   return g;
 }
 
