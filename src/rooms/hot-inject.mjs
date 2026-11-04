@@ -258,14 +258,17 @@ export function decideInjection({
     //   只有**空图**（无 root / 无 agent / 无约束）才 skip。
     //   限流与 digest 全部沿用既有规则：digest = 根目标 + 约束（零失败时天然稳定），
     //   同源且清单还在 ⇒ same-digest skip；被 fold 遮蔽 ⇒ lostToFold 补回。
-    const zeroFailure = failureEdges(graph).length === 0 && warning === "";
+    // ★ C564：**只数一次失败边**。这一步每步都跑，而 `failureEdges` 要遍历全图边（0.8ms 于 6,010 边）。
+    //   以前这里一次、下面限流判据再一次 —— 同一份数据数两遍。
+    const failureCount = failureEdges(graph).length;
+    const zeroFailure = failureCount === 0 && warning === "";
     if (zeroFailure && !hasLedgerState(graph)) return { decision, action: "skip", reason: "no-ledger" };
 
     // ★ C563：**先判"这次到底要不要写"，再渲染**。渲染是这条路上最贵的一步
     //   （真机最大会话 142.4ms → 优化后 ~25ms/次），而实测 3,418 步里只写了 28 次（1%）。
     //   以前是先渲染再限流 ⇒ **99% 的渲染白做**。这里把限流判据提前（它们不需要渲染文本），
     //   只保留"内容一字不差"这一条必须在渲染后判。
-    const failureCountEarly = failureEdges(graph).length;
+    const failureCountEarly = failureCount;
     const existingEarly = findLedgerNode(session);
     const digestEarly = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0 });
     const lostToFoldEarly =

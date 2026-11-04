@@ -641,3 +641,11 @@ tests["C563 限流先于渲染：被限流的那一次不许渲染（99% 的渲�
   t.includes(second.reason, "throttled", "原因是限流");
   t.eq(budgetCalls, afterFirst, "被限流的那一次**没有渲染**（onBudget 没被调用）");
 };
+
+tests["C564 失败边一步只数一次（每步都跑的路径不许重复遍历全图）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "hot-inject.mjs"), "utf8");
+  const calls = (src.match(/failureEdges\(graph\)\.length/g) ?? []).length;
+  t.eq(calls, 1, `failureEdges(graph).length 只该出现一次（实际 ${calls}）`);
+  t.includes(src, "const failureCount = failureEdges(graph).length", "要有统一的 failureCount");
+  t.includes(src, "const failureCountEarly = failureCount", "限流判据复用同一个值");
+};
