@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C579 | 状态文件一句话定位：session.requestHeader is not a function |
 | C578 | 三个合理改动叠成零折叠：预算翻倍撞上固定截止 |
 | C577 | 零产出查不出来：加状态文件 + 关思考参数降级重试 |
 | C576 | already-folded 把缺口封印：重启后 12 分钟零折叠 |
@@ -650,6 +651,53 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C579 · 状态文件一句话定位：session.requestHeader is not a function
+
+**状态文件第一次给出答案，而且一句话就定位了：**
+
+```
+session-226d → 折了 0 段 · 停止原因 error · TypeError: session.requestHeader is not a function
+（五个会话全是同一条）
+```
+
+### 一、为什么
+
+宿主的 `llm.stream` 在用某些 provider 适配器时，会去读**会话对象**上的方法（头信息 / toolHistory）。
+而补账是**无头**的 —— C525 为了"别把会话弹出来"，特意不传真实 `sessionId`。
+
+方向是对的，但**连一个可供调用的壳都没给**：适配器一读 `session.requestHeader()` 就抛。
+换成 `kimi-k3.1-pro` 之后这条路径才被踩到（`deepseek` 那个适配器不读它）。
+
+### 二、改法（C596）
+
+给一个**合成会话壳**：
+
+```js
+const hostShell = {
+  id: "", cwd: "",
+  requestHeader: () => ({ config: { provider, model, maxTokens } }),
+  toolHistory: () => [],
+};
+// 调用时：session: hostShell, sessionId: "", toolHistory: []
+```
+
+`id` 为空 ⇒ **不会激活任何真实会话**，C525 的无头承诺不变。
+
+### 三、这条为什么只能靠状态文件发现
+
+- 日志在宿主控制台（我看不到）；
+- `chunks.length === 0` 时引擎直接 return，**图上什么都不写**；
+- 三次重启，前两次我都只能猜（"是不是名额被占"、"是不是截止时间"）。
+
+C593 把结局落盘之后，**一条错误信息就结束了整场排查**。
+
+### 四、验证
+
+```
+node test/run.mjs → 1371 passed, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
 
 ### C578 · 三个合理改动叠成零折叠：预算翻倍撞上固定截止
 

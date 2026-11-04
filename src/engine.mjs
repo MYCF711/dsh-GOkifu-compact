@@ -2363,6 +2363,19 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   `group/kimi-k3.1-pro` 之后补账连续零产出：HTTP 那条路认这两个字段，
         //   宿主的 `llm.stream` 未必 —— 一旦它严格校验，这里就抛错，而错误只在控制台里。
         //   所以：**先带、抛了再去掉重试一次**，并把降级记进 notes（可被状态文件带出来）。
+        // ★ C596（真机状态文件给出证据）：`TypeError: session.requestHeader is not a function`。
+        //   宿主的 `llm.stream` 在用某些 provider 适配器时会去读**会话对象**（带头信息/toolHistory），
+        //   而补账是无头的、本来就没有会话。C525 为了"别把会话弹出来"不传真实 sessionId ——
+        //   方向是对的，但**连一个可供调用的壳都没给**，于是适配器一读就抛。
+        //   这里给一个**合成会话壳**：只提供适配器会用到的方法，id 为空（不会激活任何真实会话）。
+        const hostShell = {
+          id: "",
+          cwd: "",
+          requestHeader: () => ({
+            config: { provider: target0.provider, model: target0.model, maxTokens: Number(maxTokens) || 8192 },
+          }),
+          toolHistory: () => [],
+        };
         const streamOnce = async (extra) => {
           const a = new BlockAssembler();
           for await (const chunk of this.ctx.llm.stream({
@@ -2370,6 +2383,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             model: target0.model,
             messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
             maxTokens: Number(maxTokens) || 8192,
+            // ★ C596：给适配器一个可调用的会话壳 + 空工具历史（补账本来就没有工具调用）
+            session: hostShell,
+            sessionId: "",
+            toolHistory: [],
             ...extra,
           })) {
             a.push(chunk);
