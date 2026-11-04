@@ -2028,7 +2028,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           provider: target0.provider,
           model: target0.model,
           messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-          maxTokens: Number(maxTokens) || 4000,
+          maxTokens: Number(maxTokens) || 8192,
           // ★ C525：**不传真实 sessionId**。传了之后宿主会为这个（已归档的）会话建/激活 surface ——
           //   用户看到的就是「补账时把会话弹出来」。补账要的是**无头**：只读日志、只写自己的棋谱。
           purpose: "compaction",

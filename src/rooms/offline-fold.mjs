@@ -282,6 +282,9 @@ export function allConstraints(graph) {
  * @param {{start:number, end:number}} range
  * @returns {string}
  */
+/** ★ C533：事实块的硬上限（字符）。超过就截断并写明，不静默。 */
+const MAX_FACTS_CHARS = 8000;
+
 export function renderFacts(graph, range) {
   const nodes = Object.values(graph?.nodes ?? {});
   const edges = Object.values(graph?.edges ?? {});
@@ -307,7 +310,11 @@ export function renderFacts(graph, range) {
     for (const e of ok) lines.push(`- ${e.id} ${String(e.action ?? "").slice(0, 80)} → ${e.verify?.summary ?? "ok"}`);
   }
   lines.push("", "## 原始坐标", `- 本段遮蔽 seq ${range.start}-${range.end}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
-  return lines.join("\n");
+  // ★ C533：**事实块也要有上限**。`maxChars` 只管消息，事实块以前是无界的 ——
+  //   病态数据（超长约束/死路行）会把 prompt 撑到几十万字符，模型直接 400 或超窗。
+  const text = lines.join("\n");
+  if (text.length <= MAX_FACTS_CHARS) return text;
+  return `${text.slice(0, MAX_FACTS_CHARS)}${String.fromCharCode(10)}- …（事实块已截断：原 ${text.length} 字符，只保留前 ${MAX_FACTS_CHARS}）`;
 }
 
 /**
@@ -330,6 +337,10 @@ export function buildOfflinePrompt({ facts, messages }) {
     "- 只输出摘要正文，用二级标题分节：目标 / 棋谱（状态节点） / 已探明死路 / 已验证事实 / 未验证 / 当前节点与最近用户消息 / 原始坐标。",
     "- 引用实体只能引用上面出现过的 `n123` / `e456`；不确定就写 `n?`。",
     "- 不要写「下一步该做什么」这类行动建议。",
+    // ★ C533：**篇幅与诚实**。以前没写长度上限，模型一路写到 4000 token 撞顶被截断（真机 8cc34e32）。
+    "- 篇幅 **800–2500 字**；宁可少写，不要为凑篇幅重复。",
+    "- 只能写上面出现过的事实；推不出来的不要写（**不许编造**）。遇到不确定的引用写 `n?`。",
+    "- 结尾另起一节 `## 约束（逐字）`，把「硬事实」里的约束**原样**抄一遍（这是机读的，不是给人看的）。",
   ].join("\n");
 }
 
@@ -358,7 +369,9 @@ export async function runOfflineFold({
   rangeEnd,
   maxChars = 60_000,
   maxChunks = 1,
-  maxTokens = 4000,
+  // ★ C533：默认给 8192，不再 4000。真机实测：这个模型的 **reasoning 会吃掉 3816/4000**，
+  //   正文只剩 184 token（715 字符）—— 摘要"看着成功"，其实只有半个骨架。
+  maxTokens = 8192,
   /**
    * ★ C522：**从区间开头取**（而不是从尾巴）。补缺口时必须为 true ——
    *   否则"欠账区间 1-21543"永远只压最后那段，缺口原地不动。
@@ -387,7 +400,7 @@ export async function runOfflineFold({
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages });
     const startedAt = Date.now();
-    const budget = Math.max(256, Number(maxTokens) || 4000);
+    const budget = Math.max(256, Number(maxTokens) || 8192);
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。

@@ -274,7 +274,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const startedAt = Date.now();
     let result;
     try {
-      const maxTokensArg = Number(get("max-tokens", 4000));
+      const maxTokensArg = Number(get("max-tokens", 8192));
       result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: maxTokensArg, timeoutMs: Number(get("timeout", 180_000)) });
       // ★ C494：有些上游**忽略** `thinking:{type:"disabled"}`（真机：wps-lingxi 那路），
       //   reasoning 会把 max_tokens 吃光、`content` 回 null。这里自动**放大预算重试一次**。

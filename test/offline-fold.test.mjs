@@ -322,3 +322,19 @@ tests["C532 一次都没折过的会话必须从头部开始（否则前段永�
   t.includes(out.chunks[0].start <= 3 ? "head" : "tail", "head", "必须从**开头**取（start 很靠前）");
   t.eq(out.chunks[0].start, 1, `起点必须是 1，实际 ${out.chunks[0].start}`);
 };
+
+tests["C533 prompt 必须有篇幅与诚实约束（以前没有 ⇒ 一路写到撞顶）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const prompt = m.buildOfflinePrompt({ facts: "## 目标\n- x", messages: [{ role: "user", text: "hi" }] });
+  t.includes(prompt, "800–2500 字", "要有篇幅上限");
+  t.includes(prompt, "不许编造", "要明说禁止编造");
+  t.includes(prompt, "约束（逐字）", "要约好机读的约束段，减少机械补回");
+};
+
+tests["C533 事实块必须有长度上限（病态数据不许把 prompt 撑爆）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const long = "很长的约束".repeat(2000);
+  const facts = m.renderFacts({ rootUserNodeIds: ["n1"], nodes: { n1: { id: "n1", kind: "user", text: long, constraints: [long] } }, edges: {} }, { start: 1, end: 2 });
+  t.eq(facts.length <= 8200, true, `事实块必须 ≤ ~8000 字符，实际 ${facts.length}`);
+  t.includes(facts, "事实块已截断", "截断要写明（不静默）");
+};
