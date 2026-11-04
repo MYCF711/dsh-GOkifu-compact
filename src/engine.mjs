@@ -1684,8 +1684,28 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
               if (typeof timer?.unref === "function") timer.unref();
             });
             try {
+              // ★ C531：折之前记一次「凭据」，折完再比对 —— 没变就说明这一段是空转。
+              const g0 = (() => {
+                try {
+                  return this.#graph(target.session);
+                } catch {
+                  return null;
+                }
+              })();
+              const beforeFolds = Number(g0?.foldCount ?? 0);
+              const beforeExternal = Number(g0?.ledgerBudget?.externalFolds ?? 0);
               const out = await Promise.race([this.compactRegion(start, end, this.#asAgent(target), undefined), timeout]);
               if (out === "timeout") throw Object.assign(new Error("chunk timeout"), { code: "CHUNK_TIMEOUT" });
+              const g1 = (() => {
+                try {
+                  return this.#graph(target.session);
+                } catch {
+                  return null;
+                }
+              })();
+              const afterFolds = Number(g1?.foldCount ?? 0);
+              const afterExternal = Number(g1?.ledgerBudget?.externalFolds ?? 0);
+              if (afterFolds === beforeFolds && afterExternal === beforeExternal) return { folded: false, skipped: "no-op" };
               return out;
             } finally {
               if (timer !== null) clearTimeout(timer);
@@ -1719,8 +1739,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         };
         // ★ C517：**一段都没折成**时试离线（真机 c460d468 就是这个形状：
         //   chunkedChunks:2 / chunkedFolded:0 / foldError:"start seq 496 not found in surface"）。
-        if (folded === 0 && chunkedResult.error !== null) {
-          const offline = await this.#tryOfflineCloseout(target, chunkedResult.error);
+        if (folded === 0 && (chunkedResult.error !== null || chunkedResult.stopped === "no-op")) {
+          const offline = await this.#tryOfflineCloseout(target, chunkedResult.error ?? "no-op");
           if (offline !== null) return offline;
         }
         return chunkedResult;

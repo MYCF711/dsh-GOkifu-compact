@@ -115,7 +115,13 @@ export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now 
     const remaining = deadline - now();
     if (remaining <= 0) return { folded, stopped: "deadline", error: null };
     try {
-      await fold(chunk.start, chunk.end, remaining);
+      // ★ C531：**"调用了"不等于"折了"**。宿主 `compactRegion` 可能安静地什么都不做
+      //   （真机 1286ce28：closeout.folded=1，而 ledgerBudget 为 null、foldMarks 一条没多）。
+      //   `fold` 返回 `{folded:false}` 就说明这一段是空转 ⇒ 不计入，并且停下来说明原因。
+      const r = await fold(chunk.start, chunk.end, remaining);
+      if (r !== null && r !== undefined && typeof r === "object" && r.folded === false) {
+        return { folded, stopped: "no-op", error: null };
+      }
       folded += 1;
     } catch (error) {
       return { folded, stopped: "error", error };
