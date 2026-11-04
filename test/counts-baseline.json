@@ -1,5 +1,5 @@
 {
- "total": 1182,
+ "total": 1188,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -33,6 +33,7 @@
   "config-table.test.mjs": 3,
   "context-curve.test.mjs": 3,
   "core.test.mjs": 8,
+  "dangling-edge.test.mjs": 0,
   "dangling-exclusion.test.mjs": 0,
   "doc-numbers.test.mjs": 12,
   "docs-cli-commands.test.mjs": 2,
@@ -100,6 +101,7 @@
   "manual-compact.test.mjs": 1,
   "markers.test.mjs": 15,
   "merge-provenance.test.mjs": 4,
+  "message-size.test.mjs": 6,
   "migrate.test.mjs": 2,
   "node-docs-prune.test.mjs": 6,
   "node-docs.test.mjs": 2,
@@ -169,6 +171,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1501,
- "passedAt": "2026-11-04T20:32:11.052Z"
+ "passed": 1514,
+ "passedAt": "2026-11-04T20:51:05.853Z"
 }

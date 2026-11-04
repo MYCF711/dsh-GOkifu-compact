@@ -23,6 +23,9 @@ import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 //   两边各写一套的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
 import { IN_FLIGHT_MS, splitMissingNodeDocs } from "./repair-node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
+// ★ C639：C140 的「已标记 dangling」口径**只有一份** —— 标记由 `scripts/dangling-audit.mjs`
+//   写进 delta 层（append-only，改基线会让全部旧帧失效），doctor 这里只负责别把它再当 error。
+import { splitDanglingProblems } from "./dangling-audit.mjs";
 // ★ C608：折叠证据字段的**判据只有一份** —— 「这条 fold 该不该有这些字段」由写入点决定，
 //   口径落在 instrument-audit.mjs（脚本本体也是它的 CLI）。两边各写一套，就会重演下面那条假红。
 import { summarizeFoldEvidence } from "./instrument-audit.mjs";
@@ -723,6 +726,10 @@ mark('观测字段覆盖');
   const legacy = [];
   const badTail = [];
   const legacyFoldMarks = [];
+  // ★ C639：**已标记 dangling** 的边（端点节点的记录从未落盘，补不回来）——
+  //   它们仍要出现在报告里（降级为 `!`），但不再是 error。判据只有一份：
+  //   `scripts/dangling-audit.mjs` 的 `splitDanglingProblems`（标记也由它写进 delta 层）。
+  const danglingMarks = [];
   let scanned = 0;
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -776,14 +783,18 @@ mark('观测字段覆盖');
       //   新代码（C187 起）按 seq 排序后取最老两条，不会再产生。这类记录**不在新数据里出现**，
       //   因此降为 warn（`graph-audit --repair-foldmarks` 可清理，原值保留在 legacyRange）。
       const legacyRangeProblems = problems.filter((x) => /^foldMarks\[\d+\] seqStart>seqEnd$/.test(x));
-      const realProblems = problems.filter((x) => !legacyRangeProblems.includes(x));
+      // ★ C639：先切出「已标记 dangling」的边 —— 它们**不是** error（历史脏数据已被显式标记），
+      //   但也不许消失：留在报告里，让 C140 降级为 `!` 而不是绿。
+      const { real: danglingReal, marked: danglingMarked } = splitDanglingProblems(loaded.graph, problems);
+      for (const text of danglingMarked) danglingMarks.push(`${entry.name.slice(0, 16)}: ${text}`);
+      const realProblems = danglingReal.filter((x) => !legacyRangeProblems.includes(x));
       if (legacyRangeProblems.length > 0) legacyFoldMarks.push(`${entry.name.slice(0, 16)}: ${legacyRangeProblems[0]}`);
       if (realProblems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${realProblems[0]}`);
     }
   }
   add(
     "棋谱结构自洽（C140）",
-    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 || legacyFoldMarks.length > 0 ? "warn" : "ok",
+    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 || legacyFoldMarks.length > 0 || danglingMarks.length > 0 ? "warn" : "ok",
     scanned === 0
       ? legacy.length > 0 || badTail.length > 0
         ? `0 个可读会话（${legacy.length} 个旧版本 + ${badTail.length} 个残帧会话；不是「没有图」）：${[...legacy, ...badTail].slice(0, 3).join(" / ")}`
@@ -792,9 +803,14 @@ mark('观测字段覆盖');
         ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
         : legacy.length > 0
           ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（引擎读到会重建空图 ⇒ 升级/降级前请先停窗备份）：${legacy.slice(0, 3).join(" / ")}`
-          : legacyFoldMarks.length > 0
-            ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理，但**必须先退出 DSH** —— 运行实例手里有内存态，重启后会把它写回来）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
-            : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
+          : danglingMarks.length > 0
+            ? // ★ C639：**标记是「已处置」，不是「没问题」** —— 降级为 `!`，且原文照报。
+              //   旧版把这类边算 error（`✗`）⇒ 一条永远修不回来的历史脏数据让 C140 长期红，
+              //   红到最后没人看。标记 = 保留边 + 显式 `dangling: true`，可追溯、可复查。
+              `${scanned} 个会话自洽（悬空边 / 索引 / order / 闭包）；另有 ${danglingMarks.length} 条边**已标记 dangling**（端点节点的记录从未落盘，补不回原内容 ⇒ 保留边 + 标记，\`scripts/dangling-audit.mjs\` 可复核）：${danglingMarks.slice(0, 2).join(" / ")}`
+            : legacyFoldMarks.length > 0
+              ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理，但**必须先退出 DSH** —— 运行实例手里有内存态，重启后会把它写回来）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
+              : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
   );
 }
 
