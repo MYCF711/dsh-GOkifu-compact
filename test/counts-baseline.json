@@ -1,5 +1,5 @@
 {
- "total": 1003,
+ "total": 1006,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -44,6 +44,7 @@
   "fold-mark-sites.test.mjs": 8,
   "fold-planner-properties.test.mjs": 8,
   "fold-properties.test.mjs": 3,
+  "fold-protocol.test.mjs": 3,
   "fold-quality.test.mjs": 20,
   "gate.test.mjs": 3,
   "graph-audit.test.mjs": 8,
@@ -143,6 +144,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1322,
- "passedAt": "2026-11-04T02:48:38.189Z"
+ "passed": 1325,
+ "passedAt": "2026-11-04T02:54:49.330Z"
 }
