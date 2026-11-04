@@ -2191,7 +2191,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         return !(at > 0 && nowTick - at < COOLDOWN_MS);
       });
       const pickPool = notCooling.length >= Math.min(max, withLog.length) ? notCooling : withLog;
-      if (pickPool !== withLog) {
+      if (pickPool.length < withLog.length) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账避开 ${withLog.length - pickPool.length} 个刚补过的会话（冷却 45 分钟）`);
       }
       // ★ C593：**后台 job 必须有可查的状态文件**。真机教训（2026-11-04 21:37 / 21:57 两次重启）：

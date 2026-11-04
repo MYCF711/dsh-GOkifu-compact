@@ -1,5 +1,5 @@
 {
- "total": 1267,
+ "total": 1280,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -95,6 +95,7 @@
   "live-bench.test.mjs": 8,
   "live-folds.test.mjs": 11,
   "log-stats.test.mjs": 5,
+  "log-truth.test.mjs": 5,
   "log-window.test.mjs": 4,
   "loop-guard.test.mjs": 4,
   "loop-report.test.mjs": 4,
@@ -138,6 +139,7 @@
   "rollback-persist.test.mjs": 5,
   "rooms.test.mjs": 1,
   "run-skip.test.mjs": 0,
+  "sanitize-anchor.test.mjs": 8,
   "selfloop.test.mjs": 1,
   "session-label.test.mjs": 4,
   "session-scan.test.mjs": 3,
@@ -181,6 +183,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1593,
- "passedAt": "2026-11-04T23:35:44.033Z"
+ "passed": 1606,
+ "passedAt": "2026-11-04T23:53:15.317Z"
 }
