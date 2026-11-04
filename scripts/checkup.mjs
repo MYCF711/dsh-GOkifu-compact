@@ -17,6 +17,9 @@ import nodePath from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readBuildStamp, readUiRouteHeartbeat } from "../src/rooms/build-stamp.mjs";
+// ★ C646：build 只说得清"不一致"，说不清**"哪些改动还没生效、各自跑什么命令复验"**
+//   （今晚连续 4 次：代码改了、跑的是旧进程，每一轮都白烧在"这算不算验证过"上）。
+import { pendingSection } from "./pending-changes.mjs";
 // ★ 2026-11-05：补账状态由 backfill-state.mjs 统一聚合（多实例共享同一目录），不在这里复制读盘逻辑。
 import { readBackfillState, describeInstance } from "./backfill-state.mjs";
 
@@ -81,6 +84,24 @@ if (stampRead.state === "missing") {
       "运行实例版本",
       `运行 ${shortId(stampRead.buildId)} ≠ 磁盘 ${shortId(disk)} —— 新代码**未生效**，需要重启 DSH（stamp 由 pid ${stampRead.pid} 写，该进程仍存活）`,
     );
+}
+
+// ①c 待验证改动（C646）：build 只说得清「不一致」，说不清「**哪些**改动还没生效、各自跑什么复验」。
+//   ★ 判据见 scripts/pending-changes.mjs：时间点只取 build.json.startedAt（**不取 mtime** —— checkout /
+//     rebase 会把整棵树的 mtime 重写成"刚刚"，内容却一个字节没变，C293/C294 两次踩到）。
+//   ★ 只在**不能证明运行实例与磁盘一致**时展开逐文件清单；一致时就是一句话「无待验证改动」。
+//     为什么一致时可以直接说"无"：`buildId` 是 `package.json` + `src/**/*.mjs` 的**内容哈希**，
+//     相等 ⇒ 运行时那棵树一个字节没变；`scripts/**` 不在哈希里，但脚本**每次从磁盘跑**、不需要重启，
+//     对「重启后待验证」这件事而言它本来就没有欠账。
+{
+  const buildProven = rows.some((row) => row.name === "运行实例版本" && row.level === "ok");
+  if (buildProven) {
+    add("ok", "待验证改动", "无待验证改动");
+  } else {
+    // 空串 = **不做** buildId 剔除：stamp 不可信（pid 已退出 / 不可知）时，"内容一致"这件事本身也没被证明。
+    const pending = pendingSection({ graphDir: graphRootDir, root: ROOT, diskBuildId: "" });
+    add(pending.state === "ok" ? "ok" : "warn", "待验证改动", pending.text);
+  }
 }
 
 // ①b 面板心跳（同一类陷阱）：心跳里的端口/state 可能属于一个早就退出的进程。

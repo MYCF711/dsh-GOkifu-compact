@@ -1,5 +1,5 @@
 {
- "total": 1241,
+ "total": 1258,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -114,8 +114,10 @@
   "package-exports.test.mjs": 12,
   "patch-manifest.test.mjs": 3,
   "peak-pricing.test.mjs": 4,
+  "pending-changes.test.mjs": 8,
   "perf-probe.test.mjs": 2,
   "persist-incremental.test.mjs": 8,
+  "placeholder.test.mjs": 9,
   "post-restart-check.test.mjs": 6,
   "post-restart-pid.test.mjs": 14,
   "preset-discovery.test.mjs": 0,
@@ -178,6 +180,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1567,
- "passedAt": "2026-11-04T22:28:45.939Z"
+ "passed": 1584,
+ "passedAt": "2026-11-04T22:56:02.388Z"
 }

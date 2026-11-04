@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { evidenceSpan } from "./kifu-model.mjs";
 import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-quality.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
@@ -405,6 +406,75 @@ export function allConstraints(graph) {
 }
 
 /**
+ * ★ T30：**占位符的两种写法**（度量与补回**共用**这一份，别处不许复制）。
+ *
+ * · `PLACEHOLDER_RE`：`e?` / `e??` / `e？`（全角）。前面要 `(?<![A-Za-z0-9_])` —— 与 `mentionsEdge`
+ *   同一边界规则（`the?` 不算独立 id）；后面**不加** `(?![0-9])` —— `e?123` 也是占位写法。
+ * · `SEQ_SPAN_RE`：`renderFacts` 行尾的坐标 `(seq 333-337)`，模型常把半角括号换成全角。
+ *
+ * 为什么放在这里而不是审计脚本里：**补回**要用它做「就地认领」（见 `reclaimPlaceholders`），
+ * 审计要用它数形态。两处各写一份 = 又一个「两个 791」的坑（本仓的老毛病）。
+ */
+export const PLACEHOLDER_RE = /(?<![A-Za-z0-9_])e[?？]+/g;
+
+export const SEQ_SPAN_RE = /[（(]\s*seq\s*([0-9]+)\s*[-–—~]\s*([0-9]+)\s*[）)]/;
+
+/**
+ * ★ T30：**把死路段里的 `e?` 就地认领成具体 id**（补回的一半，且是**先做的那一半**）。
+ *
+ * 真机依据（2026-11-05，`node scripts/placeholder-audit.mjs` 原样输出；811 条占位符行 / 204 条折痕）：
+ *   · **767 行反推得出「本该写哪个 id」**（750 行靠行尾 `(seq a-b)` 精确命中 `evidence` 跨度，
+ *     17 行靠动作/错误原文 24 字逐字包含）；真丢的 id 全机只有 **10 个**（1.50% 的区间内失败边），
+ *     其中 **6 个**是占位符形状（另外 4 个是破折号区间吞的，属 T26）；
+ *   · 这 6 个 id **全部**是「跨界」边（`span.start ≤ 遮蔽终点 < span.end`）——
+ *     `failuresInFoldRange` 把它算进区间，`sanitizeSummaryIds` 又把它的 id 抹成 `e?`；
+ *   · 补回段以前只**追加**一行，于是同一件事在摘要里出现两次：`- e? "…" → …` 与
+ *     `- e46 「…」→ …`。**id 是回来了，死路段那行仍然不可定位**（读者要往下滚才找得到）。
+ *
+ * 判据（**宁可不认领，也不要写错 id** —— 写错比 `e?` 更坏）：
+ *   · 行内**恰好一个**占位符（多个占位符可能各指一条边，无法判定）；
+ *   · 行尾坐标 `(seq a-b)` 在**本次缺失清单**里命中**唯一**一条边（同跨度多条 ⇒ 歧义 ⇒ 不认领）；
+ *   · 同一条边只认领一次（别处已经写过就交给「已命中」判据）。
+ *
+ * 为什么只认**缺失清单**里的边：那份清单 = `failuresInFoldRange` = 本段区间内的失败边。
+ * 区间**外**的 `e?`（真机 761 行，占 93.8%）是 sanitize 的**设计**（checkpoint 不许引用"未来"），
+ * 认领它们等于把 C458 撤掉 —— 那不是本函数的职责。
+ *
+ * @param {string} text 摘要正文（已 sanitize）
+ * @param {Array<object>} missing 本次区间内、正文里没逐条写出的失败边（**全量**，不是前 5 条）
+ * @param {Set<string>} claimed 认领结果（就地更新；调用方据此决定还要追加哪几条）
+ * @returns {string} 认领后的正文
+ */
+export function reclaimPlaceholders(text, missing, claimed = new Set()) {
+  // 同一 evidence 跨度出现两条边 ⇒ 歧义 ⇒ 两条都不许用来认领
+  const bySpan = new Map();
+  const ambiguous = new Set();
+  for (const edge of Array.isArray(missing) ? missing : []) {
+    const span = evidenceSpan(edge);
+    if (span === null || !Number.isFinite(span.start) || !Number.isFinite(span.end)) continue;
+    const key = `${span.start}-${span.end}`;
+    if (bySpan.has(key)) ambiguous.add(key);
+    else bySpan.set(key, edge);
+  }
+  for (const key of ambiguous) bySpan.delete(key);
+  return String(text ?? "")
+    .split("\n")
+    .map((line) => {
+      const marks = [...line.matchAll(PLACEHOLDER_RE)];
+      if (marks.length !== 1) return line;
+      const seq = SEQ_SPAN_RE.exec(line);
+      if (seq === null) return line;
+      const edge = bySpan.get(`${Number(seq[1])}-${Number(seq[2])}`);
+      if (edge === undefined) return line;
+      const id = String(edge.id);
+      if (claimed.has(id)) return line;
+      claimed.add(id);
+      return line.replace(PLACEHOLDER_RE, id);
+    })
+    .join("\n");
+}
+
+/**
  * ★ C607：**摘要丢掉的死路，机械补回去**（与 `repairMissingConstraints` 同构）。
  *
  * 为什么死路要和约束一样兜底：约束与失败边是同一类东西 —— **不是摘要，是硬性事实**。
@@ -419,23 +489,33 @@ export function allConstraints(graph) {
  * 补回的每一行都是「id + 动作 + 为什么失败」的可读句子（不是 id 堆砌）：
  * `- e694 「edit(file_path=full-host-verification.md)」→ cannot modify "full-host-verification.md": file has not been read…`
  *
+ * ★ T30：**先就地认领，再追加**。真机 811 条 `e?` 里有 6 条能由行尾坐标唯一定死，
+ *   以前它们会被**再追加一行** ⇒ 摘要里同一条死路出现两次，而死路段那行仍是 `e?`。
+ *   认领之后：死路段那行拿到 id、补回段不再重复写它 —— 正文更短，且「一条边只出现一次」。
+ *
  * @param {string} text 模型输出（可能已被 sanitize）
  * @param {Array<object>} missing 本次区间内、摘要里**没有逐条 id** 的失败边
- * @returns {{text:string, repaired:string[]}}
+ * @returns {{text:string, repaired:string[]}} 补回后的正文 + 补回的 id（含就地认领的）
  */
 export function repairMissingFailures(text, missing) {
   const list = (Array.isArray(missing) ? missing : []).filter((e) => e !== null && typeof e === "object" && typeof e.id === "string" && e.id !== "");
   if (list.length === 0) return { text: String(text ?? ""), repaired: [] };
-  const body = String(text ?? "").replace(/\s+$/, "");
+  /** 已被就地认领的 id（它们不需要（也不许）再追加一行）。 */
+  const claimed = new Set();
+  const body = reclaimPlaceholders(String(text ?? "").replace(/\s+$/, ""), list, claimed);
+  /** 认领是一件**一件地**发生的：追加只写「认领不掉的」那几条。 */
+  const rest = list.filter((e) => !claimed.has(String(e.id)));
+  const repaired = list.map((e) => String(e.id));
+  if (rest.length === 0) return { text: body, repaired };
   const lines = ["", "## 已探明死路（逐字补充 · 机械补回，不许重试）"];
-  for (const e of list) {
+  for (const e of rest) {
     const action = compactAction(String(e.intent || e.action || ""), 80);
     // ★ 补回行的错误原文**去掉双引号**：截断可能切在引号中间，而 `describeStructure` 的
     //   「结尾干净」判据数的是引号配平 —— 那会把「机械补回」误读成「摘要被截断」。
     const why = compactAction(String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0], 80).replace(/"/g, "");
     lines.push(`- ${e.id} 「${action}」→ ${why}`);
   }
-  return { text: `${body}\n${lines.join("\n")}`, repaired: list.map((e) => String(e.id)) };
+  return { text: `${body}\n${lines.join("\n")}`, repaired };
 }
 
 /**
