@@ -23,6 +23,9 @@ import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 //   两边各写一套的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
 import { IN_FLIGHT_MS, splitMissingNodeDocs } from "./repair-node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
+// ★ C608：折叠证据字段的**判据只有一份** —— 「这条 fold 该不该有这些字段」由写入点决定，
+//   口径落在 instrument-audit.mjs（脚本本体也是它的 CLI）。两边各写一套，就会重演下面那条假红。
+import { summarizeFoldEvidence } from "./instrument-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
@@ -1361,7 +1364,13 @@ mark('C516 归档后还剩多少没折');
 mark('C348 思考模式');
 /* ★ C401：**仪器到底装上了没有**。C398/C400 是"把字段写进 foldMark"的修复，
    但一个字段"存在"和"有值"是两回事（C317–C321 连错五轮都在这上面）。
-   这里直接把最近 10 条 foldMark 的三个新字段数出来。 */
+   这里直接把最近 10 条 foldMark 的三个新字段数出来。
+   ★ C608：**分母先修**（2026-11-05 03:1x 真机打脸）。旧写法把"写入点根本不写这些字段"的 fold
+   也算进分母 ⇒ 窗口里只要全是 `archive-offline` 离线补折（`src/rooms/offline-fold.mjs:808`
+   只写 `route.model` + `truncated`），就必然报「三个都是 0 · 仪器未生效」。真机上那 10 条正是
+   收尾补账连续写下的离线折叠，而同一批数据里 `pressure` 的 83 条**三个字段全有**
+   （`node scripts/instrument-audit.mjs` 逐条可验）—— 结论从"要重启"翻成"判据错"。
+   现在按**写入点**算每个字段自己的分母，模型名按 C604 认 `usage.model || route.model`。 */
 {
   const recent = [];
   if (nodeFs.existsSync(nodePath.join(home, "chess-context", "sessions"))) {
@@ -1380,22 +1389,58 @@ mark('C348 思考模式');
     }
   }
   recent.sort((a, b) => Number(b?.at ?? 0) - Number(a?.at ?? 0));
-  const top = recent.slice(0, 10);
-  if (top.length === 0) {
+  const evidence = summarizeFoldEvidence(recent, { limit: 10 });
+  const evStats = evidence.stats;
+  if (evStats.window === 0) {
     add("折叠证据字段（C398/C400）", "warn", "未采集（还没有 foldMark）");
+  } else if (evStats.expected === 0) {
+    // 窗口里一条"该有"的都没有 ⇒ 那个 0 是**分母**造成的，不是仪器坏了。
+    // 用跨窗口的最近一条该有的 fold 兜底，把"仪器到底活没活"回答掉。
+    const latest = evidence.latestExpected;
+    const legacy = evStats.byKind?.legacy ?? 0;
+    if (latest === null) {
+      add(
+        "折叠证据字段（C398/C400）",
+        "warn",
+        `最近 ${evStats.window} 条 foldMark 全是离线补折/分段折（写入点本来不带这三字段）` +
+          (legacy > 0 ? `，另有 ${legacy} 条是 C398 之前的旧记录（那时写入点还没有这些字段）` : "") +
+          " —— 还没有任何模型路径的折叠可验",
+      );
+    } else {
+      const v = latest.values;
+      const modelText = latest.present.model ? (v.usageModel ?? v.routeModel) : "缺";
+      add(
+        "折叠证据字段（C398/C400）",
+        latest.ok ? "ok" : "warn",
+        `最近 ${evStats.window} 条都是离线补折/分段折（写入点本来不带这三字段，**已排除出分母**）；` +
+          `最近一条该有的 fold：${latest.atIso}（${latest.trigger}）模型名 ${modelText} · ` +
+          `finishReason ${latest.present.finish ? v.finishReason : "缺"} · ` +
+          `measuredBefore ${latest.present.measured ? v.measuredBefore : "缺"}` +
+          (latest.ok ? " ⇒ 仪器已生效" : " ⇒ **该有却没写**"),
+      );
+    }
   } else {
-    const withModel = top.filter((m) => typeof m?.usage?.model === "string" && m.usage.model !== "").length;
-    const withFinish = top.filter((m) => typeof m?.finishReason === "string").length;
-    const withMeasured = top.filter((m) => Number.isFinite(m?.measuredBefore)).length;
-    const allZero = withModel === 0 && withFinish === 0 && withMeasured === 0;
-    add(
-      "折叠证据字段（C398/C400）",
-      allZero ? "warn" : "ok",
-      `最近 ${top.length} 条 foldMark：usage.model ${withModel} · finishReason ${withFinish} · measuredBefore ${withMeasured}` +
-        (allZero
-          ? " ⇒ **三个都是 0**：仪器未生效（C398/C400 需重启，或这几次走的是规则摘要）"
-          : ""),
-    );
+    const f = evStats.perField;
+    const head =
+      `最近 ${evStats.window} 条 foldMark 里 **${evStats.expected}** 条该有这些字段（模型/规则/手动路径），` +
+      `另有 ${evStats.notApplicable} 条本来不带（离线补折/分段/C398 前）：` +
+      `usage.model ${f.model.usage} · route.model ${f.model.route} · ` +
+      `finishReason ${f.finish.have}/${f.finish.expect} · measuredBefore ${f.measured.have}/${f.measured.expect}` +
+      `（模型名合计 ${f.model.have}/${f.model.expect} —— 两个落点都认，C604）`;
+    const broken = evidence.rows.filter((r) => r.needsEvidence && r.missing.length > 0);
+    if (evStats.missing === 0) {
+      add("折叠证据字段（C398/C400）", "ok", `${head} ⇒ 仪器已生效`);
+    } else {
+      const which = [...new Set(broken.flatMap((r) => r.missing))].join("/");
+      add(
+        "折叠证据字段（C398/C400）",
+        "warn",
+        `${head} ⇒ **该有却缺 ${evStats.missing} 条**：${which}` +
+          (evStats.allExpectedMissing
+            ? "（窗口里该有的 fold 一个字段都没写 —— 仪器未生效：C398/C400 未装上，或运行实例是旧构建）"
+            : ""),
+      );
+    }
   }
 }
 

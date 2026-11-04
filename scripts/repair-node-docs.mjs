@@ -217,8 +217,9 @@ export async function main(argv = process.argv.slice(2)) {
       }
       writeErrors.push(...sessionErrors.map((line) => `${entry.name.slice(0, 16)}: ${line}`));
 
+      // 被护栏挡下的会话也要进报告 —— 否则「一个都没删」和「没扫到」长得一样。
       if (split.missing.length === 0 && split.inFlight.length === 0 && orphans.length === 0 && sessionErrors.length === 0) {
-        continue;
+        if (!(prune && pruneSkipReason)) continue;
       }
       sessions.push({
         session: entry.name,
@@ -308,10 +309,12 @@ export async function main(argv = process.argv.slice(2)) {
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify({ sessions, totals }, null, 1)}\n`);
-  } else if (write && (totals.written > 0 || totals.deleted > 0)) {
-    const parts = [`✅ 已补写 ${totals.written} 个节点文档（${sessions.filter((row) => row.written.length > 0).length} 个会话）`];
-    if (totals.deleted > 0) parts.push(`已删除 ${totals.deleted} 个陈旧 md`);
-    console.log(parts.join(" · "));
+  } else if (write) {
+    // 只报**真做过**的事：只删不补时不许打「已补写 0 个」（读着像写失败了）。
+    const parts = [];
+    if (totals.written > 0) parts.push(`✅ 已补写 ${totals.written} 个节点文档（${sessions.filter((row) => row.written.length > 0).length} 个会话）`);
+    if (totals.deleted > 0) parts.push(`🧹 已删除 ${totals.deleted} 个陈旧 md`);
+    if (parts.length > 0) console.log(parts.join(" · "));
   }
 
   if (writeErrors.length > 0) return 2;

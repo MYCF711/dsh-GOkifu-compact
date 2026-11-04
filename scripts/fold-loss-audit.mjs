@@ -182,6 +182,10 @@ export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}
   const hits = [];
   let sessions = 0;
   let marksWithQuality = 0;
+  /** 全库口径：**到底几次里丢几条**（报告 ⑤ 要的「偶发」概率）。 */
+  const stats = { foldsWithMissing: 0, missingEdges: 0, sessionsWithMissing: new Set() };
+  /** 全库「不满」的 fold（报告 ⑤ 要看它是偶发还是系统性）。 */
+  const missingFolds = [];
   for (const name of nodeFs.existsSync(sessionsDir) ? nodeFs.readdirSync(sessionsDir) : []) {
     if (sessionFilter !== null && !name.includes(sessionFilter)) continue;
     const file = nodePath.join(sessionsDir, name, "graph.json");
@@ -198,11 +202,17 @@ export function findLosses(sessionsDir, wantEdges, { sessionFilter = null } = {}
       if (quality === null || typeof quality !== "object") continue;
       marksWithQuality += 1;
       const missing = Array.isArray(quality.missingFailures) ? quality.missingFailures.map(String) : [];
+      if (missing.length > 0) {
+        stats.foldsWithMissing += 1;
+        stats.missingEdges += missing.length;
+        stats.sessionsWithMissing.add(name);
+        missingFolds.push({ session: name, index, graph, mark, missing });
+      }
       if (!missing.some((id) => want.has(id))) continue;
       hits.push({ session: name, file, graph, index, mark, missing });
     }
   }
-  return { hits, sessions, marksWithQuality };
+  return { hits, sessions, marksWithQuality, stats: { ...stats, sessionsWithMissing: stats.sessionsWithMissing.size }, missingFolds };
 }
 
 function fmtTime(ms) {
@@ -316,7 +326,7 @@ export function main(argv = process.argv.slice(2)) {
   const home = get("home", resolveHome());
   const sessionsDir = nodePath.join(home, "chess-context", "sessions");
 
-  const { hits, sessions, marksWithQuality } = findLosses(sessionsDir, wantEdges, { sessionFilter });
+  const { hits, sessions, marksWithQuality, stats, missingFolds } = findLosses(sessionsDir, wantEdges, { sessionFilter });
   if (asJson) {
     const payload = {
       home,
@@ -324,6 +334,8 @@ export function main(argv = process.argv.slice(2)) {
       wantEdges,
       sessions,
       marksWithQuality,
+      stats,
+      missingFolds: missingFolds.map((f) => ({ session: f.session, index: f.index, missing: f.missing })),
       hits: hits.map((hit) => {
         const range = { start: Number(hit.mark.seqStart), end: Number(hit.mark.seqEnd) };
         const summary = summaryTextFor(hit.graph, hit.mark);
@@ -354,12 +366,33 @@ export function main(argv = process.argv.slice(2)) {
   console.log(`home        ${home}`);
   console.log(`目标边      ${wantEdges.join(", ")}`);
   console.log(`会话        ${sessions} 个（含 quality 的 foldMark ${marksWithQuality} 条）${sessionFilter === null ? "" : ` · 过滤=${sessionFilter}`}`);
+  console.log(
+    `全库不满    ${stats.foldsWithMissing} 次 fold 的 missingFailures 非空（共记成丢失 ${stats.missingEdges} 条边，涉及 ${stats.sessionsWithMissing} 个会话）` +
+      ` ⇒ 偶发率 ${marksWithQuality === 0 ? "—" : `${stats.foldsWithMissing}/${marksWithQuality}`}`,
+  );
   console.log(`命中        ${hits.length} 次 fold 的 missingFailures 与目标边有交集`);
   if (hits.length === 0) {
     console.log("\n没有命中 —— 检查 --edges / --session，或该图早于 quality 字段（老 foldMark）。");
     return 1;
   }
   for (const hit of hits) console.log(reportHit(hit, wantEdges));
+
+  // ★ 全库清单：13 次「不满」到底是偶发还是系统性？逐条给出可判定的证据。
+  console.log("");
+  console.log("─".repeat(100));
+  console.log(`## 全库 missingFailures 清单（${missingFolds.length} 次 fold · 用来判断「偶发」还是「系统性」）`);
+  console.log("  session                                    #   missing                        正文   区间记法");
+  for (const f of missingFolds) {
+    const summary = summaryTextFor(f.graph, f.mark);
+    // 只看**边**的区间记法（`coveredByRange` 按 id 首字母匹配，节点区间 `n440—n443` 不会算进来）
+    const coverOf = (id) => (summary.text === null ? null : coveredByRange(summary.text, id));
+    const covered = f.missing.filter((id) => coverOf(id) !== null).length;
+    const sample = f.missing.map(coverOf).find((r) => r !== null)?.raw ?? null;
+    console.log(
+      `  ${String(f.session).padEnd(42)} #${String(f.index).padEnd(2)}  ${f.missing.join(",").padEnd(30)}  ` +
+        `${(summary.text === null ? "无" : "有").padEnd(4)}  ${covered > 0 ? `${covered}/${f.missing.length} 条被 \`${sample}\` 覆盖` : "—"}`,
+    );
+  }
   console.log("");
   console.log("=".repeat(100));
   return 0;

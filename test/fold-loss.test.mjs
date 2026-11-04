@@ -22,8 +22,14 @@
  *
  * 本文件里的用例在**旧实现**下必红（见交付报告里的 A/B 对照）。
  */
-import { buildOfflinePrompt, compactAction, renderFacts, repairMissingFailures, runOfflineFold } from "../src/rooms/offline-fold.mjs";
+// ★ 用「命名空间导入」而不是具名导入：旧实现里没有 `compactAction` / `repairMissingFailures` 时，
+//   具名导入会让整个 `run.mjs` 在 import 阶段崩掉（它不接 import 错误）——
+//   那样**后面所有测试文件都不会跑**，一次回归把全库变成"跑不了"。命名空间导入下，
+//   缺函数只会让**这一条用例**红（TypeError），其余照跑。
+import * as offlineFold from "../src/rooms/offline-fold.mjs";
 import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
+
+const { buildOfflinePrompt, compactAction, renderFacts, repairMissingFailures, runOfflineFold } = offlineFold;
 
 export const tests = {};
 
@@ -32,21 +38,31 @@ const DOCS = String.raw`D:\DeepSeek Harness\default-workspace\projects\dsh\plugi
 const POSIX = "/d/DeepSeek Harness/default-workspace/projects/dsh/plugins/ptc-domain-presets/docs";
 
 /** 造一条真机形状的失败边（动作是长 Windows 路径，错误是带引号 POSIX 路径 + 原因）。 */
-const failedEdit = (id, file, start, end) => ({
+const failedEdit = (id, file, start, end, to = "n462") => ({
   id,
-  action: `edit(file_path=${DOCS}\\${file})`,
+  // ★ `from`/`to` 必须在图里：`classifyDangling` 会把 `to == null` 的旧边归成 residue，
+  //   而 residue **不是**「哪一步失败了」，探针会先把它们排除掉（`failuresInFoldRange`）。
+  from: "n461",
+  to,
   intent: "",
+  action: `edit(file_path=${DOCS}\\${file})`,
   result: "failure",
+  verify: { kind: "host-error", summary: `Error: cannot modify "${POSIX}/${file}": file has not been read` },
   errorSnippet: `Error: cannot modify "${POSIX}/${file}": file has not been read — read the file, then retry`,
   evidence: { start, end },
+  ts: 1793746126291,
 });
 
 /** 6 条连续死路（e693–e698，4 个不同文件）+ 1 条区间外的死路（e699）。 */
 function makeGraph() {
   return {
     rootUserNodeIds: ["n1"],
+    // `collectConstraints` 按 `order` 走（与真实 graph.json 同形）
+    order: ["n1", "n461", "n462"],
     nodes: {
       n1: { id: "n1", seq: 1, kind: "user", text: "把 PTC 域预设装好并核验", constraints: ["不许动 prod 配置"] },
+      n461: { id: "n461", seq: 3620, kind: "state", text: "Lead 开始改 4 份验证文档" },
+      n462: { id: "n462", seq: 3630, kind: "state", text: "6 次 edit 连续被拒" },
     },
     edges: {
       e693: failedEdit("e693", "full-host-verification.md", 3624, 3626),
@@ -56,7 +72,17 @@ function makeGraph() {
       e697: failedEdit("e697", "nested-verification.md", 3624, 3634),
       e698: failedEdit("e698", "nested-verification.md", 3624, 3636),
       // 区间**外**（3800 > 3705）：不是这次的死路，补回时不许越权带进来
-      e699: { id: "e699", action: "bash(npm test)", intent: "跑测试", result: "failure", errorSnippet: "exit 1", evidence: { start: 3800, end: 3801 } },
+      e699: {
+        id: "e699",
+        from: "n461",
+        to: "n462",
+        action: "bash(npm test)",
+        intent: "跑测试",
+        result: "failure",
+        errorSnippet: "exit 1",
+        evidence: { start: 3800, end: 3801 },
+        ts: 1793746126291,
+      },
     },
   };
 }
