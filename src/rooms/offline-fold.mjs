@@ -10,7 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { sanitizeSummaryIds } from "./fold-quality.mjs";
+import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-quality.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
 const CJK_RE = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
@@ -303,6 +303,38 @@ export function allConstraints(graph) {
 }
 
 /**
+ * ★ C607：**摘要丢掉的死路，机械补回去**（与 `repairMissingConstraints` 同构）。
+ *
+ * 为什么死路要和约束一样兜底：约束与失败边是同一类东西 —— **不是摘要，是硬性事实**。
+ * 丢一条约束 = 任务变了；丢一条死路 = **下一个模型必然重踩**（C492 的原话）。
+ * `docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，那就不能只靠提示词自觉
+ * （C458 的原则：提示词挡不住的东西用代码挡）。
+ *
+ * 真机依据（2026-11-04 19:00:57Z，`session-fdd814b1` 的 `archive-offline`）：
+ * 模型把 e693–e698 六条合并成 `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）`，
+ * `failureRecall` 掉到 0.43（7 条里丢 4 条），而合并出来的动作描述还是**错的**（4 个不同文件）。
+ *
+ * 补回的每一行都是「id + 动作 + 为什么失败」的可读句子（不是 id 堆砌）：
+ * `- e694 「edit(file_path=full-host-verification.md)」→ cannot modify "full-host-verification.md": file has not been read…`
+ *
+ * @param {string} text 模型输出（可能已被 sanitize）
+ * @param {Array<object>} missing 本次区间内、摘要里**没有逐条 id** 的失败边
+ * @returns {{text:string, repaired:string[]}}
+ */
+export function repairMissingFailures(text, missing) {
+  const list = (Array.isArray(missing) ? missing : []).filter((e) => e !== null && typeof e === "object" && typeof e.id === "string" && e.id !== "");
+  if (list.length === 0) return { text: String(text ?? ""), repaired: [] };
+  const body = String(text ?? "").replace(/\s+$/, "");
+  const lines = ["", "## 已探明死路（逐字补充 · 机械补回，不许重试）"];
+  for (const e of list) {
+    const action = compactAction(String(e.intent || e.action || ""), 80);
+    const why = compactAction(String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0], 80);
+    lines.push(`- ${e.id} 「${action}」→ ${why}`);
+  }
+  return { text: `${body}\n${lines.join("\n")}`, repaired: list.map((e) => String(e.id)) };
+}
+
+/**
  * 从棋谱渲染「硬事实块」（目标 / 约束 / 死路 / 已验证 / 坐标）—— 与在线折叠同一套事实。
  * @param {object} graph
  * @param {{start:number, end:number}} range
@@ -310,6 +342,34 @@ export function allConstraints(graph) {
  */
 /** ★ C533：事实块的硬上限（字符）。超过就截断并写明，不静默。 */
 const MAX_FACTS_CHARS = 8000;
+
+/**
+ * ★ C607：**把动作里的路径压成文件名**（事实块与死路补回共用）。
+ *
+ * 真机（`session-fdd814b1` 的 `archive-offline` 那一次，2026-11-04 19:00:57Z）：
+ * 6 条死路的动作都是
+ * `edit(file_path=D:\DeepSeek Harness\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs\<文件>)`，
+ * 而 `renderFacts` 是**从左往右**切 80 字符 ⇒ 切在 `…\ptc-do` 上 ——
+ * **真正有区分度的那一段（文件名）被切掉了**，6 条死路在事实块里长得一模一样。
+ * 模型于是把它们合并成「对同一文件连续 edit（重复 6 次）」：它不是瞎写，
+ * 是**我们把它写成了 6 条相同的事实**（而真相是 4 个不同文件）。
+ * 压成 basename 之后，80 字符里保住的就是「哪个文件」—— 那才是读者要的。
+ *
+ * @param {string} text 动作或错误原文
+ * @param {number} [maxChars]
+ * @returns {string}
+ */
+export function compactAction(text, maxChars = 80) {
+  const raw = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (raw === "") return "";
+  const base = (value) => String(value).split(/[\\/]/).filter((x) => x !== "").pop() ?? String(value);
+  const compact = raw
+    // `file_path=D:\…\x.md)` —— 值到 `)` / `,` / `;` 为止（路径里有空格，不能按空白切）
+    .replace(/([A-Za-z_][A-Za-z0-9_]*)=((?:[A-Za-z]:)?[^),;]*[\\/][^),;]*)/g, (_m, key, value) => `${key}=${base(value)}`)
+    // `"/d/…/x.md"` 这种带引号的裸路径
+    .replace(/"((?:[A-Za-z]:)?[^"]*[\\/][^"]*)"/g, (_m, value) => `"${base(value)}"`);
+  return compact.length > maxChars ? `${compact.slice(0, maxChars)}…` : compact;
+}
 
 export function renderFacts(graph, range) {
   const nodes = Object.values(graph?.nodes ?? {});
@@ -326,14 +386,15 @@ export function renderFacts(graph, range) {
   lines.push("", "## 已探明死路（不许重试）");
   if (failures.length === 0) lines.push("- (none)");
   for (const e of failures.slice(-40)) {
-    const label = String(e.intent || e.action || "").slice(0, 80);
-    const err = String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0].slice(0, 80);
+    // ★ C607：切的是**压缩后**的动作 —— 保住「哪个文件」，而不是盘符与目录（见 compactAction）。
+    const label = compactAction(String(e.intent || e.action || ""), 80);
+    const err = compactAction(String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0], 80);
     lines.push(`- ${e.id} "${label}" → ${err} (seq ${e.evidence?.start ?? "?"}-${e.evidence?.end ?? "?"})`);
   }
   const ok = edges.filter((e) => e?.result === "success").slice(-10);
   if (ok.length > 0) {
     lines.push("", "## 已验证事实");
-    for (const e of ok) lines.push(`- ${e.id} ${String(e.action ?? "").slice(0, 80)} → ${e.verify?.summary ?? "ok"}`);
+    for (const e of ok) lines.push(`- ${e.id} ${compactAction(String(e.action ?? ""), 80)} → ${e.verify?.summary ?? "ok"}`);
   }
   // ★ C546：**把会变的东西从事实块里拿掉**。这行原来写在这里（`seq start-end` 每段都不同），
   //   而它排在消息前面 ⇒ 每一段的请求前缀立刻分叉，分段跑 6 段就是 6 次全价重读
@@ -462,6 +523,13 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
     // ★ C537：**只列节点编号没用**。真机读摘要时发现「棋谱」只有 `n43 → n44 → …` 的链条，
     //   说不出每步**得出了什么**，读者还得回去翻原文 —— 那等于没压。
     "- 「棋谱」每一条都要写成「哪个节点 做了什么 → **得出了什么**」，一条一句；只写编号串不算。",
+    // ★ C607：**死路必须逐条**（契约：`docs/方案书.md` §「失败边……逐条出现，不合并、不省略」）。
+    //   真机 session-fdd814b1 那一次：模型把 e693–e698 合并成一行
+    //   `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）` ⇒ 中间 4 条 id 当场消失
+    //   （failureRecall 0.43），而且「同一文件」本身是错的 —— 那 6 条是 **4 个不同文件**。
+    "- 「已探明死路」**一条边一行**：`- e123 「动作」→ 为什么失败`；**不许**把连续几条合并成 " +
+      "`e693—e698` 这种区间写法（中间几条的 id 会丢，回查不到原文）。" +
+      "同一动作连着失败多次也**逐条**写 id，可以在行尾标「重复 N 次」。",
     "- 「当前节点」要说清：现在停在哪、手上还差什么、下一步的**已知约束**（不是建议）。",
     "- 引用实体只能引用上面出现过的 `n123` / `e456`。",
     // ★ C538：消息前缀就是答案 —— 但不说清楚模型宁可写 `n?`（真机 3a3fb03c 连着 3 次全是 n?）。
@@ -641,7 +709,32 @@ export async function runOfflineFold({
       text = fixed.text;
       repaired = fixed.repaired;
     }
-    const quality = typeof measureQuality === "function" ? measureQuality({ graph, range: { start, end }, summaryText: text }) : null;
+    // ★ C607：**死路逐条补回**（与上面的约束补回同构）。顺序有意义：死路段补在**约束段之前**，
+    //   这样摘要结尾仍然是提示词要求的「## 约束（逐字）」。
+    //   为什么必须兜底：`docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，
+    //   而真机已经出现过合并（session-fdd814b1：e693—e698 六条并一行，丢 4 条 id）。
+    //   判据与探针同源（`failuresInFoldRange` + `mentionsEdge`），补完 `failureRecall` 必然 = 1。
+    const missingFailureEdges = (() => {
+      try {
+        return failuresInFoldRange(graph, { start, end }).filter((edge) => !mentionsEdge(text, edge.id));
+      } catch {
+        // 诊断/补回失败都不许影响压缩主链路（C64 同一纪律）
+        return [];
+      }
+    })();
+    let repairedFailures = [];
+    if (missingFailureEdges.length > 0) {
+      const fixedFailures = repairMissingFailures(text, missingFailureEdges);
+      text = fixedFailures.text;
+      repairedFailures = fixedFailures.repaired;
+    }
+    const measured = typeof measureQuality === "function" ? measureQuality({ graph, range: { start, end }, summaryText: text }) : null;
+    // ★ C607：**补回了几条要留痕**。`failureRecall` 按设计恒 = 1（最终产物口径），
+    //   于是「模型自己漏了多少」在指标上看不见 —— 用这两个字段让它可见（doctor 只读已知字段，多出来的不碍事）。
+    const quality =
+      measured !== null && typeof measured === "object" && repairedFailures.length > 0
+        ? { ...measured, failuresRepaired: repairedFailures.length, failuresRepairedIds: repairedFailures.slice(0, 10) }
+        : measured;
     chunks.push({
       start,
       end,
@@ -650,6 +743,8 @@ export async function runOfflineFold({
       dropped,
       text,
       repaired,
+      // ★ C607：机械补回了几条死路（>0 说明模型的「已探明死路」段没逐条写 id）
+      repairedFailures: repairedFailures.length,
       sanitized,
       truncated,
       // ★ C599：标出"重试被截止时间挡掉了"，否则读图的人会以为这条路不会重试

@@ -18,6 +18,10 @@ import nodeFs from "node:fs";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { logCacheKey, summarizeLogEvents, replayLogStats } from "./log-stats.mjs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
+// ★ C607：「真缺失 / 在途」的判据**只有一份** —— 与 `repair-node-docs` 共用。
+//   doctor 自己是脚本（模块级执行、不能 import），所以纯函数落在 repair-node-docs.mjs 里；
+//   两边各写一套的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
+import { IN_FLIGHT_MS, splitMissingNodeDocs } from "./repair-node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
@@ -811,11 +815,18 @@ mark('观测字段覆盖');
 mark('结构自洽');
 /* ── 3.3b 节点文档与棋谱一致（C110）──
    热清单省略行会写「见 nodes/<id>.md」。文件缺失 = 空指针（模型会去读，然后 ENOENT）；
-   文件比节点多 = 陈旧工件（不影响引用，只计数）。 */
+   文件比节点多 = 陈旧工件（不影响引用，只计数）。
+
+   ★ C607：**「真缺失」与「在途」必须分两段说，不许混成一个数。**
+   `nodes/*.md` 是按落盘节流写出的，活跃会话里「刚建的节点还没写 md」是**正常中间态** ——
+   把它算进「缺」会让人以为坏了（C146/C148 反复踩过）；可把它算成 ok 又会掩盖真缺失。
+   所以拆成两段，各自带自己的判据。 */
 {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   let scanned = 0;
+  /** 真缺失：图已静止，md 就是写不出来 ⇒ 空指针。 */
   let missingAll = 0;
+  /** 在途：节点刚创建 + 图仍在写 ⇒ md 还没轮到写，**不算缺失**。 */
   let inFlightAll = 0;
   let orphanAll = 0;
   const skippedDocs = [];
@@ -851,34 +862,36 @@ mark('结构自洽');
       //   只有「图已静止」却仍缺文档，才是真正的空指针风险。
       // ★ C148（复审 P2-4）：在途只对**刚创建**的节点成立（按节点自己的 ts）——
       //   只看 graph.updatedAt 会让「一直活跃的会话里永久缺失的 md」永远算在途、永不报警。
-      const now = Date.now();
-      for (const id of stats.missing) {
-        const node = graph.nodes?.[id];
-        const created = Number(node?.ts) || 0;
-        const inFlight = now - (Number(graph.updatedAt) || 0) < 120_000 && now - created < 120_000;
-        if (inFlight) inFlightAll += 1;
-        else {
-          missingAll += 1;
-          if (worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${id}`);
-        }
+      // ★ C607：这段判据已收进 `splitMissingNodeDocs`（与 repair-node-docs 共用一份）。
+      const split = splitMissingNodeDocs(graph, stats.missing, Date.now());
+      missingAll += split.missing.length;
+      inFlightAll += split.inFlight.length;
+      for (const id of split.missing) {
+        if (worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${id}`);
       }
       orphanAll += stats.orphan.length;
     }
   }
-  const notes = [];
-  if (inFlightAll > 0) notes.push(`${inFlightAll} 个在途（刚创建，md 按落盘节流延迟写出）`);
-  if (orphanAll > 0) notes.push(`${orphanAll} 个陈旧 md（节点已不在图里，仅计数）`);
-  if (deltaIssues.length > 0) notes.push(`${deltaIssues.length} 个会话的 delta 无法完整回放：${deltaIssues.slice(0, 2).join(" / ")}`);
-  if (skippedDocs.length > 0) notes.push(`${skippedDocs.length} 个会话被跳过（旧版本/坏图，无法体检）：${skippedDocs.slice(0, 2).join(" / ")}`);
+  // ★ C607：两段各自成句 —— **不许把在途并进「缺」那个数里**（也贴在报告里）。
+  const segments = [];
+  if (missingAll > 0) {
+    segments.push(`真缺失 ${missingAll} 个（图已静止、md 就是写不出来 ⇒ 热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}`);
+  }
+  if (inFlightAll > 0) {
+    segments.push(`在途 ${inFlightAll} 个（节点创建 <${Math.round(IN_FLIGHT_MS / 1000)} 秒且图仍在写 ⇒ md 按落盘节流延迟写出；**不计入真缺失**）`);
+  }
+  if (orphanAll > 0) segments.push(`${orphanAll} 个陈旧 md（节点已不在图里；\`repair-node-docs --prune\` 可清，不影响引用）`);
+  if (deltaIssues.length > 0) segments.push(`${deltaIssues.length} 个会话的 delta 无法完整回放：${deltaIssues.slice(0, 2).join(" / ")}`);
+  if (skippedDocs.length > 0) segments.push(`${skippedDocs.length} 个会话被跳过（旧版本/坏图，无法体检）：${skippedDocs.slice(0, 2).join(" / ")}`);
 
   const verdict = missingAll > 0
-    ? { level: "warn", detail: `${missingAll} 个节点缺 nodes/<id>.md（热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}${notes.length > 0 ? ` · ${notes.join(" · ")}` : ""}` }
+    ? { level: "warn", detail: segments.join(" · ") }
     : {
         level: skippedDocs.length > 0 || deltaIssues.length > 0 ? "warn" : "ok",
         detail:
           scanned === 0
             ? `0 个可读会话${skippedDocs.length > 0 ? `（${skippedDocs.length} 个被跳过：${skippedDocs.slice(0, 3).join(" / ")}，不是「没有图」）` : "（没有会话图）"}`
-            : `${scanned} 个会话的节点文档齐全${notes.length > 0 ? `（${notes.join(" · ")}）` : ""}`,
+            : `${scanned} 个会话 · 真缺失 0 个${segments.length > 0 ? ` · ${segments.join(" · ")}` : " · 节点文档齐全"}`,
       };
   add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
 }
