@@ -197,7 +197,10 @@ export function estimateSessionRuntime(chunks, medianMs, p90Ms, timeoutMs) {
 export function debtAttemptState(graph) {
   const c = graph?.closeout;
   if (c === null || c === undefined || typeof c !== "object") return { retried: false, note: null };
-  if (closeoutSettles(c)) return { retried: false, note: null };
+  // ★ C587（审核发现）：不能只看 `closeoutSettles` —— 它与 `debtOfGraph` 口径不同，
+  //   真机有 110 个会话「settles=true 但 due=true」，这里会把它们标成"从没试过"。
+  //   有 `folded` 却没证据的一律按"试过但没成"处理。
+  if (closeoutSettles(c) && !(Number(c?.folded) > 0 && !foldedEvidencePresent(graph))) return { retried: false, note: null };
   const note = String(c.foldNote ?? "");
   if (note !== "") return { retried: true, note };
   const err = String(c.foldError ?? "");
@@ -209,6 +212,22 @@ export function debtAttemptState(graph) {
     return { retried: true, note: `分段 ${folded}/${Number(c.chunkedChunks)} 段${stopped}` };
   }
   return { retried: true, note: null };
+}
+
+/** ★ C587：图里有没有"收尾折叠"的证据（mark 或 chunkedFolded）。 */
+export function foldedEvidencePresent(graph) {
+  const marks = Array.isArray(graph?.foldMarks) ? graph.foldMarks : [];
+  const c = graph?.closeout ?? {};
+  return (
+    marks.some((m) => ["archive", "backfill", "archive-offline", "disposed"].includes(String(m?.trigger ?? ""))) ||
+    Number(c?.chunkedFolded) > 0 ||
+    // 离线折叠自己会留这些痕迹（C587）
+    c?.foldOffline === true ||
+    c?.source === "archive-offline" ||
+    c?.offlineCovered !== undefined ||
+    // 多段 ⇒ 只可能是分段折叠（单段路径永远写 1/true）
+    Number(c?.folded) >= 2
+  );
 }
 
 export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } = {}) {

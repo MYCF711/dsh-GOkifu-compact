@@ -138,3 +138,21 @@ tests["C579 活会话必须在排序之前剔除（否则名额被占满、永�
   t.includes(seg, "liveSkipIds", "跳过要留痕");
   t.includes(seg, "日志还在写", "文案要说清为什么跳过");
 };
+
+tests["C586 并发安全的空转判定：用 lastExternalFold 指纹，而不是全局计数差"] = (t) => {
+  const src = engine();
+  t.includes(src, "const ourStamp = () =>", "要有指纹判据");
+  t.includes(src, "lef.seqStart", "指纹要比对区间");
+  t.includes(src, "const stamped = afterStamp === true && beforeStamp === false", "只有我们的这一段被登记才算折了");
+};
+
+tests["C588 面板补账通道不许引用不存在的变量（bridge0 曾让整条通道 100% 不可用）"] = (t) => {
+  const ui = nodeFs.readFileSync(nodePath.join(ROOT, "src", "ui.mjs"), "utf8");
+  // 去掉行注释再看标识符 —— 注释里提到这个坑是允许的（那正是留痕）
+  const code = ui
+    .split(String.fromCharCode(10))
+    .filter((line) => !line.trim().startsWith("//"))
+    .join(String.fromCharCode(10));
+  t.eq(/(^|[^A-Za-z0-9_$.])bridge0([^A-Za-z0-9_]|$)/.test(code), false, "代码里不许出现 bridge0");
+  t.includes(code, "bridge.isBackfillBusy(it.sessionId)", "必须用真实存在的 bridge");
+};

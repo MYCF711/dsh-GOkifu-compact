@@ -404,10 +404,11 @@ tests["C555 「已折过」要有证据：folded>0 但没有 marks 就是假冒�
 tests["C581 usage 两种形状归一（脚本 snake_case / 引擎 camelCase）"] = async (t) => {
   const m = await import("../src/rooms/offline-fold.mjs");
   t.eq(m.normalizeUsage(null), null, "null 不炸");
+  // ★ C587：归一结果**保留读侧字段名**（ui/fold-quality/doctor 都读 inputTokens/outputTokens）
   const eng = m.normalizeUsage({ inputTokens: 14889, outputTokens: 6686, totalTokens: 21575 });
-  t.eq(eng.input, 14889, "引擎形输入");
-  t.eq(eng.output, 6686, "引擎形输出");
-  t.eq(eng.total, 21575, "引擎形总量");
+  t.eq(eng.inputTokens, 14889, "引擎形输入");
+  t.eq(eng.outputTokens, 6686, "引擎形输出");
+  t.eq(eng.totalTokens, 21575, "引擎形总量");
   const scr = m.normalizeUsage({
     prompt_tokens: 6623,
     completion_tokens: 7558,
@@ -415,13 +416,34 @@ tests["C581 usage 两种形状归一（脚本 snake_case / 引擎 camelCase）"]
     prompt_tokens_details: { cached_tokens: 9216 },
     completion_tokens_details: { reasoning_tokens: 4638 },
   });
-  t.eq(scr.cached, 9216, "脚本形缓存命中");
-  t.eq(scr.reasoning, 4638, "脚本形推理");
-  t.eq(scr.total, 14181, "脚本形总量");
+  t.eq(scr.cacheReadTokens, 9216, "脚本形缓存命中");
+  t.eq(scr.reasoningTokens, 4638, "脚本形推理");
+  t.eq(scr.totalTokens, 14181, "脚本形总量");
 };
 
 tests["C584 离线 mark 必须写 truncated（否则 status 永远报「跑的还是旧代码」）"] = async (t) => {
   const src = (await import("node:fs")).readFileSync(new URL("../src/rooms/offline-fold.mjs", import.meta.url), "utf8");
   t.includes(src, "truncated: chunk.truncated === true", "mark 要写 truncated");
   t.includes(src, "让探测器不再撒谎", "注释要说明它曾经漏写");
+};
+
+tests["C586 估算用码点（emoji/代理对不重复计）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  t.eq(m.estimateTokens(""), 0, "空串为 0");
+  t.eq(m.estimateTokens("😀".repeat(100)), 30, "emoji 100 个 ≈ 30（按码点，不按 UTF-16 单位）");
+  t.eq(m.estimateTokens("中".repeat(100)), 60, "中文 0.6/字");
+  t.eq(m.estimateTokens("a".repeat(100)), 30, "英文 0.3/字");
+};
+
+tests["C586 剩余缺口也算 partial（两套口径不许打架）"] = async (t) => {
+  const g = { version: 1, nodes: { n1: { id: "n1", kind: "user", seq: 1 }, n2: { id: "n2", kind: "agent", seq: 500 } }, edges: {}, foldMarks: [], closeout: {} };
+  await import("../src/rooms/offline-fold.mjs").then((m) =>
+    m.applyOfflineFoldToGraph(
+      g,
+      { chunks: [{ start: 1, end: 100, text: "## 目标" }], coveredStart: 1, coveredEnd: 100, uncoveredHead: 0, uncoveredTail: 0 },
+      { model: { model: "m" }, rangeStart: 1, previousGapEvents: 400 },
+    ),
+  );
+  t.eq(g.closeout.partial, true, "旧缺口还剩 300 ⇒ 必须标 partial");
+  t.eq(Number(g.closeout.offlineUncoveredHead?.events), 300, "剩余缺口要写清");
 };

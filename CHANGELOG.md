@@ -2,6 +2,8 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C573 | 审核又抓 6 处：面板补账 100% 不可用 + 我自己的 4 个回归 |
+| C572 | 三个并发/长跑才暴露的边界：指纹判据、partial、emoji |
 | C571 | 状态页加速度：24h 存量看不出快慢 |
 | C570 | 永远为假的探测器：truncated 从没被写过 |
 | C569 | 积压 18 万事件：每轮从 3 个提到 5 个 |
@@ -643,6 +645,101 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C573 · 审核又抓 6 处：面板补账 100% 不可用 + 我自己的 4 个回归
+
+**按铁律 6 又派了一次独立审核（视角：C572–C585 的归档压缩链）。它找出 6 处，其中 4 处是我自己引入的回归。**
+
+### 一、最严重：面板「补账」通道 100% 不可用
+
+```js
+typeof bridge?.isBackfillBusy === "function" ? picked.filter((it) => bridge0.isBackfillBusy(...)) : []
+```
+
+判空用 `bridge`，取值用**不存在的 `bridge0`** ⇒ 只要引擎在，这一行必抛
+`ReferenceError: bridge0 is not defined`。真机 `accept-after-restart` 复现：
+「❌ 面板 backfill 通道不通」。
+
+而守卫是「源码里含有 `isBackfillBusy` 就算过」—— **拼错照样绿**。已改严：
+去掉行注释后代码里不许出现 `bridge0`。
+
+### 二、我自己引入的 4 处回归
+
+| # | 我做的蠢事 | 后果 |
+|---|---|---|
+| ① | C581 把 usage 归一成 `{input,output,...}` | 读侧读的是 `inputTokens/outputTokens` ⇒ **7 条已写 mark 的成本全变 null** |
+| ② | C583 预算写成 `Math.max(20_000, 420) * 1000` | = 5.6 小时 ⇒「本轮预算 420 秒」**从来没生效**；且 `t0` 在 for 内、每会话重置 |
+| ③ | C582 生产调用点传 `.length`（数字） | 语言权重失效，C582 **只在脚本里生效** |
+| ④ | C586 把 emoji 按码点算 | CJK 扩展 B（U+20000）从"意外正确"变成**低估**（回归） |
+
+全部修掉：字段名保留 `inputTokens/outputTokens/totalTokens/cacheReadTokens`；预算按秒夹 [20,3600] 且整轮墙钟；
+生产传字符串；估算对扩展区中文字符也按 0.6 计。
+
+### 三、审核还指出 3 处"存量不一致"
+
+- `#backfillIfPending` 只用 `closeoutSettles` ⇒ 真机 **110 个会话**「settles=true 但 due=true」**重开永远不补**；已改判 `debtOfGraph().due`；
+  补账计划的 `debtAttemptState` 同步（新增 `foldedEvidencePresent`）。
+- 空转判定仍留了全局计数差那一票 ⇒ 别人折叠会替我们的空转作证；**已删**，只认 `lastExternalFold` 指纹 + 新鲜度（`at >= 本段开始`）。
+- `#recordExternalFold` 只在宿主直调时记账 ⇒ 我们自己那段真折了却查无记录；**已改无条件记**，`external` 只决定 trigger 标签（C198 仍成立：只有外部调用涨计数）。
+
+### 四、验证（**串行**，单次）
+
+```
+node test/run.mjs → 1365 passed, 0 skipped, 0 failed
+```
+
+> 顺带一条方法论：**并发跑 `test/run.mjs` 会互相抽掉 `test/.harness`**，制造假红（本轮出现过 T2-5/C198/C61 等"应为1实际2"）。
+> 数字只认串行。
+
+### C572 · 三个并发/长跑才暴露的边界：指纹判据、partial、emoji
+
+**把上一轮我自己列的三个"已知未修"一次修掉 —— 都是会在并发或长跑下才暴露的。**
+
+### 一、并发下"折了没有"分不清谁折的
+
+```js
+const beforeExternal = this.ledgerBudget.externalFolds;
+await compactRegion(...);
+const afterExternal = this.ledgerBudget.externalFolds;
+if (afterExternal === beforeExternal) return { folded: false, skipped: "no-op" };
+```
+
+这是**全局计数差**。别人的折叠只要落在我们的窗口里，我们即使空转也会被算成"折了"；
+反过来我们的折叠被别人的记账盖过去也会被算成空转。
+
+**改法**：用 `ledgerBudget.lastExternalFold` 的**指纹**（`{session, seqStart, seqEnd}`）
+与本段 `{id, start, end}` 比对 —— 只有"我们这一段被登记"才算折了。
+
+### 二、剩余缺口不算 partial ⇒ 两套口径打架
+
+`applyOfflineFoldToGraph` 原来只看 `uncoveredHead/Tail`：
+
+- 上一轮留了 400 事件缺口，这一轮补掉 100 ⇒ `remaining = 300 > 0`；
+- 但 `partial` 仍是 `false` ⇒ `closeoutSettles` 说"结清"，`debtOfGraph` 说"还欠 300"。
+
+**改法**：`partial` 也算上 `remainingGap > 0`。
+
+### 三、emoji 让 token 估算翻倍
+
+```js
+for (const ch of s) { ... }      // 按码点迭代
+(s.length - wide)                // 按 UTF-16 单位计数 —— 混用了
+```
+
+代理对（emoji）在 `length` 里占 2 ⇒ 100 个 emoji 被估成 60 token（应≈30）。
+
+**改法**：两侧都用码点数。
+
+### 四、顺带
+
+`repair-node-docs --write` 补了 8 + 2 个节点文档，doctor 的
+「节点文档与棋谱一致」已从 `!` 转 ✓（384 个会话齐全）。
+
+### 五、验证
+
+```
+node test/run.mjs → 1364 passed, 0 failed（新增 4 条守卫）
+```
 
 ### C571 · 状态页加速度：24h 存量看不出快慢
 

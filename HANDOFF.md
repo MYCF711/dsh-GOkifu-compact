@@ -1,21 +1,21 @@
 # dsh-GOkifu-compact · 交接文件
 
-## ✅ 当前状态（滚动更新，2026-11-03 09:0x 本地 · C472）
+## ✅ 当前状态（滚动更新，2026-11-04 21:1x 本地 · C573）
 
 | 项 | 值 |
 |---|---|
 | 版本 | **1.17.6**（本地未发布）。v1.17.4 / 1.17.5 / 1.17.6 **均未打 tag**；`npm run gate` 末尾会直接给出可照抄的 `git tag -a … && git push`（C324） |
-| ✅ **运行实例已接管（真机）** | 面板 **62391** · version **1.17.6** · 心跳 buildId 与磁盘一致（版本核对里那条陈旧提示已消失）· 动作指纹 **2515 / 30247 条边**带 `sig` · 补账干跑 **due 55 / 55 个欠账 / $1.74** |
+| ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1361 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1365 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
-| 补账（尚未执行） | `node scripts/backfill-plan.mjs`：约 **46–47 个欠账 / 10.3M tok / $1.65 / 82 段 / 约 16 分钟**；**3 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 218348` 或调大 `closeoutTimeoutMs`（C368/C343） |
-| 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册 |
+| 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
+| 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
 | 实验室工具（本轮新增） | `session-scan`（逐帧解 zstd 会话）· `cache-rate`（命中率 + `--by-session` 算钱）· `context-curve`（锯齿曲线）· `token-calib`（与官方比例对照）· `release-notes-drift`（发布说明漂移）· `backfill-plan`（钱/点击/耗时） |
 | ✅ **已由真机数据证明的修复** | **C458**（摘要里的非法 id 换 `n?`）：重启后 2 次折叠清洗 **10 / 6** 条，`outOfRangeLater` 与 `unknownIds` 双双 **归零**；对照组（修复前 7 条）100% 带「更晚实体」。`node scripts/summary-refs.mjs` 可直接复跑 |
-| ⏳ 还差真机样本的两项 | **C466**（归档收尾把折叠结果写回图：`foldAttempted/folded/foldError`）——需要**归档一个会话**；**C467**（折叠失败分类落图 `lastFoldFailure`）——需要一次失败折叠。两者都要等事件发生，不能造 |
-| ⏳ 唯一待办 | **补账**（欠账 49 个 / 10.7M tok / $1.72 冷缓存 / 约 3 次点击）；建议先把 `closeoutMaxFoldTokens` 调到 ≈230915（否则 3 个会话按 p90 会超 90s 超时，C392 干跑会直接告诉你） |
+| ⏳ 还差真机样本的**一项**（C466 已补齐） | **C466 已由真机证明**：386 张 live 图里 **325 张有 `closeout`、其中 159 张写了 `foldAttempted/folded`**；**C467 仍缺**——`lastFoldFailure` 落图 **0 条**，要有一次**失败**折叠才会出现，不能造 |
+| ⏳ 唯一待办 | **补账真跑**（规模/花费/段数**只认 `node scripts/backfill-plan.mjs` 当次输出**，本行不再抄第二份 —— 旧值「49 个 / 10.7M tok / $1.72 / 3 次点击」已过期）；先把 `closeoutMaxFoldTokens` 按干跑给的值调大（C392） |
 | 未结案候选 | **K-20**（token 比例标定：实测端到端只差 1.07× ⇒ 降级）· **K-22**（两个「上下文大小」不是一个数 + 800k 台阶；证据已在 C366 埋好，重启后第一次 fold 即可对账） |
 | ⏭ 重启后的三步（照抄） | ① `npm run status` 看六行（若「全量测试」显示"未重跑"且门禁绿，即一切正常）②`node scripts/accept-after-restart.mjs` 看是否 `ready` ③ 想验证补账通道就先 `node scripts/backfill-one.mjs --session e78cc233 --dry`（只演不跑），确认后去掉 `--dry` 补**一个**小会话 |
 | 🔜 重启后**应该新出现**的东西 | `state.today.truncated`、`state.update.relation`、`foldMark.usage.model` / `finishReason` / `measuredBefore`、doctor「折叠证据字段」由 `0 0 0` 变为非 0、面板认识 `sessionIds` 参数（`accept-after-restart` 会点名）；若仍缺，说明面板那份模块还是旧的 |
@@ -391,7 +391,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 | 版本 | **1.9.1**（工作区 = 已安装 junction 指向的源码，npm latest 仍是 1.8.1 —— 未发布） |
 | 单测 | **134 passed / 0 failed**（新增 `test/selfloop.test.mjs` 8 项 + harness 端到端 1 项） |
 | 全库自环 | **6,172 → 0**（`node test/rewash-selfloop.mjs --apply` 已执行） |
-| 未生效 | **必须重启 DSH**：正在跑的进程仍加载旧代码，会持续把自环写回（实测每分钟 +100 条） |
+| 未生效 | ~~必须重启 DSH~~ **已于 2026-11-04 重启接管**：当时运行实例仍加载旧代码，会持续把自环写回（实测每分钟 +100 条）；重启后自环归零已验证 |
 
 ### 这一版修了什么（三份独立评估共同指向的那个洞）
 

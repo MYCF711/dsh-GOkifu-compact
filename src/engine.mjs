@@ -1139,7 +1139,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // ★ C477：判据与 `debtOfGraph` **共用一条规则** —— "有 closeout"不等于"收尾成功"。
     //   真机（2026-11-03）：归档时写过 `folded:0 + nothing-to-fold`，导致此后重开该会话也永远
     //   不会再补（引擎这边同一个坑；C476 只修了账本那一侧）。
-    if (closeoutSettles(g.closeout)) return;
+    // ★ C587（审核发现）：这里原来只用 `closeoutSettles`，而它与 `debtOfGraph` 对"结清"的口径不同
+    //   ⇒ 真机有 **110 个会话**「settles=true 但 due=true」，重开时**永远不补**（只有自动 tick 会捞）。
+    //   改成两个条件都过才算结清：settles 通过 **且** 不欠账。
+    if (closeoutSettles(g.closeout)) {
+      const d = (() => {
+        try {
+          return debtOfGraph(g);
+        } catch {
+          return null;
+        }
+      })();
+      if (d === null || d.due !== true) return;
+    }
     const last = (g.foldMarks ?? []).at(-1);
     const lastSeq = Number(last?.seqEnd);
     const endSeq = Number(session.seq);
@@ -1194,11 +1206,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       //   ⇒ 合并写；并且**只要这次确实要折**，就先写 `foldAttempted:true, folded:0`
       //     （在飞期间不许看起来结清，最小必须把它从"结清"里摘出来）。
       const willFold = this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40);
+      const prevCloseoutForSource = g.closeout ?? null;
       g.closeout = {
         ...(g.closeout ?? {}),
         at: Date.now(),
         eventsSinceLastFold,
         folds: (g.foldMarks ?? []).length,
+        // ★ C587（审核发现）：`source` 会被后来的 archive/disposed **覆盖掉离线折叠的归因**。
+        //   这里额外留一个不会被覆盖的 `foldSource`（doctor 的 bySource 靠它区分在线/离线）。
+        ...(prevCloseoutForSource?.foldOffline === true || prevCloseoutForSource?.source === "archive-offline"
+          ? { foldSource: "archive-offline" }
+          : {}),
         source,
         ...(willFold ? { foldAttempted: true, folded: 0 } : {}),
       };
@@ -1636,7 +1654,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     if ((this._manualCompactDepth ?? 0) > 0) this._manualRange = { start, end };
     try {
       const out = await super.compactRegion(start, end, agent, signal);
-      if (externalCall) this.#recordExternalFold(agent, start, end);
+      // ★ C587（审核发现）：**记账要无条件**。以前只在"宿主直调"时记，于是
+      //   「我们自己的分段折叠撞上别人在飞」时压根不记账 ⇒ 上层的空转判定三项全 false
+      //   ⇒ 真折了被判成空转 ⇒ 同一段再付一次钱。`externalCall` 现在只决定 trigger 标签。
+      this.#recordExternalFold(agent, start, end, { external: externalCall });
       return out;
     } finally {
       this._chessActiveRange = prev;
@@ -1650,7 +1671,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * 而 doctor 的「fold 新鲜度」还会显示「很久没 fold」。
    * 与 tier-2 同口径消费 `_lastSummary*` 字段（谁生产谁消费），失败不影响主流程。
    */
-  #recordExternalFold(agent, start, end) {
+  /**
+   * @param {object} agent
+   * @param {number} start
+   * @param {number} end
+   * @param {{external?: boolean}} [opts] external 只影响 trigger 标签（★ C587 起记账无条件）
+   */
+  #recordExternalFold(agent, start, end, opts = {}) {
     try {
       const session = agent?.session;
       if (session === null || session === undefined) return;
@@ -1658,16 +1685,26 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const summaryText = this._lastSummaryText ?? "";
       const summaryChars = this._lastSummaryChars ?? null;
       const modelText = this._lastSummaryModelText ?? "";
-      this._lastSummaryChars = undefined;
-      this._lastSummaryFinishReason = undefined;
-      this._lastSummaryInstructionTokens = undefined;
-      this._lastSummaryText = undefined;
-      this._lastSummaryModelText = undefined;
+      // ★ C587：**只有"宿主直调"才清理这些一次性字段**。它们随后要被 recordFoldMark 读走
+      //   （摘要正文/字符数/截断原因）；无条件清会把我们自己的 foldMark 变成"空摘要"
+      //   （测试 P2-2-1/P2-2-2/C61 立刻红：summaryTokens 恒为 0）。
+      if (opts?.external === true) {
+        this._lastSummaryChars = undefined;
+        this._lastSummaryFinishReason = undefined;
+        this._lastSummaryInstructionTokens = undefined;
+        this._lastSummaryText = undefined;
+        this._lastSummaryModelText = undefined;
+      }
       const range = { start, end };
       // ★ C198：记进**预算账本**（与 ledger-budget.json 同源），不写图 —— 图的 foldMarks 走
       //   基线/增量两条持久化路径，宿主外部折叠不该再往那套记账里塞一条（字段语义/清理规则都不同）。
       const budget = this.ledgerBudget ?? {};
-      budget.externalFolds = (Number.isFinite(budget.externalFolds) ? budget.externalFolds : 0) + 1;
+      // ★ C198 仍然成立：**只有宿主直调才算"外部折叠"**（我们自己的 pressure fold 已经进 foldMarks，
+      //   再记一遍等于记两次账）。但 `lastExternalFold` 这个**指纹**要对每次折叠都写 ——
+      //   上层的"空转判定"靠它认领自己那一段（★ C587）。
+      if (opts?.external === true) {
+        budget.externalFolds = (Number.isFinite(budget.externalFolds) ? budget.externalFolds : 0) + 1;
+      }
       budget.lastExternalFold = {
         at: Date.now(),
         session: session.id,
@@ -1787,6 +1824,24 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
               })();
               const beforeFolds = Number(g0?.foldCount ?? 0);
               const beforeExternal = Number(this.ledgerBudget?.externalFolds ?? 0);
+              // ★ C586：**用"这一次折叠的指纹"判定，而不是全局计数差**。
+              //   计数差在并发下分不清是谁折的（别人的折叠落在我们的窗口里 ⇒ 我们空转也会被算成折了）。
+              //   `lastExternalFold` 记了 {session, seqStart, seqEnd} —— 正好是我们这一段。
+              // ★ C587（审核发现）：**只认指纹，而且要看新鲜度**。
+              //   `at >= 本段开始时间` 才能排除"上一次同一段"留下的旧指纹（重试时会把真折叠判成空转）。
+              //   同时**删掉全局计数差那一票**：它分不清是谁折的，别人的折叠会替我们的空转作证。
+              const foldStartedAt = Date.now();
+              const ourStamp = () => {
+                const lef = this.ledgerBudget?.lastExternalFold ?? null;
+                if (lef === null || typeof lef !== "object") return false;
+                return (
+                  String(lef.session ?? "") === String(foldSession?.id ?? "") &&
+                  Number(lef.seqStart) === Number(start) &&
+                  Number(lef.seqEnd) === Number(end) &&
+                  Number(lef.at ?? 0) >= foldStartedAt
+                );
+              };
+              const beforeStamp = ourStamp();
               const out = await Promise.race([this.compactRegion(start, end, this.#asAgent(target), undefined), timeout]);
               if (out === "timeout") throw Object.assign(new Error("chunk timeout"), { code: "CHUNK_TIMEOUT" });
               const g1 = (() => {
@@ -1797,8 +1852,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
                 }
               })();
               const afterFolds = Number(g1?.foldCount ?? 0);
-              const afterExternal = Number(this.ledgerBudget?.externalFolds ?? 0);
-              if (afterFolds === beforeFolds && afterExternal === beforeExternal) return { folded: false, skipped: "no-op" };
+              const afterStamp = ourStamp();
+              // 成功证据只有两种：① 我们这一段被登记进 lastExternalFold（带新鲜度）；
+              // ② 图的 foldCount 涨了（单段路径）。**不再看全局计数差**。
+              const stamped = afterStamp === true && beforeStamp === false;
+              if (afterFolds === beforeFolds && stamped === false) {
+                return { folded: false, skipped: "no-op" };
+              }
               return out;
             } finally {
               if (timer !== null) clearTimeout(timer);
@@ -2039,7 +2099,17 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       }
       const picked = rankDebts(withLog, { limit: max });
       let done = 0;
+      // ★ C587：**整轮墙钟**。以前 `t0` 在 for 内的每个会话各自重置 ⇒ 一轮根本没有总预算。
+      // ★ C583/C587：本轮时间预算。按秒夹到 [20, 3600]（原来单位写错成 ×1000，等于没有预算）。
+      const budgetSecRaw = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 420 : 240);
+      const budgetMs = Math.max(20, Math.min(3600, budgetSecRaw)) * 1000;
+      const tickStart = Date.now();
       for (const item of picked) {
+        // 总预算到点就停（下一轮再继续；不会无限占着）
+        if (Date.now() - tickStart > budgetMs) {
+          this.ctx?.logger?.info?.(`chess-context: 自动补账本轮时间预算用尽（${Math.round(budgetMs / 1000)}s），下一轮继续`);
+          break;
+        }
         const id = String(item?.sessionId ?? "");
         if (id === "") continue;
         const logFile = (() => {
@@ -2065,11 +2135,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
         //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
         const rounds = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
-        // ★ C583：积压大时把本轮时间预算也放宽（240s → 420s）。仍然是**有界**的：
-        //   一轮最多 420 秒、最多 5 个会话，跑完就停，不会一直占着。
-        const budgetSec = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 420 : 240);
-        const budgetMs = Math.max(20_000, budgetSec) * 1000;
-        const t0 = Date.now();
         let marks = 0;
         let lastOutcome = null;
         for (let round1 = 1; round1 <= rounds; round1 += 1) {
@@ -2084,11 +2149,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             }
           })();
           if (!stillDue) break;
-          if (Date.now() - t0 > budgetMs) break;
+          if (Date.now() - tickStart > budgetMs) break;
         }
         done += 1;
         this.ctx?.logger?.info?.(
-          `chess-context: 自动补账 ${id.slice(0, 8)} → ${marks} 段（${Math.round((Date.now() - t0) / 1000)}s）` +
+          `chess-context: 自动补账 ${id.slice(0, 8)} → ${marks} 段（${Math.round((Date.now() - tickStart) / 1000)}s）` +
             (lastOutcome?.partial === true ? "（仍有缺口，下轮继续）" : "") +
             (lastOutcome?.stopped !== undefined && lastOutcome.stopped !== null && lastOutcome.stopped !== "done" ? ` · ${lastOutcome.stopped}` : ""),
         );

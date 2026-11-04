@@ -237,8 +237,11 @@ export function applyCloseoutOutcome(closeout, result, error = null, at = Date.n
     const folded = Number(result.folded) || 0;
     next.folded = folded;
     if (typeof result.stopped === "string" && result.stopped !== "") next.foldNote = `offline:${result.stopped}`;
+    // ★ C587（审核发现）：**别把真实的缺口抹掉**。以前只要 result.partial 不是 true 就删 partial，
+    //   而 `offlineFoldOutcome` 只按 head/tail 算 partial、不看"上一轮留下的缺口还剩多少"
+    //   ⇒ 一份"还有 300 事件缺口"的 closeout 会被删成"已结清"，与 `debtOfGraph` 相反。
     if (result.partial === true) next.partial = true;
-    else if ("partial" in next && folded > 0) delete next.partial;
+    else if ("partial" in next && folded > 0 && Number(next.offlineUncoveredHead?.events ?? 0) === 0) delete next.partial;
     if (typeof result.coveredStart === "number") next.offlineCovered = { start: result.coveredStart, end: result.coveredEnd };
     if (typeof result.error === "string" && result.error !== "") next.foldError = result.error.slice(0, 300);
     if (folded > 0) next.foldOffline = true;

@@ -1519,7 +1519,11 @@ function applyInner(ctx) {
           const wantedIds = Array.isArray(body.sessionIds) ? body.sessionIds.map(String).filter((x) => x !== "") : null;
           const picked = wantedIds === null ? listed.items : listed.items.filter((it) => wantedIds.includes(String(it.sessionId)));
           // ★ C529：自动补账正在补的那些会话，面板这边**跳过**（同一会话两次模型调用 = 白花钱 + 两个写者）
-          const busyIds = typeof bridge?.isBackfillBusy === "function" ? picked.filter((it) => bridge0.isBackfillBusy(it.sessionId) === true) : [];
+          // ★ C588（审核发现，**面板 dead path**）：这里原来写的是 `bridge0` —— 一个不存在的变量。
+          //   只要 `bridge` 存在，这一行就抛 `ReferenceError: bridge0 is not defined`
+          //   ⇒ 面板「补账」通道 100% 不可用（真机 `accept-after-restart` 报错复现）。
+          //   而守卫测试用的是「源码里含有 isBackfillBusy 就算过」，拼错照样绿 —— 已在测试里改严。
+          const busyIds = typeof bridge?.isBackfillBusy === "function" ? picked.filter((it) => bridge.isBackfillBusy(it.sessionId) === true) : [];
           const picked2 = picked.filter((it) => !busyIds.includes(it));
           if (busyIds.length > 0 && picked2.length === 0) {
             return sendJson(res, 409, { ok: false, code: "backfill-busy", error: `选中的 ${busyIds.length} 个会话正在自动补账，稍后再试` });

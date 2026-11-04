@@ -375,12 +375,16 @@ export function renderFacts(graph, range) {
 export function estimateTokens(text) {
   const s = String(text ?? "");
   let wide = 0;
+  let points = 0;
   for (const ch of s) {
+    // ★ C586：**用码点数而不是 `s.length`**。emoji / 代理对在 UTF-16 里占 2 个 length 单位，
+    //   混用会让"窄字符数"算多，估出偏大的 token 数。
+    points += 1;
     const c = ch.codePointAt(0) ?? 0;
     // CJK 统一表意文字 / 兼容表意 / 全角标点：按 0.6 计
     if ((c >= 0x2e80 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xffef)) wide += 1;
   }
-  return Math.ceil(wide * 0.6 + (s.length - wide) * 0.3);
+  return Math.ceil(wide * 0.6 + (points - wide) * 0.3);
 }
 
 export function foldBudgetFor(input, configured = 8192) {
@@ -513,7 +517,9 @@ export async function runOfflineFold({
     // ★ C540：**预算跟着输入长**。真机：13k 字符输入时 reasoning 就吃掉 6,936/8,192；
     //   38k 输入的思考只会更多 —— 固定 8192 会在大会话上再次"思考吃光"。
     //   口径：max(配置值, 输入字符/4)，夹到 [1024, 16384]。
-    const budget = foldBudgetFor(String(prompt ?? "").length, maxTokens);
+    // ★ C587（审核发现）：这里原来传的是 `.length`（数字）⇒ 走 `*0.6` 的退化分支，
+    //   C582 的"中文 0.6 / 英文 0.3"**在生产里根本没生效**（只有脚本那条路生效）。
+    const budget = foldBudgetFor(String(prompt ?? ""), maxTokens);
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
@@ -700,10 +706,21 @@ export function normalizeUsage(u) {
   };
   const input = pick(u.inputTokens, u.prompt_tokens);
   const output = pick(u.outputTokens, u.completion_tokens);
-  const cached = pick(u.cachedTokens, u.cacheReadTokens, u.prompt_tokens_details?.cached_tokens);
+  const cached = pick(u.cachedTokens, u.prompt_tokens_details?.cached_tokens);
   const reasoning = pick(u.reasoningTokens, u.completion_tokens_details?.reasoning_tokens);
   const total = pick(u.totalTokens, u.total_tokens) ?? (input === null && output === null ? null : (input ?? 0) + (output ?? 0));
-  return { input, output, cached, reasoning, total };
+  // ★ C587（审核发现，**这是我 C581 引入的回归**）：归一后的字段名必须和**读侧**一致。
+  //   读侧（ui.mjs 的 estimateFoldCostUsd / fold-quality.mjs / doctor.mjs）读的都是
+  //   `inputTokens / outputTokens / totalTokens / cacheReadTokens` —— 我改成 `input/output/...`
+  //   之后，那 7 条已写入的 mark **成本全部算不出来（null）**。
+  //   现在保留原字段名，额外补两个**新增**的（cached / reasoning）而不改名。
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    totalTokens: total,
+    cacheReadTokens: cached,
+    reasoningTokens: reasoning,
+  };
 }
 
 export function applyOfflineFoldToGraph(graph, result, meta = {}) {
@@ -737,7 +754,13 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   graphRef.lastOfflineSummary = { at: now, range: { start: last.start, end: last.end }, text: String(last.text ?? ""), model: last.model ?? meta.model ?? null };
   const uncoveredHead = Number(result?.uncoveredHead) || 0;
   const uncoveredTail = Number(result?.uncoveredTail) || 0;
-  const partial = uncoveredHead > 0 || uncoveredTail > 0;
+  // ★ C586：**"还有剩余缺口"也算没折完**。以前 `partial` 只看 uncoveredHead/Tail，
+  //   而"上一轮留下的缺口只被补掉一部分"时 remaining > 0 却不算 partial
+  //   ⇒ `closeoutSettles` 说结清、`debtOfGraph` 说还欠（两套口径给出相反答案）。
+  const prevGapEvents = Number(meta?.previousGapEvents ?? NaN);
+  const coveredCount = Math.max(0, Number(result?.coveredEnd ?? 0) - Number(result?.coveredStart ?? 0) + 1);
+  const remainingGap = Number.isFinite(prevGapEvents) && prevGapEvents > 0 ? Math.max(0, prevGapEvents - coveredCount) : uncoveredHead;
+  const partial = uncoveredHead > 0 || uncoveredTail > 0 || remainingGap > 0;
   const base = { ...(graphRef.closeout ?? {}) };
   delete base.foldNote;
   delete base.foldError;
@@ -760,11 +783,11 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
     // ★ C522：**缺口要带游标，而且要往前走**。只记 events 的话，下次还是从同一个起点开始，
     //   每次都在补同一段（真机 8cc34e32 就这样原地打转）。
     ...(() => {
-      const prevGap = Number(meta?.previousGapEvents ?? NaN);
+      const prevGap = prevGapEvents;
       const gapFrom = Number(meta?.rangeStart ?? 1) || 1;
-      const covered = Math.max(0, Number(result?.coveredEnd ?? 0) - Number(result?.coveredStart ?? 0) + 1);
+      const covered = coveredCount;
       // 有旧缺口 ⇒ 扣掉这次真压掉的事件，游标推到 coveredEnd+1
-      const remaining = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(0, prevGap - covered) : uncoveredHead;
+      const remaining = remainingGap;
       if (remaining <= 0) return {};
       const nextFrom = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(gapFrom, Number(result?.coveredEnd ?? gapFrom) + 1) : gapFrom;
       return { offlineUncoveredHead: { events: remaining, from: nextFrom } };
