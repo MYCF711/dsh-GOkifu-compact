@@ -232,7 +232,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const rangeStart = cursor;
     if (rangeEnd < rangeStart) break;
     // ★ C522：补缺口时必须**从头取**（否则 1 段模式永远只压尾巴）
-    const fromHead = debt.gap !== undefined && debt.gap !== null;
+    // ★ C532：一次都没折过的会话从**头部**开始（否则第一段从中间折，前段永远补不上）
+    const fromHead = (debt.gap !== undefined && debt.gap !== null) || (Array.isArray(graph.foldMarks) ? graph.foldMarks.length : 0) === 0;
     const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 || fromHead ? rangeStart : null });
     // ★ C491：**记录真正覆盖的区间**。预算只装得下尾部若干条消息，
     //   若把 `seqEnd` 写成整个欠账区间的末尾，等于宣称"这段都压过了" —— 剩下的就再也看不见了。

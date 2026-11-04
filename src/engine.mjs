@@ -2048,8 +2048,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         rangeEnd,
         maxChars: Number(this.chess.offlineMaxChars) || 60_000,
         maxChunks: 1,
-        // ★ C522：有前段缺口时必须**从头取**，否则永远只压尾巴、缺口原地不动
-        fromHead: debt.gap !== undefined && debt.gap !== null,
+        // ★ C522/C532：有前段缺口、**或者一次都没折过**时，必须**从头取**。
+        //   一次都没折过的会话如果先从尾巴开始，前段就永远补不上（真机 3a3fb03c：先折了 1981-2072，
+        //   前面 543-1980 悬着；虽然缺口被记下来了，但"第一段从中间开始"对人读也不友好）。
+        fromHead: (debt.gap !== undefined && debt.gap !== null) || (Array.isArray(graph.foldMarks) ? graph.foldMarks.length : 0) === 0,
         callModel,
         measureQuality: ({ range, summaryText }) => measureFoldQuality({ graph, range, summaryText }),
       });

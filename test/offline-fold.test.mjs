@@ -299,3 +299,26 @@ tests["C522 约束判重忽略空白差异（模型排版不一样不该重复�
   });
   t.eq(out.chunks[0].repaired, 0, "空格式差异不算丢失，不许重复补");
 };
+
+tests["C532 一次都没折过的会话必须从头部开始（否则前段永远补不上）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const events = [];
+  for (let i = 1; i <= 40; i += 1) events.push(u(i, `第 ${i} 步：` + "x".repeat(300)));
+  const calls = [];
+  const out = await m.runOfflineFold({
+    graph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 40,
+    maxChars: 3000,
+    fromHead: true,
+    callModel: async (prompt) => {
+      calls.push(prompt);
+      return { text: "## 目标\n- 把构建跑通\n## 棋谱\n- 逐步推进", usage: null, model: "fake" };
+    },
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks.length, 1, "一段");
+  t.includes(out.chunks[0].start <= 3 ? "head" : "tail", "head", "必须从**开头**取（start 很靠前）");
+  t.eq(out.chunks[0].start, 1, `起点必须是 1，实际 ${out.chunks[0].start}`);
+};
