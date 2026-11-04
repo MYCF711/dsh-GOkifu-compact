@@ -64,3 +64,10 @@ tests["C536 doctor 要区分「开关开着」与「真的在动」"] = async (t
   t.includes(src, "cordis.patch.yml", "开关来自预设文件");
   t.includes(src, "enabled = false", "显式 false 才算关");
 };
+
+tests["C543 「缺口还没进欠账」这句必须改掉（C519 之后它就是欠账）"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.eq(/[^原来写「]这些还没进欠账/.test(src), false, "过期断言不许留着（注释里引用是可以的）");
+  t.includes(src, "已经进欠账", "要说清缺口已经计入欠账");
+  t.includes(src, "C519/C520/C522", "指出是哪几条改的（免得下次又写回过期结论）");
+};

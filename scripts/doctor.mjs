@@ -1461,7 +1461,13 @@ mark('C196 新鲜度');
       const worst = withGap
         .map((x) => ({ x, n: Number(x.closeout.offlineUncoveredHead.events) || 0 }))
         .sort((a, b) => b.n - a.n)[0];
-      parts.push(`**离线压缩还有缺口**：${withGap.length} 个会话的前段没压（最大 ${worst.n} 事件，${sessionLabel(worst.x.sessionId, wsTitles).label}）—— 这些还没进欠账，下一步做分段离线`);
+      // ★ C543：这句话原来断言「缺口还没进欠账、下一步做分段离线」—— **已经过期**。
+      //   C519/C520 之后，`closeout.offlineUncoveredHead` 本身就是欠账（`debtOfGraph.gap`），
+      //   `backfill-plan` 里能看到它们（真机 f46d6330：tail 0 / 157k tok / 2 段）。
+      parts.push(
+        `**离线压缩还有缺口**：${withGap.length} 个会话的前段没压（最大 ${worst.n} 事件，${sessionLabel(worst.x.sessionId, wsTitles).label}）` +
+          `—— 这些**已经进欠账**（gap），补账会从缺口起点继续（C519/C520/C522），不用另外安排`,
+      );
     }
     const withNote = withCloseout
       .filter((x) => typeof x.closeout?.foldNote === "string" && x.closeout.foldNote !== "")
@@ -1489,7 +1495,10 @@ mark('C196 新鲜度');
         .slice(0, 3)
         .map((x) => sessionLabel(x, wsTitles).label)
         .join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
-        ` —— 归档没走到收尾路径：1.17.6 之前挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）` +
+        ` —— 两条来路：① 1.17.6 之前收尾挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）；` +
+        `② 这些是**启动前就已归档**的老会话（历史归档不做收尾，C328）。` +
+        `**两者都会在补账时自己补上 closeout**（真机已验证：f46d6330 补账后出现 source=archive-offline）—— ` +
+        `所以这一条是"待办进度"而不是"坏掉了"` +
         `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}` +
         outcomeSummary,
     );
