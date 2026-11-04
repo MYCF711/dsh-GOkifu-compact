@@ -1,5 +1,5 @@
 {
- "total": 1013,
+ "total": 1015,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -69,7 +69,7 @@
   "ledger-budget-persist.test.mjs": 3,
   "ledger-budget.test.mjs": 3,
   "ledger-calibration.test.mjs": 2,
-  "ledger-perf.test.mjs": 2,
+  "ledger-perf.test.mjs": 4,
   "ledger-pricing.test.mjs": 9,
   "ledger-properties.test.mjs": 2,
   "ledger-scale.test.mjs": 4,
@@ -146,6 +146,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1332,
- "passedAt": "2026-11-04T03:38:21.881Z"
+ "passed": 1334,
+ "passedAt": "2026-11-04T03:47:48.544Z"
 }

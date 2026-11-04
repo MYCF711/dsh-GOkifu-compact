@@ -577,6 +577,36 @@ function pathDigestLine(ids) {
  *     仍不行 ⇒ CURRENT PATH 退化成 `# path:` 摘要行，**当前位置永远在**。
  *  4. 预算为负（连标题都放不下）时也要给出一行 `# path: <当前位置>` —— 路径行不是可选项。
  */
+/**
+ * ★ C562：**二分找「装得下的最大 keep」**。
+ *
+ * 旧写法从 `len-1` 逐 1 递减去找 —— 对 846 个节点的路径就是 ~840 次 `foldIds`（每次还要拼 840 个标签），
+ * 实测单次渲染 **39.4% 的采样**花在这里（profile 头号热点 `foldIds`）。
+ * 行长度对 `keep` 单调（keep 越小行越短）⇒ 二分与线性扫描**答案完全一致**，次数从 ~840 降到 ~10。
+ *
+ * @param {number} high 起始 keep（含）
+ * @param {number} low 下界 keep（含）
+ * @param {(keep:number)=>string} makeLine
+ * @param {(line:string)=>boolean} fits
+ * @returns {string|null} 第一个装得下的行（没有就 null）
+ */
+function firstFittingLine(high, low, makeLine, fits) {
+  let lo = low;
+  let hi = high;
+  let best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const line = makeLine(mid);
+    if (fits(line)) {
+      best = line;
+      lo = mid + 1; // 装得下 ⇒ 试更大的 keep（更保信息）
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
 function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { allowMerge = true } = {}) {
   const curBody = pathBody(currentLine, "CURRENT PATH");
   const workBody = pathBody(workingLine, "WORKING");
@@ -609,29 +639,47 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
     //   `TypeError: Cannot read properties of null (reading 'length')`（实测崩在原 line 244，
     //   全量测试 C17-11/12/13 三红、runner 只打印到崩溃点）。这个形态必须自己折 WORKING。
     //   语义不变：WORKING 的尾节点就是当前位置；头 1 + 尾 1 起步，`… +N` 只在真省得下时出现。
-    for (let keep = work.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `WORKING: ${foldIds(work, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}`;
-      shapes.push({ currentLine: null, workingLine: line });
-      if (line.length <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        work.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `WORKING: ${foldIds(work, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}`;
+        },
+        (l) => l.length <= budget,
+      );
+      if (line !== null) return { currentLine: null, workingLine: line };
     }
     const workShortest = `WORKING: ${foldIds(work, (x) => x, 1, 1)}`;
     shapes.push({ currentLine: null, workingLine: workShortest });
     if (workShortest.length <= budget) return shapes.at(-1);
   } else if (work === null) {
     // 只有 CURRENT PATH：折中段
-    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
-      shapes.push({ currentLine: line, workingLine: null });
-      if (line.length <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        curIds.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+        },
+        (l) => l.length <= budget,
+      );
+      if (line !== null) return { currentLine: line, workingLine: null };
     }
   } else {
-    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
-      shapes.push({ currentLine: line, workingLine: workFull });
-      if (line.length + (workFull?.length ?? 0) <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        curIds.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+        },
+        (l) => l.length + (workFull?.length ?? 0) <= budget,
+      );
+      if (line !== null) return { currentLine: line, workingLine: workFull };
     }
     // ★ C-17 rev6：`head` 形态的正解是「两条都折、都保留可读头尾」，而不是直接退到 `# path:` 摘要
     //   （摘要是 L4/L5 `n1` 形态的兜底）。上方循环只把 WORKING 当整条配对，长 WORKING 会让每次配对都
@@ -902,8 +950,19 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     const extra = Number(g.nodes[id]?.transpositions);
     return Number.isFinite(extra) && extra >= 1 ? `×${extra + 1}` : "";
   };
-  const pathLabel = (id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}${reentryTag(id)}`;
-  const workingLabel = (id) => (g.nodes[id]?.kind === "user" ? "user" : `${id}${reentryTag(id)}`);
+  // ★ C562：**标签按 id 记忆一次**。真机（c0a5847a）路径长 **846**，而标签会被 4 个档位各算一遍
+  //   ⇒ 3,400 次字符串拼接，占单次渲染 41.5% 的采样（profile 里 `foldIds` 是头号热点）。
+  //   同一 id 在同一次渲染里标签恒定，缓存后各档位复用。
+  const labelCache = new Map();
+  const memoLabel = (fn) => (id) => {
+    const hit = labelCache.get(id);
+    if (hit !== undefined && hit.kind === fn) return hit.text;
+    const text = fn(id);
+    labelCache.set(id, { kind: fn, text });
+    return text;
+  };
+  const pathLabel = memoLabel((id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}${reentryTag(id)}`);
+  const workingLabel = memoLabel((id) => (g.nodes[id]?.kind === "user" ? "user" : `${id}${reentryTag(id)}`));
   // 两条待渲染的路径行（full 形态）；L3+ 再按剩余预算折叠（见 fitPaths）
   const { currentLine, workingLine } = foldPaths(currentIds, workingIds, sameAsWorking, pathLabel, workingLabel);
   // WORKING 尾部那条边的 id：L3+ 把 WORKING 合并进 CURRENT PATH 时用它保住「哪条边算工作」

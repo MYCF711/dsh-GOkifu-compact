@@ -800,6 +800,10 @@ function graphIndex(g) {
     if (e.from) fromSum = (fromSum + endpointNumber(e.from)) | 0;
   }
   const cheap = cheapKey(g);
+  // ★ C562（**撤销**）：这里一度想用「便宜键没变就跳过签名计算」省掉 O(E)。
+  //   但 `test/` 里有一条用例专门盯「**绕过 bump 的直接改边**」（引擎里真有 `edge.to = node.id` 这种写法）：
+  //   只靠 cheapKey 会拿到过期索引，结论是错的。**省 17% 的采样不值得让结论可能错** —— 撤回。
+  //   （真正的大头在 `fitPaths` 的线性扫描，已改二分：500-token 档 80.5 → 27.4 ms。）
   const sig = `${cheap}|${edges.length}|${Object.keys(g.nodes).length}|${toSum}|${fromSum}`;
   let cache = g[TEWARI_CACHE];
   if (cache === undefined || cache.sig !== sig) {
@@ -815,7 +819,7 @@ function graphIndex(g) {
         else byTo.set(e.to, [e]);
       }
     }
-    cache = { sig, cheap, byFrom, byTo, reach: new Map(), results: new Map() };
+    cache = { sig, cheap, edgesLen: edges.length, nodesLen: Object.keys(g.nodes).length, byFrom, byTo, reach: new Map(), results: new Map() };
     Object.defineProperty(g, TEWARI_CACHE, { value: cache, enumerable: false, configurable: true, writable: true });
     _graphIndexStats.builds += 1;
   } else {
