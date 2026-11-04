@@ -85,11 +85,9 @@ export function readPassed(root = REPO) {
     );
   }
   const at = typeof json.passedAt === "string" ? json.passedAt : "";
+  // 时间戳只用于报告（不进文档 —— 见 TARGETS 里的说明），缺了不致命，列表里显示「未记录」
   const minute = at.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
-  if (minute === null) {
-    throw new Error(`${PASSED_FILE} 里缺可解析的 passedAt（当前 ${JSON.stringify(json.passedAt)}）—— 文档里的实测时间戳要靠它，本脚本不猜`);
-  }
-  return { passed, at, passedAtUtcZ: minute[1] };
+  return { passed, at, passedAtUtcZ: minute === null ? "未记录" : minute[1] };
 }
 
 /**
@@ -200,13 +198,10 @@ export const TARGETS = Object.freeze([
     re: /(最近实测 \*\*)(\d+)( passed)/g,
     want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
   },
-  {
-    file: "docs/research/00-蒸馏-对本插件的可执行结论.md",
-    what: "§11.1 快照 · 实测时间戳（C117 要求「数 + 时间戳」）",
-    // 历史上手抄残形 `2026-11-04T13:0xZ` 也认，否则第一次跑不进来、永远修不好
-    re: /(0 failed\*\*，)[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9a-z]{2}:[0-9a-z]{2}Z/g,
-    want: (m, v) => `${m[1]}${v.passedAtUtcZ}Z`,
-  },
+  // ⚠ **故意不同步「实测时间戳」**：`test/counts-baseline.json` 的 `passedAt` 由 `gate.mjs` 每次跑完
+  //   都刷新（通过数没变也刷）。把它抄进文档 ⇒ 每跑一次门禁文档就变一次，`--check` 永远红、
+  //   `--write` 变成每轮必做 —— 那正好是这次要消灭的那台跑步机。
+  //   文档里改写成「实测时刻见 `test/counts-baseline.json` 的 `passedAt`」：机器写的那个才是戳。
   {
     file: "docs/knowledge/进度.md",
     what: "现状摘要 · 全量测试",
@@ -310,7 +305,8 @@ export function renderReport(plan, { wrote = false } = {}) {
   const { values, files, problems, drifted } = plan;
   const out = [];
   out.push("== 文档数字同步 ==");
-  out.push(`权威源：passed = ${values.passed}（${PASSED_FILE}，实测 ${values.passedAtUtcZ}Z）`);
+  const stamp = values.passedAtUtcZ === "未记录" ? "未记录" : `${values.passedAtUtcZ}Z`;
+  out.push(`权威源：passed = ${values.passed}（${PASSED_FILE}，最近实测 ${stamp}）`);
   out.push(
     `        CHANGELOG = ${values.entries} 条条目 / ${values.ids} 个编号 / 最大 C${values.max}（经 changelog-index.parseEntries）`,
   );

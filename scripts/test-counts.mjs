@@ -95,8 +95,22 @@ export function main(argv = process.argv.slice(2)) {
   const current = collectCounts();
   const total = Object.values(current).reduce((a, b) => a + b, 0);
   if (argv.includes("--write")) {
-    nodeFs.writeFileSync(BASELINE, JSON.stringify({ total, files: current }, null, 2) + "\n", "utf8");
-    console.log(`已写入基线：${Object.keys(current).length} 个文件 / ${total} 条用例`);
+    // ★ C603：`--write` 只许改 `total`/`files`，**不许丢掉 `passed`/`passedAt`**。
+    //   丢了的后果是**两处静默失效**：C485（文档里的"N passed"与实测一致）变成软绿；
+    //   `sync-doc-numbers` 读不到权威值，只能报「源缺失，不猜」。
+    const previous = (() => {
+      try {
+        const raw = JSON.parse(nodeFs.readFileSync(BASELINE, "utf8"));
+        return { passed: raw.passed, passedAt: raw.passedAt };
+      } catch {
+        return {};
+      }
+    })();
+    const next = { total, files: current };
+    if (Number.isFinite(Number(previous.passed))) next.passed = Number(previous.passed);
+    if (typeof previous.passedAt === "string") next.passedAt = previous.passedAt;
+    nodeFs.writeFileSync(BASELINE, JSON.stringify(next, null, 2) + String.fromCharCode(10), "utf8");
+    console.log(`已写入基线：${Object.keys(current).length} 个文件 / ${total} 条用例` + (next.passed === undefined ? "（⚠ 没有 passed：先跑 recordPassedCount）" : `（passed 保留 ${next.passed}）`));
     return 0;
   }
   if (!nodeFs.existsSync(BASELINE)) {

@@ -1,27 +1,27 @@
 {
   "schema": "gokifu/live-folds/v1",
-  "generatedAt": "2026-11-04T12:56:21Z",
-  "home": "D:\\DeepSeek Harness\\home",
-  "sessions": 386,
+  "generatedAt": "2026-11-04T17:15:35Z",
+  "home": "D:/DeepSeek Harness/home",
+  "sessions": 458,
   "unreadable": 0,
   "summary": {
-    "total": 223,
+    "total": 271,
     "manual": 1,
     "external": null,
     "coverage": {
-      "trigger": 219,
-      "quality": 216,
-      "closure": 155,
-      "usage": 162
+      "trigger": 267,
+      "quality": 264,
+      "closure": 165,
+      "usage": 204
     },
     "triggerCounts": {
-      "pressure": 131,
-      "tier2": 22,
+      "pressure": 138,
+      "tier2": 25,
       "context-overflow": 2,
-      "archive-offline": 64
+      "archive-offline": 102
     },
     "quality": {
-      "count": 216,
+      "count": 264,
       "constraintRecallMin": 1,
       "failureRecallMin": 0,
       "compressionRatioMin": 11.41,
@@ -29,14 +29,14 @@
       "unknownIdsTotal": 17
     },
     "cost": {
-      "count": 134,
+      "count": 141,
       "inputPerShadowedMin": 0.03,
       "inputPerShadowedMax": 6.27,
       "shadowedShareMin": 0.159,
       "shadowedShareMax": 38.954
     },
     "closureChain": {
-      "checked": 114,
+      "checked": 120,
       "offenders": [
         "session-1e82afca-8be:n1255→n1",
         "session-1e82afca-8be:n1546→n117",
@@ -51,6 +51,7 @@
         "session-8cc34e32-c35:n1729→n932",
         "session-8cc34e32-c35:n2108→n1207",
         "session-8a73e06b-efa:n4886→n2973",
+        "session-8a73e06b-efa:n5189→n3730",
         "session-f46d6330-b42:n102→n44",
         "session-226dbf4f-ed4:n1185→n240",
         "session-226dbf4f-ed4:n1450→n524",
@@ -58,12 +59,14 @@
         "session-226dbf4f-ed4:n2190→n1271",
         "session-226dbf4f-ed4:n2901→n1526",
         "session-62bcb7d2-160:n927→n74",
-        "session-62bcb7d2-160:n1075→n315"
+        "session-62bcb7d2-160:n1075→n315",
+        "session-62bcb7d2-160:n1241→n604",
+        "session-62bcb7d2-160:n1381→n944"
       ]
     },
     "bySession": {
-      "sessionsWithFolds": 74,
-      "multiFold": 14,
+      "sessionsWithFolds": 108,
+      "multiFold": 17,
       "top": [
         {
           "sessionId": "session-1e82afca-8be2-42f9-8186-2bd274e30342",
@@ -80,19 +83,19 @@
       ]
     },
     "closure": {
-      "count": 155,
+      "count": 165,
       "empty": 6,
       "preGraph": 2
     },
     "boundary": {
-      "count": 152,
+      "count": 162,
       "openAtEnd": 0,
-      "unsettled": 27308
+      "unsettled": 28816
     },
     "dangling": {
-      "count": 133,
-      "residue": 129,
-      "candidates": 102,
+      "count": 140,
+      "residue": 131,
+      "candidates": 105,
       "liveUnsettled": 1,
       "fromBroken": 0
     },
@@ -103,23 +106,23 @@
     }
   },
   "trend": {
-    "previousAt": "2026-11-03T22:46:35Z",
-    "newFolds": 86,
-    "qualityChanged": true,
+    "previousAt": "2026-11-04T12:56:21Z",
+    "newFolds": 48,
+    "qualityChanged": false,
     "boundaryRegressed": false,
-    "costShareDelta": -0.278,
+    "costShareDelta": 0,
     "prevQuality": {
-      "count": 129,
+      "count": 216,
       "constraintRecallMin": 1,
-      "failureRecallMin": 0.75,
+      "failureRecallMin": 0,
       "compressionRatioMin": 11.41,
       "compressionRatioMax": 350.68,
       "unknownIdsTotal": 17
     },
     "prevBoundary": {
-      "count": 123,
+      "count": 152,
       "openAtEnd": 0,
-      "unsettled": 20312
+      "unsettled": 27308
     }
   },
   "folds": [
@@ -9735,6 +9738,1726 @@
         "expectedFailures": 0,
         "unknownIds": 0,
         "summaryTokens": 2764
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-8a73e06b-efaf-4288-bf0b-6f187a2559ec",
+      "fold": 16,
+      "at": 1793796999106,
+      "trigger": "pressure",
+      "seqStart": 39471,
+      "seqEnd": 41789,
+      "hasRange": true,
+      "summaryChars": 2593,
+      "shadowedTokens": 143642,
+      "inputTokens": 216526,
+      "outputTokens": 1004,
+      "inputPerShadowed": 1.51,
+      "shadowedShare": 0.663,
+      "ms": 13180,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 125.34,
+        "expectedConstraints": 3,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 1146
+      },
+      "closure": {
+        "nodes": 302,
+        "edges": 303,
+        "firstNode": "n4888",
+        "lastNode": "n5189",
+        "preGraph": false,
+        "graphNodes": 5463
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 303,
+        "openAtEnd": 0,
+        "unsettled": 293
+      }
+    },
+    {
+      "sessionId": "session-8a73e06b-efaf-4288-bf0b-6f187a2559ec",
+      "fold": 17,
+      "at": 1793797008318,
+      "trigger": "tier2",
+      "seqStart": 30668,
+      "seqEnd": 32741,
+      "hasRange": true,
+      "summaryChars": 1761,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": null,
+      "route": null,
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 4,
+        "unknownIds": 0,
+        "summaryTokens": 886
+      },
+      "closure": {
+        "nodes": 274,
+        "edges": 273,
+        "firstNode": "n3730",
+        "lastNode": "n4003",
+        "preGraph": false,
+        "graphNodes": 5463
+      },
+      "dangling": null,
+      "boundary": {
+        "overlapping": 273,
+        "openAtEnd": 0,
+        "unsettled": 267
+      }
+    },
+    {
+      "sessionId": "session-2ddf0a19-869d-4ba1-a81f-12b20f29c2fc",
+      "fold": 5,
+      "at": 1793797451413,
+      "trigger": "archive-offline",
+      "seqStart": 3403,
+      "seqEnd": 3644,
+      "hasRange": true,
+      "summaryChars": 8281,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 57500,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 5,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 3331
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-62bcb7d2-160d-452b-a4a9-8373da6418d9",
+      "fold": 12,
+      "at": 1793797958089,
+      "trigger": "pressure",
+      "seqStart": 9083,
+      "seqEnd": 10377,
+      "hasRange": true,
+      "summaryChars": 2876,
+      "shadowedTokens": 133012,
+      "inputTokens": 216532,
+      "outputTokens": 4119,
+      "inputPerShadowed": 1.63,
+      "shadowedShare": 0.614,
+      "ms": 35578,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 97.95,
+        "expectedConstraints": 6,
+        "expectedFailures": 13,
+        "unknownIds": 0,
+        "summaryTokens": 1358
+      },
+      "closure": {
+        "nodes": 165,
+        "edges": 207,
+        "firstNode": "n1077",
+        "lastNode": "n1241",
+        "preGraph": false,
+        "graphNodes": 1375
+      },
+      "dangling": {
+        "residue": 1,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 207,
+        "openAtEnd": 0,
+        "unsettled": 140
+      }
+    },
+    {
+      "sessionId": "session-62bcb7d2-160d-452b-a4a9-8373da6418d9",
+      "fold": 13,
+      "at": 1793797972507,
+      "trigger": "tier2",
+      "seqStart": 5201,
+      "seqEnd": 6615,
+      "hasRange": true,
+      "summaryChars": 2696,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": null,
+      "route": null,
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 6,
+        "expectedFailures": 11,
+        "unknownIds": 0,
+        "summaryTokens": 1250
+      },
+      "closure": {
+        "nodes": 163,
+        "edges": 235,
+        "firstNode": "n604",
+        "lastNode": "n766",
+        "preGraph": false,
+        "graphNodes": 1375
+      },
+      "dangling": null,
+      "boundary": {
+        "overlapping": 235,
+        "openAtEnd": 0,
+        "unsettled": 136
+      }
+    },
+    {
+      "sessionId": "c6a929b8-0403-4b3c-be35-059a3d6d3029",
+      "fold": 1,
+      "at": 1793798161764,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 436,
+      "hasRange": true,
+      "summaryChars": 7791,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 30935,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 3231
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "59aea0a3-999f-446c-929c-95385ca46b8c",
+      "fold": 1,
+      "at": 1793798347166,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 211,
+      "hasRange": true,
+      "summaryChars": 10745,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 65314,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 6,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 4617
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "32060c4c-542d-403c-8ad9-9f4309625c73",
+      "fold": 2,
+      "at": 1793800509072,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 9,
+      "hasRange": true,
+      "summaryChars": 3508,
+      "shadowedTokens": 0,
+      "inputTokens": 11940,
+      "outputTokens": 5338,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 144041,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1891
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-226dbf4f-ed4b-4498-9d96-8e1e08c15259",
+      "fold": 19,
+      "at": 1793801299362,
+      "trigger": "archive-offline",
+      "seqStart": 14554,
+      "seqEnd": 14587,
+      "hasRange": true,
+      "summaryChars": 8783,
+      "shadowedTokens": 0,
+      "inputTokens": 6135,
+      "outputTokens": 6220,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 168981,
+      "route": {
+        "provider": "magpie",
+        "model": "wps-lingxi/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 2991
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "d35d5511-8a6d-48b1-9d54-13dc241c17aa",
+      "fold": 1,
+      "at": 1793802060284,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 345,
+      "hasRange": true,
+      "summaryChars": 3828,
+      "shadowedTokens": 0,
+      "inputTokens": 13679,
+      "outputTokens": 5206,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 147781,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 4,
+        "unknownIds": 0,
+        "summaryTokens": 1860
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "b108a0a7-597d-406d-a089-48edd53444bd",
+      "fold": 1,
+      "at": 1793802294628,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 344,
+      "hasRange": true,
+      "summaryChars": 3544,
+      "shadowedTokens": 0,
+      "inputTokens": 14231,
+      "outputTokens": 4990,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 196784,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 2236
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "32060c4c-542d-403c-8ad9-9f4309625c73",
+      "fold": 3,
+      "at": 1793802297742,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 17,
+      "hasRange": true,
+      "summaryChars": 4203,
+      "shadowedTokens": 0,
+      "inputTokens": 13257,
+      "outputTokens": 6253,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 234397,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1977
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "095a3630-8bbf-432f-a243-587cfc592be7",
+      "fold": 1,
+      "at": 1793802368526,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 238,
+      "hasRange": true,
+      "summaryChars": 3328,
+      "shadowedTokens": 0,
+      "inputTokens": 12542,
+      "outputTokens": 5690,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 223692,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 6,
+        "unknownIds": 0,
+        "summaryTokens": 1728
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "c7f541ad-ce16-4773-a1ce-b4effbda027f",
+      "fold": 1,
+      "at": 1793803412918,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 431,
+      "hasRange": true,
+      "summaryChars": 3814,
+      "shadowedTokens": 0,
+      "inputTokens": 16352,
+      "outputTokens": 6603,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 221787,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 1797
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "c11a8dca-4311-47f3-96dd-8ee685eafb44",
+      "fold": 1,
+      "at": 1793803435930,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 354,
+      "hasRange": true,
+      "summaryChars": 3683,
+      "shadowedTokens": 0,
+      "inputTokens": 13511,
+      "outputTokens": 4874,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 139319,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 1,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 2249
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "a533e2a6-c2fb-4338-8c6c-a8c638300475",
+      "fold": 1,
+      "at": 1793803532860,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 505,
+      "hasRange": true,
+      "summaryChars": 3429,
+      "shadowedTokens": 0,
+      "inputTokens": 14445,
+      "outputTokens": 5053,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 140738,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 2185
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "32060c4c-542d-403c-8ad9-9f4309625c73",
+      "fold": 4,
+      "at": 1793803573883,
+      "trigger": "archive-offline",
+      "seqStart": 110,
+      "seqEnd": 330,
+      "hasRange": true,
+      "summaryChars": 3938,
+      "shadowedTokens": 0,
+      "inputTokens": 13333,
+      "outputTokens": 5771,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 152762,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 1828
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "77374fd9-3b3f-499c-8fbd-309924f01120",
+      "fold": 1,
+      "at": 1793804026221,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 662,
+      "hasRange": true,
+      "summaryChars": 3572,
+      "shadowedTokens": 0,
+      "inputTokens": 16437,
+      "outputTokens": 4646,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 176734,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 4,
+        "unknownIds": 0,
+        "summaryTokens": 2207
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "2709cc63-88b9-4b68-85a0-c5aab24b453a",
+      "fold": 1,
+      "at": 1793804294240,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 370,
+      "hasRange": true,
+      "summaryChars": 3937,
+      "shadowedTokens": 0,
+      "inputTokens": 14368,
+      "outputTokens": 6251,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 212455,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 3,
+        "unknownIds": 0,
+        "summaryTokens": 1896
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-62bcb7d2-160d-452b-a4a9-8373da6418d9",
+      "fold": 14,
+      "at": 1793805436240,
+      "trigger": "pressure",
+      "seqStart": 10380,
+      "seqEnd": 11621,
+      "hasRange": true,
+      "summaryChars": 2403,
+      "shadowedTokens": 145409,
+      "inputTokens": 219895,
+      "outputTokens": 3521,
+      "inputPerShadowed": 1.51,
+      "shadowedShare": 0.661,
+      "ms": 115927,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 128.79,
+        "expectedConstraints": 6,
+        "expectedFailures": 8,
+        "unknownIds": 0,
+        "summaryTokens": 1129
+      },
+      "closure": {
+        "nodes": 139,
+        "edges": 198,
+        "firstNode": "n1243",
+        "lastNode": "n1381",
+        "preGraph": false,
+        "graphNodes": 1528
+      },
+      "dangling": {
+        "residue": 1,
+        "candidates": 1,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 198,
+        "openAtEnd": 0,
+        "unsettled": 139
+      }
+    },
+    {
+      "sessionId": "session-62bcb7d2-160d-452b-a4a9-8373da6418d9",
+      "fold": 15,
+      "at": 1793805512944,
+      "trigger": "tier2",
+      "seqStart": 8061,
+      "seqEnd": 9178,
+      "hasRange": true,
+      "summaryChars": 1848,
+      "shadowedTokens": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": null,
+      "route": null,
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 6,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 958
+      },
+      "closure": {
+        "nodes": 146,
+        "edges": 176,
+        "firstNode": "n944",
+        "lastNode": "n1089",
+        "preGraph": false,
+        "graphNodes": 1528
+      },
+      "dangling": null,
+      "boundary": {
+        "overlapping": 176,
+        "openAtEnd": 0,
+        "unsettled": 109
+      }
+    },
+    {
+      "sessionId": "6d60ef25-a18b-4851-a95a-7e1f6a8340e6",
+      "fold": 1,
+      "at": 1793805548838,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 213,
+      "hasRange": true,
+      "summaryChars": 3495,
+      "shadowedTokens": 0,
+      "inputTokens": 10472,
+      "outputTokens": 6668,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 227097,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 3,
+        "unknownIds": 0,
+        "summaryTokens": 1866
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "cc44281c-2532-4edf-9c27-5caed46fbf9f",
+      "fold": 1,
+      "at": 1793805687698,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 221,
+      "hasRange": true,
+      "summaryChars": 4133,
+      "shadowedTokens": 0,
+      "inputTokens": 11324,
+      "outputTokens": 6852,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 235775,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 3,
+        "unknownIds": 0,
+        "summaryTokens": 1826
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "90c64a60-4ca1-418c-a664-7e58e44d3a41",
+      "fold": 1,
+      "at": 1793806620509,
+      "trigger": "pressure",
+      "seqStart": 9,
+      "seqEnd": 274,
+      "hasRange": true,
+      "summaryChars": 2553,
+      "shadowedTokens": 84692,
+      "inputTokens": 136652,
+      "outputTokens": 1064,
+      "inputPerShadowed": 1.61,
+      "shadowedShare": 0.62,
+      "ms": 12427,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 79.82,
+        "expectedConstraints": 2,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1061
+      },
+      "closure": {
+        "nodes": 35,
+        "edges": 47,
+        "firstNode": "n1",
+        "lastNode": "n35",
+        "preGraph": false,
+        "graphNodes": 145
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 47,
+        "openAtEnd": 0,
+        "unsettled": 36
+      }
+    },
+    {
+      "sessionId": "266d5133-dee8-46bf-a67b-2d50942fafdf",
+      "fold": 2,
+      "at": 1793806801966,
+      "trigger": "pressure",
+      "seqStart": 9,
+      "seqEnd": 181,
+      "hasRange": true,
+      "summaryChars": 2674,
+      "shadowedTokens": 89175,
+      "inputTokens": 140041,
+      "outputTokens": 1018,
+      "inputPerShadowed": 1.57,
+      "shadowedShare": 0.637,
+      "ms": 12009,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 78.22,
+        "expectedConstraints": 2,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1140
+      },
+      "closure": {
+        "nodes": 19,
+        "edges": 34,
+        "firstNode": "n1",
+        "lastNode": "n19",
+        "preGraph": false,
+        "graphNodes": 116
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 34,
+        "openAtEnd": 0,
+        "unsettled": 27
+      }
+    },
+    {
+      "sessionId": "ccf3b0b9-0f14-43cc-aa92-07cd5db4790e",
+      "fold": 1,
+      "at": 1793806878050,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 360,
+      "hasRange": true,
+      "summaryChars": 4004,
+      "shadowedTokens": 0,
+      "inputTokens": 14012,
+      "outputTokens": 5420,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 195281,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 2210
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "b2ad83a1-c272-4616-80d0-d06faf275353",
+      "fold": 1,
+      "at": 1793806902545,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 293,
+      "hasRange": true,
+      "summaryChars": 3574,
+      "shadowedTokens": 0,
+      "inputTokens": 13955,
+      "outputTokens": 7013,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 235991,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 1774
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "61dd68c3-9ac6-442d-a7f4-27952ec80927",
+      "fold": 1,
+      "at": 1793807003820,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 222,
+      "hasRange": true,
+      "summaryChars": 3401,
+      "shadowedTokens": 0,
+      "inputTokens": 10958,
+      "outputTokens": 6188,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 192747,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 1865
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "266d5133-dee8-46bf-a67b-2d50942fafdf",
+      "fold": 3,
+      "at": 1793807144829,
+      "trigger": "archive-offline",
+      "seqStart": 861,
+      "seqEnd": 1083,
+      "hasRange": true,
+      "summaryChars": 3390,
+      "shadowedTokens": 0,
+      "inputTokens": 13659,
+      "outputTokens": 5159,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 93438,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1610
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-bde12afa-14a9-4175-a1fd-d7fddbc994db",
+      "fold": 1,
+      "at": 1793807324445,
+      "trigger": "pressure",
+      "seqStart": 9,
+      "seqEnd": 520,
+      "hasRange": true,
+      "summaryChars": 3714,
+      "shadowedTokens": 100459,
+      "inputTokens": 139416,
+      "outputTokens": 5171,
+      "inputPerShadowed": 1.39,
+      "shadowedShare": 0.721,
+      "ms": 364321,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 69.19,
+        "expectedConstraints": 1,
+        "expectedFailures": 25,
+        "unknownIds": 0,
+        "summaryTokens": 1452
+      },
+      "closure": {
+        "nodes": 49,
+        "edges": 133,
+        "firstNode": "n1",
+        "lastNode": "n49",
+        "preGraph": false,
+        "graphNodes": 193
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 133,
+        "openAtEnd": 0,
+        "unsettled": 107
+      }
+    },
+    {
+      "sessionId": "34ebf92d-83eb-425f-9ded-7959074adf05",
+      "fold": 1,
+      "at": 1793807380956,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 244,
+      "hasRange": true,
+      "summaryChars": 3334,
+      "shadowedTokens": 0,
+      "inputTokens": 10664,
+      "outputTokens": 5689,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 189000,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 1756
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "ebc564c3-4ef4-4b7b-adc1-79b5c7cf1dd4",
+      "fold": 1,
+      "at": 1793808671152,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 378,
+      "hasRange": true,
+      "summaryChars": 3694,
+      "shadowedTokens": 0,
+      "inputTokens": 14363,
+      "outputTokens": 5715,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 228947,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 6,
+        "unknownIds": 0,
+        "summaryTokens": 1780
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "26487be0-b8ad-4e02-905c-8dac702b9e09",
+      "fold": 1,
+      "at": 1793808866621,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 139,
+      "hasRange": true,
+      "summaryChars": 3709,
+      "shadowedTokens": 0,
+      "inputTokens": 11552,
+      "outputTokens": 6885,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 213415,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 1929
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-543cf0b2-a992-4f9f-89c4-6ea45cb1ac96",
+      "fold": 1,
+      "at": 1793809152065,
+      "trigger": "pressure",
+      "seqStart": 9,
+      "seqEnd": 1945,
+      "hasRange": true,
+      "summaryChars": 2571,
+      "shadowedTokens": 81267,
+      "inputTokens": 140317,
+      "outputTokens": 925,
+      "inputPerShadowed": 1.73,
+      "shadowedShare": 0.579,
+      "ms": 5690,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": 79.67,
+        "expectedConstraints": 3,
+        "expectedFailures": 7,
+        "unknownIds": 0,
+        "summaryTokens": 1020
+      },
+      "closure": {
+        "nodes": 229,
+        "edges": 273,
+        "firstNode": "n1",
+        "lastNode": "n229",
+        "preGraph": false,
+        "graphNodes": 304
+      },
+      "dangling": {
+        "residue": 0,
+        "candidates": 0,
+        "liveUnsettled": 0,
+        "fromBroken": 0
+      },
+      "boundary": {
+        "overlapping": 273,
+        "openAtEnd": 0,
+        "unsettled": 254
+      }
+    },
+    {
+      "sessionId": "8f708f11-1c50-4f0d-b703-0ebf67eb6287",
+      "fold": 1,
+      "at": 1793809698327,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 358,
+      "hasRange": true,
+      "summaryChars": 3934,
+      "shadowedTokens": 0,
+      "inputTokens": 13877,
+      "outputTokens": 5437,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 187670,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 2155
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "481bc5aa-4cef-4eb5-91b8-642b47981b11",
+      "fold": 1,
+      "at": 1793809699824,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 367,
+      "hasRange": true,
+      "summaryChars": 3217,
+      "shadowedTokens": 0,
+      "inputTokens": 13872,
+      "outputTokens": 5558,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 233614,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 1,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 1636
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "2349c2cb-6bf7-46c8-be9f-1c06c17fdaa6",
+      "fold": 1,
+      "at": 1793810051621,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 227,
+      "hasRange": true,
+      "summaryChars": 4614,
+      "shadowedTokens": 0,
+      "inputTokens": 12578,
+      "outputTokens": 6552,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 226544,
+      "route": {
+        "provider": "magpie",
+        "model": "group/kimi-k3.1-pro"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 1,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 2056
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "b80e337c-331b-4530-90c7-75219b93e2ca",
+      "fold": 1,
+      "at": 1793810477417,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 297,
+      "hasRange": true,
+      "summaryChars": 5126,
+      "shadowedTokens": 0,
+      "inputTokens": 14983,
+      "outputTokens": 4017,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 24621,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 2384
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "3c1827c3-c69a-40f5-b0ab-b297e7484560",
+      "fold": 1,
+      "at": 1793810742939,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 232,
+      "hasRange": true,
+      "summaryChars": 4715,
+      "shadowedTokens": 0,
+      "inputTokens": 97,
+      "outputTokens": 10002,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 164541,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 2,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 2175
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "session-9c2cbede-e619-466c-8418-9afab940d08a",
+      "fold": 1,
+      "at": 1793810804148,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 264,
+      "hasRange": true,
+      "summaryChars": 4779,
+      "shadowedTokens": 0,
+      "inputTokens": 13130,
+      "outputTokens": 11441,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 97817,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 6,
+        "unknownIds": 0,
+        "summaryTokens": 2331
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "8fe881d1-a0ff-46f4-8613-de8f509d96a0",
+      "fold": 3,
+      "at": 1793811163648,
+      "trigger": "archive-offline",
+      "seqStart": 3287,
+      "seqEnd": 3603,
+      "hasRange": true,
+      "summaryChars": 8167,
+      "shadowedTokens": 0,
+      "inputTokens": 15729,
+      "outputTokens": 6708,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 23278,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 3,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 2995
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "a4b23ef7-e46c-4042-9b7f-373082615bbf",
+      "fold": 1,
+      "at": 1793811269340,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 379,
+      "hasRange": true,
+      "summaryChars": 6596,
+      "shadowedTokens": 0,
+      "inputTokens": 15075,
+      "outputTokens": 7879,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 30688,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 4,
+        "unknownIds": 0,
+        "summaryTokens": 2587
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "1cd970b3-3340-4374-af48-29a6adbc2eda",
+      "fold": 1,
+      "at": 1793811370806,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 401,
+      "hasRange": true,
+      "summaryChars": 6587,
+      "shadowedTokens": 0,
+      "inputTokens": 15550,
+      "outputTokens": 9421,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 85708,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 1,
+        "unknownIds": 0,
+        "summaryTokens": 3090
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "a1ce9cfe-4ef5-4405-be17-7c2115472d81",
+      "fold": 1,
+      "at": 1793811552661,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 294,
+      "hasRange": true,
+      "summaryChars": 6213,
+      "shadowedTokens": 0,
+      "inputTokens": 14189,
+      "outputTokens": 7026,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 52701,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 4,
+        "expectedFailures": 4,
+        "unknownIds": 0,
+        "summaryTokens": 2586
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "496e171e-a097-474a-99bf-1cf7f579eb45",
+      "fold": 1,
+      "at": 1793812029732,
+      "trigger": "archive-offline",
+      "seqStart": 10,
+      "seqEnd": 266,
+      "hasRange": true,
+      "summaryChars": 5869,
+      "shadowedTokens": 0,
+      "inputTokens": 13993,
+      "outputTokens": 6965,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 25688,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 5,
+        "unknownIds": 0,
+        "summaryTokens": 2650
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "cac6720d-abf1-4d19-8b59-907e790e632d",
+      "fold": 1,
+      "at": 1793812090451,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 389,
+      "hasRange": true,
+      "summaryChars": 5762,
+      "shadowedTokens": 0,
+      "inputTokens": 16018,
+      "outputTokens": 6755,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 25150,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 0,
+        "expectedFailures": 11,
+        "unknownIds": 0,
+        "summaryTokens": 2757
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "be5dfcd9-9af6-4c32-845b-1407d0ae1fe7",
+      "fold": 1,
+      "at": 1793812520735,
+      "trigger": "archive-offline",
+      "seqStart": 12,
+      "seqEnd": 320,
+      "hasRange": true,
+      "summaryChars": 4251,
+      "shadowedTokens": 0,
+      "inputTokens": 14856,
+      "outputTokens": 6077,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 34171,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 1,
+        "expectedFailures": 2,
+        "unknownIds": 0,
+        "summaryTokens": 2109
+      },
+      "closure": null,
+      "dangling": null,
+      "boundary": null
+    },
+    {
+      "sessionId": "2538d066-b559-4738-8952-458c2fb65066",
+      "fold": 1,
+      "at": 1793812529900,
+      "trigger": "archive-offline",
+      "seqStart": 9,
+      "seqEnd": 216,
+      "hasRange": true,
+      "summaryChars": 7282,
+      "shadowedTokens": 0,
+      "inputTokens": 14822,
+      "outputTokens": 10268,
+      "inputPerShadowed": null,
+      "shadowedShare": null,
+      "ms": 43592,
+      "route": {
+        "provider": "magpie",
+        "model": "group/deepseek-v4.1-flash1017"
+      },
+      "fallback": null,
+      "quality": {
+        "constraintRecall": 1,
+        "failureRecall": 1,
+        "compressionRatio": null,
+        "expectedConstraints": 6,
+        "expectedFailures": 0,
+        "unknownIds": 0,
+        "summaryTokens": 3442
       },
       "closure": null,
       "dangling": null,

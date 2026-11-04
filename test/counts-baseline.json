@@ -1,5 +1,5 @@
 {
- "total": 1080,
+ "total": 1089,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -31,6 +31,7 @@
   "context-curve.test.mjs": 3,
   "core.test.mjs": 8,
   "dangling-exclusion.test.mjs": 0,
+  "doc-numbers.test.mjs": 8,
   "docs-cli-commands.test.mjs": 2,
   "docs-commands.test.mjs": 8,
   "docs-index-check.test.mjs": 4,
@@ -126,6 +127,7 @@
   "status.test.mjs": 14,
   "summary-refs.test.mjs": 8,
   "syntax.test.mjs": 1,
+  "test-counts-write.test.mjs": 1,
   "test-counts.test.mjs": 3,
   "test-gate.test.mjs": 0,
   "tewari-perf.test.mjs": 7,
@@ -154,6 +156,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1399,
- "passedAt": "2026-11-04T17:05:32.507Z"
+ "passed": 1408,
+ "passedAt": "2026-11-04T17:25:12.727Z"
 }

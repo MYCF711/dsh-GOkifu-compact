@@ -210,7 +210,9 @@ export function main(argv = process.argv.slice(2)) {
   if (docNumbers.ok) {
     process.stdout.write(`     ↳ ${docNumbers.tail}\n`);
   } else {
-    process.stdout.write(`     ↳ ${docNumbers.tail}｜跑 node scripts/sync-doc-numbers.mjs --write 一次改完\n`);
+    // tail 里已经写了「跑 --write」，别再重复一遍（否则一行里出现两次同一句话）
+    const hint = docNumbers.tail.includes("--write") ? "" : "｜跑 node scripts/sync-doc-numbers.mjs --write 一次改完";
+    process.stdout.write(`     ↳ ${docNumbers.tail}${hint}\n`);
     for (const line of docNumbers.bad) process.stdout.write(`       ${line}\n`);
     if (docNumbers.more > 0) process.stdout.write(`       …另 ${docNumbers.more} 条\n`);
   }
