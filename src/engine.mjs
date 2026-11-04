@@ -37,7 +37,7 @@ import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./roo
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
 import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph } from "./rooms/offline-fold.mjs";
-import { findSessionLog, readSessionEvents } from "./rooms/zstd-log.mjs";
+import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
@@ -1047,6 +1047,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
     let folded = false;
     let foldError = null;
+    let chunkedEvidence = null;
     if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
       try {
         // ★ C557：**"返回了非空对象"不等于"折了"**。彩排测试（C557）发现：
@@ -1058,11 +1059,34 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         const marksAfter = (g.foldMarks ?? []).length;
         const resultFolded = Number(result?.folded) > 0 || result?.folded === true;
         folded = resultFolded || marksAfter > marksBefore;
+        // ★ C572：分段折叠**不写 foldMark**（走 compactRegion），只靠 `chunkedFolded` 留证据；
+        //   这里把它一并写下来，否则"折了但没有证据"会被判成欠账、反复补。
+        if (result?.tier === "chunked") {
+          const n = Number(result.folded) || 0;
+          chunkedEvidence = { chunkedFolded: n, chunkedChunks: Number(result.chunks) || 0 };
+          if (typeof result.stopped === "string" && result.stopped !== "") chunkedEvidence.chunkStopped = result.stopped;
+        } else if (result?.tier === "offline") {
+          chunkedEvidence = { foldOffline: Number(result.folded) > 0 };
+        }
       } catch (error) {
         foldError = String(error?.message ?? error).slice(0, 200);
       }
     }
-    g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source, folded };
+    // ★ C572（审核发现，严重）：这里是**整体替换**。它会把 `#closeoutFold` 路径刚写下的
+    //   `chunkedFolded / partial / offlineCovered / offlineUncoveredHead / foldError` **全部抹掉**，
+    //   于是「折了但没有证据」→ `debtOfGraph` 判欠 → 同一段尾巴反复付钱；C519 的前段缺口也会丢。
+    //   改成**合并写**，并且补上 `foldAttempted`（缺了它，`closeoutSettles` 会把 `folded:false`
+    //   当成"老记录 ⇒ 结清"，于是一次失败的补账就把欠账从列表里抹掉）。
+    g.closeout = {
+      ...(g.closeout ?? {}),
+      at: Date.now(),
+      eventsSinceLastFold,
+      folds: (g.foldMarks ?? []).length,
+      source,
+      folded,
+      foldAttempted: true,
+      ...(chunkedEvidence ?? {}),
+    };
     this.closedOutAt.set(session.id, { at: Date.now(), source });
     try {
       this.#flush(session, { full: true });
@@ -1708,26 +1732,33 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             });
             try {
               // ★ C531：折之前记一次「凭据」，折完再比对 —— 没变就说明这一段是空转。
+              // ★ C572（审核发现，严重）：凭据取错了两个地方 ——
+              //   ① `target` 进来的是 **session**（`#closeout` 传的是 session），`target.session` 是 undefined
+              //     ⇒ `#graph()` 抛错被吞成 null；
+              //   ② `compactRegion` 的计入点是 **`this.ledgerBudget.externalFolds`**（见 #recordExternalFold），
+              //      graph 上根本没有 `ledgerBudget` 字段。
+              //   两者相加 ⇒ 每段都判"空转"，而模型调用**已经花掉了**，分段收尾永远 0 段。
+              const foldSession = this.#asAgent(target)?.session ?? target;
               const g0 = (() => {
                 try {
-                  return this.#graph(target.session);
+                  return this.#graph(foldSession);
                 } catch {
                   return null;
                 }
               })();
               const beforeFolds = Number(g0?.foldCount ?? 0);
-              const beforeExternal = Number(g0?.ledgerBudget?.externalFolds ?? 0);
+              const beforeExternal = Number(this.ledgerBudget?.externalFolds ?? 0);
               const out = await Promise.race([this.compactRegion(start, end, this.#asAgent(target), undefined), timeout]);
               if (out === "timeout") throw Object.assign(new Error("chunk timeout"), { code: "CHUNK_TIMEOUT" });
               const g1 = (() => {
                 try {
-                  return this.#graph(target.session);
+                  return this.#graph(foldSession);
                 } catch {
                   return null;
                 }
               })();
               const afterFolds = Number(g1?.foldCount ?? 0);
-              const afterExternal = Number(g1?.ledgerBudget?.externalFolds ?? 0);
+              const afterExternal = Number(this.ledgerBudget?.externalFolds ?? 0);
               if (afterFolds === beforeFolds && afterExternal === beforeExternal) return { folded: false, skipped: "no-op" };
               return out;
             } finally {
@@ -1924,12 +1955,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       }
       // ★ C570：**日志没了的会话补不了**，别让它每轮白占一个名额。
       //   离线补折读的是磁盘上的会话日志；日志被清掉之后 `whatToDo` 只会永远返回 no-log。
-      const withLog = (listed.items ?? []).filter((item) => {
+      // ★ C572（审核发现，性能）：**一次遍历**拿全部日志路径，别对每条欠账各走一遍树
+      //   （50 条 × 110ms = 5.5s 同步 fs，会卡住宿主事件循环）。
+      const allLogs = (() => {
         try {
-          return findSessionLog(home, String(item.sessionId).replace(/^session-/, "")) !== null;
+          return listSessionLogs(home);
         } catch {
-          return false;
+          return [];
         }
+      })();
+      const withLog = (listed.items ?? []).filter((item) => {
+        const want = String(item.sessionId ?? "").replace(/^session-/, "");
+        return want !== "" && allLogs.some((p) => p.includes(want));
       });
       const skippedNoLog = (listed.items ?? []).length - withLog.length;
       if (skippedNoLog > 0) {
@@ -2066,7 +2103,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // 会话日志在 <home>/sessions/**，而 graphDir = <home>/chess-context/sessions
       // graphDir 的形态有两种（真机 = `<home>/chess-context`，测试里有人传 `<…>/chess-context/sessions`）——
       // 按最后一级目录名判断，别硬编码层数（我第一版就多退了一层，日志直接找不到）。
-      const root0 = String(this.graphDir ?? "");
+      // ★ C572（真机级 bug，审核发现）：这里原来用 `this.graphDir`，而**它从未被赋值**
+      //   （配置在 `this.chess.graphDir`）⇒ `path.dirname(dirname(""))` 得到 `"."` ⇒
+      //   `findSessionLog(".", id)` 实际去 `<cwd>/sessions` 找 ⇒ **离线补折永远 no-log**。
+      //   这也解释了为什么沙盒彩排一次都没进过离线分支。
+      const root0 = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
       const base0 = nodePath.basename(root0);
       const home = base0 === "chess-context" ? nodePath.dirname(root0) : nodePath.dirname(nodePath.dirname(root0));
       const logFile = findSessionLog(home, id);
@@ -2074,7 +2115,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const events = readSessionEvents(logFile);
       if (events.length === 0) return { tier: "offline", folded: 0, chunks: 0, stopped: "empty-log", partial: true };
       const debt = debtOfGraph(graph);
-      const rangeStart = debt.lastFoldSeq === null || debt.lastFoldSeq === undefined ? 1 : Number(debt.lastFoldSeq) + 1;
+      // ★ C572（审核发现）：**有前段缺口时要从缺口起点开始**，不是从 lastFoldSeq+1。
+      //   否则第一次「尾巴优先」的折叠把 lastFoldSeq 推到接近 maxSeq 之后，
+      //   前面那段缺口就再也够不到（gap 永远清不掉，欠账永远在）。
+      const gapFrom = Number(debt?.gap?.from ?? 0);
+      const hasGapFrom = Number.isFinite(gapFrom) && gapFrom > 0;
+      const rangeStart = hasGapFrom
+        ? gapFrom
+        : debt.lastFoldSeq === null || debt.lastFoldSeq === undefined
+          ? 1
+          : Number(debt.lastFoldSeq) + 1;
       const rangeEnd = Number(debt.maxSeq) || 0;
       if (rangeEnd < rangeStart) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-range", partial: false };
       // ★ C506：**优先用"上下文压缩设置里选的那个模型"**（summarizationProvider/Model），

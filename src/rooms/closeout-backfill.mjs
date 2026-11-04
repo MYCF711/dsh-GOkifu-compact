@@ -60,6 +60,9 @@ export function closeoutSettles(closeout) {
   // ★ C493：**只压了一部分不算结清**。分段离线压缩会留下 `partial: true`，
   //   这时 folded>0 也不能算完成，否则那段没压的内容会永远从欠账里消失。
   if (closeout.partial === true) return false;
+  // ★ C572：**`folded: false` 是判决，不是"缺字段"**。C557 之后没折成会显式写 `folded:false`，
+  //   但它落到下面的"老记录 ⇒ 结清"分支 ⇒ **一次失败的补账就把欠账从列表里抹掉**。
+  if (closeout.foldAttempted === true && Number(closeout.folded) === 0) return false;
   if (Number(closeout.folded) > 0 || Number(closeout.chunkedFolded) > 0) return true;
   if (typeof closeout.foldError === "string" && closeout.foldError !== "") return false;
   const note = String(closeout.foldNote ?? "");
@@ -94,7 +97,12 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   const closeoutSettlesRaw = closeoutSettles(graph?.closeout);
   const foldedEvidence =
     (Array.isArray(graph?.foldMarks) ? graph.foldMarks : []).some(
-      (m) => m?.trigger === "archive" || m?.trigger === "backfill" || m?.trigger === "archive-offline",
+      (m) =>
+        m?.trigger === "archive" ||
+        m?.trigger === "backfill" ||
+        m?.trigger === "archive-offline" ||
+        // ★ C572：`session/disposed` 收尾走的也是单段折叠，mark 的 trigger 是 "disposed"
+        m?.trigger === "disposed",
     ) || Number(graph?.closeout?.chunkedFolded) > 0;
   const claimsFolded = Number(graph?.closeout?.folded) > 0;
   const closedOut = closeoutSettlesRaw && (claimsFolded ? foldedEvidence : true);

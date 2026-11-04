@@ -53,6 +53,35 @@ export function decodeMultiFrameZstd(buf) {
  * @param {string} sessionId 完整或前缀
  * @returns {string|null}
  */
+/**
+ * ★ C572：**一次遍历拿到全部日志路径**。
+ *
+ * 为什么要有：`findSessionLog` 每次调用都会走一遍整棵 `<home>/sessions`（本机实测 110–120ms）。
+ * 自动补账的 tick 要判 50 个欠账，逐个调就是 **5.5 秒同步 fs**，直接卡住宿主事件循环。
+ *
+ * @param {string} home
+ * @returns {string[]} 所有 `*.zstd` 会话日志的绝对路径（空目录/读不到时返回空数组）
+ */
+export function listSessionLogs(home) {
+  const root = path.join(String(home ?? ""), "sessions");
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".zstd")) out.push(p);
+    }
+  };
+  walk(root);
+  return out;
+}
+
 export function findSessionLog(home, sessionId) {
   const want = String(sessionId ?? "");
   if (want === "") return null;

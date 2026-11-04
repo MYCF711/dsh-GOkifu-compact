@@ -228,6 +228,20 @@ export function applyCloseoutOutcome(closeout, result, error = null, at = Date.n
     else if (folded < chunks) next.foldNote = `chunked-incomplete:${folded}/${chunks}`;
     return next;
   }
+  // ★ C572（审核发现，严重）：**离线结果以前落到这里，被写成 `folded: 1`** ——
+  //   哪怕它 `folded:0 / stopped:"no-log"`、一段都没折。这正是 74 个"假成功"的生成器。
+  //   离线结果必须按它自己的字段落账，尤其"零段不许折成 1"。
+  if (result.tier === "offline") {
+    const folded = Number(result.folded) || 0;
+    next.folded = folded;
+    if (typeof result.stopped === "string" && result.stopped !== "") next.foldNote = `offline:${result.stopped}`;
+    if (result.partial === true) next.partial = true;
+    else if ("partial" in next && folded > 0) delete next.partial;
+    if (typeof result.coveredStart === "number") next.offlineCovered = { start: result.coveredStart, end: result.coveredEnd };
+    if (typeof result.error === "string" && result.error !== "") next.foldError = result.error.slice(0, 300);
+    if (folded > 0) next.foldOffline = true;
+    return next;
+  }
   next.folded = 1;
   return next;
 }

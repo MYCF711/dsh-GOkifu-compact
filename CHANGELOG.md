@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C561 | 审核查出 4 处重启即坏：离线永远 no-log、分段永远 0 段 |
 | C560 | 分段折过的会话不许被算成欠账（自查反向风险） |
 | C559 | 日志没了的欠账不再白占名额 |
 | C558 | 74 个会话的假成功被当成已结清：欠账 52→144 |
@@ -632,6 +633,68 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C561 · 审核查出 4 处重启即坏：离线永远 no-log、分段永远 0 段
+
+**按铁律 6 派了独立上下文的审核专员对抗式检查这批待重启改动 —— 它找出 4 处"重启后才发现坏了"，其中两处会让功能完全不工作。**
+
+### 一、① 离线补折永远 `no-log`
+
+```js
+const root0 = String(this.graphDir ?? "");   // this.graphDir 从未被赋值
+```
+
+配置在 `this.chess.graphDir`。于是 `path.dirname(dirname("")) === "."` ⇒
+`findSessionLog(".", id)` 去 `<cwd>/sessions` 找 ⇒ **引擎的离线补折一次都跑不起来**。
+
+这也解释了我自己那个悬案：沙盒彩排为什么从来进不去离线分支。
+
+**改法**：改用 `graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() })`，与 tick 同一个算法。
+
+### 二、② 分段永远 0 段
+
+```js
+const beforeExternal = Number(g0?.ledgerBudget?.externalFolds ?? 0);
+```
+
+两处都错：graph 上没有 `ledgerBudget` 字段（计数在 `this.ledgerBudget.externalFolds`）；
+而且 `#closeout` 传进来的是 **session**，`target.session` 是 undefined ⇒ `#graph()` 抛错被吞成 null。
+
+⇒ **每段都在模型调用已经花完之后**被判"空转"，`runChunkedCloseout` 第一段就停。
+
+**改法**：`this.ledgerBudget?.externalFolds` + `this.#asAgent(target)?.session ?? target`。
+
+### 三、③ 离线零段被写成 `folded: 1`
+
+`applyCloseoutOutcome` 没有 `tier:"offline"` 分支，离线结果落到最后 `next.folded = 1`。
+
+**这就是那 74 个"假成功"的生成器** —— C569 只修了读侧，写侧还在造。
+
+**改法**：加离线分支，零段 `folded: 0`，并把 `partial/stopped/covered/error` 一并落账。
+
+### 四、④ 收尾覆盖写 + `folded:false` 被当结清
+
+- `closeoutNow` 用字面量**整体替换** `g.closeout` ⇒ 抹掉 `chunkedFolded / partial / offlineCovered / gap`；
+- 不写 `foldAttempted` ⇒ `closeoutSettles` 落到"老记录 ⇒ 结清"⇒ **一次失败的补账把欠账从列表里抹掉**。
+
+**改法**：合并写 + `foldAttempted: true` + 分段/离线的证据一并写；`closeoutSettles` 把显式
+`foldAttempted:true && folded:0` 判为**未结清**。
+
+### 五、另外三处
+
+| 项 | 改法 |
+|---|---|
+| `disposed` 收尾的 mark 没算证据 | 白名单加 `"disposed"` |
+| 旧 `partial`/gap 粘住 ⇒ 无限重复补账 | 写新缺口前先 `delete` 旧字段 |
+| 有缺口时 `rangeStart` 不用 `gap.from` ⇒ 缺口永远够不到 | 优先用 `gap.from` |
+| tick 里 50 次 `findSessionLog` = 5.5s 同步 fs | 新增 `listSessionLogs`，一次遍历（72ms） |
+
+### 六、验证
+
+```
+node test/run.mjs → 1350 passed, 0 failed（新增 7 条守卫，每条对应一个真机现象）
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
 
 ### C560 · 分段折过的会话不许被算成欠账（自查反向风险）
 

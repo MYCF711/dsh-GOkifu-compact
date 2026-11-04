@@ -1,5 +1,5 @@
 {
- "total": 1024,
+ "total": 1031,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -13,6 +13,7 @@
   "build-stamp.test.mjs": 7,
   "bundle.test.mjs": 0,
   "c17-path-at-every-level.test.mjs": 16,
+  "c572-review-fixes.test.mjs": 7,
   "cache-rate.test.mjs": 3,
   "cache-usage.test.mjs": 4,
   "check-maintenance.test.mjs": 6,
@@ -148,6 +149,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1343,
- "passedAt": "2026-11-04T04:39:35.466Z"
+ "passed": 1350,
+ "passedAt": "2026-11-04T05:07:48.087Z"
 }

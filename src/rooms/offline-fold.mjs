@@ -688,6 +688,12 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   delete base.foldNote;
   delete base.foldError;
   delete base.chunkStopped;
+  // ★ C572（审核发现）：**旧缺口/部分标记要先清掉再按本次重算**。
+  //   否则一次「覆盖了全部缺口」的折叠之后，旧的 `offlineUncoveredHead` 与 `partial:true` 还留着
+  //   ⇒ `debtOfGraph` 永远 `due:true`（tail=0 也一样）⇒ 同一段被**无限重复补账**。
+  delete base.partial;
+  delete base.offlineUncoveredHead;
+  delete base.offlineUncoveredTail;
   graphRef.closeout = {
     ...base,
     at: now,
