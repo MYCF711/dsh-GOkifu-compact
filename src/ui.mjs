@@ -421,6 +421,8 @@ export function todayAggregateFrom(scan) {
   let totalSessions = 0;
   let totalFailures = 0;
   let truncated = 0;
+  // ★ C609：**「不知道」必须和「没截断」分开数**。旧口径下两者都落在 0 上 ⇒ 仪器静默失灵时面板看起来完全正常。
+  let truncatedUnknown = 0;
   for (const file of scan.files) {
     totalSessions += 1;
     const summary = graphSummary(file).summary;
@@ -446,12 +448,34 @@ export function todayAggregateFrom(scan) {
     totalFailures += summary.failures;
     // ★ C390：今日**被截断**的折叠数（finishReason = max-tokens/length 类）。
     //   C317–C321 把这个字段装好了，但面板一直没用它 ⇒ 用户看不到"摘要被截断"这件事。
+    // ★ C609：**离线补折不写 `finishReason`** —— 它的写入点（`applyOfflineFoldToGraph`）手上只有
+    //   「我们判没判它没写完」这个结论（落 `truncated`）；上游 finish 在那个点上**根本取不到**
+    //   （`runOfflineFold` 的 chunk 只带 usage/model，没带 finish）。所以只读 `finishReason`
+    //   ⇒ 现在的主来路（真机 283/462 条 foldMark 是离线补折）被截断了也看不见。
+    //   两个字段**语义不同、永不互相写入**，这里只做"或"，任何一种证据都不漏：
+    //     · `finishReason` 是字符串 ⇒ 知道上游怎么结束的（max-tokens/length = 被截断）；
+    //     · `truncated === true`     ⇒ 我们的判定是"没写完"；
+    //     · `truncated === false`    ⇒ 我们的判定是"写完了"（有证据的"没截断"，不是"不知道"）；
+    //     · 两个字段都没有（旧记录 / 该写入点没采集）⇒ **不知道**，单独计数，别混进前两档。
     for (const mark of marks) {
-      if (isTruncatedFinish(mark?.finishReason)) truncated += 1;
+      if (isTruncatedFinish(mark?.finishReason) || mark?.truncated === true) truncated += 1;
+      else if (mark?.truncated !== false && typeof mark?.finishReason !== "string") truncatedUnknown += 1;
     }
   }
   // ★ C239：`costUsd` 是**估算**（官方价目 × 真实 usage）；`costKnown` 是有 usage 的 fold 数，供页面标注覆盖率。
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown, truncated, peakFolds };
+  // ★ C609：`truncatedUnknown` 只能**追加在最后**（C390 的接口契约：旧字段顺序不动，新字段必须是数字）。
+  return {
+    folds,
+    shadowed,
+    sessions: sessions.size,
+    totalSessions,
+    totalFailures,
+    costUsd,
+    costKnown,
+    truncated,
+    peakFolds,
+    truncatedUnknown,
+  };
 }
 
 /** 一次扫描 + 清缓存，给同一个请求里的两个聚合用。 */
