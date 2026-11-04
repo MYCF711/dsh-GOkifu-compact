@@ -382,9 +382,19 @@ export function formatReport(summary, extra = {}) {
         `measuredBefore ${le.present.measured ? v.measuredBefore : "缺"}`,
     );
   }
-  out.push(
-    `仪器状态：${st.expected === 0 ? "本窗口无从判定（没有该有的 fold）" : st.missing === 0 ? "已生效（该有的字段都写了）" : "未生效 / 有缺口（该有的字段缺了）"}`,
-  );
+  // 「仪器活没活」与「判据对不对」是两件事，分开打：窗口里没有该有的 fold 时，
+  // 用跨窗口的最近一条该有的 fold 来回答（而不是留一句"无从判定"）。
+  const instrumentState =
+    st.expected > 0
+      ? st.missing === 0
+        ? "已生效（窗口内该有的字段都写了）"
+        : `未生效 / 有缺口（窗口内该有却缺 ${st.missing} 条）`
+      : summary.latestExpected === null
+        ? "无从判定（一条模型路径的 fold 都没有）"
+        : summary.latestExpected.ok
+          ? `已生效（本窗口没有该有的 fold；跨窗口最近一条 ${summary.latestExpected.atIso} 三个字段齐全）`
+          : `未生效（本窗口没有该有的 fold；跨窗口最近一条 ${summary.latestExpected.atIso} 就缺字段）`;
+  out.push(`仪器状态：${instrumentState}`);
   out.push(`结论：${summary.verdict}`);
   return out;
 }

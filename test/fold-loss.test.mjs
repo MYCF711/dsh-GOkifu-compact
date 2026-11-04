@@ -150,7 +150,7 @@ tests["C607 真机复现：模型把 e693—e698 合并成区间 ⇒ 4 条 id �
   // 补回的正文必须是「id + 动作 + 为什么失败」的可读句子
   t.includes(
     chunk.text,
-    'e694 「edit(file_path=full-host-verification.md)」→ Error: cannot modify "full-host-verification.md": file has not been read',
+    'e694 「edit(file_path=full-host-verification.md)」→ Error: cannot modify full-host-verification.md: file has not been read',
     "补回行要写清「哪个文件 + 为什么失败」",
   );
   for (const id of ["e694", "e695", "e696", "e697"]) {
@@ -236,7 +236,10 @@ tests["C607 repairMissingFailures：空清单原样返回；有清单补一节�
   const fixed = repairMissingFailures("## 目标\n- x", [graph.edges.e695, graph.edges.e697]);
   t.eq(fixed.repaired, ["e695", "e697"], "补回的是哪两条");
   t.includes(fixed.text, "## 已探明死路（逐字补充 · 机械补回，不许重试）", "补回段要有标题（与约束补回同构）");
-  t.includes(fixed.text, '- e695 「edit(file_path=hmr-verification.md)」→ Error: cannot modify', "e695 的行要可读");
-  t.includes(fixed.text, '- e697 「edit(file_path=nested-verification.md)」→ Error: cannot modify', "e697 的行要可读");
+  t.includes(fixed.text, '- e695 「edit(file_path=hmr-verification.md)」→ Error: cannot modify hmr-verification.md', "e695 的行要可读");
+  t.includes(fixed.text, '- e697 「edit(file_path=nested-verification.md)」→ Error: cannot modify nested-verification.md', "e697 的行要可读");
+  // 补回行不许带双引号：`describeStructure` 用引号配平判「结尾是否干净」，
+  // 截断切在引号里会把「机械补回」误读成「摘要被截断」（假红）。
+  t.eq(fixed.text.includes('"'), false, "补回段不许出现双引号");
   t.eq(fixed.text.split("\n").filter((line) => line.startsWith("- e")).length, 2, "一条边一行");
 };

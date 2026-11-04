@@ -1,5 +1,5 @@
 {
- "total": 1137,
+ "total": 1159,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -51,6 +51,7 @@
   "fold-closure.test.mjs": 6,
   "fold-cost-time.test.mjs": 2,
   "fold-economics.test.mjs": 3,
+  "fold-loss.test.mjs": 6,
   "fold-mark-sites.test.mjs": 8,
   "fold-parity.test.mjs": 7,
   "fold-planner-properties.test.mjs": 8,
@@ -70,6 +71,7 @@
   "install-link.test.mjs": 29,
   "install-revert.test.mjs": 5,
   "install-ui-step.test.mjs": 5,
+  "instrument-audit.test.mjs": 10,
   "integration.test.mjs": 0,
   "keeper.test.mjs": 3,
   "kifu-model-snapshot.test.mjs": 7,
@@ -98,6 +100,7 @@
   "markers.test.mjs": 15,
   "merge-provenance.test.mjs": 4,
   "migrate.test.mjs": 2,
+  "node-docs-prune.test.mjs": 6,
   "node-docs.test.mjs": 2,
   "offline-fold.test.mjs": 33,
   "overbudget-report.test.mjs": 4,
@@ -162,6 +165,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1456,
- "passedAt": "2026-11-04T19:03:02.581Z"
+ "passed": 1478,
+ "passedAt": "2026-11-04T19:41:58.281Z"
 }

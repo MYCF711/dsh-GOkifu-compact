@@ -328,7 +328,9 @@ export function repairMissingFailures(text, missing) {
   const lines = ["", "## 已探明死路（逐字补充 · 机械补回，不许重试）"];
   for (const e of list) {
     const action = compactAction(String(e.intent || e.action || ""), 80);
-    const why = compactAction(String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0], 80);
+    // ★ 补回行的错误原文**去掉双引号**：截断可能切在引号中间，而 `describeStructure` 的
+    //   「结尾干净」判据数的是引号配平 —— 那会把「机械补回」误读成「摘要被截断」。
+    const why = compactAction(String(e.errorSnippet || e.verify?.summary || "-").split("\n")[0], 80).replace(/"/g, "");
     lines.push(`- ${e.id} 「${action}」→ ${why}`);
   }
   return { text: `${body}\n${lines.join("\n")}`, repaired: list.map((e) => String(e.id)) };
