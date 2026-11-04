@@ -30,6 +30,9 @@ const KNOWN_STOPPED = {
   "empty-log": "日志为空",
   "no-range": "没有可折区间",
   "no-model": "拿不到模型",
+  // ★ C600：后台定时器里宿主服务容器是 inactive 的（真机：cannot get required service "llm"）
+  //   ⇒ 这一轮**不折**，等活跃回合拿句柄再折。它不是"失败"，是"时机不对"。
+  "inactive-context": "后台定时器拿不到宿主服务 ⇒ 等活跃回合再折",
 };
 
 /** 从源码里抓出所有 `stopped: "xxx"` 字面量。 */

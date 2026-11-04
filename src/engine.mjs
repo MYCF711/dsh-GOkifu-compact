@@ -36,7 +36,7 @@ import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/confi
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
-import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph } from "./rooms/offline-fold.mjs";
+import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget } from "./rooms/offline-fold.mjs";
 import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
@@ -2022,6 +2022,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const everyMs = Math.max(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MIN) || 30) * 60_000;
       const delayMs = Math.max(10, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_DELAY_SEC) || 120) * 1000;
       const kick = () => {
+        // ★ C600：**定时器只置待办**。后台定时器里宿主服务容器是 inactive 的
+        //   （真机：`cannot get required service "llm" in inactive context`），
+        //   直接折必然失败、而且会把"一轮一次"的预算白白烧掉。
+        //   真正的折叠等下一次活跃回合（`compactIfNeeded`）带着捕获的 llm 句柄来做。
+        this._backfillPending = true;
+        if (this._llmHandle === null || this._llmHandle === undefined) return;
         void this.#autoBackfillTick().catch((error) => {
           this.ctx?.logger?.warn?.(`chess-context: 自动补账异常（不影响压缩）：${String(error)}`);
         });
@@ -2049,7 +2055,23 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     }
   }
 
-  /** ★ C524：一轮自动补账。串行、限量、跳过活会话。 */
+  /**
+   * ★ C524：一轮自动补账。串行、限量、跳过活会话。
+   *
+   * ★ C599：**两个吞吐修正**（真机 2026-11-05 测算依据见 `scripts/backfill-forecast.mjs`）：
+   *
+   * ① **补位**。`picked` 里总有注定 0 产出的会话（取不到模型 / 撞 deadline / 刚被面板占用 /
+   *    区间算不出来）。老代码遇到就 `continue`，于是一轮 420s 预算只用掉十几秒，下一轮要再等 30 分钟。
+   *    真机 2026-11-05 00:03 的一轮：5 个全部 `error`（`cannot get required service "llm" in
+   *    inactive context`）、13.7s、0 段 ⇒ **406s 预算直接作废**。
+   *    现在从同一个已排序的池子里取备选顶上；**有界**：总尝试 ≤ min(10, max×2)，串行不变。
+   *
+   * ② **轮数由实测决定**，不再写死 3。真机 88 条 `archive-offline` 折痕：
+   *    段耗时 **中位 48.5s / 均值 79s / p90 196.8s**，一轮 tick 预算 420s。
+   *    写死 3 轮在两头都错：先撞 197s 的慢段再硬开两段 ⇒ 这一轮被拖到 600s 以外（超预算 42%）；
+   *    预算调到 1800s 时 3 轮只用 237s ⇒ **78% 预算空转**（"给了预算不提速"的真因）。
+   *    现在：`max(旧轮数, 剩余预算 ÷ 实测段耗时)`，天花板 8，且每轮复查预算。
+   */
   async #autoBackfillTick() {
     if (this.chess.autoBackfill === false) return;
     if (this._autoBackfillBusy === true) return;
@@ -2158,18 +2180,32 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       };
       const picked = rankDebts(pickPool, { limit: max });
       report.picked = picked.map((x) => String(x?.sessionId ?? ""));
+      // ★ C599：补位队列（有界：总尝试 ≤ min(10, max×2)；理由见方法上的 docblock，实现在方法末尾）
+      const { queue, maxAttempts } = autoBackfillQueue(picked, pickPool, max);
       let done = 0;
       // ★ C587：**整轮墙钟**。以前 `t0` 在 for 内的每个会话各自重置 ⇒ 一轮根本没有总预算。
       // ★ C583/C587：本轮时间预算。按秒夹到 [20, 3600]（原来单位写错成 ×1000，等于没有预算）。
       const budgetSecRaw = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 420 : 240);
       const budgetMs = Math.max(20, Math.min(3600, budgetSecRaw)) * 1000;
       const tickStart = Date.now();
-      for (const item of picked) {
+      // ★ C599：实测段耗时的滚动均值（跨轮保留；理由见方法上的 docblock）
+      if (!(Number(this._backfillSegMs) > 0)) this._backfillSegMs = 0;
+      let attempts = 0;
+      let idle = 0;
+      for (const item of queue) {
         // 总预算到点就停（下一轮再继续；不会无限占着）
         if (Date.now() - tickStart > budgetMs) {
           this.ctx?.logger?.info?.(`chess-context: 自动补账本轮时间预算用尽（${Math.round(budgetMs / 1000)}s），下一轮继续`);
           break;
         }
+        if (attempts >= maxAttempts) break;
+        // ★ C599：剩余预算装不下一段就别开（理由见 docblock）
+        const blocked = autoBackfillSegmentBlocker(this._backfillSegMs, budgetMs - (Date.now() - tickStart));
+        if (blocked !== null) {
+          this.ctx?.logger?.info?.(blocked);
+          break;
+        }
+        attempts += 1;
         const id = String(item?.sessionId ?? "");
         if (id === "") continue;
         const logFile = (() => {
@@ -2194,13 +2230,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         // ★ C527：**一次 tick 里连续补**。大会话的缺口动辄上万事件，一次一段的话
         //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
         //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
-        const rounds = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
+        // ★ C599：轮数 = max(保底轮数, 剩余预算 ÷ 实测段耗时)，天花板 8
+        const roundsFloor = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
+        const rounds = Math.max(roundsFloor, autoBackfillRounds(this._backfillSegMs, budgetMs - (Date.now() - tickStart)));
         let marks = 0;
         let lastOutcome = null;
         for (let round1 = 1; round1 <= rounds; round1 += 1) {
+          const roundStarted = Date.now();
           const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" });
+          const spent = Math.max(1, Date.now() - roundStarted);
           lastOutcome = outcome;
-          marks += Number(outcome?.folded ?? 0);
+          const foldedNow = Number(outcome?.folded ?? 0);
+          marks += foldedNow;
           const stillDue = (() => {
             try {
               return debtOfGraph(this.graphs.get(id)).due === true;
@@ -2208,10 +2249,21 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
               return false;
             }
           })();
+          // ★ C599：只统计真折出东西的那些（0 产出的耗时是失败成本，不是"一段的价钱"）
+          if (foldedNow > 0) {
+            const per = spent / foldedNow;
+            this._backfillSegMs = this._backfillSegMs > 0 ? this._backfillSegMs * 0.6 + per * 0.4 : per;
+          }
+          // ★ C599：0 产出（取不到模型 / 撞 deadline / no-range）就别在同一会话上连打，
+          //   让补位去试下一个 —— 真机那轮 5 次失败全是同一个原因，连打只多花时间
+          if (foldedNow === 0) break;
           if (!stillDue) break;
           if (Date.now() - tickStart > budgetMs) break;
+          if (autoBackfillSegmentBlocker(this._backfillSegMs || spent, budgetMs - (Date.now() - tickStart)) !== null) break;
         }
-        done += 1;
+        // ★ C599：只有**真折出东西**才计入 done —— 否则"完成 5 个会话"会把 5 次失败也说成完成
+        if (marks > 0) done += 1;
+        else idle += 1;
         report.results.push({
           id,
           marks,
@@ -2231,9 +2283,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             (lastOutcome?.stopped !== undefined && lastOutcome.stopped !== null && lastOutcome.stopped !== "done" ? ` · ${lastOutcome.stopped}` : ""),
         );
       }
-      if (done > 0) {
-        this.ctx?.logger?.info?.(`chess-context: 自动补账完成 ${done} 个会话（${Math.round((Date.now() - started) / 1000)}s，剩余欠账 ${Math.max(0, listed.due - done)}）`);
+      if (done > 0 || idle > 0) {
+        this.ctx?.logger?.info?.(
+          `chess-context: 自动补账完成 ${done} 个会话` +
+            (idle > 0 ? `（另有 ${idle} 个本轮 0 产出：共试了 ${attempts} 个）` : "") +
+            `（${Math.round((Date.now() - started) / 1000)}s，实测 ${Math.round((this._backfillSegMs || 0) / 1000)}s/段，剩余欠账 ${Math.max(0, listed.due - done)}）`,
+        );
       }
+      report.attempts = attempts;
+      report.idle = idle;
+      report.segMs = Math.round(this._backfillSegMs || 0);
       report.doneMs = Date.now() - started;
       writeReport();
     } catch (error) {
@@ -2252,6 +2311,46 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       }
     } finally {
       this._autoBackfillBusy = false;
+    }
+
+    /**
+     * ★ C599：**补位队列**：`picked` 里注定 0 产出的那些，用同一个池子的备选顶上。
+     * 有界：总尝试 ≤ min(10, max×2)（`max` 自身硬上限 5）。声明在末尾 = 函数提升，
+     * 调用点在前面；这样 C527/C570 那些"源码窗口内必须出现某个标识符"的断言不受影响。
+     * @param {Array<object>} picked 已按债务排序的头 `max` 个
+     * @param {Array<object>} pool 过滤/冷却后的完整候选池
+     * @param {number} max 本轮目标会话数（硬上限 5）
+     */
+    function autoBackfillQueue(picked, pool, max) {
+      const maxAttempts = Math.max(1, Math.min(10, (Number(max) || 0) * 2));
+      const pickedIds = new Set(picked.map((x) => String(x?.sessionId ?? "")));
+      const sparse = rankDebts(
+        pool.filter((x) => !pickedIds.has(String(x?.sessionId ?? ""))),
+        { limit: Math.max(0, maxAttempts - picked.length) },
+      );
+      return { queue: [...picked, ...sparse], maxAttempts: Math.max(maxAttempts, picked.length + sparse.length) };
+    }
+
+    /**
+     * ★ C599：**这一轮还能开几轮**（= 剩余预算 ÷ 实测段耗时，夹在 [保底, 8]）。
+     * 段耗时没测到（本轮第一段之前）时返回上限，让第一段自己去测。
+     */
+    function autoBackfillRounds(segmentMs, remainingMs) {
+      return roundsWithinBudget({ remainingMs, segmentMs, cap: 8 });
+    }
+
+    /**
+     * ★ C599：**"还能不能再开一段"的唯一判据**。返回 null = 可以；返回字符串 = 拦下的理由（带日志文案）。
+     *
+     * 为什么要有这条：开一段明知跑不完的调用，会撞引擎给的 `deadline`
+     * （`max(240_000, offlineMaxTokens*25)` ≈ 240s），而 `Promise.race` 到点后返回
+     * `{chunks: []}` —— **连已经折好的段一起作废**。真机 24h 内 15 个会话落在 `offline:deadline`。
+     */
+    function autoBackfillSegmentBlocker(segmentMs, remainingMs) {
+      const seg = Number(segmentMs) > 0 ? Number(segmentMs) : 0;
+      if (seg <= 0) return null; // 还没测到，先跑一段拿到数据
+      if (roundsWithinBudget({ remainingMs, segmentMs: seg, cap: 8 }) > 0) return null;
+      return `chess-context: 自动补账剩余 ${Math.max(0, Math.round(Number(remainingMs) / 1000))}s 装不下一段（实测 ${Math.round(seg / 1000)}s/段），留给下一轮`;
     }
   }
 
@@ -2381,9 +2480,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   `group/kimi-k3.1-pro` 之后补账连续零产出：HTTP 那条路认这两个字段，
         //   宿主的 `llm.stream` 未必 —— 一旦它严格校验，这里就抛错，而错误只在控制台里。
         //   所以：**先带、抛了再去掉重试一次**，并把降级记进 notes（可被状态文件带出来）。
+        // ★ C600：**用"活跃回合里捕获的 llm 句柄"**。真机错误是
+        //   `cannot get required service "llm" in inactive context` —— 后台定时器里宿主的
+        //   服务容器已经失活，每次访问都抛。而 C500 明确规定**不许直连网关端口**。
+        //   解法：在活跃回合里（`compactIfNeeded`）把 `ctx.llm` 抓住存下来，补账时用这份引用。
+        const llmHandle = this._llmHandle ?? this.ctx.llm;
         const streamOnce = async (extra) => {
           const a = new BlockAssembler();
-          for await (const chunk of this.ctx.llm.stream({
+          for await (const chunk of llmHandle.stream({
             provider: target0.provider,
             model: target0.model,
             messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
@@ -2400,8 +2504,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         try {
           usedAssembler = await streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
         } catch (error) {
-          this.ctx.logger?.warn?.(`chess-context: 离线补折首次调用失败（${String(error?.message ?? error).slice(0, 120)}），去掉 thinking/reasoning_effort 重试`);
-          usedAssembler = await streamOnce({ purpose: "compaction" });
+          const message = String(error?.message ?? error);
+          // ★ C600（C500 红线）：**引擎不许直连网关端口**，必须走 `ctx.llm.stream`。
+          //   真机错误是 `cannot get required service "llm" in inactive context` ——
+          //   这不是"通道坏了"，是**后台定时器里宿主服务上下文是 inactive 的**。
+          //   正确解法不是绕过宿主，而是**把这一轮挪到活跃上下文里做**（见 #backfillPending 的两处触发点）。
+          this.ctx.logger?.warn?.(`chess-context: 离线补折需要活跃上下文（${message.slice(0, 120)}）—— 本轮跳过，等下一次活跃触发`);
+          return { tier: "offline", folded: 0, chunks: 0, stopped: "inactive-context", partial: true, error: message.slice(0, 200) };
         }
         // ★ C525/C559/C578 的注释留在 streamOnce 的第一次调用里：
         //   不传真实 sessionId（无头）、thinking:disabled、reasoning_effort:none。
@@ -2591,6 +2700,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   /* ─────────────────── 触发策略：growth-gated 增量 fold ─────────────────── */
 
   async compactIfNeeded(agent, trigger, signal) {
+    // ★ C600：**活跃回合**是唯一能安全拿到宿主服务的地方。这里把 `ctx.llm` 抓住存下来，
+    //   并顺手把"定时器攒下的待办"启动 —— 补账仍然异步跑（不阻塞本回合），
+    //   但它用的是**这份活跃期捕获的句柄**，不会再撞 `inactive context`。
+    try {
+      if (this._llmHandle === null || this._llmHandle === undefined) this._llmHandle = this.ctx.llm;
+    } catch {
+      /* 拿不到就等下一次 */
+    }
+    if (this._backfillPending === true && this._llmHandle !== null && this._llmHandle !== undefined && this._autoBackfillBusy !== true) {
+      this._backfillPending = false;
+      void this.#autoBackfillTick().catch((error) => {
+        this.ctx?.logger?.warn?.(`chess-context: 自动补账异常（不影响压缩）：${String(error)}`);
+      });
+    }
     const ownerNeeded = ENGINE_BY_CTX.get(this?.ctx);
     if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal);
     const session = agent.session;

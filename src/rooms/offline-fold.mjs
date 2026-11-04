@@ -394,6 +394,37 @@ export function foldBudgetFor(input, configured = 8192) {
   return Math.max(1024, Math.min(16384, Math.max(base, tokens)));
 }
 
+/** ★ C599：所有 `max_tokens` 的硬上限（与 `foldBudgetFor` 的夹取上界、配置的 16,384 同一口径）。 */
+export const HARD_MAX_TOKENS = 16_384;
+
+/**
+ * ★ C599：**按「剩余预算 ÷ 实测段耗时」算还能开几轮**。纯函数，便于单测。
+ *
+ * 为什么需要它（真机 2026-11-05，88 条 `archive-offline` 折痕）：
+ *   · 段耗时 **中位 48.5s / 均值 79s / p90 196.8s**，而补账一轮 tick 的预算是 420s；
+ *   · 老代码把轮数**写死 3**：先是一段 197s 的慢段，再硬开两段 ⇒ 这一轮被拖到 600s 以外
+ *     （超预算 42%，而 `_autoBackfillBusy` 期间所有 tick 都直接 return）；
+ *   · 反过来把 `DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC` 调到 1800 时，写死 3 轮又只用掉 237s，
+ *     **78% 的预算在空转** —— 这就是"给了预算也不提速"的结构性原因。
+ *
+ * 判据（`startRatio` 而不是 1）：
+ *   剩余时间 ≥ 一段的 `startRatio` 才允许**开始**下一轮。宁可留一小截预算，也不要开一段
+ *   明知跑不完的调用 —— 后者会撞 `deadline`，而 `Promise.race` 到点后**连已折的段一起作废**。
+ *
+ * @param {{remainingMs?:number, segmentMs?:number, cap?:number, startRatio?:number}} [args]
+ * @returns {number} 还能开几轮（0 = 别再开了）；`segmentMs <= 0`（没测到）时返回 `cap`
+ */
+export function roundsWithinBudget({ remainingMs = 0, segmentMs = 0, cap = 8, startRatio = 0.6 } = {}) {
+  const limit = Math.max(1, Math.min(64, Number(cap) || 1));
+  const left = Number(remainingMs);
+  const segment = Number(segmentMs);
+  // 没测到段耗时（本轮第一段之前）⇒ 交给上限，让第一段自己去测
+  if (!Number.isFinite(segment) || segment <= 0 || !Number.isFinite(left)) return limit;
+  const ratio = Math.max(0.1, Math.min(1, Number(startRatio) || 0.6));
+  if (left < segment * ratio) return 0;
+  return Math.max(1, Math.min(limit, Math.floor(left / segment)));
+}
+
 /**
  * ★ C540：**建议篇幅按输入规模给**。固定「800–2500 字」在两端都不合适：
  *   · 输入 38k 字符时，2500 字是 15:1 压缩 —— 细节丢光；
@@ -492,6 +523,8 @@ export async function runOfflineFold({
 }) {
   const chunks = [];
   let stoppedEarly = null;
+  /** ★ C599：本段是否因为"截止时间装不下"而**跳过**了放大重试（诊断用，写进 chunk）。 */
+  let skippedRetry = false;
   const limit = Math.max(1, Number(maxChunks) || 1);
   let cursor = rangeStart;
   let coveredStart = null;
@@ -504,6 +537,7 @@ export async function runOfflineFold({
       break;
     }
     const chunkStart = cursor;
+    skippedRetry = false;
     // ★ C538：seq → 节点 id（同一 seq 多个节点时取第一个；没有就留空）
     const idBySeq = (() => {
       const map = new Map();
@@ -557,14 +591,30 @@ export async function runOfflineFold({
     };
     let truncated = looksTruncated(out);
     if (truncated) {
-      try {
-        const bigger = await callModel(prompt, { maxTokens: budget * 2 });
-        if (!looksTruncated(bigger) && String(bigger?.text ?? "").trim() !== "") {
-          out = bigger;
-          truncated = false;
+      // ★ C599：**重试要先算得过来，否则退化成"整段白丢"**。
+      //   真机依据（2026-11-05）：
+      //     · 第一次调用已经花掉 48.5s（中位）/ 197s（p90），而重试的预算是 `budget*2`
+      //       （实测出字 128 tok/s ⇒ 时间约翻倍）；
+      //     · 补账 tick 给的 `deadline` 是 `max(240_000, offlineMaxTokens*25)` ≈ 240s；
+      //     · 一旦重试跨过 deadline，引擎侧的 `Promise.race` 返回 `{chunks: []}`
+      //       ⇒ **第一段能用的摘要连同这段时间一起作废**（24h 内 15 个会话落在 `offline:deadline`）。
+      //   所以：只有"剩余时间 ≥ 已花时间 × 1.2"才开重试；算不下就保留第一次的结果并标 `truncated`
+      //   —— 有据可查的"短摘要"远比"零产出"有用，而且不再多付一次模型钱。
+      const retryBudget = Math.min(HARD_MAX_TOKENS, Math.max(1024, budget * 2));
+      const spentMs = Date.now() - startedAt;
+      const roomMs = deadline === null || !Number.isFinite(Number(deadline)) ? Infinity : Number(deadline) - Date.now();
+      if (roomMs > spentMs * 1.2) {
+        try {
+          const bigger = await callModel(prompt, { maxTokens: retryBudget });
+          if (!looksTruncated(bigger) && String(bigger?.text ?? "").trim() !== "") {
+            out = bigger;
+            truncated = false;
+          }
+        } catch {
+          /* 重试失败就保留第一次的结果，并标记截断 */
         }
-      } catch {
-        /* 重试失败就保留第一次的结果，并标记截断 */
+      } else {
+        skippedRetry = true;
       }
     }
     let text = String(out?.text ?? "").trim();
@@ -602,6 +652,8 @@ export async function runOfflineFold({
       repaired,
       sanitized,
       truncated,
+      // ★ C599：标出"重试被截止时间挡掉了"，否则读图的人会以为这条路不会重试
+      retrySkipped: skippedRetry,
       quality,
       usage: out?.usage ?? null,
       model: out?.model ?? null,

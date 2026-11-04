@@ -36,6 +36,9 @@ import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
 import { compareBuildId, compareBuildStamp, readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
 import { foldCostMetrics, normalizeUsage } from "../src/rooms/fold-quality.mjs";
+// ★ C599：欠账口径只留一份（`debtOfGraph` 就是引擎/面板/补账共用的那个实现）——
+//   doctor 自己再写一遍"还欠多少"，迟早会和补账的口径打架。
+import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -1159,6 +1162,126 @@ mark('C536 自动补账在动吗');
           (ageMin === null ? " · **一次都没跑过**" : ` · 最近一次 ${ageMin} 分钟前`) +
           (last24h === 0 ? " ⇒ 开关开着却没产出：看是不是都是活会话（5 分钟内还在写会被跳过）" : ""),
   );
+}
+
+mark('C599 自动补账的结局');
+/* ★ C599：**「跑完一轮」和「补进东西」是两件事**（C536 的姊妹条）。
+   真机（2026-11-05 00:03）：`auto-backfill-state.json` 里 `due:217` / `doneMs:13775`，
+   看起来一切正常 —— 而 `results` 五条**全是** `stopped:"error"`（`cannot get required service "llm"
+   in inactive context`）、`folded:0`。补账一轮都没成功，磁盘上只留下"跑完了"的时间戳，
+   于是「补账在空转」在 doctor 里与「补账很健康」长得一模一样。
+   三条判据（前两条直接读状态文件 = 补账自己的口径；只有文件不存在时用 `debtOfGraph` 现算）：
+     ① 文件在、`doneMs` 正常、但 `results` 全是 stopped≠done ⇒ 警告并写清原因；
+     ② `at` 超过 90 分钟没更新（默认 30 分钟一轮）而 `due>0` ⇒ 定时器可能停了；
+     ③ `due>0` 而状态文件不存在 ⇒ 本版可能还没重启（引擎不会写这个文件）。 */
+{
+  const stateFile = nodePath.join(home, "chess-context", "auto-backfill-state.json");
+  const sessionsForDue = nodePath.join(home, "chess-context", "sessions");
+  const fileExists = nodeFs.existsSync(stateFile);
+  let state = null;
+  let parseError = null;
+  if (fileExists) {
+    try {
+      state = JSON.parse(nodeFs.readFileSync(stateFile, "utf8"));
+    } catch (error) {
+      parseError = String(error?.message ?? error).slice(0, 120);
+    }
+  }
+  // 现算欠账（只在状态文件给不出 `due` 时用；doctor 已有图缓存，不额外解一遍图）
+  const dueFromGraphs = () => {
+    if (!nodeFs.existsSync(sessionsForDue)) return 0;
+    let count = 0;
+    for (const entry of nodeFs.readdirSync(sessionsForDue, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(sessionsForDue, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue; // 坏图由「棋谱结构自洽」点名，这里不重复报
+      }
+      try {
+        if (debtOfGraph(g).due === true) count += 1;
+      } catch {
+        /* 判不出债务就当没欠 —— 不许为一行统计把整份体检打挂 */
+      }
+    }
+    return count;
+  };
+  const reportedDue = Number(state?.due);
+  const due = Number.isFinite(reportedDue) ? reportedDue : dueFromGraphs();
+  // ★ 开关关掉时状态文件**本来就不该更新**（引擎每轮先 `return`）——
+  //   不排除它，这条检查会让「我自己关的」永远变红，退化成又一个恒假探测器。
+  const disabledByPatch = (() => {
+    try {
+      const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
+      return nodeFs.existsSync(patch) && /autoBackfill:\s*false/.test(nodeFs.readFileSync(patch, "utf8"));
+    } catch {
+      return false; // 读不到就当开着（C536 那一行会单独报开关状态）
+    }
+  })();
+  const results = Array.isArray(state?.results) ? state.results : [];
+  const picked = Array.isArray(state?.picked) ? state.picked.length : 0;
+  const doneCount = results.filter((r) => r?.stopped === "done").length;
+  const foldedSum = results.reduce((acc, r) => acc + (Number(r?.folded) || 0), 0);
+  const doneMs = Number(state?.doneMs);
+  const doneMsOk = Number.isFinite(doneMs) && doneMs >= 0;
+  const ageMin = Number.isFinite(Number(state?.at)) ? Math.max(0, Math.round((Date.now() - Number(state.at)) / 60000)) : null;
+  const ago = (m) => (m === null ? "时间未知" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`);
+  const secs = doneMsOk ? `${Math.round(doneMs / 1000)}s` : "用时未知";
+  const name = "自动补账结局（静默停摆）";
+
+  if (parseError !== null) {
+    add(name, "warn", `状态文件不是合法 JSON（${stateFile}）：${parseError} —— 补账每轮都重写它，读不出来说明写盘中断或磁盘有问题`);
+  } else if (typeof state?.error === "string" && state.error.length > 0) {
+    add(name, "warn", `最近一轮**抛错**（${ago(ageMin)}）：${state.error.slice(0, 160)} —— 这一轮一次都没补成`);
+  } else if (!fileExists) {
+    add(
+      name,
+      due > 0 && !disabledByPatch ? "warn" : "ok",
+      due > 0 && !disabledByPatch
+        ? `**还没有跑过**（没有 ${stateFile}），而现算有 **${due}** 个会话欠账 ⇒ 本版可能需要重启（引擎启动才布防并写这个文件），或自动补账被关掉了`
+        : `**还没有跑过**（没有 ${stateFile}）· 现算欠账 ${due} 个${disabledByPatch ? " · 自动补账已在设置里关闭（停更属正常）" : ""} —— 没有欠账可补，属正常`,
+    );
+  } else if (ageMin !== null && ageMin > 90 && due > 0) {
+    add(
+      name,
+      disabledByPatch ? "ok" : "warn",
+      disabledByPatch
+        ? `状态文件 **${ageMin} 分钟没更新**，但自动补账已在设置里关闭（所以停更属正常）· 欠账 ${due} 个`
+        : `状态文件 **${ageMin} 分钟没更新**（默认 30 分钟一轮）而欠账 **${due}** 个 ⇒ **自动补账可能停了**：` +
+            `看宿主进程是否还活着、定时器是否被卸载` +
+            (Number.isFinite(Number(state?.firstDelayMs)) ? `（重启后 ${Math.round(Number(state.firstDelayMs) / 1000)}s 才跑第一轮，别太早下结论）` : ""),
+    );
+  } else if (results.length === 0 && state?.armed === true) {
+    // 只写了「已布防」、还没跑过第一轮 —— 用首轮延迟判「还没到点」还是「根本没跑」
+    const expectBy = (Number(state?.firstDelayMs) || 0) + (Number(state?.everyMs) || 0);
+    const late = ageMin !== null && ageMin * 60_000 > expectBy;
+    add(
+      name,
+      late ? "warn" : "ok",
+      `已布防（${ago(ageMin)}）但**还没跑过第一轮**（首轮 +${Math.round(Number(state?.firstDelayMs ?? 0) / 1000)}s）` +
+        (late ? " —— 已经超过「首轮 + 一轮」的时间，说明定时器没跑起来" : " —— 还没到点，属正常"),
+    );
+  } else if (results.length > 0 && doneCount === 0) {
+    // ① 「跑完了」但一个都没补成：这是最像健康的一种停摆
+    const reasons = [...new Set(results.map((r) => String(r?.stopped ?? "(null)")))];
+    const firstError = String(results.find((r) => typeof r?.error === "string" && r.error.length > 0)?.error ?? "").slice(0, 160);
+    add(
+      name,
+      "warn",
+      `最近一轮 ${secs} · 挑中 ${picked} 个 · 折了 ${foldedSum} 段 · **${results.length} 个结局全是 ${reasons.join("/")}（没有一个 done）**` +
+        (firstError !== "" ? ` · 首个错误：${firstError}` : "") +
+        " ⇒ 补账在空转：每轮都「跑完了」，却一个会话都没补进去",
+    );
+  } else {
+    add(
+      name,
+      "ok",
+      `最近一轮 ${ago(ageMin)} · ${secs} · 挑中 ${picked} 个 · 折了 ${foldedSum} 段（${doneCount}/${results.length} 个 done）· 欠账 ${due} 个`,
+    );
+  }
 }
 
 mark('C516 归档后还剩多少没折');

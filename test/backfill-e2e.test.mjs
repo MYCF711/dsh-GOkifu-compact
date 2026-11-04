@@ -82,6 +82,45 @@ tests["C598 自动补账端到端：合成 target 也能真的折出 foldMark"] 
     };
     yield { type: "usage", usage: { inputTokens: 100, outputTokens: 80, totalTokens: 180 } };
   };
+  // ⑤ 模拟**后台 job 的真实处境**：`ctx.llm` 在两个回合之间是 inactive 的
+  //   （真机：`Error: cannot get required service "llm" in inactive context`）
+  //   ⇒ 必须自动回退到本地网关 HTTP 直连（C599）。
+  let httpCalls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    httpCalls += 1;
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (!String(url).includes("/chat/completions")) throw new Error(`unexpected url ${url}`);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: [
+                "## 目标",
+                "- 把构建跑通",
+                "## 约束",
+                "- 不许动 prod 配置",
+                "## 当前节点",
+                "- n2（200 步完成）",
+              ].join(String.fromCharCode(10)),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 80 },
+        model: body.model,
+      }),
+    };
+  };
+  ctx.llm.stream = async function* () {
+    yield {
+      type: "text-delta",
+      text: ["## 目标", "- 把构建跑通", "## 约束", "- 不许动 prod 配置", "## 当前节点", "- n2（200 步完成）"].join(String.fromCharCode(10)),
+    };
+    yield { type: "usage", usage: { inputTokens: 100, outputTokens: 80, totalTokens: 180 } };
+  };
   const engine = new Engine(ctx, { graphDir, auto: false, closeoutMinEvents: 10 });
   const r = await engine.runAutoBackfillOnce();
   t.eq(r.ok, true, "一轮补账不许抛");
@@ -94,5 +133,8 @@ tests["C598 自动补账端到端：合成 target 也能真的折出 foldMark"] 
   const state = JSON.parse(nodeFs.readFileSync(stateFile, "utf8"));
   t.eq(Array.isArray(state.results) && state.results.length >= 1, true, "状态文件要有每个会话的结局");
   t.eq(state.results.every((x) => x.error === null || x.error === undefined), true, "结局里不许有 error");
+  globalThis.fetch = realFetch;
+  // ★ C600：**不许直连网关端口**（C500 红线）—— 这条守卫改成"一张 fetch 都不许打"
+  t.eq(httpCalls, 0, `不许直连网关（实际打了 ${httpCalls} 次）`);
   nodeFs.rmSync(home, { recursive: true, force: true });
 };
