@@ -327,3 +327,24 @@ export function describeStructure(text, { expectFailures = false } = {}) {
   const endedCleanly = trimmed.length > 0 && balanced && !tailBad;
   return { sectionsMissing, sectionsPresent: present.length, endedCleanly };
 }
+
+/**
+ * ★ C547：**把两种 usage 形状归一到一处**。
+ *
+ * 真机里同时存在两种：
+ *   · 宿主在线折叠：`{inputTokens, outputTokens, cacheReadTokens}`（camelCase，inputTokens **不含**命中部分）
+ *   · 离线折叠（我们自己调 provider）：`{prompt_tokens, completion_tokens, prompt_tokens_details:{cached_tokens}}`
+ *
+ * 以前 doctor 只读 camelCase ⇒ **离线折叠整个不进缓存统计**（真机 19 次离线折叠一次都没算进去）。
+ *
+ * @param {object|null|undefined} usage
+ * @returns {{miss:number|null, hit:number|null, out:number|null, total:number|null}}
+ */
+export function normalizeUsage(usage) {
+  const u = usage !== null && typeof usage === "object" ? usage : {};
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+  const miss = num(u.inputTokens) ?? num(u.prompt_tokens);
+  const hit = num(u.cacheReadTokens) ?? num(u.prompt_tokens_details?.cached_tokens);
+  const out = num(u.outputTokens) ?? num(u.completion_tokens);
+  return { miss, hit, out, total: num(u.totalTokens) ?? num(u.total_tokens) };
+}

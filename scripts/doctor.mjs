@@ -35,7 +35,7 @@ import { presetsWithCompaction } from "./install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 import { planHomePatch } from "../src/rooms/user-patch.mjs";
 import { compareBuildId, compareBuildStamp, readBuildStamp, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
-import { foldCostMetrics } from "../src/rooms/fold-quality.mjs";
+import { foldCostMetrics, normalizeUsage } from "../src/rooms/fold-quality.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -1324,12 +1324,14 @@ mark('C347 成本模型');
         // ★ C236：折叠调用的**缓存命中率**（与每步注入的 97% 是两个世界：折叠每次都是新区间）。
         //   实测 33 次 fold：输入 7.06 M、其中缓存读仅 241 k = 3.4% ⇒ 折叠才是可数的成本（≈$0.032/次）。
         (() => {
-          const withCache = recentFoldMarks.filter((m) => Number.isFinite(m?.usage?.inputTokens) && Number.isFinite(m?.usage?.cacheReadTokens));
+          // ★ C547：**两种 usage 形状都要算**（宿主在线 = camelCase；离线 = provider 原始字段）。
+          const normalized = recentFoldMarks.map((m) => normalizeUsage(m?.usage)).filter((u) => u.miss !== null);
+          const withCache = normalized;
           if (withCache.length === 0) return "";
           // ★ C361：真机 usage 的 `inputTokens` 是**未命中**部分（total = miss + hit + out 自证），
           //   所以命中率分母要用 miss + hit；拿 inputTokens 当分母会算出 >100% 的荒谬值。
-          const miss = withCache.reduce((n, m) => n + m.usage.inputTokens, 0);
-          const cache = withCache.reduce((n, m) => n + m.usage.cacheReadTokens, 0);
+          const miss = withCache.reduce((n, u) => n + u.miss, 0);
+          const cache = withCache.reduce((n, u) => n + (u.hit ?? 0), 0);
           const denom = miss + cache;
           if (denom <= 0) return "";
           return ` · fold 缓存命中 ${Math.round((cache / denom) * 100)}%（${withCache.length} 次；分母 = 未命中 + 命中）`;

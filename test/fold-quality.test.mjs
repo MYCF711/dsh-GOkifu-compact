@@ -319,3 +319,16 @@ tests["C539 硬事实里的 id 不算越界（真机每次折叠背 13–18 条�
   t.eq(allowed.later.includes("n9"), true, "白名单只放行 e5，n9 仍算越界");
   t.eq(allowed.outOfRange.includes("e5"), false, "e5 来自硬事实，不算越界");
 };
+
+tests["C547 两种 usage 形状都要归一（否则离线折叠不进缓存统计）"] = async (t) => {
+  const m = await import("../src/rooms/fold-quality.mjs");
+  const online = m.normalizeUsage({ inputTokens: 100, cacheReadTokens: 900, outputTokens: 5 });
+  t.eq(online.miss, 100, "camelCase：inputTokens = 未命中部分");
+  t.eq(online.hit, 900, "camelCase：cacheReadTokens");
+  t.eq(online.out, 5, "输出");
+  const offline = m.normalizeUsage({ prompt_tokens: 5826, prompt_tokens_details: { cached_tokens: 2048 }, completion_tokens: 7569 });
+  t.eq(offline.miss, 5826, "provider 原始：prompt_tokens");
+  t.eq(offline.hit, 2048, "provider 原始：prompt_tokens_details.cached_tokens");
+  t.eq(offline.out, 7569, "provider 原始：completion_tokens");
+  t.eq(m.normalizeUsage(null).miss, null, "没有 usage 就是 null（不许瞎报 0）");
+};
