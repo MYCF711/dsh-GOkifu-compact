@@ -71,3 +71,11 @@ tests["C543 「缺口还没进欠账」这句必须改掉（C519 之后它就是
   t.includes(src, "已经进欠账", "要说清缺口已经计入欠账");
   t.includes(src, "C519/C520/C522", "指出是哪几条改的（免得下次又写回过期结论）");
 };
+
+tests["C545 历史记录里的「更晚实体」也要滤掉硬事实 id（否则 C539 只治新数据）"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "laterIdsRaw", "先留原始集合");
+  t.includes(src, "factsEdgeIds", "要有硬事实 id 集合");
+  t.includes(src, 'edge?.result === "failure" || edge?.result === "success"', "判据与 C539 一致");
+  t.includes(src, "laterIdsRaw.filter((id) => !factsEdgeIds.has(String(id)))", "过滤后再取前 8 个");
+};

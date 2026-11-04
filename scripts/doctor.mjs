@@ -1629,11 +1629,21 @@ mark('C12 触发原因');
     const outOfRangeIds = [
       ...new Set(outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : []))),
     ].slice(0, 8);
-    const laterIds = [
+    const laterIdsRaw = [
       ...new Set(
         outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeLater) ? m.quality.outOfRangeLater : [])),
       ),
-    ].slice(0, 8);
+    ];
+    // ★ C545：**把"硬事实里的 id"从历史记录里也滤掉**。C539 给新折叠加了白名单，但**老记录**
+    //   （09:08 之前那批离线折叠）里存着 13–18 条这些 id —— doctor 一读就以为"摘要引用了更晚实体"。
+    //   这些 id 是「已探明死路 / 已验证事实」整段带进来的，本来就跨整个会话。
+    const factsEdgeIds = new Set();
+    for (const g of graphCache.values()) {
+      for (const edge of Object.values(g?.graph?.edges ?? {})) {
+        if (edge?.result === "failure" || edge?.result === "success") factsEdgeIds.add(String(edge.id));
+      }
+    }
+    const laterIds = laterIdsRaw.filter((id) => !factsEdgeIds.has(String(id))).slice(0, 8);
     if (unknownIds.length > 0) {
       add(
         "压缩摘要的未知 id（幻觉探针）",
