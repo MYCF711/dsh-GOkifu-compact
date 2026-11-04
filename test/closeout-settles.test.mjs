@@ -89,3 +89,16 @@ tests["C493 只压了一部分不算结清（partial），否则没压的那段�
   t.eq(r.due, true, "还有 4000 事件没压 ⇒ 仍然 due");
   t.eq(r.tail, 4000, "尾巴就是没压的那段");
 };
+
+tests["C569 分段折过的会话（chunkedFolded>0、无 mark）不许被算成欠账"] = (t) => {
+  // 分段折叠走 compactRegion，**不写 foldMark**（C299），只记 closeout.chunkedFolded。
+  // 所以「结清要看证据」的证据里必须包含它，否则所有分段折完的会话都会被重新拉进欠账。
+  const g = {
+    nodes: { n1: { seq: 10 }, n2: { seq: 9000 } },
+    foldMarks: [],
+    closeout: { source: "archive", foldAttempted: true, folded: 2, chunkedFolded: 2 },
+  };
+  const r = debtOfGraph(g);
+  t.eq(r.closedOut, true, "分段折过 ⇒ 结清");
+  t.eq(r.due, false, "不许再欠（否则会无限重复补账）");
+};
