@@ -234,20 +234,27 @@ function probeRealHome() {
     return { available: false };
   }
   const sample = ids.filter((_, i) => i % Math.max(1, Math.floor(ids.length / 12)) === 0).slice(0, 12);
-  const t0 = process.hrtime.bigint();
+  // 跑两遍取**第二遍**：第一遍吃的是冷页缓存（+ 杀毒扫描），同一个夹具连跑三次能差 2 倍。
+  // 我们量的是「定时器每轮的 CPU」，不是「冷启动」，所以取热的那一遍。
   let bytes = 0;
   let ok = 0;
-  for (const id of sample) {
-    const file = path.join(sessionsRoot, id, "graph.json");
-    try {
-      bytes += fs.statSync(file).size;
-      loadSessionGraph(file);
-      ok += 1;
-    } catch {
-      /* 坏图跳过：这是采样，不是体检 */
+  let sampleMs = 0;
+  for (let pass = 0; pass < 2; pass += 1) {
+    bytes = 0;
+    ok = 0;
+    const t0 = process.hrtime.bigint();
+    for (const id of sample) {
+      const file = path.join(sessionsRoot, id, "graph.json");
+      try {
+        bytes += fs.statSync(file).size;
+        loadSessionGraph(file);
+        ok += 1;
+      } catch {
+        /* 坏图跳过：这是采样，不是体检 */
+      }
     }
+    sampleMs = Number(process.hrtime.bigint() - t0) / 1e6;
   }
-  const sampleMs = Number(process.hrtime.bigint() - t0) / 1e6;
   const logsT0 = process.hrtime.bigint();
   const logs = listSessionLogs(REAL_HOME);
   const logsMs = Number(process.hrtime.bigint() - logsT0) / 1e6;
