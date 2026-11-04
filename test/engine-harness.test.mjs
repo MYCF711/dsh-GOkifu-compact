@@ -3278,3 +3278,14 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
   t.eq(Array.isArray(ctx.streamCalls), true, "只做形状断言，不对离线路径下结论");
   nodeFs.rmSync(home, { recursive: true, force: true });
 };
+
+tests["C559 引擎离线补折要关掉思考（官方默认开启，reasoning 吃 max_tokens）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const at = src.indexOf("async #offlineCloseoutFold");
+  const seg = src.slice(at, at + 9000);
+  t.includes(seg, 'thinking: { type: "disabled" }', "离线摘要必须关思考（与脚本那条路一致）");
+  t.includes(seg, "C559", "注释要说明为什么（免得下次又被删掉）");
+  // 两个调用点（在线摘要 / 离线补折）不该只有一处关
+  const offlineCall = seg.slice(seg.indexOf("const callModel = async"));
+  t.includes(offlineCall.slice(0, 1200), 'thinking: { type: "disabled" }', "关思考要落在**离线**那次调用上");
+};

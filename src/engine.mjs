@@ -2086,6 +2086,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           // ★ C525：**不传真实 sessionId**。传了之后宿主会为这个（已归档的）会话建/激活 surface ——
           //   用户看到的就是「补账时把会话弹出来」。补账要的是**无头**：只读日志、只写自己的棋谱。
           purpose: "compaction",
+          // ★ C559：**关掉思考**（官方《思考模式》：默认开启、effort 默认 high，reasoning 也吃
+          //   max_tokens）。脚本那条路早就关了，引擎这条路一直没关 —— 真机实测 reasoning 曾吃掉
+          //   3816/4000，正文只剩 715 字符。摘要这种"照事实改写"的活不需要思考。
+          thinking: { type: "disabled" },
         })) {
           assembler.push(chunk);
         }

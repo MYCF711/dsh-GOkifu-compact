@@ -36,3 +36,29 @@
 
 - 关掉 thinking 之后摘要质量（constraintRecall / failureRecall）会不会掉 —— 没有 A/B 实测；
 - `reasoning_content` 是否会进缓存前缀（影响下一枪命中率）—— 官方未提。
+
+---
+
+## 2026-11-06 复核：思考模式的开关与强度（**已核实**）
+
+来源：<https://api-docs.deepseek.com/zh-cn/guides/thinking_mode>（HTTP 200）。逐字要点：
+
+- 开关（OpenAI 格式）：`{"thinking": {"type": "enabled/disabled"}}`；
+- 强度（OpenAI 格式）：`{"reasoning_effort": "low/high/max"}`；Anthropic 格式是 `reasoning.effort` / `output_config.effort`；
+- **思考模式默认打开，且 effort 默认 high**；
+- 官方原话：模型"在输出最终回答之前，会先输出一段思维链内容"。
+
+### 对我们的实际影响（真机实测）
+
+| 场景 | 结果 |
+|---|---|
+| 脚本离线摘要（**已关**思考） | 正文 3,959–4,221 字符 |
+| 同一任务未关思考 | `completion 4000` 里 reasoning **3,816**，正文只剩 **715 字符** |
+| 关掉后重跑同输入 | 正文 **4,221 字符**（6 倍） |
+
+### 结论
+
+**摘要类"照事实改写"的活，必须显式关思考。**
+不关不是"慢一点"，是**把输出预算的 95% 花在思考上**，正文只剩骨架。
+
+（已同时落到两条路：`scripts/archive-fold.mjs` 与引擎的 `#offlineCloseoutFold`，C559。）

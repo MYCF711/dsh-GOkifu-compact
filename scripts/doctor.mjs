@@ -1484,7 +1484,7 @@ mark('C196 新鲜度');
       const worst = withGap
         .map((x) => ({ x, n: Number(x.closeout.offlineUncoveredHead.events) || 0 }))
         .sort((a, b) => b.n - a.n)[0];
-      // ★ C543：这句话原来断言「缺口还没进欠账、下一步做分段离线」—— **已经过期**。
+      // ★ C543：这句话原来断言「缺口还没进欠账、要再做分段离线」—— **已经过期**。
       //   C519/C520 之后，`closeout.offlineUncoveredHead` 本身就是欠账（`debtOfGraph.gap`），
       //   `backfill-plan` 里能看到它们（真机 f46d6330：tail 0 / 157k tok / 2 段）。
       parts.push(
