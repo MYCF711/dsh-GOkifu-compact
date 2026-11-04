@@ -1858,12 +1858,33 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         const graph = loaded?.graph ?? null;
         if (graph === null) continue;
         this.graphs.set(id, graph);
-        const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" });
+        // ★ C527：**一次 tick 里连续补**。大会话的缺口动辄上万事件，一次一段的话
+        //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
+        //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
+        const rounds = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
+        const budgetMs = Math.max(20_000, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || 240) * 1000;
+        const t0 = Date.now();
+        let marks = 0;
+        let lastOutcome = null;
+        for (let round1 = 1; round1 <= rounds; round1 += 1) {
+          const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" });
+          lastOutcome = outcome;
+          marks += Number(outcome?.folded ?? 0);
+          const stillDue = (() => {
+            try {
+              return debtOfGraph(this.graphs.get(id)).due === true;
+            } catch {
+              return false;
+            }
+          })();
+          if (!stillDue) break;
+          if (Date.now() - t0 > budgetMs) break;
+        }
         done += 1;
         this.ctx?.logger?.info?.(
-          `chess-context: 自动补账 ${id.slice(0, 8)} → ${outcome?.folded ?? 0} 段` +
-            (outcome?.partial === true ? "（仍有缺口，下轮继续）" : "") +
-            (outcome?.stopped !== undefined && outcome.stopped !== null && outcome.stopped !== "done" ? ` · ${outcome.stopped}` : ""),
+          `chess-context: 自动补账 ${id.slice(0, 8)} → ${marks} 段（${Math.round((Date.now() - t0) / 1000)}s）` +
+            (lastOutcome?.partial === true ? "（仍有缺口，下轮继续）" : "") +
+            (lastOutcome?.stopped !== undefined && lastOutcome.stopped !== null && lastOutcome.stopped !== "done" ? ` · ${lastOutcome.stopped}` : ""),
         );
       }
       if (done > 0) {

@@ -3152,3 +3152,13 @@ tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 6000);
   t.eq(/resolveAgent|resume|closeoutNow/.test(tick), false, "自动补账不许 resume 会话");
 };
+
+tests["C527 自动补账一次 tick 里连续推进（否则大会话要补好几天）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
+  t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_ROUNDS", "轮数可调");
+  t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC", "时间预算可调");
+  t.includes(tick, "stillDue", "每轮之后要看还欠不欠");
+  t.includes(tick, "break;", "预算用尽或不再欠就要停");
+  t.eq(/while \(true\)/.test(tick), false, "不许写死循环");
+};
