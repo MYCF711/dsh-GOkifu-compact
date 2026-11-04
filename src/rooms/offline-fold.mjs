@@ -352,6 +352,23 @@ export function renderFacts(graph, range) {
  * @returns {string}
  */
 /**
+ * ★ C560：**输出预算的唯一算法**（脚本与引擎共用）。
+ *
+ * 以前两处各写各的：引擎在 `runOfflineFold` 里按输入自适应，脚本却固定 8192 ——
+ * 大输入时脚本更容易被截断（而脚本正是我们用来验证引擎的工具，口径必须一致）。
+ *
+ * @param {number} inputChars 送进模型的字符数（prompt 全长）
+ * @param {number} [configured] 配置值（默认 8192）
+ * @returns {number} 实际 max_tokens（夹在 [1024, 16384]）
+ */
+export function foldBudgetFor(inputChars, configured = 8192) {
+  const fed = Number(inputChars);
+  const base = Number(configured) || 8192;
+  if (!Number.isFinite(fed) || fed <= 0) return Math.max(1024, Math.min(16384, base));
+  return Math.max(1024, Math.min(16384, Math.max(base, Math.ceil(fed / 4))));
+}
+
+/**
  * ★ C540：**建议篇幅按输入规模给**。固定「800–2500 字」在两端都不合适：
  *   · 输入 38k 字符时，2500 字是 15:1 压缩 —— 细节丢光；
  *   · 输入 4k 字符时，2500 字又是"扩写" —— 模型开始编。
@@ -474,8 +491,7 @@ export async function runOfflineFold({
     // ★ C540：**预算跟着输入长**。真机：13k 字符输入时 reasoning 就吃掉 6,936/8,192；
     //   38k 输入的思考只会更多 —— 固定 8192 会在大会话上再次"思考吃光"。
     //   口径：max(配置值, 输入字符/4)，夹到 [1024, 16384]。
-    const fedChars = String(prompt ?? "").length;
-    const budget = Math.max(1024, Math.min(16384, Math.max(Number(maxTokens) || 8192, Math.ceil(fedChars / 4))));
+    const budget = foldBudgetFor(String(prompt ?? "").length, maxTokens);
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。

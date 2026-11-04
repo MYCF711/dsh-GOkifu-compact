@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
-import { applyOfflineFoldToGraph } from "../src/rooms/offline-fold.mjs";
+import { applyOfflineFoldToGraph, foldBudgetFor } from "../src/rooms/offline-fold.mjs";
 import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 
 // ★ C490：默认用 `deepseek-flash`，**不用** `group/...`。
@@ -285,7 +285,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const startedAt = Date.now();
     let result;
     try {
-      const maxTokensArg = Number(get("max-tokens", 8192));
+      // ★ C560：**预算与引擎同一算法**（按输入自适应），不再固定 8192
+      const maxTokensArg = foldBudgetFor(prompt.length, Number(get("max-tokens", 8192)));
       result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: maxTokensArg, timeoutMs: Number(get("timeout", 180_000)) });
       // ★ C494：有些上游**忽略** `thinking:{type:"disabled"}`（真机：wps-lingxi 那路），
       //   reasoning 会把 max_tokens 吃光、`content` 回 null。这里自动**放大预算重试一次**。
