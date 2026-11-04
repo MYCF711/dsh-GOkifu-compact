@@ -85,7 +85,9 @@ export function readDefaultModel(home) {
  * 而其中 93%–100% 没有被任何失败边引用。整段塞进摘要请求既贵又稀释重点。
  *
  * @param {Array<object>} events
- * @param {{maxChars?:number, fromSeq?:number|null}} [options]
+ * @param {{maxChars?:number, fromSeq?:number|null, toolShare?:number, perMessageChars?:number, idBySeq?:Map<number,string>|null}} [options]
+ *   `perMessageChars` = **单条消息正文上限**（默认 2000；低于 500 一律按 500 夹取）。
+ *   为什么是 2000 而不是更大：见 `take()` 里 C612 的实测（`scripts/message-size-audit.mjs`）。
  * @returns {{messages:Array<{role:string,text:string,seq:number|null}>, chars:number, dropped:number, inputCutMessages:number, inputTruncated:boolean}}
  */
 /**
@@ -200,6 +202,23 @@ ${plan.keepTail > 0 ? m.text.slice(-plan.keepTail) : ""}`;
     let item = m;
     // ★ C522：**单条也设上限**（默认 2000 字符）。真机 8cc34e32 的头几条是两万字的大提示，
     //   不设上限时它们会把整个预算吃光，覆盖区间只有 seq 8-12（两万多个事件里的 4 步）。
+    //
+    // ★ C612：**2000 经真机审计后保留，别再往大改**（`scripts/message-size-audit.mjs` 原样输出；
+    //   2026-11-05 快照：52,503 条消息 / 79.9M 字符、639 条 foldMark 重放、188 个会话日志）。
+    //     · 分布：p50 791 / p90 3,283 / p95 5,008 / p99 14,317 / max 251,157 ⇒ 2000 只切 18.9% 的消息；
+    //     · **切掉的 90.2% 是脚手架**：assistant 的 `reasoning` 块 56.6%（模型的内部思考）
+    //       + `<system-reminder>` 样板 33.6%（每轮重复的 workspace 指令）；真实用户输入只占 7.2%、
+    //       assistant 正文 2.6%。「长的是工具输出」**证伪**：`tool/result` 69,489 条（92.8M 字符）
+    //       **一条都不进输入**（C481），`tool/call` 摘要行另有固定 120 字符上限，与这个旋钮无关。
+    //     · **放宽不涨输入**：区间文本覆盖率 31.1%(2000) → 31.7%(4000) → 32.0%(8000)，
+    //       因为总量卡在 `maxChars`（60,000 × 0.6 = 36,000 字符文本预算 —— 实测只覆盖 31%）。
+    //       同样的 36,000 字符：2000 铺给 38.7 条消息，8000 只铺给 28.2 条（−27.2%），
+    //       工具行 51.9 → 37.5（−27.8%）。**摘要要的是"区间里发生了什么"，少看 27% 的事件
+    //       比少看每条消息的中段更亏**（截断还保留头 70% + 尾 30%，结论在尾部）。
+    //     · 成本不增反降（8000 档 −1,008 字符/段 ≈ −343 token/段 ≈ −$0.010/日，低峰），
+    //       所以"省钱"不是留着 2000 的理由，**"少看事件"才是**。
+    //     · 要让摘要真多看东西，该动的是 `maxChars` 而不是这个单条上限：
+    //       60,000 → 120,000 = +12,243 token/段 ≈ +$0.36/日（低峰）/ +$0.71/日（高峰）。
     const perCap = m.role === "tool" ? 120 : Math.max(500, Number(perMessageChars) || 2000);
     if (item.text.length > perCap) {
       const cut = truncateFor(m, perCap);
