@@ -2951,7 +2951,8 @@ tests["C535 finish 读不到时用 token 数反推截断（真机 65% 的折叠�
 tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
-  t.includes(tick, "listed?.due ?? 0) > 10 ? 3 : 1", "积压 >10 时每轮补 3 个，否则 1 个");
+  // ★ C583 起改成三档：>100 ⇒ 5、>10 ⇒ 3、否则 1
+  t.includes(tick, "dueNow > 100 ? 5 : dueNow > 10 ? 3 : 1", "积压 >10 补 3 个、>100 补 5 个");
   t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "环境变量仍然可以覆盖");
   t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
@@ -3061,4 +3062,13 @@ tests["C570 日志没了的欠账不该每轮白占名额"] = async (t) => {
   t.includes(tick, "findSessionLog(home", "判据是磁盘上还有没有日志");
   t.includes(tick, "补不了", "跳过要留痕（否则人会以为在偷懒）");
   t.includes(tick, "rankDebts(withLog", "排序与挑选用过滤后的列表");
+};
+
+tests["C583 积压越大每轮补越多（>100 ⇒ 5 个；预算 240→420s）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 9000);
+  t.includes(tick, "dueNow > 100 ? 5 :", "积压 >100 时每轮 5 个");
+  t.includes(tick, "dueNow > 100 ? 420 : 240", "预算同步放宽");
+  t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
+  t.eq(/while \(true\)/.test(tick), false, "不许死循环");
 };

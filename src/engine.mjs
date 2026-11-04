@@ -1986,7 +1986,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   每轮只补 1 个 ⇒ 要 26 小时才追平，而欠账还在长。这里按积压量自适应：
       //   欠账 >10 个时每轮补 3 个（仍然串行、仍然受时间预算约束），追平后自动回到 1 个。
       const envMax = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MAX);
-      const adaptive = Number.isFinite(envMax) && envMax > 0 ? envMax : Number(listed?.due ?? 0) > 10 ? 3 : 1;
+      // ★ C583：**积压越大，每轮补越多**。真机（2026-11-04 19:20）：`due 184 / 18 万事件`，
+      //   而每轮只补 3 个 ⇒ 按当时速率要 ~45 小时才追平，期间新会话还在不停归档。
+      //   分档：>100 ⇒ 5 个；>10 ⇒ 3 个；否则 1 个（上限仍是 5，仍串行）。
+      const dueNow = Number(listed?.due ?? 0);
+      const adaptive = Number.isFinite(envMax) && envMax > 0 ? envMax : dueNow > 100 ? 5 : dueNow > 10 ? 3 : 1;
       const max = Math.max(0, Math.min(5, adaptive));
       if (max === 0) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账只检查不补（${listed.due} 个欠账）`);
@@ -2061,7 +2065,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
         //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
         const rounds = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
-        const budgetMs = Math.max(20_000, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || 240) * 1000;
+        // ★ C583：积压大时把本轮时间预算也放宽（240s → 420s）。仍然是**有界**的：
+        //   一轮最多 420 秒、最多 5 个会话，跑完就停，不会一直占着。
+        const budgetSec = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC) || (dueNow > 100 ? 420 : 240);
+        const budgetMs = Math.max(20_000, budgetSec) * 1000;
         const t0 = Date.now();
         let marks = 0;
         let lastOutcome = null;
