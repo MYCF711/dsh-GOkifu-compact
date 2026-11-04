@@ -836,7 +836,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   //   旧版放在档位循环里，2000 边时要跑 6 档 × 30 条 BFS（实测渲染 4.9 → 7.5ms）；
   //   旧旧版更糟：显示条数 >30 时一条都不算 ⇒ 大会话里手割标记全丢。
   const tewariMap = new Map();
-  for (const e of failures.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
+  // ★ C561：**大图上别为 30 条边各跑一次 BFS**。真机（c0a5847a，5,885 节点 / 6,010 边）：
+  //   单次渲染 137.8ms，其中 **72.3ms 是 30 次 tewariAnalysis**（每条一次可达性 BFS）。
+  //   深会话的清单本来就大幅截断，手割标记只对**最近**几条有意义 ⇒ 大图只算 8 条。
+  const tewariCap = Object.keys(g.edges ?? {}).length > 3000 ? 8 : 30;
+  for (const e of failures.slice(-tewariCap)) tewariMap.set(e.id, tewariAnalysis(g, e));
 
   // ★ P1（2026-10-30）：置换索引，一次建好。
   //   旧写法在**每个档位**里、对**每个 path hop** 都做一次 `Object.values(g.edges).some(...)`
