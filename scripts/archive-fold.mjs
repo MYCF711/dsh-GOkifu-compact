@@ -129,6 +129,9 @@ async function callModel({ baseUrl, apiKey, model, prompt, maxTokens, timeoutMs 
         //   交互会话的前缀一旦被挤掉，下一次请求就要按全价重算 —— 那正是"折叠完反而更贵"的一种来源。
         //   补账是后台批处理，本来就该跟交互流量分开记账、分开占缓存。
         user_id: "gokifu-backfill",
+        // ★ C576：有些上游**忽略** `thinking:{type:"disabled"}`（真机 trustoken：照样 4.6–5.4k reasoning）；
+        //   官方《思考模式》还提供了强度档 —— 一并传 `low`，能降就降，不能降也无害。
+        reasoning_effort: "low",
         stream: false,
       }),
       signal: controller.signal,
@@ -300,6 +303,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
         const bigger = maxTokensArg * 4;
         console.log(`  ↻ 被推理吃光（finish=length），放大到 ${bigger} 重试一次`);
         result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: bigger, timeoutMs: Number(get("timeout", 180_000)) });
+      } else if (result.finish === "length" && Number(result.usage?.reasoning_tokens ?? 0) > 0) {
+        // ★ C576：**推理吃掉了大半预算，正文被截断**。真机（2026-11-06 fdd814b1）：
+        //   `completion 8192 = reasoning 5372 + 正文 ~2820` —— 摘要正好撞顶被切，
+        //   而"文本非空"让旧逻辑以为成功了。有 reasoning 时按它的实测值补足预算重试。
+        const need = Math.min(32_768, maxTokensArg + Math.ceil(Number(result.usage.reasoning_tokens) * 1.2));
+        console.log(`  ↻ 正文被推理挤掉（reasoning ${result.usage.reasoning_tokens}），放大到 ${need} 重试一次`);
+        result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: need, timeoutMs: Number(get("timeout", 180_000)) });
       }
     } catch (error) {
       console.log(`  ✗ 模型调用失败：${String(error?.message ?? error).slice(0, 200)}`);

@@ -47,3 +47,11 @@ tests["C574 补账用独立 user_id（官方：user_id 做 KVCache 隔离）"] =
   t.includes(script, 'user_id: "gokifu-backfill"', "补账必须与交互会话分开占缓存");
   t.includes(script, "KVCache 隔离", "注释要写明官方出处（免得被当成无用参数删掉）");
 };
+
+tests["C576 正文被推理挤掉时要补预算重试（不是有文本就算成功）"] = (t) => {
+  const script = read("scripts/archive-fold.mjs");
+  t.includes(script, 'result.finish === "length" && Number(result.usage?.reasoning_tokens ?? 0) > 0', "要按实测推理量判截断");
+  t.includes(script, "正文被推理挤掉", "重试要留痕");
+  t.includes(script, "32_768", "补预算要有上限");
+  t.includes(script, 'reasoning_effort: "low"', "同时传强度档（官方支持，部分上游忽略）");
+};
