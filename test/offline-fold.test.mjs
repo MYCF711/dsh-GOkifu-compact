@@ -259,16 +259,16 @@ tests["C522 被截断的摘要不许当完整：撞上限就放大 2× 重试一
     events,
     rangeStart: 1,
     rangeEnd: 5,
-    maxTokens: 1000,
+    maxTokens: 4000,
     callModel: async (prompt, { maxTokens }) => {
       budgets.push(maxTokens);
-      if (budgets.length === 1) return { text: "## 目标\n- 半句话", usage: { completion_tokens: 1000 }, model: "fake" };
+      if (budgets.length === 1) return { text: "## 目标\n- 半句话", usage: { completion_tokens: maxTokens }, model: "fake" };
       return { text: "## 目标\n- 把构建跑通\n\n## 已验证事实\n- 全须全尾\n- 不许动 prod 配置\n- 不要粉色大象", usage: { completion_tokens: 300 }, model: "fake" };
     },
     measureQuality: () => ({ constraintRecall: 1 }),
   });
   t.eq(budgets.length, 2, "撞上限要重试一次");
-  t.eq(budgets[1], 2000, "第二次预算放大 2×");
+  t.eq(budgets[1], budgets[0] * 2, "第二次预算放大 2×");
   t.eq(out.chunks[0].truncated, false, "重试成功就不算截断");
   t.includes(out.chunks[0].text, "全须全尾", "用的是第二次的正文");
 };
@@ -280,8 +280,8 @@ tests["C522 重试仍截断 ⇒ 明确标 truncated（账上不许记成功）"]
     events,
     rangeStart: 1,
     rangeEnd: 5,
-    maxTokens: 500,
-    callModel: async () => ({ text: "## 目标\n- 还是半句", usage: { completion_tokens: 500 }, model: "fake" }),
+    maxTokens: 4000,
+    callModel: async (prompt, { maxTokens }) => ({ text: "## 目标\n- 还是半句", usage: { completion_tokens: maxTokens }, model: "fake" }),
     measureQuality: () => ({ constraintRecall: 1 }),
   });
   t.eq(out.chunks[0].truncated, true, "两次都撞上限 ⇒ 必须标出来");
@@ -326,7 +326,7 @@ tests["C532 一次都没折过的会话必须从头部开始（否则前段永�
 tests["C533 prompt 必须有篇幅与诚实约束（以前没有 ⇒ 一路写到撞顶）"] = async (t) => {
   const m = await import("../src/rooms/offline-fold.mjs");
   const prompt = m.buildOfflinePrompt({ facts: "## 目标\n- x", messages: [{ role: "user", text: "hi" }] });
-  t.includes(prompt, "800–2500 字", "要有篇幅上限");
+  t.includes(prompt, "按输入规模算出来的", "篇幅要按输入规模给（C540 之后不再是固定值）");
   t.includes(prompt, "不许编造", "要明说禁止编造");
   t.includes(prompt, "约束（逐字）", "要约好机读的约束段，减少机械补回");
 };
@@ -367,4 +367,18 @@ tests["C537 prompt 要求「每个状态节点得出了什么」（只写编号�
   t.includes(prompt, "得出了什么", "要有这句");
   t.includes(prompt, "只写编号串不算", "要明确否掉编号串");
   t.includes(prompt, "手上还差什么", "当前节点要交代差什么");
+};
+
+tests["C540 建议篇幅按输入规模给（固定 800–2500 在两端都不合适）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const small = m.suggestedLength(3000);
+  const mid = m.suggestedLength(14000);
+  const big = m.suggestedLength(38000);
+  t.eq(small.max < mid.max, true, "小输入上限要小（否则是扩写）");
+  t.eq(big.min > small.min, true, "大输入下限要大（否则细节丢光）");
+  t.eq(big.max <= 3000, true, "上限不超过 3000 字");
+  t.eq(mid.min < mid.max, true, "区间必须有效");
+
+  const prompt = m.buildOfflinePrompt({ facts: "x".repeat(1000), messages: [{ role: "user", text: "y".repeat(14000) }] });
+  t.includes(prompt, "按输入规模算出来的", "prompt 里要说明是算出来的");
 };

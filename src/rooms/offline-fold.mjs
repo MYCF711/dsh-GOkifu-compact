@@ -348,7 +348,26 @@ export function renderFacts(graph, range) {
  * @param {{facts:string, messages:Array<{role:string,text:string}>}} input
  * @returns {string}
  */
+/**
+ * ★ C540：**建议篇幅按输入规模给**。固定「800–2500 字」在两端都不合适：
+ *   · 输入 38k 字符时，2500 字是 15:1 压缩 —— 细节丢光；
+ *   · 输入 4k 字符时，2500 字又是"扩写" —— 模型开始编。
+ * 取「输入的 1/6」，夹在 600–3000 字之间。
+ * @param {number} inputChars
+ * @returns {{min:number, max:number}}
+ */
+export function suggestedLength(inputChars) {
+  const chars = Number(inputChars);
+  if (!Number.isFinite(chars) || chars <= 0) return { min: 600, max: 2500 };
+  const target = Math.round(chars / 6);
+  const max = Math.min(3000, Math.max(800, Math.round(target * 1.6)));
+  const min = Math.max(400, Math.min(max - 200, Math.round(target * 0.6)));
+  return { min, max };
+}
+
 export function buildOfflinePrompt({ facts, messages }) {
+  const inputChars = (messages ?? []).reduce((n, m) => n + String(m?.text ?? "").length, 0) + String(facts ?? "").length;
+  const len = suggestedLength(inputChars);
   // ★ C538：id **单独标在标题行** —— 混在正文里模型不认（真机连着 3 次全写 n?）。
   const body = (messages ?? []).map((m) => `### ${m.role}${typeof m.nodeId === "string" && m.nodeId !== "" ? ` · ${m.nodeId}` : ""}\n${m.text}`).join("\n\n");
   return [
@@ -371,7 +390,7 @@ export function buildOfflinePrompt({ facts, messages }) {
     "- **原始消息行首的 `[n123]` 就是那一步的棋谱 id**：写状态节点时**必须**用它，不许写 `n?`；"+"只有整条消息前面确实没有方括号时才写 `n?`。",
     "- 不要写「下一步该做什么」这类行动建议。",
     // ★ C533：**篇幅与诚实**。以前没写长度上限，模型一路写到 4000 token 撞顶被截断（真机 8cc34e32）。
-    "- 篇幅 **800–2500 字**；宁可少写，不要为凑篇幅重复。",
+    `- 篇幅 **${len.min}–${len.max} 字**（按输入规模算出来的）；宁可少写，不要为凑篇幅重复。`,
     "- 只能写上面出现过的事实；推不出来的不要写（**不许编造**）。遇到不确定的引用写 `n?`。",
     "- 结尾另起一节 `## 约束（逐字）`，把「硬事实」里的约束**原样**抄一遍（这是机读的，不是给人看的）。",
   ].join("\n");
@@ -445,7 +464,11 @@ export async function runOfflineFold({
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages });
     const startedAt = Date.now();
-    const budget = Math.max(256, Number(maxTokens) || 8192);
+    // ★ C540：**预算跟着输入长**。真机：13k 字符输入时 reasoning 就吃掉 6,936/8,192；
+    //   38k 输入的思考只会更多 —— 固定 8192 会在大会话上再次"思考吃光"。
+    //   口径：max(配置值, 输入字符/4)，夹到 [1024, 16384]。
+    const fedChars = String(prompt ?? "").length;
+    const budget = Math.max(1024, Math.min(16384, Math.max(Number(maxTokens) || 8192, Math.ceil(fedChars / 4))));
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
