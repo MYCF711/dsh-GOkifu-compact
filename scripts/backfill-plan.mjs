@@ -19,6 +19,7 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import {debtOfGraph, closeoutSettles} from "../src/rooms/closeout-backfill.mjs";
 import { planChunkedCloseout, CLOSEOUT_MAX_FOLD_TOKENS, foldDurationStats } from "../src/rooms/closeout-plan.mjs";
+import { findSessionLog } from "../src/rooms/zstd-log.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -227,6 +228,10 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
     }
     const debt = debtOfGraph(graph);
     if (!debt.due) continue;
+    // ★ C570：**没有日志的欠账补不了**。离线补折靠的是磁盘上的 `session.v4.jsonl.zstd`；
+    //   日志被清掉之后，这条欠账会在每一轮里白占一个名额（引擎也要花一次"找不到日志"的判断）。
+    //   真机（2026-11-06）：138 个欠账里只有 1 个没日志 —— 少数，但会一直存在。
+    const logAlive = findSessionLog(home, entry.name.replace(/^session-/, "")) !== null;
     const planned = planChunkedCloseout(graph, { maxTokens });
     const attempt = debtAttemptState(graph);
     rows.push({
@@ -238,6 +243,7 @@ export async function buildPlan(home, { maxTokens = CLOSEOUT_MAX_FOLD_TOKENS } =
       // ★ C478：区分"从没试过"与"试过但没成"。C476 之后这两种都会回到欠账里，
       //   但处置不同：后者往往要先看 `foldNote`/`foldError` 的真因（例如路由错），再谈补。
       retried: attempt.retried,
+      logAlive,
       closeoutNote: attempt.note,
       // ★ C342：**需要**多少段（不截断）vs **一次最多**给 6 段 —— 前者大于 6 的会话一次补不完
       _ms: (() => {

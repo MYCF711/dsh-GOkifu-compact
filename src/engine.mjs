@@ -1922,7 +1922,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         this.ctx?.logger?.info?.(`chess-context: 自动补账只检查不补（${listed.due} 个欠账）`);
         return;
       }
-      const picked = rankDebts(listed.items, { limit: max });
+      // ★ C570：**日志没了的会话补不了**，别让它每轮白占一个名额。
+      //   离线补折读的是磁盘上的会话日志；日志被清掉之后 `whatToDo` 只会永远返回 no-log。
+      const withLog = (listed.items ?? []).filter((item) => {
+        try {
+          return findSessionLog(home, String(item.sessionId).replace(/^session-/, "")) !== null;
+        } catch {
+          return false;
+        }
+      });
+      const skippedNoLog = (listed.items ?? []).length - withLog.length;
+      if (skippedNoLog > 0) {
+        this.ctx?.logger?.info?.(`chess-context: 自动补账跳过 ${skippedNoLog} 个日志已不在的会话（补不了）`);
+      }
+      const picked = rankDebts(withLog, { limit: max });
       let done = 0;
       for (const item of picked) {
         const id = String(item?.sessionId ?? "");

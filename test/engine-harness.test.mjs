@@ -3289,3 +3289,12 @@ tests["C559 引擎离线补折要关掉思考（官方默认开启，reasoning �
   const offlineCall = seg.slice(seg.indexOf("const callModel = async"));
   t.includes(offlineCall.slice(0, 1200), 'thinking: { type: "disabled" }', "关思考要落在**离线**那次调用上");
 };
+
+tests["C570 日志没了的欠账不该每轮白占名额"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 9000);
+  t.includes(tick, "withLog", "先按日志存在性过滤");
+  t.includes(tick, "findSessionLog(home", "判据是磁盘上还有没有日志");
+  t.includes(tick, "补不了", "跳过要留痕（否则人会以为在偷懒）");
+  t.includes(tick, "rankDebts(withLog", "排序与挑选用过滤后的列表");
+};
