@@ -283,3 +283,23 @@ tests["C458 sanitize：range 为空时**不做处理**（判不了'晚不晚'，
   t.eq(sanitizeSummaryIds(text, graph, null).text, text, "没有区间 ⇒ 原样返回");
   t.eq(sanitizeSummaryIds(text, graph, null).removed.length, 0, "也不许虚报'清洗了几个'");
 };
+
+tests["C528 结构契约：截断的摘要必须能被机器看出来（别只看召回率）"] = async (t) => {
+  const m = await import("../src/rooms/fold-quality.mjs");
+  const full = "## 目标\n- 把构建跑通\n## 棋谱\n- n1 试过\n## 死路\n- e1 失败";
+  const s1 = m.describeStructure(full, { expectFailures: true });
+  t.eq(s1.sectionsMissing, [], "齐全的摘要不该报缺段");
+  t.eq(s1.endedCleanly, true, "结尾干净");
+
+  // 真机 8cc34e32 的截断形状：停在 `grep -n "` 上，召回率却全是 1
+  const cut = "## 目标\n- 把构建跑通\n## 棋谱\n- grep -n \"";
+  const s2 = m.describeStructure(cut, { expectFailures: true });
+  t.eq(s2.sectionsMissing, ["死路"], "缺死路段");
+  t.eq(s2.endedCleanly, false, "引号没闭合 ⇒ 不许算干净");
+
+  const q = m.measureFoldQuality({ graph: { nodes: {}, edges: {}, order: [] }, range: null, summaryText: cut });
+  t.eq(q.constraintRecall, 1, "（这正是问题所在：召回率看不出来）");
+  // 这段里没有失败边 ⇒ 只要求 目标/棋谱，两者都在 ⇒ 不报缺段；但**截断仍然看得出来**
+  t.eq(Array.isArray(q.sectionsMissing), true, "必须带这个字段（哪怕是空的）");
+  t.eq(q.endedCleanly, false, "质量指标里要带这个判据");
+};

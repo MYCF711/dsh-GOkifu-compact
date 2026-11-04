@@ -287,5 +287,36 @@ export function measureFoldQuality({
       };
     })()),
     modelConstraintRecall,
+    // ★ C528：**结构契约**。真机 8cc34e32 那次摘要撞了 max_tokens，停在 `grep -n "` 上，
+    //   而当时的质量指标（约束/失败召回）**全是 1**，看起来完美 —— 因为后面的段落整段没写。
+    //   这里补两项机器判据：缺哪些必备段落、结尾是不是干净收束。
+    ...describeStructure(text, { expectFailures: failures.length > 0 }),
   };
+}
+
+/** 摘要必备的二级标题（缺了就说明被截断或跑偏）。 */
+const REQUIRED_SECTIONS = ["目标", "棋谱"];
+/** 只有当**折叠区间里确实有失败边**时，才要求「死路」这一段（否则模型省略它是合理的）。 */
+const REQUIRED_SECTIONS_WITH_FAILURES = ["目标", "棋谱", "死路"];
+
+/**
+ * ★ C528：结构契约 —— 「齐全」和「没被截断」是两件事，指标得分开看。
+ * @param {string} text
+ * @returns {{sectionsMissing:string[], sectionsPresent:number, endedCleanly:boolean}}
+ */
+export function describeStructure(text, { expectFailures = false } = {}) {
+  const body = String(text ?? "");
+  const required = expectFailures === true ? REQUIRED_SECTIONS_WITH_FAILURES : REQUIRED_SECTIONS;
+  const present = [];
+  for (const name of required) if (body.includes(`## ${name}`)) present.push(name);
+  const sectionsMissing = required.filter((name) => !present.includes(name));
+  // 结尾干净 = 最后一行不以分隔符/半个句子结束（行尾是标点、括号闭合、或代码围栏）
+  const trimmed = body.trimEnd();
+  const lastLine = trimmed.slice(trimmed.lastIndexOf(String.fromCharCode(10)) + 1);
+  // 结尾干净 = 最后一行不以分隔符结尾，且**引号/括号是配平的**（截断多半断在半个参数上）
+  const count = (ch) => lastLine.split(ch).length - 1;
+  const balanced = count('"') % 2 === 0 && count("(") === count(")") && count("[") === count("]");
+  const tailBad = /[、，：]$|[,:(\[]$/.test(lastLine.trim());
+  const endedCleanly = trimmed.length > 0 && balanced && !tailBad;
+  return { sectionsMissing, sectionsPresent: present.length, endedCleanly };
 }
