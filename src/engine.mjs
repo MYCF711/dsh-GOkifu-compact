@@ -1049,8 +1049,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     let foldError = null;
     if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {
       try {
+        // ★ C557：**"返回了非空对象"不等于"折了"**。彩排测试（C557）发现：
+        //   `compactIfNeeded` 返回一个 `{tier:"single", skipped:"…"}`（或任何非空对象）
+        //   都会被算成 `folded: true` ⇒ closeout 写着"折了"，图里一条 foldMark 都没有。
+        //   证据只有两种：① 结果自报 `folded > 0`（分段/离线）；② 图里**真的多了一条 mark**（单段）。
+        const marksBefore = (g.foldMarks ?? []).length;
         const result = await this.#closeoutFold(agent, source);
-        folded = result !== null && result !== undefined;
+        const marksAfter = (g.foldMarks ?? []).length;
+        const resultFolded = Number(result?.folded) > 0 || result?.folded === true;
+        folded = resultFolded || marksAfter > marksBefore;
       } catch (error) {
         foldError = String(error?.message ?? error).slice(0, 200);
       }
@@ -1762,6 +1769,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         return chunkedResult;
       }
     }
+    // ★ C557：**单段路径也要"折了才算折了"**。彩排测试（C557）发现：`compactIfNeeded` 返回一个
+    //   非空对象（哪怕它其实什么都没做）就会被算成 `folded: true` —— 与 C531 在分段路径上修的是同一个洞。
+    //   这里折之前记一次 foldMarks 条数，折完再比对。
+    const marksBefore = (() => {
+      try {
+        return (this.#graph(this.#asAgent(target)?.session ?? target)?.foldMarks ?? []).length;
+      } catch {
+        return null;
+      }
+    })();
     const work = (async () => {
       try {
         return await this.compactIfNeeded(this.#asAgent(target), trigger, undefined);
@@ -1791,6 +1808,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (result !== null && result !== undefined && typeof result === "object" && typeof result.error === "string" && result.error !== "") {
         const offline = await this.#tryOfflineCloseout(target, result.error);
         if (offline !== null) return offline;
+      }
+      // ★ C557：单段路径的"空转"判定 —— 调用了但 foldMarks 一条没多 ⇒ 当没折，转离线
+      if (marksBefore !== null && result !== null && result !== undefined) {
+        const marksAfter = (() => {
+          try {
+            return (this.#graph(this.#asAgent(target)?.session ?? target)?.foldMarks ?? []).length;
+          } catch {
+            return marksBefore;
+          }
+        })();
+        if (marksAfter === marksBefore) {
+          const offline = await this.#tryOfflineCloseout(target, "no-op");
+          if (offline !== null) return offline;
+        }
       }
       // ★ C474：null 不等于"没东西可折" —— 把 skip 原因一起带回去，让 closeout 能说清
       if (result === null || result === undefined) {

@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C546 | 彩排抓到单段路径也假成功：folded 改为看证据 |
 | C545 | 停止原因变成闭集协议：新增必须两处同时登记 |
 | C544 | no-op 根本没接上离线补折（C531 的延伸坑） |
 | C543 | 交接门禁的同类判据也改中位数（两处口径必须一致） |
@@ -617,6 +618,56 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C546 · 彩排抓到单段路径也假成功：folded 改为看证据
+
+**彩排发现：单段路径也会"假成功" —— 和分段路径是同一个洞，C531 只修了一半。**
+
+### 一、彩排怎么发现的
+
+搭一个沙盒 home（日志 + 图 + 假模型），用**真引擎代码**跑 `closeoutNow`：
+
+```
+out: {"folded": true, "foldError": null}
+foldMarks: 0            ← 又说折了，又没有 mark
+```
+
+根因在调用方：
+
+```js
+folded = result !== null && result !== undefined;   // 返回非空对象就算折了
+```
+
+`compactIfNeeded` 返回 `{tier:"single", skipped:"no-foldable-span"}` —— 非空、但其实什么都没做。
+
+### 二、改法（C557）
+
+判据改成**看证据**：
+
+```js
+const marksBefore = (g.foldMarks ?? []).length;
+const result = await this.#closeoutFold(agent, source);
+const marksAfter = (g.foldMarks ?? []).length;
+folded = Number(result?.folded) > 0 || result?.folded === true || marksAfter > marksBefore;
+```
+
+只有两种证据算数：① 结果自报 `folded > 0`；② 图里**真的多了一条 mark**。
+
+### 三、彩排结果
+
+```
+改前：folded: true  / marks: 0
+改后：folded: false / marks: 0   ← 至少不撒谎了
+```
+
+（这个沙盒里离线补折仍拿不到可折区间，所以仍是 0 —— 但**不再谎报成功**。）
+
+### 四、验证
+
+```
+node test/run.mjs → 1326 passed, 0 failed
+（新增：folded=true 时必须有 mark，否则判失败）
+```
 
 ### C545 · 停止原因变成闭集协议：新增必须两处同时登记
 

@@ -11,6 +11,7 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
+import nodeOs from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const tests = {};
@@ -3081,8 +3082,8 @@ tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默
 tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;
-  // ★ C517 后又多了两个入口（单段抛错 / 分段一段没折成）⇒ 现在是 5 处（4 调用点 + 定义）
-  t.eq(calls, 5, `调用点 ${calls - 1} 个 + 定义本身，实际 ${calls} 处`);
+  // ★ C517 后又多了两个入口（单段抛错 / 分段一段没折成）；C557 又加了一个（单段空转）⇒ 6 处
+  t.eq(calls, 6, `调用点 ${calls - 1} 个 + 定义本身，实际 ${calls} 处`);
   t.includes(src, '#tryOfflineCloseout(target, "timeout")', "超时分支必须尝试离线，而不是直接放弃");
   t.includes(src, "shouldTryOfflineFold", "判定复用纯函数");
   t.includes(src, "未走离线补折", "不走也要留痕（调参时靠这行）");
@@ -3201,4 +3202,70 @@ tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] 
   t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "环境变量仍然可以覆盖");
   t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
+};
+
+tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"] = async (t) => {
+  // 真机：用户归档 4f3cae10 后，closeout 写 folded:1，而 foldMarks 是 0。
+  // 彩排发现**单段路径**同样把"返回非空对象"当成"折了" —— 判据已改成看证据。
+  const { Engine } = await load();
+  // ★ C557：**别在 src/ 里建沙盒** —— `src/` 是打包目录，残留会触发 pack-check「无出处文件」。
+  const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-rehearse-"));
+  const sid = "session-e2e-offline";
+  const sessionsDir = nodePath.join(home, "sessions", "--ws--", sid);
+  nodeFs.mkdirSync(sessionsDir, { recursive: true });
+  const events = [];
+  for (let i = 1; i <= 80; i += 1) {
+    events.push({
+      seq: i,
+      type: i % 2 === 1 ? "user/message" : "assistant/message",
+      data: { message: { content: [{ type: "text", text: "第 " + i + " 步" }] } },
+    });
+  }
+  const zlib = await import("node:zlib");
+  const jsonl = events.map((e) => JSON.stringify(e)).join(String.fromCharCode(10)) + String.fromCharCode(10);
+  nodeFs.writeFileSync(nodePath.join(sessionsDir, "session.v4.jsonl.zstd"), zlib.zstdCompressSync(Buffer.from(jsonl, "utf8")));
+
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  nodeFs.mkdirSync(profileDir, { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(profileDir, "cordis.patch.yml"),
+    ["- id: agent-default-model", "  provider: mock", "  model: mock-model", ""].join(String.fromCharCode(10)),
+    "utf8",
+  );
+
+  const graphDir = nodePath.join(home, "chess-context");
+  const gdir = nodePath.join(graphDir, "sessions", sid);
+  nodeFs.mkdirSync(gdir, { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(gdir, "graph.json"),
+    JSON.stringify({
+      version: 1,
+      rootUserNodeIds: ["n1"],
+      nodes: {
+        n1: { id: "n1", kind: "user", seq: 1, text: "把构建跑通", constraints: [], ts: Date.now() },
+        n2: { id: "n2", kind: "agent", seq: 80, text: "最后一步", ts: Date.now() },
+      },
+      edges: {},
+      order: ["n1", "n2"],
+      foldMarks: [],
+      updatedAt: Date.now(),
+    }),
+    "utf8",
+  );
+
+  const ctx = makeCtx();
+  ctx.llm.stream = async (options) => {
+    ctx.streamCalls.push(options);
+    return { blocks: () => [{ type: "text", text: "## 目标" }], usage: { inputTokens: 1000, outputTokens: 200 } };
+  };
+  const engine = new Engine(ctx, { graphDir, auto: false });
+  const session = makeSession({ id: sid });
+  await engine.closeoutNow({ session }, { source: "archive" });
+
+  const written = JSON.parse(nodeFs.readFileSync(nodePath.join(gdir, "graph.json"), "utf8"));
+  const marks = (written.foldMarks ?? []).length;
+  const folded = written.closeout?.folded === true;
+  t.eq(folded && marks === 0, false, "不许假成功：folded=" + String(written.closeout?.folded) + " / marks=" + marks);
+  t.eq(folded ? marks >= 1 : true, true, "说折了就必须有 mark");
+  nodeFs.rmSync(home, { recursive: true, force: true });
 };
