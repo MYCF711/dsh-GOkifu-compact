@@ -172,3 +172,99 @@ tests["文档数字 8：锚点表边界 —— 只覆盖这 4 份文档，且不
     t.eq(forbidden, false, `锚点「${target.what}」命中了不该同步的数（bench / doctor / live fold 各自由生成脚本维护，别在这里抄第四份）`);
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C604：覆盖范围 4 → 8 份（README / 重注入契约 / 发布就绪 / evidence/README）
+//
+// 为什么这四份要进来：它们是**面向用户的合同** —— 读者按「最近实测 N passed」判断「这东西到底过没过测试」，
+// 过期一次就跟没测一样。而 `docs/压缩的职责边界.md` 全文 0 处 `passed`（没有可接管的数字），
+// 硬塞一个进去只是给未来加一个要维护的锚点 —— 所以**故意不收**，这里也钉住这个判断。
+// ─────────────────────────────────────────────────────────────────────────────
+
+tests["文档数字 9：覆盖范围必须是 8 份文档，且每份都至少命中一处锚点"] = (t) => {
+  t.eq(DOCS.length, 8, `覆盖范围必须是 8 份文档（实际 ${DOCS.length}）：${DOCS.join(" / ")}`);
+  const files = new Set(TARGETS.map((target) => target.file));
+  for (const rel of DOCS) {
+    // 「在 DOCS 里但一条 TARGETS 都没有」= 那份文档里的数字**没有任何锚点在看**，
+    // 而 `planSync` 会静默 `continue` —— 静默跳过正是本专项要根治的病。
+    t.eq(files.has(rel), true, `${rel} 在 DOCS 里却没有 TARGETS 锚点（那处数字从此无人维护，别留空壳）`);
+  }
+  t.eq(DOCS.includes("README.md"), true, "README 的第一眼通过数必须被接管（它是读者判断质量的地方）");
+  t.eq(DOCS.includes("docs/压缩的重注入契约.md"), true, "重注入契约的两处通过数必须被接管");
+  t.eq(DOCS.includes("docs/发布就绪-2026-11-02.md"), true, "发布就绪的契约表必须被接管");
+  t.eq(DOCS.includes("evidence/README.md"), true, "evidence/README 的 C1–C<n> 轮次区间必须被接管");
+  t.eq(
+    DOCS.includes("docs/压缩的职责边界.md"),
+    false,
+    "职责边界全文 0 处 passed ⇒ 没有可接管的数字；为凑数量往设计文里塞一个测试数就是伪造",
+  );
+};
+
+tests["文档数字 10：README 副本里改错一个通过数 ⇒ --check 点名 README.md:<行号> 且 exit 1"] = (t) => {
+  const dir = makeFixture();
+  try {
+    const file = nodePath.join(dir, "README.md");
+    const text = nodeFs.readFileSync(file, "utf8");
+    const m = /(`node test\/run\.mjs` → \*\*)(\d+)( passed)/.exec(text);
+    t.eq(m !== null, true, "夹具里必须能在 README 找到「质量基线」那处通过数（锚点没了这条用例就形同虚设）");
+    if (m === null) return;
+    const line = text.slice(0, m.index).split("\n").length;
+    nodeFs.writeFileSync(file, text.replace(m[0], `${m[1]}${Number(m[2]) + 7}${m[3]}`), "utf8");
+    const r = run(["--check", `--root=${dir}`]);
+    t.eq(r.status, 1, "README 改了数字还 exit 0 ⇒ 守卫抓不到漂移");
+    const out = String(r.stdout ?? "");
+    // 只说「有漂移」等于没说：下一个人还得自己 grep 找是哪处
+    t.includes(out, `README.md:${line}`, `必须报出具体位置（期望 README.md:${line}）：${out}`);
+    t.includes(out, "质量基线", "要写清这个数在说什么（不能只给一个行号）");
+    // 夹具隔离自检：真文件一个字节都不许被这次用例碰到
+    const baseline = JSON.parse(nodeFs.readFileSync(BASELINE, "utf8"));
+    t.includes(
+      nodeFs.readFileSync(nodePath.join(REPO, "README.md"), "utf8"),
+      `${baseline.passed} passed`,
+      "真 README 必须保持基线值（所有写操作只许发生在临时副本上）",
+    );
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["文档数字 11：evidence/README 的轮次区间过期 ⇒ 点名 evidence/README.md:<行号> 且 exit 1"] = (t) => {
+  const dir = makeFixture();
+  try {
+    const file = nodePath.join(dir, "evidence", "README.md");
+    const text = nodeFs.readFileSync(file, "utf8");
+    const m = /(人工汇总（C1[–-]C)(\d+)/.exec(text);
+    t.eq(m !== null, true, "evidence/README 的总览行必须写覆盖区间 C1–C<n>");
+    if (m === null) return;
+    const line = text.slice(0, m.index).split("\n").length;
+    // 往回改 3 个编号 = 典型的「漏了一轮没跟」
+    nodeFs.writeFileSync(file, text.replace(m[0], `${m[1]}${Number(m[2]) - 3}`), "utf8");
+    const r = run(["--check", `--root=${dir}`]);
+    t.eq(r.status, 1, "轮次区间过期还 exit 0 ⇒ 那处数字从此无人维护");
+    const out = String(r.stdout ?? "");
+    t.includes(out, `evidence/README.md:${line}`, `必须报出具体位置（期望 evidence/README.md:${line}）：${out}`);
+    t.includes(out, "覆盖区间", "要写清这个数在说什么（C1–C<n> 轮次区间）");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["文档数字 12：README 的锚点被改文案 ⇒ 报「锚点失配」而不是静默跳过"] = (t) => {
+  const dir = makeFixture();
+  try {
+    const file = nodePath.join(dir, "README.md");
+    const text = nodeFs.readFileSync(file, "utf8");
+    // 把「1408 passed」写成「1408 通过」—— 人读得懂，正则认不出
+    const broken = text.replace(/(`node test\/run\.mjs` → \*\*)(\d+)( passed)/, "$1$2 通过");
+    t.eq(broken !== text, true, "夹具必须真的改掉了那处锚点");
+    nodeFs.writeFileSync(file, broken, "utf8");
+    const r = run(["--check", `--root=${dir}`]);
+    t.eq(r.status, 1, "锚点没了还 exit 0 ⇒ 那处数字从此刻起无人维护");
+    const out = String(r.stdout ?? "");
+    t.includes(out, "锚点失配", "必须点名「锚点失配」（静默跳过 = 这个数字以后没人管）");
+    t.includes(out, "README.md", "必须点名是哪个文件");
+    t.includes(out, "改文案时请一并改 TARGETS", "必须给出下一步动作（改文案的人要知道得同步锚点）");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};

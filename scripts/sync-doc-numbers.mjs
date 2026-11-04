@@ -3,7 +3,7 @@
  * sync-doc-numbers.mjs —— 文档里那些**手写的计数**，从今天起只有一处来源
  *
  * 由来（文档计数漂移专项，连续 5 轮白干）：`NNNN passed`、`C1–C<n>`、`xxx 条条目`、
- * `xxx 个编号` 这几类数字在 4 份文档里被手抄了十几份。每加一条 CHANGELOG
+ * `xxx 个编号` 这几类数字在 8 份文档里被手抄了十几份。每加一条 CHANGELOG
  * （`node scripts/add-changelog.mjs`）或每加一个测试，就有守卫变红（C167 / C172 / C485），
  * 而修法一直是「人肉把数字改一遍」——下一轮又漂。
  *
@@ -49,12 +49,28 @@ export const PASSED_FILE = nodePath.join("test", "counts-baseline.json");
 
 export const CHANGELOG_FILE = "CHANGELOG.md";
 
-/** 只在这 4 份文档里同步（题目圈定的范围；别的文档不在本次范围）。 */
+/**
+ * 只在这 8 份文档里同步。
+ *
+ * 前 4 份是 C603 时的范围（现状块 / 总览 / 调研结论 / 进度页）；后 4 份是「面向用户的手写契约」
+ * —— 读者按它们判断「这东西到底过没过测试」，所以里面的 `passed` 过期比别处更贵。
+ *
+ * ⚠ 每份文档都必须**至少命中一处锚点**（`planSync` 对「在 DOCS 里但没有 TARGETS」的文件会静默跳过，
+ *   而 `test/doc-numbers.test.mjs` 的边界用例要求两者集合相等）—— 加文件就顺手加锚点，别留空壳。
+ * ⚠ 故意**不在**本表：`docs/压缩的职责边界.md`（全文 0 处 `passed`，没有可接管的数字 ——
+ *   别为了凑数量往设计文里塞一个测试数）；`evidence/live-folds.*`（由 `live-folds --write` 生成）；
+ *   `docs/knowledge/进度.md` 里那几十条历史快照（`全量 **1308 passed**` 之类，记录的是「当时的事实」，
+ *   同步它等于篡改历史 —— 只同步它顶部「当前实测数字」块那一条）。
+ */
 export const DOCS = Object.freeze([
   "HANDOFF.md",
   "evidence/持续优化-总览-2026-11-02.md",
   "docs/research/00-蒸馏-对本插件的可执行结论.md",
   "docs/knowledge/进度.md",
+  "README.md",
+  "docs/压缩的重注入契约.md",
+  "docs/发布就绪-2026-11-02.md",
+  "evidence/README.md",
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,6 +223,41 @@ export const TARGETS = Object.freeze([
     what: "现状摘要 · 全量测试",
     re: /(^- 全量测试 \*\*)(\d+)( passed)/gm,
     want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  // ── 以下 4 份是「面向用户的手写契约」（C603 之后扩进来的）─────────────────────
+  {
+    file: "README.md",
+    what: "质量基线 · 全量测试通过数",
+    re: /(`node test\/run\.mjs` → \*\*)(\d+)( passed)/g,
+    want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  {
+    file: "docs/压缩的重注入契约.md",
+    what: "§7 端到端复核 · 全量测试（最后一次实测）",
+    // 「最后一次实测」与下面那条「最近实测」是同一段里的两处（§7 复核表 + 第 1 次巡检表），
+    // 圈窄到各自的修饰语，免得一条正则同时吃掉两处、报告里只剩一行。
+    re: /(最后一次实测 \*\*)(\d+)( passed)/g,
+    want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  {
+    file: "docs/压缩的重注入契约.md",
+    what: "巡检记录 · 全量测试（最近实测）",
+    re: /(最近实测 )(\d+)( passed)/g,
+    want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  {
+    file: "docs/发布就绪-2026-11-02.md",
+    what: "契约表 · 全量测试通过数",
+    re: /(\| 手写契约 \| `node test\/run\.mjs` \| \*\*)(\d+)( passed)/g,
+    want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  {
+    file: "evidence/README.md",
+    what: "总览行 · 覆盖区间 C1–C<最大编号>",
+    // 只圈 `C1–C<n>` 这一处：同一行里另有「条目数只认仓库根 CHANGELOG 当次」是**指向**，不是数字；
+    // 文件里 `971 / 880 / 758 passed` 是各次巡检**当时**的实测（历史事实），同步它们等于改历史。
+    re: /(人工汇总（C1[–-]C)(\d+)/g,
+    want: (m, v) => `${m[1]}${v.max}`,
   },
 ]);
 
