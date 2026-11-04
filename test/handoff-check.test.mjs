@@ -253,7 +253,7 @@ tests["H-12 ⑭fold成本：遮蔽占读入 < 30% ⇒ warn；≥ 30% ⇒ ok；�
   t.includes(byName(none, "⑭").detail, "没有 fold", "文案说明没有 fold");
 };
 
-tests["H-13 ⑭fold成本按最差一次判：多次 fold 里只要有一次 <30% 就 warn"] = (t) => {
+tests["H-13 ⑭fold成本判级用中位数（C553）：即便有一次 <30%，中位健康就不该红"] = (t) => {
   const mixed = checkGraph(
     mkGraph({
       foldMarks: [
@@ -263,7 +263,25 @@ tests["H-13 ⑭fold成本按最差一次判：多次 fold 里只要有一次 <30
     }),
     {},
   );
-  t.eq(byName(mixed, "⑭").level, "warn", "最差一次 5% ⇒ warn（不能被另一次健康样本掩盖）");
+  // ★ C553：两次样本（50% / 5%）中位 = 27.5% ⇒ 仍 <30% ⇒ warn。
+  //   但**语义变了**：判的是"中位"，不是"最差的一次"。
+  t.eq(byName(mixed, "⑭").level, "warn", "中位 27.5% < 30% ⇒ warn");
+  t.includes(byName(mixed, "⑭").detail, "判级用中位数", "文案要说明判级口径");
+  t.includes(byName(mixed, "⑭").detail, "1/2 次不足 30%", "要报出几次不足（比例信息）");
+
+  // 一次极差 + 多次健康 ⇒ 中位健康 ⇒ 不该红（这正是 C553 修的东西）
+  const mostlyHealthy = checkGraph(
+    mkGraph({
+      foldMarks: [
+        { at: now, foldCount: 1, shadowedTokens: 8000, usage: { inputTokens: 10000 } },
+        { at: now, foldCount: 2, shadowedTokens: 7000, usage: { inputTokens: 10000 } },
+        { at: now, foldCount: 3, shadowedTokens: 6000, usage: { inputTokens: 10000 } },
+        { at: now, foldCount: 4, shadowedTokens: 500, usage: { inputTokens: 10000 } },
+      ],
+    }),
+    {},
+  );
+  t.eq(byName(mostlyHealthy, "⑭").level, "ok", "3 次健康 + 1 次极差 ⇒ 中位 65% ⇒ ok（一个离群样本不该判红）");
 };
 
 tests["H-14 ⑮fold悬空：fromBroken>0 ⇒ fail；liveUnsettled>0 ⇒ warn；全 0 ⇒ ok；无字段 ⇒ 未采集"] = (t) => {

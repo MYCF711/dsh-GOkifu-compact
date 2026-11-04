@@ -269,13 +269,22 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
     } else {
       const shares = withCost.map((m) => m.shadowedTokens / Math.max(1, m.usage.inputTokens));
       const min = Math.min(...shares);
+      // ★ C553：与 doctor 同口径 —— **判级用中位数，不用最小值**。
+      //   真机（2026-11-06）：中位 63%，121 次里只有 1 次 <30%；拿最小值判会把整条线打红，
+      //   而两处口径不一致时（doctor 绿、交接红）最容易被误读成"两个工具结论矛盾"。
+      const sorted = [...shares].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      const below = shares.filter((x) => x < 0.3).length;
       out.push(
         check(
           "⑭fold成本",
-          min < 0.3 ? "warn" : "ok",
-          min < 0.3
-            ? `最低一次遮蔽只占输入 ${(min * 100).toFixed(0)}%（折太碎/太早 —— 对照 doctor 的 ROI 看）`
-            : `${withCost.length} 次 fold 的遮蔽占读入最低 ${(min * 100).toFixed(0)}%（健康）`,
+          median < 0.3 ? "warn" : "ok",
+          median < 0.3
+            ? `**中位**遮蔽占输入 ${(median * 100).toFixed(0)}%（折太碎/太早 —— 对照 doctor 的 ROI 看）` +
+              `；判级用中位数，${below}/${shares.length} 次不足 30%`
+            : `${withCost.length} 次 fold 的遮蔽占读入 中位 ${(median * 100).toFixed(0)}%` +
+              `（最低 ${(min * 100).toFixed(0)}%，${below} 次不足 30%）—— 判级用中位数`,
         ),
       );
     }
