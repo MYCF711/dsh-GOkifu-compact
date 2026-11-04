@@ -3162,3 +3162,13 @@ tests["C527 自动补账一次 tick 里连续推进（否则大会话要补好�
   t.includes(tick, "break;", "预算用尽或不再欠就要停");
   t.eq(/while \(true\)/.test(tick), false, "不许写死循环");
 };
+
+tests["C529 补账互斥：同一会话不许被自动与面板同时补（两次模型调用 + 两个写者）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  t.includes(src, "_backfillInFlight", "要有这把锁");
+  t.includes(src, 'stopped: "busy"', "抢占失败要明确说 busy，不许静默");
+  t.includes(src, "this._backfillInFlight.delete(claimed)", "finally 里必须释放（否则一次失败就把会话永久锁住）");
+  t.includes(src, "isBackfillBusy", "面板要能问一句");
+  const ui = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui.mjs"), "utf8");
+  t.includes(ui, 'code: "backfill-busy"', "面板撞上时回 409 并说明原因");
+};

@@ -611,10 +611,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         latest: this,
         forCtx,
         closeoutNow: (agent, options) => (forCtx(agent?.ctx) ?? this).closeoutNow(agent, options),
+        // ★ C529：**面板与人别撞车**。自动补账和面板补账可能同时选中同一个会话，
+        //   那就是两次模型调用 + 两个写者。面板动手前先问一句。
+        isBackfillBusy: (id) => (forCtx(null) ?? this)?._backfillInFlight?.has?.(String(id)) === true,
       };
     } catch {
       /* 没有 globalThis（极端沙箱）：补账入口退化，不影响主路径 */
     }
+    /** ★ C529：正在补账的会话 id（自动 / 面板共用一把锁，防同一会话被打两次模型）。 */
+    this._backfillInFlight = new Set();
     this.graphs = new Map();
     /** ★ C149：这些会话的图是「读不出/版本不符 → 重建」出来的，落盘时不做按图清理。 */
     this.repairedGraphs = new Set();
@@ -1948,10 +1953,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @returns {Promise<object|null>} 给 `applyCloseoutOutcome` 的结果；做不了就 null（保持原结局）
    */
   async #offlineCloseoutFold(target) {
+    let claimed = null;
     try {
       const session = target?.session ?? target;
       const id = typeof session?.id === "string" ? session.id : null;
       if (id === null) return null;
+      // ★ C529：同一个会话只允许一次离线补折在跑（自动 tick 与面板可能同时选中它）
+      if (!this._backfillInFlight) this._backfillInFlight = new Set();
+      if (this._backfillInFlight.has(id)) return { tier: "offline", folded: 0, chunks: 0, stopped: "busy", partial: true };
+      this._backfillInFlight.add(id);
+      claimed = id;
       const graph = this.graphs.get(id);
       if (graph === undefined || graph === null) return null;
       // 会话日志在 <home>/sessions/**，而 graphDir = <home>/chess-context/sessions
@@ -2044,6 +2055,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 离线补折失败（不影响归档）：${String(error)}`);
       return { tier: "offline", folded: 0, chunks: 0, stopped: "error", error: String(error).slice(0, 300), partial: true };
+    } finally {
+      if (claimed !== null) this._backfillInFlight.delete(claimed);
     }
   }
 

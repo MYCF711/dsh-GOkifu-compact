@@ -1508,6 +1508,14 @@ function applyInner(ctx) {
           //   想先试一个小会话验证通道都做不到（只能先碰最大的那个）。
           const wantedIds = Array.isArray(body.sessionIds) ? body.sessionIds.map(String).filter((x) => x !== "") : null;
           const picked = wantedIds === null ? listed.items : listed.items.filter((it) => wantedIds.includes(String(it.sessionId)));
+          // ★ C529：自动补账正在补的那些会话，面板这边**跳过**（同一会话两次模型调用 = 白花钱 + 两个写者）
+          const busyIds = typeof bridge?.isBackfillBusy === "function" ? picked.filter((it) => bridge0.isBackfillBusy(it.sessionId) === true) : [];
+          const picked2 = picked.filter((it) => !busyIds.includes(it));
+          if (busyIds.length > 0 && picked2.length === 0) {
+            return sendJson(res, 409, { ok: false, code: "backfill-busy", error: `选中的 ${busyIds.length} 个会话正在自动补账，稍后再试` });
+          }
+          picked.length = 0;
+          picked.push(...picked2);
           if (wantedIds !== null && picked.length === 0) {
             return sendJson(res, 400, { ok: false, error: "指定的 sessionIds 都不在待补清单里（先用 dryRun 看清单）", due: listed.due });
           }
