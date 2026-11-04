@@ -1,5 +1,5 @@
 {
- "total": 1017,
+ "total": 1018,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -65,6 +65,7 @@
   "kifu-persist.test.mjs": 10,
   "knowledge-markers.test.mjs": 2,
   "knowledge-progress.test.mjs": 1,
+  "last-summary.test.mjs": 1,
   "ledger-boundary.test.mjs": 14,
   "ledger-budget-persist.test.mjs": 3,
   "ledger-budget.test.mjs": 3,
@@ -146,6 +147,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1336,
- "passedAt": "2026-11-04T04:06:02.368Z"
+ "passed": 1337,
+ "passedAt": "2026-11-04T04:08:58.524Z"
 }
