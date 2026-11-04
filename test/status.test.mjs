@@ -158,3 +158,10 @@ tests["C549 折叠快照过期要明说（超过 1 天就别当现状）"] = asy
   t.includes(src, "已过期，别当现状看", "过期要有一句明说");
   t.includes(src, "1440", "阈值写死在源码里（1 天）");
 };
+
+tests["C550 自动补账行要能区分新代码（新字段在不在）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "status.mjs"), "utf8");
+  t.includes(src, "newFields", "要数新字段");
+  t.includes(src, "sectionsMissing", "判据用 C528 写的字段");
+  t.includes(src, "跑的还是旧代码", "没有新字段时要直说");
+};

@@ -53,7 +53,11 @@ export function renderStatus(data) {
       ? "未采集"
       : (d.autoBackfill.enabled === false ? "已关闭（设置里勾上就恢复）" : "开") +
         ` · 近 24h 折了 ${d.autoBackfill.last24h} 段` +
-        (d.autoBackfill.lastAt === null ? " · **还没跑过**" : ` · 最近 ${Math.max(0, Math.round((Date.now() - d.autoBackfill.lastAt) / 60000))} 分钟前`),
+        (d.autoBackfill.lastAt === null ? " · **还没跑过**" : ` · 最近 ${Math.max(0, Math.round((Date.now() - d.autoBackfill.lastAt) / 60000))} 分钟前`) +
+        // ★ C550：折了但一个"新字段"都没有 ⇒ 说明这些折叠是**旧代码**跑的
+        (Number(d.autoBackfill.last24h) > 0 && Number(d.autoBackfill.newFields ?? 0) === 0
+          ? " · ⚠ 新字段一个都没写 ⇒ **跑的还是旧代码**"
+          : ""),
   ]);
   rows.push([
     "真机基准",
@@ -147,6 +151,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (!nodeFs.existsSync(dir)) return { enabled: null, lastAt: null, last24h: 0 };
       let lastAt = null;
       let last24h = 0;
+      let newFields = 0;
       const cutoff = Date.now() - 24 * 3600 * 1000;
       for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
@@ -164,6 +169,8 @@ export async function main(argv = process.argv.slice(2)) {
           if (!Number.isFinite(at)) continue;
           if (lastAt === null || at > lastAt) lastAt = at;
           if (at >= cutoff) last24h += 1;
+          // ★ C550：**新字段在不在 = 跑的是不是新代码**（离线折叠的 truncated / sectionsMissing）
+          if (mark?.truncated !== undefined && mark?.quality !== undefined && "sectionsMissing" in (mark.quality ?? {})) newFields += 1;
         }
       }
       // 开关：预设里显式 false 才算关（默认开）
@@ -177,7 +184,7 @@ export async function main(argv = process.argv.slice(2)) {
       } catch {
         /* 读不到就当默认开 */
       }
-      return { enabled, lastAt, last24h };
+      return { enabled, lastAt, last24h, newFields };
     } catch {
       return { enabled: null, lastAt: null, last24h: 0 };
     }
