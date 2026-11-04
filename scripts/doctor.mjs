@@ -1918,6 +1918,12 @@ mark('C12 触发原因');
         `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
         `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}` +
         ` · 历史不可复判 ${unreadableMarks} 条（生产者早于 ${SUMMARY_TEXT_SINCE}，正文当时就没落盘）—— 不是缺陷，新折痕起为 0` +
+        // ★ T29：这句以前是**假承诺** —— C642 只让离线补折落正文，pressure / 手动 `/compact` 那条
+        //   一直没落，而这里天天说「新折痕起为 0」。现在三条写回点都落（engine 的 `compactIfNeeded`
+        //   / `recordFoldMark` + rooms 的 `applyOfflineFoldToGraph`），**只有 tier2 例外**；而 tier2
+        //   不是「没有正文」—— 它的正文是把两段已落盘的摘要重新合并（见 engine C206 的注释），
+        //   再存一份就是复制（硬约束：同一份正文在图里只许出现一次）。文案不许再把它写成「没有」。
+        `（tier2 除外，它的正文是两段已落摘要的合并，不重复写）` +
         (allVacuum ? ` —— 全部 ${withQuality.length} 次样本都是真空（折叠区间内没有约束/失败边可丢），保真度实际未被检验` : ""),
     );
     // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了

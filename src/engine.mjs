@@ -313,6 +313,32 @@ export function safeMeasureFoldQuality(args) {
 }
 
 /**
+ * ★ T29：foldMark 的**正文落盘**字段 —— 同一份正文在图里**只许出现一次**。
+ *
+ * C642 只让离线补折落了 `summaryText`，engine 的两条写回点（`compactIfNeeded` 的 pressure/auto/
+ * overflow/archive/backfill/disposed/loop、`recordFoldMark` 的手动 `/compact`）一直没落（真机
+ * 2026-11-04T22:02:10.932Z 那条 pressure 折痕只有 `summaryChars: 2418`、没有正文）。但**不能无脑写**：
+ * `lastOfflineSummary` 是单槽的，最后一段折痕本来就和它共用同一个字符串（只留 `summaryTextRef`），
+ * 同一份正文存两遍 = 磁盘成本翻倍。三选一：空正文 ⇒ 不写；同一段同一份已落在 `lastOfflineSummary`
+ * ⇒ 只留引用；否则 ⇒ 存这一份。
+ *
+ * @param {{lastOfflineSummary?: any}} graph 棋谱
+ * @param {{start?:number, end?:number}|null} range 本次折叠区间
+ * @param {string} text 摘要正文（`_lastSummaryText` 的快照，不重算）
+ * @returns {{summaryText:string}|{summaryTextRef:string}|{}} 要并进 foldMark 的字段
+ */
+export function summaryTextField(graph, range, text) {
+  if (typeof text !== "string" || text === "") return {};
+  const last = graph?.lastOfflineSummary;
+  if (last === null || last === undefined || typeof last.text !== "string" || last.text !== text) {
+    return { summaryText: text };
+  }
+  // 区间为空（NaN）时全等比较天然为 false ⇒ 落回「存一份」是安全的。
+  const sameRange = Number(last?.range?.start) === Number(range?.start) && Number(last?.range?.end) === Number(range?.end);
+  return sameRange ? { summaryTextRef: "lastOfflineSummary" } : { summaryText: text };
+}
+
+/**
  * ★ C90：注入路径**渲染失败**的可观测性。
  *   `decideInjection` 的 catch 会返回 `{action:"skip", reason:"error:…"}` 并只写一行日志 ——
  *   此后这次「本该注入却没注入」在统计里完全消失（用户只看到模型突然不知道约束了）。
@@ -2678,6 +2704,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // C31：切点是否落在工具调用中间（正常应为 0）
       boundary: foldBoundaryOf(g, range),
       summaryChars,
+      // ★ T29：**正文落盘**（手动 `/compact` 同样产摘要正文）—— 口径与 `compactIfNeeded` 同一个
+      //   helper：别处已存同一份就只留引用，绝不复制（见 `summaryTextField`）。
+      ...summaryTextField(g, range, summaryText),
       // ★ C321：**终止原因写进 foldMark**（C317~C320 一路查下来才发现：之前只写进了
       //   `ledger-budget.lastExternalFold`，而 doctor 读的是 `foldMarks[]` —— 仪器又一次静默）。
       finishReason,
@@ -3043,6 +3072,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
       // 摘要总字符数（含机械追加的约束段与最近访问文件）。老 foldMark 没有该字段 ⇒ null。
       summaryChars,
+      // ★ T29：**正文落盘** —— pressure / auto / context-overflow / archive / backfill / disposed /
+      //   loop 七条路径都走这里。只落一份：`lastOfflineSummary` 已是同一段同一份正文时只留引用
+      //   （见 `summaryTextField`；同一份正文在图里只许出现一次）。
+      ...summaryTextField(g, range, summaryText),
       // 保真度：constraintRecall / failureRecall（应恒 1）/ compressionRatio（记趋势）。
       // 老 foldMark 没有该字段 ⇒ null，doctor 显示「—」。
       quality: foldQuality,
@@ -3198,6 +3231,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryModelText = undefined;
       const quality =
         summaryText === "" ? null : safeMeasureFoldQuality({ graph: g, range: { start, end }, summaryText, modelText });
+      // ★ T29：**tier2 不落 summaryText** —— 但它**不是「没有摘要正文」**：真机 27/27 条 tier2
+      //   折痕都有 `summaryChars`（1,504–4,017）和由该正文算出的 `quality`。不落盘是因为这条正文是
+      //   **把两段已落盘的摘要重新合并**（见 C206）⇒ 再存一份 = 同一份内容出现两遍以上，违反
+      //   「同一份正文只许出现一次」。缺口是设计：覆盖率审计把它列进 `NO_BODY_PATHS`。
       g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), boundary: foldBoundaryOf(g, { start, end }), summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
       this.#flush(session);
