@@ -169,8 +169,12 @@ export async function main(argv = process.argv.slice(2)) {
           if (!Number.isFinite(at)) continue;
           if (lastAt === null || at > lastAt) lastAt = at;
           if (at >= cutoff) last24h += 1;
-          // ★ C550：**新字段在不在 = 跑的是不是新代码**（离线折叠的 truncated / sectionsMissing）
-          if (mark?.truncated !== undefined && mark?.quality !== undefined && "sectionsMissing" in (mark.quality ?? {})) newFields += 1;
+          // ★ C550/C584：**新字段在不在 = 跑的是不是新代码**。
+          //   旧口径要求 `truncated` 与 `quality.sectionsMissing` **同时**在，而 `truncated`
+          //   从来没被写进 mark ⇒ 无论代码多新都报「跑的还是旧代码」。现在任一在就算新代码。
+          const hasTruncated = mark?.truncated !== undefined;
+          const hasSections = mark?.quality !== undefined && "sectionsMissing" in (mark.quality ?? {});
+          if (hasTruncated || hasSections) newFields += 1;
         }
       }
       // 开关：预设里显式 false 才算关（默认开）

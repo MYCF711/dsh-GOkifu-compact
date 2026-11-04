@@ -727,6 +727,9 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       summaryChars: String(chunk.text ?? "").length,
       quality: chunk.quality ?? null,
       qualityRepaired: chunk.repaired ?? 0,
+      // ★ C584：`truncated` 一直没写进 mark —— 而 status 用它判"跑的是不是新代码"
+      //   ⇒ 无论代码多新，那行永远报「⚠ 新字段一个都没写」。写下来，让探测器不再撒谎。
+      truncated: chunk.truncated === true,
       offline: true,
     });
   }

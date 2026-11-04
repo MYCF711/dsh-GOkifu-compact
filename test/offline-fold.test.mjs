@@ -419,3 +419,9 @@ tests["C581 usage 两种形状归一（脚本 snake_case / 引擎 camelCase）"]
   t.eq(scr.reasoning, 4638, "脚本形推理");
   t.eq(scr.total, 14181, "脚本形总量");
 };
+
+tests["C584 离线 mark 必须写 truncated（否则 status 永远报「跑的还是旧代码」）"] = async (t) => {
+  const src = (await import("node:fs")).readFileSync(new URL("../src/rooms/offline-fold.mjs", import.meta.url), "utf8");
+  t.includes(src, "truncated: chunk.truncated === true", "mark 要写 truncated");
+  t.includes(src, "让探测器不再撒谎", "注释要说明它曾经漏写");
+};
