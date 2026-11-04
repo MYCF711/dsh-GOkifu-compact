@@ -29,12 +29,12 @@
 node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
 node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
 npm run gate                                # 6 判分门；跑完把实测 passed 回写 test/counts-baseline.json
-node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（10 处锚点一次改完）
+node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（**8 份文档 / 14 处锚点**一次改完）
 node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
 ```
 
 > **为什么第 4 条不是可有可无的**：`passed` / `C1–C<n>` / `xxx 条条目` / `xxx 个编号` 这四类数字
-> 以前在 4 份文档里被手抄了 10 处，每加一条 CHANGELOG 或一个测试就要人肉改一遍，下一轮又漂
+> 以前在 8 份文档里被手抄了 14 处，每加一条 CHANGELOG 或一个测试就要人肉改一遍，下一轮又漂
 > （连续 5 轮的工时都耗在这上面）。
 > 现在它们**只有一个来源**：`test/counts-baseline.json` 的 `passed` + `CHANGELOG.md`（经
 > `scripts/changelog-index.mjs` 的 `parseEntries` 解析），由 `scripts/sync-doc-numbers.mjs` 写回；
