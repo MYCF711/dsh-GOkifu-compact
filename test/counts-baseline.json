@@ -1,5 +1,5 @@
 {
- "total": 989,
+ "total": 990,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -33,7 +33,7 @@
   "docs-numbers.test.mjs": 12,
   "doctor-cli.test.mjs": 46,
   "doctor-perf.test.mjs": 6,
-  "engine-harness.test.mjs": 109,
+  "engine-harness.test.mjs": 110,
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 21,
   "facts-prompt.test.mjs": 6,
@@ -142,6 +142,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1308,
- "passedAt": "2026-11-04T01:33:38.489Z"
+ "passed": 1309,
+ "passedAt": "2026-11-04T01:36:14.273Z"
 }

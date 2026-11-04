@@ -1881,7 +1881,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         limit: 50,
         loadGraph: (id) => this.persist.load({ id, cwd: "" }).graph,
       });
-      const max = Math.max(0, Math.min(5, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MAX) || 1));
+      // ★ C542：**积压多的时候自动加量**。真机（2026-11-04）：52 个欠账 + 19 个"归档了但没 closeout"，
+      //   每轮只补 1 个 ⇒ 要 26 小时才追平，而欠账还在长。这里按积压量自适应：
+      //   欠账 >10 个时每轮补 3 个（仍然串行、仍然受时间预算约束），追平后自动回到 1 个。
+      const envMax = Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_MAX);
+      const adaptive = Number.isFinite(envMax) && envMax > 0 ? envMax : Number(listed?.due ?? 0) > 10 ? 3 : 1;
+      const max = Math.max(0, Math.min(5, adaptive));
       if (max === 0) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账只检查不补（${listed.due} 个欠账）`);
         return;

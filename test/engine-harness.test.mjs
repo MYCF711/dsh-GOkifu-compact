@@ -3192,3 +3192,12 @@ tests["C535 finish 读不到时用 token 数反推截断（真机 65% 的折叠�
   t.eq(at > 0, true, "必须有一个可测的反推段落");
   t.eq(src.slice(at, at + 800).includes("this._lastSummaryFinishReason = finishReason2;"), true, "反推结果要落回 _lastSummaryFinishReason");
 };
+
+tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
+  t.includes(tick, "listed?.due ?? 0) > 10 ? 3 : 1", "积压 >10 时每轮补 3 个，否则 1 个");
+  t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "环境变量仍然可以覆盖");
+  t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
+  t.eq(/while \(true\)/.test(tick), false, "不许死循环");
+};
