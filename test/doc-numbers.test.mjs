@@ -163,9 +163,9 @@ tests["文档数字 7：CHANGELOG 出现解析器认不出的标题形状 ⇒ �
   }
 };
 
-tests["文档数字 8：锚点表边界 —— 只覆盖这 4 份文档，且不许接进 bench / doctor / live fold"] = (t) => {
+tests["文档数字 8：锚点表边界 —— 只覆盖 DOCS 里那 8 份文档，且不许接进 bench / doctor / live fold"] = (t) => {
   const files = new Set(TARGETS.map((target) => target.file));
-  t.eq([...files].sort(), [...DOCS].sort(), "锚点表只能落在题目圈定的 4 份文档里（别顺手扩到别的文件）");
+  t.eq([...files].sort(), [...DOCS].sort(), "锚点表与 DOCS 必须一一对应（别顺手扩到别的文件，也别留只登记不维护的空壳）");
   for (const target of TARGETS) {
     t.eq(typeof target.what === "string" && target.what.length > 0, true, `锚点必须有 what（报告要能说清这个数在说什么）：${target.re}`);
     const forbidden = /tokens|\bfold\b|doctor|WARN|warn|bench/.test(target.re.source);

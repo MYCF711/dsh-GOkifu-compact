@@ -1306,10 +1306,28 @@ mark('C516 归档后还剩多少没折');
       const marks = (Array.isArray(g?.foldMarks) ? g.foldMarks : []).filter((m) => Number.isFinite(m?.seqEnd));
       const lastEnd = marks.length > 0 ? Math.max(...marks.map((m) => Number(m.seqEnd))) : 0;
       const closed = g?.closeout !== undefined && g?.closeout !== null;
-      const tail = Number(g?.closeout?.eventsSinceLastFold ?? Math.max(0, lastEnd));
-      const maxSeq = lastEnd + tail;
+      /* ★ C604：**老 closeout 没有 `eventsSinceLastFold` 时，不许拿 fold 折到哪当尾巴。**
+         旧代码写的是 `Number(eventsSinceLastFold ?? Math.max(0, lastEnd))` —— 把
+         「上次 fold 的 seqEnd（一个**位置**）」当成「还剩多少（一个**差值**）」。
+         真机（2026-11-05 01:38）：2 条 closeout 缺该字段，lastEnd 分别是 175 / 3002，
+         于是凭空造出 175 和 3002 的尾巴，后者还进了前五名（"归档时还有 3002 事件未折"是假的
+         —— 它的 `offlineCovered.end` 已经是 1761，真实尾巴接近 0）。
+         现在：缺字段就用「图上最大事件序号 − lastEnd」现算；连节点 seq 都拿不到 ⇒ 记 null
+         （**未采集**，不许用编造的数进榜）。 */
+      const tailRaw = g?.closeout?.eventsSinceLastFold;
+      const tail = Number.isFinite(Number(tailRaw))
+        ? Math.max(0, Number(tailRaw))
+        : (() => {
+            let maxEventSeq = 0;
+            for (const node of Object.values(g?.nodes ?? {})) {
+              const seq = Number(node?.seq);
+              if (Number.isFinite(seq) && seq > maxEventSeq) maxEventSeq = seq;
+            }
+            return maxEventSeq > 0 ? Math.max(0, maxEventSeq - lastEnd) : null;
+          })();
+      const maxSeq = tail === null ? lastEnd : lastEnd + tail;
       if (!closed) continue;
-      if (tail >= 1000) bigTail.push({ id: entry.name.replace(/^session-/, "").slice(0, 8), tail, maxSeq, folds: marks.length });
+      if (tail !== null && tail >= 1000) bigTail.push({ id: entry.name.replace(/^session-/, "").slice(0, 8), tail, maxSeq, folds: marks.length });
     }
   }
   bigTail.sort((a, b) => b.tail - a.tail);
@@ -1371,7 +1389,16 @@ mark('C348 思考模式');
 mark('C401 仪器');
 /* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
    我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
-   所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。 */
+   所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。
+   ★ C604：**模型名有两个落点，旧判据只读了一个。**
+   真机（2026-11-05 01:38）核账：180 条「没有 model」的 fold 里，**180 条都有 `route.model`**
+   （在线路径写 `usage.model`，`archive-offline` 离线补折路径写 `route.model` —— 例如
+   `magpie/group/deepseek-v4.1-flash1017` / `magpie/group/kimi-k3.1-pro`）。
+   旧判据只看 `usage.model` ⇒ 把「磁盘上明明记着、只是换了字段」的 180 条全算成
+   「没有模型名，按 flash 估价」—— 那是**凭空给自己造了下限**，而且归因也写错了
+   （detail 断言的「C346 之前记的」不成立：最近一条就在 1 分钟前）。
+   现在：`usage.model` 优先，缺了退回 `route.model`（与 C547「两种 usage 形状都要算」同一个纪律）；
+   两个都没有才算真的没有模型名。 */
 {
   const withUsage = [];
   // ★ 注意：这里必须显式拼 `chess-context/sessions` —— 模块顶层还有个同名的
@@ -1390,7 +1417,8 @@ mark('C401 仪器');
         continue;
       }
       for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
-        if (mark?.usage && typeof mark.usage === "object") withUsage.push(mark.usage);
+        // ★ C604：连 `route` 一起带上 —— 模型名的第二个落点（离线补折写的是这里）
+        if (mark?.usage && typeof mark.usage === "object") withUsage.push({ usage: mark.usage, route: mark?.route ?? null });
       }
     }
   }
@@ -1399,12 +1427,16 @@ mark('C401 仪器');
   } else {
     const counts = new Map();
     let missing = 0;
-    for (const usage of withUsage) {
-      const raw = typeof usage.model === "string" && usage.model !== "" ? usage.model : null;
+    let fromRoute = 0;
+    for (const { usage, route } of withUsage) {
+      const own = typeof usage?.model === "string" && usage.model !== "" ? usage.model : null;
+      const viaRoute = typeof route?.model === "string" && route.model !== "" ? route.model : null;
+      const raw = own ?? viaRoute;
       if (raw === null) {
         missing += 1;
         continue;
       }
+      if (own === null && viaRoute !== null) fromRoute += 1;
       const key = raw.toLowerCase().includes("pro") ? "v4-pro" : raw.toLowerCase().includes("flash") ? "flash" : raw;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -1416,8 +1448,9 @@ mark('C401 仪器');
       "成本用的模型（口径）",
       missing > 0 ? "warn" : "ok",
       `有 usage 的 fold ${withUsage.length} 条 · ${dist === "" ? "全部没有模型名" : dist}` +
+        (fromRoute > 0 ? `（其中 ${fromRoute} 条取自 \`route.model\` —— 离线补折不写 \`usage.model\`）` : "") +
         (missing > 0
-          ? ` · **${missing} 条没有 model**（C346 之前记的）⇒ 这些按 **flash** 估价，跑 pro 的话是**下限**`
+          ? ` · **${missing} 条没有 model**（usage 与 route 都没有）⇒ 这些按 **flash** 估价，跑 pro 的话是**下限**`
           : " · 都能按实际模型计价"),
     );
   }
@@ -1703,7 +1736,16 @@ mark('C196 新鲜度');
 
 mark('C216 归档收尾');
 /* ★ 2026-11-01（C12）：fold 触发原因分布 —— `context-overflow` 出现 = 已经被迫自救，
-   说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。 */
+   说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。
+   ★ C604：**判级从「全历史累计」改成「每个会话最近一次 fold 的触发原因」。**
+   旧判据 `overflow > 0` 是**恒真**的：历史上只要有过一次自救，这条线就永久打红 ——
+   而溢出自救是一次性事件，折叠成功即解除。真机（2026-11-05 01:38）：全历史 2 次
+   context-overflow（11-03T06:19 / 11-04T01:36），这两个会话**之后都又 fold 过**
+   （226dbf4f 后续 19 次、d62a520c 后续 1 次，最近一次分别是 archive-offline / pressure）——
+   也就是说"压缩没跟上增长"这个结论**现在已经不成立**，但旧判据仍让它亮着。
+   与 C551（"一个离群样本不该驱动调参"）/ C552（"那条旧记录会把这条线永久打红"）同族。
+   现在：只有「该会话最近一次 fold 仍是 context-overflow」（= 自救之后没恢复）才 warn；
+   历史累计次数仍然写进 detail（不隐藏，只是不再驱动判级）。 */
 {
   const withTrigger = recentFoldMarks.filter((m) => typeof m?.trigger === "string" && typeof m.at === "number");
   if (withTrigger.length === 0) {
@@ -1712,11 +1754,28 @@ mark('C216 归档收尾');
     const counts = new Map();
     for (const m of withTrigger) counts.set(m.trigger, (counts.get(m.trigger) ?? 0) + 1);
     const overflow = counts.get("context-overflow") ?? 0;
+    // 每个会话取 at 最大的那条 —— 「它现在停在哪」而不是「它曾经经过哪」。
+    const latestBySession = new Map();
+    for (const m of withTrigger) {
+      const key = String(m.session ?? "");
+      const prev = latestBySession.get(key);
+      if (prev === undefined || Number(m.at) > Number(prev.at)) latestBySession.set(key, m);
+    }
+    const stuck = [...latestBySession.values()].filter((m) => m.trigger === "context-overflow");
+    const dist = [...counts.entries()].map(([k, v]) => `${k}=${v}`).join(" / ");
     add(
       "fold 触发原因",
-      overflow > 0 ? "warn" : "ok",
-      [...counts.entries()].map(([k, v]) => `${k}=${v}`).join(" / ") +
-        (overflow > 0 ? ` —— 其中 ${overflow} 次是「上下文已溢出后被迫自救」，说明压缩没跟上增长` : ""),
+      stuck.length > 0 ? "warn" : "ok",
+      dist +
+        (stuck.length > 0
+          ? ` —— 其中 ${stuck.length} 个会话**最近一次 fold 仍是「上下文已溢出后被迫自救」**（${stuck
+              .slice(0, 3)
+              .map((m) => String(m.session).slice(0, 16))
+              .join(" / ")}）⇒ 压缩没跟上增长`
+          : "") +
+        (stuck.length === 0 && overflow > 0
+          ? ` · 历史累计 ${overflow} 次溢出自救，**这些会话之后都又 fold 过**（已恢复，仅计数）`
+          : ""),
     );
   }
 }
@@ -1848,28 +1907,53 @@ mark('C12 触发原因');
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
 mark('保真度 L1');
-/* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ── */
+/* ★ C604：**「最近 N 次 fold」这个窗口只许定义一次**。
+   悬空 / 边界完整性 / 保真度是同一条合同（docs/压缩的重注入契约.md §6）的三张脸，
+   但之前各写各的：边界完整性 `.slice(0, 10)`、保真度 `.slice(0, 10)`、
+   悬空却是**全历史求和** —— 于是同一次 fold 在一条线上是绿的、在另一条线上永久红。
+   窗口抽到一处，以后再加兄弟项也不会长出第三套口径。 */
+const RECENT_FOLD_WINDOW = 10;
+const recentFoldWindow = (marks) =>
+  [...marks]
+    .filter((m) => m !== null && typeof m === "object")
+    .sort((a, b) => (Number(b?.at) || 0) - (Number(a?.at) || 0))
+    .slice(0, RECENT_FOLD_WINDOW);
+
+/* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ──
+   ★ C604：**判级窗口改成「最近 10 次 fold」，与同族「fold 边界完整性」对齐**。
+   旧判据把**全历史**的 liveUnsettled 求和：真机（2026-11-05 01:38）有一条
+   2026-11-03T06:57 的 `liveUnsettled=1`（session-c0a5847a 的第 10 次 fold），
+   而它之后 20 多次 fold 全是 0 —— 这条警告却永远清不掉。
+   悬空边是一次性事件：那一次 fold 之后要么被后续结算，要么就是一个已经过去的事实，
+   **不可能被"再跑一次 doctor"修好**，所以「恒真」的判据只是噪音。
+   现在：最近 10 次判级（有悬空 = 真的还在切在动作中间），更早的作为**存量**报出来（不隐藏）。
+   `fromBroken`（from 节点已不存在 = 图坏了）仍然按**全历史**判 error —— 坏边不会自愈。 */
 {
   const marks = recentFoldMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
   if (marks.length === 0) {
     // ★ C64（专员审计 P2）：与本文件自己的纪律保持一致 ——「未采集」不能报 ok。
     add("fold 悬空（dangling）", "warn", "未采集（foldMark 还没有 dangling —— 旧版本）");
   } else {
-    const sum = (key) => marks.reduce((acc, m) => acc + (m.dangling[key] ?? 0), 0);
-    const live = sum("liveUnsettled");
-    const broken = sum("fromBroken");
-    const residue = sum("residue");
-    const candidates = sum("candidates");
+    const sum = (list, key) => list.reduce((acc, m) => acc + (m.dangling[key] ?? 0), 0);
+    const recent = recentFoldWindow(marks);
+    const live = sum(recent, "liveUnsettled");
+    const broken = sum(marks, "fromBroken");
+    const residue = sum(marks, "residue");
+    const candidates = sum(marks, "candidates");
+    const historicalLive = sum(marks, "liveUnsettled") - live;
+    // 存量（更早的 fold 里的悬空边）单独一句话 —— 它不改变判级，但不许被吞掉。
+    const stockText = historicalLive > 0 ? ` · 另有 ${historicalLive} 条历史悬空（更早的 fold，已不可能再结算，仅计数）` : "";
     add(
       "fold 悬空（dangling）",
       broken > 0 ? "error" : live > 0 ? "warn" : "ok",
       broken > 0
         // ★ C276：只说"需要 migrate"等于没说 —— 用户不知道命令叫什么、也不知道可以先 dry-run。
-        ? `${broken} 条边的 from 节点已不存在（图坏了）：` +
-          "先 `dsh-gokifu-compact migrate-dangling` 看清单（dry-run），确认后加 `--apply`（会自动备份）"
+        ? `${broken} 条边的 from 节点已不存在（图坏了，全历史）：` +
+          "先 `dsh-gokifu-compact migrate-dangling` 看清单（dry-run），确认后加 `--apply`（会自动备份）" +
+          stockText
         : live > 0
-          ? `${live} 条边在 fold 时仍未结算（可能切在动作中间）—— 结合「fold 边界完整性」看`
-          : `${marks.length} 次 fold：residue ${residue} / candidates ${candidates} / liveUnsettled 0 / fromBroken 0`,
+          ? `最近 ${recent.length} 次 fold 里还有 ${live} 条边未结算（可能切在动作中间）—— 结合「fold 边界完整性」看${stockText}`
+          : `最近 ${recent.length} 次 fold 都结算干净（liveUnsettled 0 / fromBroken 0）· 全历史 residue ${residue} / candidates ${candidates}${stockText}`,
     );
   }
 }
@@ -1877,10 +1961,7 @@ mark('保真度 L1');
 mark('4.8 悬空');
 /* ── 4.9 fold 边界完整性（C31）：切点落在工具调用中间 = 摘要引用区间外结果，判 error ── */
 {
-  const withBoundary = recentFoldMarks
-    .filter((m) => m?.boundary && typeof m.boundary.openAtEnd === "number")
-    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
-    .slice(0, 10);
+  const withBoundary = recentFoldWindow(recentFoldMarks.filter((m) => m?.boundary && typeof m.boundary.openAtEnd === "number"));
   if (withBoundary.length === 0) {
     add("fold 边界完整性", "warn", "未采集（foldMark 还没有 boundary —— 旧版本或还没 fold 过）");
   } else {
@@ -1971,10 +2052,25 @@ mark('C220 缓存命中');
           (Number(stats.skipReasons?.["identical"]) > 0
             ? ` · 其中「清单内容没变」跳过 ${stats.skipReasons["identical"]} 次（清单没变就不重写：省 token，也保住前缀缓存单元——见 docs/knowledge/上下文缓存-单元语义-deepseek.md）`
             : "");
+    // ★ C604：**over-budget 的判级要按「还有没有更省的形式」，不是「发生过几次」。**
+    //   本文件自己的口径早就写明这三种都是**设计内**：
+    //     · C244：落在 L5 = 已是最省一份（budgetMax 已经给到能塞下的最小形态）；
+    //     · C49：已列全失败边仍超（budgetIrreducible）—— 再省只能删失败记忆，那是合同红线；
+    //     · C44：约束+根目标下限本身就超预算（budgetFloorOver）—— 不可裁。
+    //   旧判据 `over > 0` 把它们全算成告警 ⇒ 一台长期跑满的机器**永远红**（恒真）。
+    //   真机（2026-11-05 01:38）：over-budget=16，其中 L5=15、budgetIrreducible=1 ⇒ 16/16 设计内，
+    //   却报 `!`。现在：设计内样本数 = min(over, L5 + budgetFloorOver + budgetIrreducible)，
+    //   剩下的才是「明明有更省的形式却仍超预算」= 可能是渲染 bug，只有它才判 warn。
+    const l5 = Number(stats.overByLevel?.L5 ?? 0);
+    const designInternal = Math.min(
+      over,
+      Math.max(0, l5) + Math.max(0, Number(stats.budgetFloorOver ?? 0)) + Math.max(0, Number(stats.budgetIrreducible ?? 0)),
+    );
+    const actionableOver = Math.max(0, over - designInternal);
     add(
       "热清单预算（fallback）",
-      impossible > 0 ? "error" : over > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
-      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
+      impossible > 0 ? "error" : actionableOver > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
+      `none=${none} / over-budget=${over}${over > 0 ? `（其中设计内 ${designInternal}、还有更省形式却仍超 ${actionableOver}）` : ""} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
         (Number(stats.budgetFloorOver) > 0
           ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
           : "") +
