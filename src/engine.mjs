@@ -2097,7 +2097,22 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (skippedNoLog > 0) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账跳过 ${skippedNoLog} 个日志已不在的会话（补不了）`);
       }
-      const picked = rankDebts(withLog, { limit: max });
+      // ★ C591（审核指出"第 6 名之后永远轮不到"）：**加一个冷却窗口**。
+      //   排序仍是 `tail+gap` 降序（C216/C520 的契约不变），但**刚补过的会话在 45 分钟内不再优先**，
+      //   否则头部五个大会话每轮都占满名额、后面的永远排不上（真机 185 个欠账就是这么卡住的）。
+      //   若冷却后不够 max 个，就退回完整列表（宁可重复，也不要空转）。
+      if (!(this._backfillLastPicked instanceof Map)) this._backfillLastPicked = new Map();
+      const nowTick = Date.now();
+      const COOLDOWN_MS = 45 * 60_000;
+      const notCooling = withLog.filter((it) => {
+        const at = Number(this._backfillLastPicked.get(String(it?.sessionId ?? "")) ?? 0);
+        return !(at > 0 && nowTick - at < COOLDOWN_MS);
+      });
+      const pickPool = notCooling.length >= Math.min(max, withLog.length) ? notCooling : withLog;
+      if (pickPool !== withLog) {
+        this.ctx?.logger?.info?.(`chess-context: 自动补账避开 ${withLog.length - pickPool.length} 个刚补过的会话（冷却 45 分钟）`);
+      }
+      const picked = rankDebts(pickPool, { limit: max });
       let done = 0;
       // ★ C587：**整轮墙钟**。以前 `t0` 在 for 内的每个会话各自重置 ⇒ 一轮根本没有总预算。
       // ★ C583/C587：本轮时间预算。按秒夹到 [20, 3600]（原来单位写错成 ×1000，等于没有预算）。
@@ -2152,6 +2167,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           if (Date.now() - tickStart > budgetMs) break;
         }
         done += 1;
+        try {
+          this._backfillLastPicked.set(id, Date.now());
+        } catch {
+          /* 记账失败不影响补账 */
+        }
         this.ctx?.logger?.info?.(
           `chess-context: 自动补账 ${id.slice(0, 8)} → ${marks} 段（${Math.round((Date.now() - tickStart) / 1000)}s）` +
             (lastOutcome?.partial === true ? "（仍有缺口，下轮继续）" : "") +

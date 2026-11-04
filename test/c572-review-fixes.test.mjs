@@ -132,7 +132,7 @@ tests["C579 活会话必须在排序之前剔除（否则名额被占满、永�
   const at = src.indexOf("async #autoBackfillTick");
   const seg = src.slice(at, at + 9000);
   const filterAt = seg.indexOf("const withLog = (listed.items ?? []).filter");
-  const rankAt = seg.indexOf("rankDebts(withLog");
+  const rankAt = Math.max(seg.indexOf("rankDebts(pickPool"), seg.indexOf("rankDebts(withLog"));
   t.eq(filterAt >= 0 && rankAt >= 0, true, "两处都要在");
   t.eq(filterAt < rankAt, true, "过滤要在排序之前");
   t.includes(seg, "liveSkipIds", "跳过要留痕");
@@ -155,4 +155,14 @@ tests["C588 面板补账通道不许引用不存在的变量（bridge0 曾让整
     .join(String.fromCharCode(10));
   t.eq(/(^|[^A-Za-z0-9_$.])bridge0([^A-Za-z0-9_]|$)/.test(code), false, "代码里不许出现 bridge0");
   t.includes(code, "bridge.isBackfillBusy(it.sessionId)", "必须用真实存在的 bridge");
+};
+
+tests["C591 补账要轮转：刚补过的会话 45 分钟内不再优先（否则头部永远占满）"] = (t) => {
+  const src = engine();
+  const at = src.indexOf("async #autoBackfillTick");
+  const seg = src.slice(at, at + 9000);
+  t.includes(seg, "_backfillLastPicked", "要记谁刚补过");
+  t.includes(seg, "COOLDOWN_MS", "要有冷却窗口");
+  t.includes(seg, "pickPool", "冷却后不够时要退回完整列表");
+  t.eq(seg.includes("rankDebts(withLog, { limit: max })"), false, "不许再直接对完整列表取头部");
 };

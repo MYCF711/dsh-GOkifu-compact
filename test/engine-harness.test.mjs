@@ -3061,7 +3061,9 @@ tests["C570 日志没了的欠账不该每轮白占名额"] = async (t) => {
   t.includes(tick, "withLog", "先按日志存在性过滤");
   t.includes(tick, "findSessionLog(home", "判据是磁盘上还有没有日志");
   t.includes(tick, "补不了", "跳过要留痕（否则人会以为在偷懒）");
-  t.includes(tick, "rankDebts(withLog", "排序与挑选用过滤后的列表");
+  // ★ C591 起排序用的是冷却后的池子，但它仍然来自 withLog（日志已不在的先被剔除）
+  t.eq(/rankDebts\((withLog|pickPool)/.test(tick), true, "排序与挑选用过滤后的列表");
+  t.includes(tick, "allLogs.find((p) => p.includes(want))", "日志判定仍以一次遍历的清单为准");
 };
 
 tests["C583 积压越大每轮补越多（>100 ⇒ 5 个；预算 240→420s）"] = async (t) => {
