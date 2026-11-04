@@ -8,7 +8,7 @@
 | ✅ **运行实例已接管（真机）** | 面板 **62391** · version **1.17.6** · 心跳 buildId 与磁盘一致（版本核对里那条陈旧提示已消失）· 动作指纹 **2515 / 30247 条边**带 `sig` · 补账干跑 **due 55 / 55 个欠账 / $1.74** |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1337 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**6/6 判分门 + 5 条参考门**。全量 **1341 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
 | 补账（尚未执行） | `node scripts/backfill-plan.mjs`：约 **46–47 个欠账 / 10.3M tok / $1.65 / 82 段 / 约 16 分钟**；**3 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 218348` 或调大 `closeoutTimeoutMs`（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册 |
@@ -104,7 +104,7 @@
 | **C67 minimal 字段接消费者（1.17.1）** | `minimal` → `minimalRenders` 计数 → doctor 显示「最小清单（无失败边）N 次」；T-5 + engine-harness + doctor-cli 三处断言；**专员审计 12 条全部收口** |
 | **C68 发布就绪评估（2026-11-02）** | `docs/发布就绪-2026-11-02.md`：交付物形态 / 能力面 / 七层验证证据 / 「已无优化方向」逐项依据 / 已知缺口与不修理由 / 专员审核结论 / 重启清单（交用户）/ 结论：到达能力上限，唯一待办=重启 |
 | **C69 重启后核对脚本（2026-11-02）** | `scripts/post-restart-check.mjs`：buildId/版本/预算归因三态 + doctor 0 错 + boundary 0 条，一条命令给 fail/warn；live 实测 fail 1（缺 buildId）/ warn 1（578 次 over 无归因）⇒ 明确指向「等重启」；测试 3 例 |
-| **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`session-1337ce28` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
+| **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`session-1341ce28` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
 | **C71 研究文档收口（2026-11-02）** | `docs/research/00` §11 补 27–33、§11.1 刷新（752 passed / folds 15-6 / c=f=1）、新增 §11.2 审计规则演进（C15→C64 五次扩规则的漏网句式与「自审盲区」教训） |
 | **C72 真实会话校准（2026-11-02）** | `scripts/ledger-calibration.mjs`：live 24 会话按生产形状渲染 → **p50 419** / p90 521 / max 688 / 超预算 3-24；证明 bench 415 与真实中位一致（此前「未校准」已消除）；证据 `evidence/ledger-calibration.{json,md}`；测试 2 例 |
 | **C73 负结论（2026-11-02）** | 试图用 provider `outputTokens` 校准本地 `estimateTokens`：实测比值中位 0.537 但**分母含 reasoning/格式开销**，与摘要正文不同量 ⇒ 指标不落地（脚本已回滚）；正解仍需宿主 tokenizer；判据「分母必须与分子同量」入库 |
@@ -171,7 +171,7 @@
 | 生成器 | `node scripts/make-presets-override.mjs [--write]` —— 读宿主 asar 里的官方 preset，**文本级**改写（官方文件里的 `!!js` 表达式绝不能被 YAML round-trip）。DSH 升级后重跑再发版 |
 | 已否决 | **运行时接管方案（R17）**：`src/rooms/takeover.mjs` + `installTakeover` 会让 preset 生成树挂载失败（重启后会话只剩宿主级工具，`bash`/`read`/`write` 全消失）。代码在 `git stash`：`wip:R17-takeover（事故，留档）`，**不要恢复** |
 | 隔离验证（真跑过） | ① `--dump-config` 四个 `- id: preset-*` 行都带 `dsh-gokifu-compact/engine`；② `agentPreset: "standard"` 会话里**工具齐全**（模型成功调用工具并拿到输出）；③ `<home>/chess-context/sessions/<id>/graph.json` 落盘（含 user/agent 节点与带 verify 的边）；④ 卸载后 `--dump-config` 里引擎行归零、四个 preset 内部 `compaction-basic` 全部回来 |
-| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1337ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
+| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1341ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
 | 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
 | 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add D:/主工作区/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
@@ -276,7 +276,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 2. **引擎名必须写 `dsh-gokifu-compact/engine`**，不能写包根：包根 `exports["."]` → `src/ui.mjs` 是 UI host，
    DSH 会把 UI host 当压缩引擎，**装回去了照样挂**。
 
-> 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1337 B / 39 CRLF / 无 BOM）；
+> 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1341 B / 39 CRLF / 无 BOM）；
 > UTF-8 编辑器保存会让它静默失效。`live` 若用 `link:` 指向工作树，则**工作树里任何未提交改动重启后都会被直接加载**。
 >
 > **⚠ 启动器（1.13.0 发现并已修）**：`D:\DeepSeek Harness\启动 DSH.cmd` **原本是坏的** —— 两处路径写
