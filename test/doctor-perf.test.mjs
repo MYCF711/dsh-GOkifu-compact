@@ -54,3 +54,13 @@ tests["C516 doctor 必须报出「归档了但仍有一大截没折」的会话�
   t.eq(src.includes("lastFoldSeq"), true, "注释里要说明为什么不能用 lastFoldSeq");
   t.includes(src, "只能补账", "要告诉人怎么办（已归档的不会再收尾）");
 };
+
+tests["C536 doctor 要区分「开关开着」与「真的在动」"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "自动补账", "要有这一条");
+  t.includes(src, "近 24h 折了", "要报近 24h 的真实产出");
+  t.includes(src, "一次都没跑过", "从没跑过要明说");
+  t.includes(src, "开关开着却没产出", "开着但零产出要给出可能原因");
+  t.includes(src, "cordis.patch.yml", "开关来自预设文件");
+  t.includes(src, "enabled = false", "显式 false 才算关");
+};

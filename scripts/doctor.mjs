@@ -1110,6 +1110,57 @@ mark('3.5 置换合并');
   }
 }
 
+mark('C536 自动补账在动吗');
+/* ★ C536：**"开了"和"在动"是两件事**。
+   真机（2026-11-04）：开关是开的，可近 24h 只折了 4 段 —— 这个差别以前没有任何一处会告诉人。
+   判据全部来自棋谱（不依赖日志）：离线折叠的条数与最近时刻。 */
+{
+  const root5 = nodePath.join(home, "chess-context", "sessions");
+  let lastAt = null;
+  let last24h = 0;
+  let totalOffline = 0;
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  if (nodeFs.existsSync(root5)) {
+    for (const entry of nodeFs.readdirSync(root5, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(root5, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const m of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        if (m?.offline !== true) continue;
+        totalOffline += 1;
+        const at = Number(m?.at);
+        if (!Number.isFinite(at)) continue;
+        if (lastAt === null || at > lastAt) lastAt = at;
+        if (at >= cutoff) last24h += 1;
+      }
+    }
+  }
+  // 开关：预设里显式 false 才算关
+  let enabled = true;
+  try {
+    const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
+    if (nodeFs.existsSync(patch) && /autoBackfill:\s*false/.test(nodeFs.readFileSync(patch, "utf8"))) enabled = false;
+  } catch {
+    /* 读不到就当默认开 */
+  }
+  const ageMin = lastAt === null ? null : Math.round((Date.now() - lastAt) / 60000);
+  add(
+    "自动补账",
+    enabled === false ? "warn" : last24h > 0 ? "ok" : "warn",
+    enabled === false
+      ? "**已关闭**（设置里勾上就恢复）"
+      : `开 · 近 24h 折了 ${last24h} 段 · 累计 ${totalOffline} 段` +
+          (ageMin === null ? " · **一次都没跑过**" : ` · 最近一次 ${ageMin} 分钟前`) +
+          (last24h === 0 ? " ⇒ 开关开着却没产出：看是不是都是活会话（5 分钟内还在写会被跳过）" : ""),
+  );
+}
+
 mark('C516 归档后还剩多少没折');
 /* ★ C516：**"归档了但没折完"要能被看见**。
    真机（2026-11-04）：a09a4535 跑到 5,862 事件，最后一次折叠区间只到 1,874，尾巴 3,988 —— 
