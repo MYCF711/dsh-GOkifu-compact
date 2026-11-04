@@ -234,7 +234,18 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     // ★ C522：补缺口时必须**从头取**（否则 1 段模式永远只压尾巴）
     // ★ C532：一次都没折过的会话从**头部**开始（否则第一段从中间折，前段永远补不上）
     const fromHead = (debt.gap !== undefined && debt.gap !== null) || (Array.isArray(graph.foldMarks) ? graph.foldMarks.length : 0) === 0;
-    const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 || fromHead ? rangeStart : null });
+    // ★ C538：**把棋谱节点 id 带进消息**（引擎那条路已经这么做了，脚本这里漏了 ——
+    //   于是脚本产出的摘要状态节点全是 `n?`，引用回溯不了）。
+    const idBySeq = (() => {
+      const map = new Map();
+      for (const node of Object.values(graph?.nodes ?? {})) {
+        const seq = Number(node?.seq);
+        if (!Number.isFinite(seq) || typeof node?.id !== "string" || node.id === "" || map.has(seq)) continue;
+        map.set(seq, node.id);
+      }
+      return map;
+    })();
+    const { messages, chars, dropped } = collectMessages(events, { maxChars, fromSeq: maxChunks > 1 || fromHead ? rangeStart : null, idBySeq });
     // ★ C491：**记录真正覆盖的区间**。预算只装得下尾部若干条消息，
     //   若把 `seqEnd` 写成整个欠账区间的末尾，等于宣称"这段都压过了" —— 剩下的就再也看不见了。
     // ★ C491：**没有可做区间就别写**。真机踩过：`--session` 强制重跑一个已结清的会话，

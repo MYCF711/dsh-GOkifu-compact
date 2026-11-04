@@ -360,3 +360,11 @@ tests["C534 没撞上限也可能没写完：正文过短要重试（真机 reas
   t.eq(calls[1].maxTokens, 8000, "重试预算放大 2×");
   t.eq(out.chunks[0].text.length > 400, true, "用重试那次的长文本");
 };
+
+tests["C537 prompt 要求「每个状态节点得出了什么」（只写编号串不算）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const prompt = m.buildOfflinePrompt({ facts: "x", messages: [{ role: "user", text: "hi" }] });
+  t.includes(prompt, "得出了什么", "要有这句");
+  t.includes(prompt, "只写编号串不算", "要明确否掉编号串");
+  t.includes(prompt, "手上还差什么", "当前节点要交代差什么");
+};

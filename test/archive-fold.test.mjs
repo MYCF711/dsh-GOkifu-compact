@@ -109,3 +109,12 @@ tests["C523 活着的会话不许用脚本写回（宿主会覆盖，钱白花�
   t.includes(src, "mtimeMs", "判据看日志 mtime");
   t.includes(src, "applyOfflineFoldToGraph", "写回必须走共享实现（否则字段又会分叉）");
 };
+
+tests["C538 摘要里的状态节点必须能回溯：消息要带棋谱节点 id（否则全是 n?）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "archive-fold.mjs"), "utf8");
+  t.includes(src, "idBySeq", "脚本必须构造 seq→id");
+  t.includes(src, ", idBySeq }", "必须传给 collectMessages");
+  const room = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "offline-fold.mjs"), "utf8");
+  t.includes(room, "nearestId", "落在两个节点之间时用最近的节点（否则大多消息没有 id）");
+  t.includes(room, "· ${m.nodeId}", "id 要单独标在标题行（混在正文里模型不认）");
+};

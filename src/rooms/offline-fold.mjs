@@ -121,7 +121,33 @@ export function toolDigestLine(data, maxArgChars = 80) {
   return `→ ${name}(${body})`;
 }
 
-export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4, perMessageChars = 2000 } = {}) {
+export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4, perMessageChars = 2000, idBySeq = null } = {}) {
+  // ★ C538：**把棋谱里的节点 id 一起喂进去**。以前消息不带 id，模型只能写 `n?`，
+  //   而"引用要能回溯"正是这本棋谱的意义（真机 3a3fb03c：11 条状态节点全是 `n?`）。
+  // ★ C538：**最近的节点**也算（消息大多落在两个节点之间）。只给"精确匹配"的加前缀时，
+  //   模型看到的绝大多数字消息没有 id，于是照样写 `n?`（真机 3a3fb03c：11 条全是 n?）。
+  const sorted = (() => {
+    if (!(idBySeq instanceof Map)) return null;
+    return [...idBySeq.entries()].filter(([seq, id]) => Number.isFinite(seq) && typeof id === "string" && id !== "").sort((a, b) => a[0] - b[0]);
+  })();
+  const nearestId = (seq) => {
+    const target = Number(seq);
+    if (!Number.isFinite(target) || sorted === null || sorted.length === 0) return null;
+    let best = null;
+    for (const [nodeSeq, id] of sorted) {
+      if (nodeSeq > target) break;
+      best = id;
+    }
+    return best ?? sorted[0][1];
+  };
+  const idOf = (seq) => {
+    const id = idBySeq instanceof Map ? (idBySeq.get(Number(seq)) ?? nearestId(seq)) : idBySeq?.[Number(seq)];
+    return typeof id === "string" && id !== "" ? id : null;
+  };
+  const withId = (seq, text) => {
+    const id = idOf(seq);
+    return id === null ? text : `[${id}] ${text}`;
+  };
   const picked = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (e === null || typeof e !== "object") continue;
@@ -130,7 +156,7 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
     if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
     const text = plainText(e.data?.message?.content ?? e.data?.content);
     if (text.trim() === "") continue;
-    picked.push({ role: e.type === "user/message" ? "user" : "assistant", text, seq: Number(e.seq) || null });
+    picked.push({ role: e.type === "user/message" ? "user" : "assistant", text: withId(e.seq, text), nodeId: idOf(e.seq), seq: Number(e.seq) || null });
   }
   // ★ C521：把工具调用也编进时间线（受 toolShare 预算约束），否则摘要只剩"用户说了什么"
   const toolLines = [];
@@ -138,7 +164,7 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
     if (e === null || typeof e !== "object" || e.type !== "tool/call") continue;
     if (fromSeq !== null && !(Number(e.seq) >= fromSeq)) continue;
     const line = toolDigestLine(e.data);
-    if (line !== "") toolLines.push({ role: "tool", text: line, seq: Number(e.seq) || null });
+    if (line !== "") toolLines.push({ role: "tool", text: withId(e.seq, line), nodeId: idOf(e.seq), seq: Number(e.seq) || null });
   }
   const merged = [...picked, ...toolLines].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
   // ★ C521：**两份预算**。工具行最多占 toolShare（默认 40%），文本行吃剩下的 ——
@@ -323,7 +349,8 @@ export function renderFacts(graph, range) {
  * @returns {string}
  */
 export function buildOfflinePrompt({ facts, messages }) {
-  const body = (messages ?? []).map((m) => `### ${m.role}\n${m.text}`).join("\n\n");
+  // ★ C538：id **单独标在标题行** —— 混在正文里模型不认（真机连着 3 次全写 n?）。
+  const body = (messages ?? []).map((m) => `### ${m.role}${typeof m.nodeId === "string" && m.nodeId !== "" ? ` · ${m.nodeId}` : ""}\n${m.text}`).join("\n\n");
   return [
     "你在为一个**已经归档**的会话做摘要。这些消息不会再被对话模型看到，只会进我们的棋谱。",
     "",
@@ -335,7 +362,13 @@ export function buildOfflinePrompt({ facts, messages }) {
     "",
     "# 输出要求",
     "- 只输出摘要正文，用二级标题分节：目标 / 棋谱（状态节点） / 已探明死路 / 已验证事实 / 未验证 / 当前节点与最近用户消息 / 原始坐标。",
-    "- 引用实体只能引用上面出现过的 `n123` / `e456`；不确定就写 `n?`。",
+    // ★ C537：**只列节点编号没用**。真机读摘要时发现「棋谱」只有 `n43 → n44 → …` 的链条，
+    //   说不出每步**得出了什么**，读者还得回去翻原文 —— 那等于没压。
+    "- 「棋谱」每一条都要写成「哪个节点 做了什么 → **得出了什么**」，一条一句；只写编号串不算。",
+    "- 「当前节点」要说清：现在停在哪、手上还差什么、下一步的**已知约束**（不是建议）。",
+    "- 引用实体只能引用上面出现过的 `n123` / `e456`。",
+    // ★ C538：消息前缀就是答案 —— 但不说清楚模型宁可写 `n?`（真机 3a3fb03c 连着 3 次全是 n?）。
+    "- **原始消息行首的 `[n123]` 就是那一步的棋谱 id**：写状态节点时**必须**用它，不许写 `n?`；"+"只有整条消息前面确实没有方括号时才写 `n?`。",
     "- 不要写「下一步该做什么」这类行动建议。",
     // ★ C533：**篇幅与诚实**。以前没写长度上限，模型一路写到 4000 token 撞顶被截断（真机 8cc34e32）。
     "- 篇幅 **800–2500 字**；宁可少写，不要为凑篇幅重复。",
@@ -388,9 +421,21 @@ export async function runOfflineFold({
   for (let n = 1; n <= limit; n += 1) {
     if (rangeEnd < cursor) break;
     const chunkStart = cursor;
+    // ★ C538：seq → 节点 id（同一 seq 多个节点时取第一个；没有就留空）
+    const idBySeq = (() => {
+      const map = new Map();
+      for (const node of Object.values(graph?.nodes ?? {})) {
+        const seq = Number(node?.seq);
+        const id = typeof node?.id === "string" ? node.id : typeof node?.id === "string" ? node.id : null;
+        if (!Number.isFinite(seq) || id === null || map.has(seq)) continue;
+        map.set(seq, id);
+      }
+      return map;
+    })();
     const { messages, chars, dropped } = collectMessages(events, {
       maxChars,
       fromSeq: limit > 1 || fromHead === true ? chunkStart : null,
+      idBySeq,
     });
     if (messages.length === 0) break;
     const seqs = messages.map((m) => m.seq);

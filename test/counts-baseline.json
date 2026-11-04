@@ -1,10 +1,10 @@
 {
- "total": 985,
+ "total": 987,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
   "add-changelog.test.mjs": 4,
-  "archive-fold.test.mjs": 7,
+  "archive-fold.test.mjs": 8,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "backfill-plan.test.mjs": 10,
@@ -84,7 +84,7 @@
   "merge-provenance.test.mjs": 4,
   "migrate.test.mjs": 2,
   "node-docs.test.mjs": 2,
-  "offline-fold.test.mjs": 22,
+  "offline-fold.test.mjs": 23,
   "overbudget-report.test.mjs": 4,
   "p6c-preflight.test.mjs": 6,
   "pack-check.test.mjs": 3,
@@ -142,6 +142,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1304,
- "passedAt": "2026-11-04T01:02:39.594Z"
+ "passed": 1306,
+ "passedAt": "2026-11-04T01:12:46.765Z"
 }
