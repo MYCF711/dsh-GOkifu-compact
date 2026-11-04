@@ -423,6 +423,12 @@ export function todayAggregateFrom(scan) {
   let truncated = 0;
   // ★ C609：**「不知道」必须和「没截断」分开数**。旧口径下两者都落在 0 上 ⇒ 仪器静默失灵时面板看起来完全正常。
   let truncatedUnknown = 0;
+  // ★ C610：**「输入被裁」单独一个数**，不与上面的输出截断相加。
+  //   为什么必须分开：`truncated` 答的是「模型**写没写完**」，`inputTruncated` 答的是「模型**看没看全**」。
+  //   真机 526 条 foldMark 里 238 条是 `truncated:false` 而输入侧裁过（假「没截断」，审计见
+  //   `scripts/input-truncation-audit.mjs`）—— 混成一个数就再也分不出是"输出短了"还是"输入少了"。
+  //   只数**有证据裁过**（`=== true`）；`false` 与缺失（旧记录）都不数。
+  let inputTruncated = 0;
   for (const file of scan.files) {
     totalSessions += 1;
     const summary = graphSummary(file).summary;
@@ -460,6 +466,8 @@ export function todayAggregateFrom(scan) {
     for (const mark of marks) {
       if (isTruncatedFinish(mark?.finishReason) || mark?.truncated === true) truncated += 1;
       else if (mark?.truncated !== false && typeof mark?.finishReason !== "string") truncatedUnknown += 1;
+      // ★ C610：输入侧裁切独立计数（绝不并进 `truncated`）
+      if (mark?.inputTruncated === true) inputTruncated += 1;
     }
   }
   // ★ C239：`costUsd` 是**估算**（官方价目 × 真实 usage）；`costKnown` 是有 usage 的 fold 数，供页面标注覆盖率。
@@ -475,6 +483,8 @@ export function todayAggregateFrom(scan) {
     truncated,
     peakFolds,
     truncatedUnknown,
+    // ★ C610：今日**输入侧被裁**的折叠数（事件没放进去 / 单条正文被切）。与 `truncated` 语义不同，永不合并。
+    inputTruncated,
   };
 }
 

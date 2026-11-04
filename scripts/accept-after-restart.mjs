@@ -20,6 +20,9 @@ import { checkPanelCapabilities } from "./post-restart-check.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { currentGoalOf } from "../src/rooms/ledger.mjs";
 import { readUiRouteHeartbeat, repoBuildId } from "../src/rooms/build-stamp.mjs";
+// ★ C611：「这次折叠是不是被截断」只认 `kifu-model` 那一份判据（与 `src/ui.mjs` 同源）——
+//   这里以前自己写了个正则，于是 `max-tokens` / `max_tokens` / `length` 三种拼法各飘各的。
+import { isTruncatedFinish } from "../src/rooms/kifu-model.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -29,7 +32,7 @@ const ROOT = nodePath.resolve(HERE, "..");
  * @param {{caps: {level: string, known: string[], unknown: string[]},
  *          backfill: {reachable: boolean, due: number|null, error: string|null},
  *          closeout: {seen: boolean, sessions: number},
- *          truncation: {collected: number, truncated: number},
+ *          truncation: {collected: number, truncated: number, fromTruncated: number, unknown: number},
  *          buildOk: boolean}} evidence
  * @returns {{verdict: "ready"|"stale"|"partial", line: string, todo: string[]}}
  */
@@ -47,7 +50,13 @@ export function verdictOf({ caps, backfill, closeout, truncation, buildOk }) {
     todo.push("还没有任何会话留下 `closeout` ⇒ 归档收尾没跑过（**归档一个会话**再看；解析侧已由 C328 测住）");
   }
   if (truncation !== undefined && truncation.collected === 0) {
-    todo.push("还没有 foldMark 带 `finishReason` ⇒ 截断仪器未采集（要等重启后第一次折叠）");
+    // ★ C611：「不知道」与「没截断」必须分开说 —— 两个字段都没有时**不许**当成"没有截断"，
+    //   否则离线补折的截断会永远看不见（真机 283/462 条 foldMark 是离线补折）。
+    todo.push(
+      Number(truncation.unknown) > 0
+        ? `还没有 foldMark 能判截断 ⇒ 截断仪器未采集（${truncation.unknown} 条既没有 \`finishReason\` 也没有 \`truncated\` —— 不知道有没有被截断；要等重启后第一次折叠）`
+        : "还没有 foldMark ⇒ 截断仪器没有数据（要等重启后第一次折叠）",
+    );
   }
 
   const stale = unknown.length > 0 || buildOk === false;
@@ -68,9 +77,20 @@ export function verdictOf({ caps, backfill, closeout, truncation, buildOk }) {
   };
 }
 
-/** 读所有会话图的 closeout / finishReason 概览（离线，可单测）。 */
+/**
+ * 读所有会话图的 closeout / 截断证据概览（离线，可单测）。
+ *
+ * ★ C611：`truncation` 是**三态**，不是两态：
+ *   · `finishReason` 是截断类（max-tokens / max_tokens / length）**或** `truncated === true` ⇒ 截断；
+ *   · 明确没截断（`truncated === false` 或 finish 是 stop 类）⇒ 只算 `collected`；
+ *   · 两者都没有（旧记录 / 离线补折拿不到的上游 finish）⇒ `unknown`，**不许**并进"没截断"。
+ *   离线补折不写 `finishReason`（写入点取不到上游 finish），只读它会把主来路整条判成「未采集」。
+ */
 export function scanEvidence(sessionsRoot) {
-  const out = { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0 } };
+  const out = {
+    closeout: { seen: false, sessions: 0 },
+    truncation: { collected: 0, truncated: 0, fromTruncated: 0, unknown: 0 },
+  };
   if (!nodeFs.existsSync(sessionsRoot)) return out;
   for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -84,9 +104,15 @@ export function scanEvidence(sessionsRoot) {
     }
     if (g?.closeout !== undefined) out.closeout.seen = true;
     for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
-      if (typeof mark?.finishReason === "string") {
+      const reason = mark?.finishReason;
+      if (isTruncatedFinish(reason) || mark?.truncated === true) {
         out.truncation.collected += 1;
-        if (/max[-_]?tokens|length/i.test(mark.finishReason)) out.truncation.truncated += 1;
+        out.truncation.truncated += 1;
+        if (mark?.truncated === true) out.truncation.fromTruncated += 1;
+      } else if (typeof reason === "string" || mark?.truncated === false) {
+        out.truncation.collected += 1; // 有证据的「没截断」
+      } else {
+        out.truncation.unknown += 1; // 不知道 —— 与"没截断"分开计
       }
     }
   }
@@ -391,7 +417,11 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const sessionsRoot = home === "" ? "" : nodePath.join(home, "chess-context", "sessions");
-  const evidence = sessionsRoot === "" ? { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0 } } : scanEvidence(sessionsRoot);
+  const evidence =
+    sessionsRoot === ""
+      ? // ★ C611：没有 home 时的占位也要是**三态同形** —— 否则 JSON 快照会少字段，读的人分不清「不知道」和「没有」
+        { closeout: { seen: false, sessions: 0 }, truncation: { collected: 0, truncated: 0, fromTruncated: 0, unknown: 0 } }
+      : scanEvidence(sessionsRoot);
   // ★ C450：C446/C448/C449 这几轮改动**面板探针看不出来**（它们不改能力面），只能读磁盘上的图。
   const newCode = sessionsRoot === "" ? { sessions: 0, edges: 0, sigEdges: 0, goal: null, goalReason: "no-home", newest: null } : newCodeProbe(sessionsRoot);
 

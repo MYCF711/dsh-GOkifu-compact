@@ -2392,12 +2392,18 @@ mark('C219 注入动作');
 
 /* ★ C317：摘要被截断（finish_reason="length"）—— 官方文档说这时**内容可能被截断**，
    而被截断的摘要在 foldMark 里与完整的几乎一样（只是 summaryChars 短些）。
-   只在采集到 finishReason 的 fold 上统计；老 foldMark 没有该字段就明说"未采集"。 */
+   ★ C611：**离线补折不写 `finishReason`**（上游 finish 在写入点取不到，见 ui.mjs C609）——
+   截断证据落在 `truncated` 字段。只读 `finishReason` 会让离线标记（真机 283/462 条）一律报「未采集」。
+   这里与 `ui.mjs` 同一套「或」逻辑，且**三态分开**：
+     · `finishReason` 是截断类（max-tokens / max_tokens / length）**或** `truncated === true` ⇒ 截断；
+     · 明确没截断（`truncated === false` 或 finish 是 stop 类）⇒ 不算截断；
+     · 两者都没有（旧记录 / 该写入点没采集）⇒ **不知道**，单独计数 —— 不许并进「没截断」。 */
 {
   const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
   let total = 0;
   let known = 0;
   let truncated = 0;
+  let fromTruncated = 0;
   let unknown = 0;
   if (nodeFs.existsSync(sessionsRoot)) {
     for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -2413,27 +2419,35 @@ mark('C219 注入动作');
       for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
         total += 1;
         const reason = mark?.finishReason;
-        if (typeof reason !== "string") {
-          unknown += 1;
-          continue;
-        }
-        known += 1;
         // ★ C320：三种拼法（max-tokens / max_tokens / length）归一化后统一判 —— 别再来回猜口径
-        if (isTruncatedFinish(reason)) truncated += 1;
+        if (isTruncatedFinish(reason) || mark?.truncated === true) {
+          truncated += 1;
+          known += 1;
+          if (mark?.truncated === true) fromTruncated += 1;
+        } else if (typeof reason === "string" || mark?.truncated === false) {
+          known += 1; // 有证据的「没截断」：上游说 stop，或我们的判定说写完了 —— 不是「不知道」
+        } else {
+          unknown += 1;
+        }
       }
     }
   }
   if (total === 0) {
     add("摘要截断（stopReason=max_tokens）", "warn", "未采集（没有 foldMark）");
   } else if (known === 0) {
-    add("摘要截断（stopReason=max_tokens）", "warn", `未采集（${total} 条 foldMark 都没有 stopReason —— C317/C318 之前的不记录）`);
+    add(
+      "摘要截断（stopReason=max_tokens）",
+      "warn",
+      `未采集（${total} 条 foldMark 既没有 stopReason 也没有 truncated —— 不知道有没有被截断；C317/C318 之前的不记录）`,
+    );
   } else {
     add(
       "摘要截断（finish_reason=length）",
       truncated > 0 ? "warn" : "ok",
-      `${known} 次有 finishReason 的 fold 里 **${truncated}** 次是 length` +
+      `${known} 条有截断证据的 fold 里 **${truncated}** 条被截断` +
+        (fromTruncated > 0 ? `（其中 **${fromTruncated}** 条来自 \`truncated\`：离线补折拿不到上游 finish）` : "") +
         `（终止原因=max-tokens ⇒ 内容可能被截断，摘要可能丢了约束/死路）` +
-        (unknown > 0 ? ` · 另有 ${unknown} 条未采集（C317 之前的 fold）` : ""),
+        (unknown > 0 ? ` · 另有 ${unknown} 条不知道（两个字段都没有）` : ""),
     );
   }
 }

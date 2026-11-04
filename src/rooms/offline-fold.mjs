@@ -86,7 +86,7 @@ export function readDefaultModel(home) {
  *
  * @param {Array<object>} events
  * @param {{maxChars?:number, fromSeq?:number|null}} [options]
- * @returns {{messages:Array<{role:string,text:string,seq:number|null}>, chars:number, dropped:number}}
+ * @returns {{messages:Array<{role:string,text:string,seq:number|null}>, chars:number, dropped:number, inputCutMessages:number, inputTruncated:boolean}}
  */
 /**
  * ★ C521：把一次工具调用压成**一行**（name + 关键参数），给摘要当"做过什么"的骨架。
@@ -241,7 +241,10 @@ ${plan.keepTail > 0 ? m.text.slice(-plan.keepTail) : ""}`;
     }
     out.reverse();
   }
-  return { messages: out, chars: out.reduce((n, m) => n + m.text.length, 0), dropped };
+  // ★ C610：**输入侧裁切**聚合出来 —— 整条没放进去（`dropped`）与单条正文被切（`truncated: true`）都算。
+  //   它答的是"模型看没看全"，与响应侧 `looksTruncated`（"模型写没写完"）是两件事，别混成一个字段。
+  const inputCutMessages = out.filter((m) => m.truncated === true).length;
+  return { messages: out, chars: out.reduce((n, m) => n + m.text.length, 0), dropped, inputCutMessages, inputTruncated: dropped > 0 || inputCutMessages > 0 };
 }
 
 /**
@@ -619,7 +622,7 @@ export async function runOfflineFold({
       }
       return map;
     })();
-    const { messages, chars, dropped } = collectMessages(events, {
+    const { messages, chars, dropped, inputCutMessages, inputTruncated } = collectMessages(events, {
       maxChars,
       fromSeq: limit > 1 || fromHead === true ? chunkStart : null,
       idBySeq,
@@ -743,6 +746,9 @@ export async function runOfflineFold({
       messages: messages.length,
       chars,
       dropped,
+      // ★ C610：**输入侧裁切**（事件没放进去 / 单条被切），与下面的 `truncated` 是两件事
+      inputTruncated,
+      inputCutMessages,
       text,
       repaired,
       // ★ C607：机械补回了几条死路（>0 说明模型的「已探明死路」段没逐条写 id）
@@ -919,6 +925,14 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       // ★ C584：`truncated` 一直没写进 mark —— 而 status 用它判"跑的是不是新代码"
       //   ⇒ 无论代码多新，那行永远报「⚠ 新字段一个都没写」。写下来，让探测器不再撒谎。
       truncated: chunk.truncated === true,
+      // ★ C610：**输入侧裁切单独记，绝不塞进 `truncated`** —— 两者答的不是同一个问题：
+      //     · `truncated`（响应侧 `looksTruncated`）= 模型**写没写完**（上游撞 max-tokens / 正文只剩骨架）；
+      //     · `inputTruncated`（输入侧 `collectMessages`）= 模型**看没看全**（事件整条没放进去，或正文被切）。
+      //   合成就丢掉「输入被裁、模型正常收尾」—— 那正是假「没截断」的来源（`scripts/input-truncation-audit.mjs`）。
+      //   取值只有三种：`true` 裁过 / `false` 没裁 / `null` 不知道（旧记录、生产者没给），绝不拿 `false` 冒充不知道。
+      inputTruncated: typeof chunk.inputTruncated === "boolean" ? chunk.inputTruncated : null,
+      // 被裁掉的**条数**（整条丢弃 + 正文被切），给 doctor / 审计一个可核对的整数；不知道就是 null
+      inputCutMessages: Number.isFinite(Number(chunk?.inputCutMessages)) ? Math.max(0, Number(chunk.inputCutMessages)) : null,
       offline: true,
     });
   }
