@@ -199,8 +199,11 @@ export function findOutOfRangeIds(graph, range, summaryText, { allow = null } = 
  * **重启后第一次折叠仍然编了 34 个**，而且是 `n3634,n3635,n3636,n3637` 这样的连续编号 ——
  * 正是那条规则明禁的写法。⇒ 提示词挡不住，必须有代码层兜底。
  *
- * 判据：id 在图里**存在**、且它的位置**不晚于折叠区间**（span.end ≤ range.end）才保留；
+ * 判据：id 在图里**存在**、且它的位置**不晚于折叠边界**（`span.end ≤ boundary`）才保留；
  * 其余（图里没有 / 晚于本次折叠）一律替换成 `n?` / `e?`。
+ * ★ T35：`boundary` **不再是 `range.end`** —— 单事件折叠（`seq 8-8`）的区间里一个节点都没有，
+ *   而 `range.end` 早于全图第一个实体 ⇒ 旧判据把全篇 `nN` 都判成「未来」（真机 51/365 摘要零锚点）。
+ *   现在的界 = 折叠结束前最后一个**完整存在过**的实体的 seq（见下方注释）；取不到 ⇒ 兜底不判「未来」。
  * 这样 checkpoint 里不会出现指不到、或指向"未来"的编号；具体丢了几个记在 `removed` 里，由 foldMark 带走。
  *
  * @param {string} text
@@ -211,6 +214,18 @@ export function findOutOfRangeIds(graph, range, summaryText, { allow = null } = 
 export function sanitizeSummaryIds(text, graph, range) {
   const src = String(text ?? "");
   if (range === null || range === undefined || !Number.isFinite(range.end)) return { text: src, removed: [], checked: 0 };
+  // ★ T35：界取「折叠结束前最后一个**完整存在过**的实体」的 seq —— 节点取 `seq`、边取 `evidence.end`，
+  //   两者都只取 ≤ `range.end` 的。为什么不能只看节点：真机 387 条摘要实测，尾部常常只有边没有节点，
+  //   只用节点会多抹 92 个正当 id（61 条摘要）；算上边之后，非退化区间与旧判据**逐条一致**（0 个 id 变化）。
+  //   取不到（区间早于全图）⇒ `boundary === null` ⇒ **兜底不判「未来」**：
+  //   抹掉全部锚点比留一个可疑 id 更坏（读者至少能用 id 回查棋谱）。
+  //   注意：**图里没有**的 id 仍然抹成 `n?`/`e?`（C458 的另一半，与「未来」无关）。
+  let boundary = null;
+  const extend = (seq) => {
+    if (Number.isFinite(seq) && seq <= range.end) boundary = boundary === null ? seq : Math.max(boundary, seq);
+  };
+  for (const node of Object.values(graph?.nodes ?? {})) extend(Number(node?.seq));
+  for (const edge of Object.values(graph?.edges ?? {})) extend(Number(evidenceSpan(edge)?.end));
   const removed = [];
   let checked = 0;
   const out = src.replace(/[en][0-9]{1,4}/g, (id, offset) => {
@@ -225,7 +240,7 @@ export function sanitizeSummaryIds(text, graph, range) {
       return isEdge ? "e?" : "n?";
     }
     const span = isEdge ? evidenceSpan(obj) : Number.isFinite(obj.seq) ? { start: obj.seq, end: obj.seq } : null;
-    if (span !== null && span.end > range.end) {
+    if (boundary !== null && span !== null && span.end > boundary) {
       removed.push(id);
       return isEdge ? "e?" : "n?";
     }
