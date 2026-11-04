@@ -261,6 +261,37 @@ export function decideInjection({
     const zeroFailure = failureEdges(graph).length === 0 && warning === "";
     if (zeroFailure && !hasLedgerState(graph)) return { decision, action: "skip", reason: "no-ledger" };
 
+    // ★ C563：**先判"这次到底要不要写"，再渲染**。渲染是这条路上最贵的一步
+    //   （真机最大会话 142.4ms → 优化后 ~25ms/次），而实测 3,418 步里只写了 28 次（1%）。
+    //   以前是先渲染再限流 ⇒ **99% 的渲染白做**。这里把限流判据提前（它们不需要渲染文本），
+    //   只保留"内容一字不差"这一条必须在渲染后判。
+    const failureCountEarly = failureEdges(graph).length;
+    const existingEarly = findLedgerNode(session);
+    const digestEarly = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0 });
+    const lostToFoldEarly =
+      existingEarly === null && state.lastLedgerDigest === digestEarly && state.lastLedgerFailureCount !== undefined;
+    // 清单还在、且 digest 与上次注入相同 ⇒ 内容没变（digest 只由根目标/约束/失败数决定）。
+    // 这条必须在限流之前判，否则"内容没变"会被报成 "throttled-events"（语义没变，但原因变了）。
+    if (existingEarly && warning === "" && state.lastLedgerDigest === digestEarly) {
+      return { decision, action: "skip", reason: "identical" };
+    }
+    if (!lostToFoldEarly && warning === "") {
+      const minEventsEarly = (() => {
+        const raw = Number(config?.hotLedgerMinEvents);
+        return Number.isFinite(raw) && raw >= 1 ? Math.min(500, Math.trunc(raw)) : INJECT_MIN_EVENTS;
+      })();
+      const minFailureDeltaEarly = (() => {
+        const raw = Number(config?.hotLedgerMinFailureDelta);
+        return Number.isFinite(raw) && raw >= 0 ? Math.min(50, Math.trunc(raw)) : INJECT_MIN_FAILURE_DELTA;
+      })();
+      const eventsShort =
+        typeof state.lastLedgerInjectSeq === "number" && session.seq - state.lastLedgerInjectSeq < minEventsEarly;
+      const failuresShort =
+        typeof state.lastLedgerFailureCount === "number" && failureCountEarly < state.lastLedgerFailureCount + minFailureDeltaEarly;
+      if (eventsShort) return { decision, action: "skip", reason: "throttled-events" };
+      if (failuresShort) return { decision, action: "skip", reason: "throttled-failures" };
+    }
+
     const ledger = zeroFailure
       ? renderMinimalLedger(graph, { maxTokens: config.hotLedgerMaxTokens ?? 500 })
       : renderLedger(graph, {

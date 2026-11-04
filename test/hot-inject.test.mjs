@@ -601,3 +601,43 @@ tests["C360 追加前要收缩历史：旧清单换成占位，常驻清单收�
     .filter((ev) => !/已省略|占位|elided/.test(messageTextOf(ev)));
   t.eq(live.length <= 2, true, `常驻真清单应 ≤2 份，实际 ${live.length}`);
 };
+
+tests["C563 限流先于渲染：被限流的那一次不许渲染（99% 的渲染是白做）"] = async (t) => {
+  // 真机：3,418 步里只写了 28 次（1%）⇒ 以前 99% 的渲染白做（最大会话 142.4ms → 优化后 ~25ms）。
+  const graph = graphWithFailure();
+  const session = makeSession();
+  let budgetCalls = 0;
+  const onBudget = () => {
+    budgetCalls += 1;
+  };
+  // 第一次：正常注入（会渲染）
+  const first = decideInjection({
+    session,
+    graph,
+    state: {},
+    config: CONFIG,
+    sessionDir: "D:/tmp/s",
+    decision: makeDecision([{ id: "x" }]),
+    payloadMessages: [{ id: "x" }],
+    createUserMessage,
+    onBudget,
+    onLog: () => {},
+  });
+  const afterFirst = budgetCalls;
+  // 第二次：事件间隔不够 ⇒ 应当**在渲染之前**就被挡掉
+  const second = decideInjection({
+    session,
+    graph,
+    state: { lastLedgerInjectSeq: session.seq - 1, lastLedgerFailureCount: 0, lastLedgerDigest: "zzz" },
+    config: { ...CONFIG, hotLedgerMinEvents: 100, hotLedgerMinFailureDelta: 50 },
+    sessionDir: "D:/tmp/s",
+    decision: makeDecision([{ id: "x" }]),
+    payloadMessages: [{ id: "x" }],
+    createUserMessage,
+    onBudget,
+    onLog: () => {},
+  });
+  t.eq(second.action, "skip", "第二次该被限流");
+  t.includes(second.reason, "throttled", "原因是限流");
+  t.eq(budgetCalls, afterFirst, "被限流的那一次**没有渲染**（onBudget 没被调用）");
+};

@@ -1,5 +1,5 @@
 {
- "total": 1015,
+ "total": 1016,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -53,7 +53,7 @@
   "graph-fixtures.test.mjs": 5,
   "graph-invariants.test.mjs": 1,
   "handoff-check.test.mjs": 22,
-  "hot-inject.test.mjs": 7,
+  "hot-inject.test.mjs": 8,
   "index-fingerprint.test.mjs": 2,
   "inject-tail.test.mjs": 2,
   "install-link.test.mjs": 29,
@@ -146,6 +146,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1334,
- "passedAt": "2026-11-04T03:47:48.544Z"
+ "passed": 1335,
+ "passedAt": "2026-11-04T03:56:47.016Z"
 }
