@@ -129,9 +129,10 @@ async function callModel({ baseUrl, apiKey, model, prompt, maxTokens, timeoutMs 
         //   交互会话的前缀一旦被挤掉，下一次请求就要按全价重算 —— 那正是"折叠完反而更贵"的一种来源。
         //   补账是后台批处理，本来就该跟交互流量分开记账、分开占缓存。
         user_id: "gokifu-backfill",
-        // ★ C576：有些上游**忽略** `thinking:{type:"disabled"}`（真机 trustoken：照样 4.6–5.4k reasoning）；
-        //   官方《思考模式》还提供了强度档 —— 一并传 `low`，能降就降，不能降也无害。
-        reasoning_effort: "low",
+        // ★ C578：**`reasoning_effort` 的档位不是"强度大小"，`none` 才是关闭开关**。
+        //   官方 API 参考逐字：「none 关闭思考模式；low / high / max 开启思考模式」。
+        //   所以 C576 里传 `low` 其实还是**开着**思考（只是低强度）。要省 reasoning 必须传 `none`。
+        reasoning_effort: "none",
         stream: false,
       }),
       signal: controller.signal,

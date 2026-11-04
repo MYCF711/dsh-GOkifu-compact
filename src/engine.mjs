@@ -2003,10 +2003,32 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           return [];
         }
       })();
+      // ★ C579（重启后真机发现）：**活会话必须在排序之前就剔除**。
+      //   真机（2026-11-04 16:42 重启后第一次 tick）：欠账前 3 名（8a73e06b / 226dbf4f / 62bcb7d2）
+      //   全是**日志还在写**的活会话 ⇒ 每轮 3 个名额被它们占满、循环里 `continue` 掉 ⇒ **一次都没补成**，
+      //   而机器越忙、尾巴越大的会话越容易被排到前面 —— 这是"永远补不动"的结构性原因。
+      //   现在：先按「有日志 + 日志 >5 分钟没动」过滤，再排序取前 max 个。
+      const liveSkipIds = [];
       const withLog = (listed.items ?? []).filter((item) => {
         const want = String(item.sessionId ?? "").replace(/^session-/, "");
-        return want !== "" && allLogs.some((p) => p.includes(want));
+        if (want === "") return false;
+        const logPath = allLogs.find((p) => p.includes(want));
+        if (logPath === undefined) return false;
+        try {
+          if ((Date.now() - nodeFs.statSync(logPath).mtimeMs) / 60_000 < 5) {
+            liveSkipIds.push(String(item.sessionId));
+            return false;
+          }
+        } catch {
+          /* stat 失败就当可补 */
+        }
+        return true;
       });
+      if (liveSkipIds.length > 0) {
+        this.ctx?.logger?.info?.(
+          `chess-context: 自动补账跳过 ${liveSkipIds.length} 个活会话（日志还在写，写了会被宿主覆盖）`,
+        );
+      }
       const skippedNoLog = (listed.items ?? []).length - withLog.length;
       if (skippedNoLog > 0) {
         this.ctx?.logger?.info?.(`chess-context: 自动补账跳过 ${skippedNoLog} 个日志已不在的会话（补不了）`);
@@ -2200,6 +2222,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           //   max_tokens）。脚本那条路早就关了，引擎这条路一直没关 —— 真机实测 reasoning 曾吃掉
           //   3816/4000，正文只剩 715 字符。摘要这种"照事实改写"的活不需要思考。
           thinking: { type: "disabled" },
+          // ★ C578：**`reasoning_effort` 的 `none` 才是关闭开关**。官方 API 参考逐字：
+          //   「none 关闭思考模式；low / high / max 开启思考模式」。有些上游忽略 `thinking:disabled`，
+          //   真机（2026-11-06）加 `none` 后 reasoning 从 4,638–14,585 掉到 **455**，
+          //   同一段摘要从 3.8k 字符（被截断）变成 **14,787 字符**（完整）。
+          reasoning_effort: "none",
         })) {
           assembler.push(chunk);
         }

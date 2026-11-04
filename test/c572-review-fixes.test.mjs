@@ -126,3 +126,15 @@ tests["C577 面板「补做收尾」必须认 graphDir（否则自定义目录�
   t.includes(ui, "bridge?.chess?.graphDir", "从引擎实例取配置（不是从参数猜）");
   t.eq(/graphRoot\(\{ dshHome: home \}\)/.test(ui), false, "不许再忽略 graphDir");
 };
+
+tests["C579 活会话必须在排序之前剔除（否则名额被占满、永远补不动）"] = (t) => {
+  const src = engine();
+  const at = src.indexOf("async #autoBackfillTick");
+  const seg = src.slice(at, at + 9000);
+  const filterAt = seg.indexOf("const withLog = (listed.items ?? []).filter");
+  const rankAt = seg.indexOf("rankDebts(withLog");
+  t.eq(filterAt >= 0 && rankAt >= 0, true, "两处都要在");
+  t.eq(filterAt < rankAt, true, "过滤要在排序之前");
+  t.includes(seg, "liveSkipIds", "跳过要留痕");
+  t.includes(seg, "日志还在写", "文案要说清为什么跳过");
+};

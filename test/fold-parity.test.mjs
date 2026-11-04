@@ -53,5 +53,16 @@ tests["C576 正文被推理挤掉时要补预算重试（不是有文本就算�
   t.includes(script, 'result.finish === "length" && Number(result.usage?.reasoning_tokens ?? 0) > 0', "要按实测推理量判截断");
   t.includes(script, "正文被推理挤掉", "重试要留痕");
   t.includes(script, "32_768", "补预算要有上限");
-  t.includes(script, 'reasoning_effort: "low"', "同时传强度档（官方支持，部分上游忽略）");
+  t.includes(script, 'reasoning_effort: "none"', "关闭思考（none 才是开关）");
+};
+
+tests["C578 两条路都要传 reasoning_effort: none（none 才是关闭开关）"] = (t) => {
+  const script = read("scripts/archive-fold.mjs");
+  const engine = read("src/engine.mjs");
+  t.includes(script, 'reasoning_effort: "none"', "脚本要关思考");
+  const at = engine.indexOf("async #offlineCloseoutFold");
+  t.includes(engine.slice(at, at + 9000), 'reasoning_effort: "none"', "引擎也要关思考");
+  // ★ low/high/max 都是"开启"，别再被当成强度旋钮
+  t.eq(script.includes('reasoning_effort: "low"'), false, "low 是开启思考，不是降低强度");
+  t.includes(script, "none 关闭思考模式", "注释要写明官方原话（免得又被改回 low）");
 };
