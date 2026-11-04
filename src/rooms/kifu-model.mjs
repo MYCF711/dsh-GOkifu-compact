@@ -525,7 +525,7 @@ export function toJSON(g) {
   return JSON.stringify(g, null, 1);
 }
 
-export function fromJSON(text) {
+export function fromJSON(text, { heal = false } = {}) {
   const obj = JSON.parse(text);
   if (obj.version !== GRAPH_VERSION) throw new Error(`graph: unsupported version ${obj.version}`);
   // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
@@ -566,6 +566,35 @@ export function fromJSON(text) {
     if (rebuilt[key] === undefined) rebuilt[key] = id;
   }
   obj.stateIndex = rebuilt;
+  // ★ C526：**悬空边自愈**。合并/置换会把节点收拢进别的节点，可历史数据里出现过
+  //   「边还在、端点没了」（真机 session-8a73e06b：e4633 → from=n4559 不存在，C140 报警）。
+  //   这里给缺失端点**补一个桩节点**：边不丢（它记着"当时做过什么"），图也自洽。
+  //   桩节点带 `stub: true` 与来源边 id，随时能审计。
+  try {
+    const stubs = [];
+    if (!heal) throw new Error("skip");
+    for (const edge of Object.values(obj.edges ?? {})) {
+      for (const side of ["from", "to"]) {
+        const nodeId = edge?.[side];
+        if (typeof nodeId !== "string" || nodeId === "") continue;
+        if (obj.nodes[nodeId] !== undefined) continue;
+        obj.nodes[nodeId] = {
+          id: nodeId,
+          seq: Number(edge?.evidence?.start) || null,
+          kind: side === "from" ? "agent" : "agent",
+          text: `（节点缺失，已补桩：边 ${edge?.id ?? "?"} 引用）`,
+          stub: true,
+          stubFromEdge: edge?.id ?? null,
+          ts: Date.now(),
+        };
+        if (Array.isArray(obj.order) && !obj.order.includes(nodeId)) obj.order.push(nodeId);
+        stubs.push(nodeId);
+      }
+    }
+    if (stubs.length > 0) obj.repairedStubs = [...new Set([...(obj.repairedStubs ?? []), ...stubs])];
+  } catch {
+    /* 自愈失败不影响加载 */
+  }
   return obj;
 }
 
@@ -670,6 +699,9 @@ export function validate(g) {
     const node = g.nodes[id];
     if (!node) { problems.push(`order 引用了不存在的节点 ${id}`); continue; }
     if (node.kind === "user" && !node.text) problems.push(`user ${id}: 原话为空（约束锚失效）`);
+    // ★ C526：补桩节点（`stub:true`）**故意没有状态哈希** —— 它是"端点被删、边还在"时补的占位，
+    //   给它编个假哈希反而会把置换表污染成假的"同一局面"。这里直接跳过，但**计入**可见字段。
+    if (node.stub === true) continue;
     if (node.kind === "agent" && (!node.worldHash || !node.constraintHash)) {
       problems.push(`agent ${id}: 缺状态哈希（置换表会退化）`);
     }
@@ -1261,7 +1293,7 @@ export function deltaFromDirty(g, dirty = peekDirty(g)) {
  * 把一帧增量应用到图上（幂等：upsert 是绝对覆盖；order 追加前查重）。
  * 应用后 stateIndex 按 fromJSON 的同一规则重建 —— 它是派生数据，不进 delta。
  */
-export function applyDelta(g, delta) {
+export function applyDelta(g, delta, { heal = false } = {}) {
   if (!delta || delta.v !== 1) throw new Error(`graph: unsupported delta version ${delta?.v}`);
   for (const [id, node] of Object.entries(delta.nodes ?? {})) g.nodes[id] = node;
   for (const [id, edge] of Object.entries(delta.edges ?? {})) g.edges[id] = edge;
@@ -1286,6 +1318,29 @@ export function applyDelta(g, delta) {
       }
     }
   }
+  // ★ C526：**删节点会留下悬空边**（真机 session-8a73e06b：delta 删了 n4559，而 e4633 留在 base 里
+  //   ⇒ C140 报「from 节点不存在」）。这里在应用增量后扫一遍：端点没了的边**补桩节点**，
+  //   边本身保留 —— 它记着"当时做过什么"，不该因为一次收拢就消失。
+  const stubs = [];
+  if (heal) for (const edge of Object.values(g.edges ?? {})) {
+    for (const side of ["from", "to"]) {
+      const nodeId = edge?.[side];
+      if (typeof nodeId !== "string" || nodeId === "") continue;
+      if (g.nodes[nodeId] !== undefined) continue;
+      g.nodes[nodeId] = {
+        id: nodeId,
+        seq: Number(edge?.evidence?.start) || null,
+        kind: "agent",
+        text: `（节点缺失，已补桩：边 ${edge?.id ?? "?"} 引用）`,
+        stub: true,
+        stubFromEdge: edge?.id ?? null,
+        ts: Date.now(),
+      };
+      if (Array.isArray(g.order) && !g.order.includes(nodeId)) g.order.push(nodeId);
+      stubs.push(nodeId);
+    }
+  }
+  if (stubs.length > 0) g.repairedStubs = [...new Set([...(g.repairedStubs ?? []), ...stubs])];
   rebuildStateIndex(g);
   bumpRev(g);
   // 结构变了 ⇒ 索引缓存必须作废（直接删挂载的 Symbol，下次渲染重建）
