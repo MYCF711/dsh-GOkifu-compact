@@ -1,5 +1,5 @@
 {
- "total": 991,
+ "total": 994,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -112,6 +112,7 @@
   "selfloop.test.mjs": 1,
   "session-label.test.mjs": 4,
   "session-scan.test.mjs": 3,
+  "stale-claims.test.mjs": 3,
   "status.test.mjs": 10,
   "summary-refs.test.mjs": 8,
   "syntax.test.mjs": 1,
@@ -142,6 +143,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1310,
- "passedAt": "2026-11-04T01:46:13.655Z"
+ "passed": 1313,
+ "passedAt": "2026-11-04T01:51:52.474Z"
 }
