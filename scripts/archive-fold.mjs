@@ -27,6 +27,7 @@ import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
 import { applyOfflineFoldToGraph, foldBudgetFor } from "../src/rooms/offline-fold.mjs";
+import { COLD_INPUT_PER_MTOK, OUTPUT_PER_MTOK, PEAK_MULTIPLIER, SUMMARY_OUTPUT_TOKENS } from "./backfill-plan.mjs";
 import { measureFoldQuality } from "../src/rooms/fold-quality.mjs";
 
 // ★ C490：默认用 `deepseek-flash`，**不用** `group/...`。
@@ -280,11 +281,18 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
         `${uncoveredTail > 0 ? `，尾部还剩 ${uncoveredTail} 事件未覆盖` : ""}）` +
         ` · 消息 ${messages.length} 条（${chars} 字符${dropped > 0 ? `，更早的 ${dropped} 条未放` : ""}）`,
     );
-    const priceIn = Number(get("price-in", 0.028)); // 美元/百万输入 token（deepseek-flash 未命中）
-    const priceOut = Number(get("price-out", 0.28));
+    // ★ C580：**单价与补账计划同源**。这里原来写死 `0.028 / 0.28`（美元/百万 token），
+    //   而官方（2026-11-06 核实）低谷是 **¥1 输入未命中 / ¥4 输出** ≈ $0.14 / $0.56 —— **低了 5 倍**，
+    //   于是所有"这次大约多少钱"都被系统性低估。改成 import 计划脚本的常量（唯一口径）。
+    const priceIn = Number(get("price-in", COLD_INPUT_PER_MTOK));
+    const priceOut = Number(get("price-out", OUTPUT_PER_MTOK));
     const estInTok = Math.round(prompt.length * 0.3); // 粗估：以 ASCII 为主
-    const estCost = (estInTok / 1e6) * priceIn + (1600 / 1e6) * priceOut;
-    console.log(`  输入合计 ${prompt.length} 字符（≈${estInTok} tok）· 估价 ≈ $${estCost.toFixed(4)} · 模型 ${model}`);
+    const estOutTok = Number(get("est-out", SUMMARY_OUTPUT_TOKENS));
+    const estCost = (estInTok / 1e6) * priceIn + (estOutTok / 1e6) * priceOut;
+    console.log(
+      `  输入合计 ${prompt.length} 字符（≈${estInTok} tok）· 估价 ≈ $${estCost.toFixed(4)}（低谷）` +
+        ` / $${(estCost * PEAK_MULTIPLIER).toFixed(4)}（高峰）· 模型 ${model}`,
+    );
     if (!write) {
       console.log("  （干跑：加 --write 才会真的调用模型并写回）");
       // ★ C493：干跑也要推进游标，否则分段模式会把同一段打印 N 遍

@@ -66,3 +66,11 @@ tests["C578 两条路都要传 reasoning_effort: none（none 才是关闭开关�
   t.eq(script.includes('reasoning_effort: "low"'), false, "low 是开启思考，不是降低强度");
   t.includes(script, "none 关闭思考模式", "注释要写明官方原话（免得又被改回 low）");
 };
+
+tests["C580 两条路的单价必须同源（脚本不许再写死 0.028）"] = (t) => {
+  const script = read("scripts/archive-fold.mjs");
+  // 只禁"写死当默认值"，注释里提到旧数字是允许的（那正是留痕）
+  t.eq(/get\("price-in",\s*0\.028\)/.test(script), false, "旧单价（低 5 倍）不许再当默认值");
+  t.includes(script, "COLD_INPUT_PER_MTOK", "输入单价来自补账计划");
+  t.includes(script, "PEAK_MULTIPLIER", "要能算出高峰价");
+};
