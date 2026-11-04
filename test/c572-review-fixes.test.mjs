@@ -173,3 +173,13 @@ tests["C593 后台补账必须有状态文件（否则零产出与没跑过长�
   t.includes(src, "armed: true", "启动要落一个已布防标记");
   t.includes(src, "异常也要落盘", "抛错也要能看出来");
 };
+
+tests["C597 routedTarget 必须容错合成会话（补账 tick 传的是 {id,cwd}）"] = (t) => {
+  const src = engine();
+  const at = src.indexOf("function routedTarget(session)");
+  t.eq(at > 0, true, "函数还在");
+  const seg = src.slice(at, at + 900);
+  t.includes(seg, 'typeof session?.requestHeader === "function"', "必须先判方法再调（否则 TypeError）");
+  t.includes(seg, "C597", "注释要写明真机现象");
+  t.eq(/const config = session\.requestHeader\(\)/.test(seg), false, "不许直接调用");
+};

@@ -2904,9 +2904,9 @@ tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   // ① 无头：离线补折调用模型时**不许**带真实 sessionId（宿主会为它建/激活 surface ⇒ 会话被弹出来）
   const offlineCall = src.slice(src.indexOf("async #offlineCloseoutFold"), src.indexOf("async #offlineCloseoutFold") + 14000);
-  // ★ C596：现在给的是空 id 的合成会话壳（适配器要读会话上的方法），**真实 id 仍不许传**
+  // ★ C597：真因是 `routedTarget` 拿到合成会话就抛，不是宿主缺壳 ⇒ 保持 C525 的无头契约
   t.eq(offlineCall.includes("sessionId: id"), false, "不许把真实 sessionId 传给 llm.stream（会把会话弹出来）");
-  t.includes(offlineCall, 'sessionId: ""', "用空 id（无头），不激活任何真实会话");
+
   t.includes(offlineCall, "purpose: \"compaction\"", "仍然标明用途");
   // ② 落盘：改完内存必须 flush（自动补账那条路没有别的地方会写）
   t.includes(offlineCall, "this.persist.flush({ id, cwd: graph.cwd ?? \"\" }, graph, { full: true })", "必须落盘");

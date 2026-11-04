@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C580 | 根因在我们自己代码里：routedTarget 拿到合成会话就抛 |
 | C579 | 状态文件一句话定位：session.requestHeader is not a function |
 | C578 | 三个合理改动叠成零折叠：预算翻倍撞上固定截止 |
 | C577 | 零产出查不出来：加状态文件 + 关思考参数降级重试 |
@@ -651,6 +652,63 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C580 · 根因在我们自己代码里：routedTarget 拿到合成会话就抛
+
+**状态文件给出的错误，追下去发现根因在**我们自己的代码**里 —— 而且不是宿主的问题。**
+
+### 一、根因
+
+```js
+function routedTarget(session) {
+  const config = session.requestHeader()?.config;   // ← 这里
+  ...
+}
+```
+
+自动补账 tick 调 `#offlineCloseoutFold({ id, cwd })`，里面 `session = target?.session ?? target`
+= **`{id, cwd}` 这个合成对象**。它没有 `requestHeader` 方法 ⇒ 直接抛
+`TypeError: session.requestHeader is not a function`。
+
+而且抛点在**任何模型调用之前** ⇒ 五个会话全部 `stopped:"error"`、图上什么都不写、
+一分钟都不到 —— 与"补账完全不动"完全一致。
+
+### 二、我上一轮的假设是错的（要记下来）
+
+C596 我以为是"宿主适配器要会话壳"，于是给 `llm.stream` 塞了 `session/sessionId/toolHistory`。
+**那个假设是错的**，而且它把 C525「无头补账」的干净契约弄脏了。
+
+真因是 `routedTarget` 拿到合成对象就抛。已撤销 C596 的那部分，只保留真正的修复。
+
+### 三、改法（C597）
+
+```js
+const header = typeof session?.requestHeader === "function" ? session.requestHeader() : null;
+const config = header?.config;
+```
+
+补账是后台 job，本来就没有"当前路由"，**容错即可**。
+
+### 四、为什么这条三天没查出来
+
+它不写日志、不写图、不抛给宿主、不红测试：
+
+| 观测 | 现象 |
+|---|---|
+| 日志 | 在宿主控制台，看不到 |
+| 图 | `chunks.length === 0` 直接 return，一个字段都不写 |
+| 测试 | 用例传的是**真会话**，永远走不到合成对象那条路 |
+
+**只有把结局落盘（C593）才看得见。** 而这轮真正的教训是：**先做观测，再猜原因** ——
+我前三次重启都在猜（名额、截止、预算），全是错的方向。
+
+### 五、验证
+
+```
+node test/run.mjs → 1372 passed, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+（守卫：routedTarget 必须先判方法再调，且注释留真机现象）
+```
 
 ### C579 · 状态文件一句话定位：session.requestHeader is not a function
 

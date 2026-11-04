@@ -2363,19 +2363,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         //   `group/kimi-k3.1-pro` 之后补账连续零产出：HTTP 那条路认这两个字段，
         //   宿主的 `llm.stream` 未必 —— 一旦它严格校验，这里就抛错，而错误只在控制台里。
         //   所以：**先带、抛了再去掉重试一次**，并把降级记进 notes（可被状态文件带出来）。
-        // ★ C596（真机状态文件给出证据）：`TypeError: session.requestHeader is not a function`。
-        //   宿主的 `llm.stream` 在用某些 provider 适配器时会去读**会话对象**（带头信息/toolHistory），
-        //   而补账是无头的、本来就没有会话。C525 为了"别把会话弹出来"不传真实 sessionId ——
-        //   方向是对的，但**连一个可供调用的壳都没给**，于是适配器一读就抛。
-        //   这里给一个**合成会话壳**：只提供适配器会用到的方法，id 为空（不会激活任何真实会话）。
-        const hostShell = {
-          id: "",
-          cwd: "",
-          requestHeader: () => ({
-            config: { provider: target0.provider, model: target0.model, maxTokens: Number(maxTokens) || 8192 },
-          }),
-          toolHistory: () => [],
-        };
         const streamOnce = async (extra) => {
           const a = new BlockAssembler();
           for await (const chunk of this.ctx.llm.stream({
@@ -2383,10 +2370,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             model: target0.model,
             messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
             maxTokens: Number(maxTokens) || 8192,
-            // ★ C596：给适配器一个可调用的会话壳 + 空工具历史（补账本来就没有工具调用）
-            session: hostShell,
-            sessionId: "",
-            toolHistory: [],
+            // ★ C597：**不传 session / sessionId** —— C596 当年是按"宿主适配器要会话"的假设加的，
+            //   真因是 `routedTarget` 拿到合成会话就抛。这里保持 C525 的无头契约：只给 provider/model。
             ...extra,
           })) {
             a.push(chunk);
@@ -3110,8 +3095,14 @@ function resolveChess(config) {
   return out;
 }
 function routedTarget(session) {
-  const config = session.requestHeader()?.config;
-  if (config === undefined || !config.provider || !config.model) return undefined;
+  // ★ C597（真机状态文件定位，根因在**我们自己的代码**里，不是宿主）：
+  //   `TypeError: session.requestHeader is not a function` —— 自动补账 tick 传进来的 target 是
+  //   `{id, cwd}` 这种**合成会话**（它没有 requestHeader 方法），这里直接调就抛，
+  //   而且抛在**任何模型调用之前** ⇒ 五个会话全部 `stopped:"error"`、图上什么都不写。
+  //   补账是后台 job，本来就没有"当前路由"，容错即可。
+  const header = typeof session?.requestHeader === "function" ? session.requestHeader() : null;
+  const config = header?.config;
+  if (config === undefined || config === null || !config.provider || !config.model) return undefined;
   return { provider: config.provider, model: config.model };
 }
 
