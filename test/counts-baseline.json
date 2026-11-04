@@ -1,5 +1,5 @@
 {
- "total": 1172,
+ "total": 1182,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -68,6 +68,7 @@
   "hot-inject.test.mjs": 9,
   "index-fingerprint.test.mjs": 2,
   "inject-tail.test.mjs": 2,
+  "input-truncation.test.mjs": 6,
   "install-link.test.mjs": 29,
   "install-revert.test.mjs": 5,
   "install-ui-step.test.mjs": 5,
@@ -146,6 +147,7 @@
   "touched-files.test.mjs": 9,
   "trace-relative.test.mjs": 0,
   "tree-freshness.test.mjs": 5,
+  "truncation-consumers.test.mjs": 4,
   "ui-backfill.test.mjs": 12,
   "ui-config.test.mjs": 13,
   "ui-health.test.mjs": 0,
@@ -168,5 +170,5 @@
   "ws-install.test.mjs": 19
  },
  "passed": 1491,
- "passedAt": "2026-11-04T19:56:44.764Z"
+ "passedAt": "2026-11-04T20:00:31.340Z"
 }

@@ -301,21 +301,29 @@ export function measureFoldQuality({
   };
 }
 
+/** ★ C638：段名**别名表（闭集）**。真机摘要写的是 `## 已探明死路`，旧 `includes("## 死路")` 对它恒 false；
+ *  只收同一段的另一种叫法 —— 放宽成模糊包含会让 `## 已探明死路` 也算成 `## 目标`，探针恒绿 = 等于没探针。 */
+export const SECTION_ALIASES = { 目标: ["目标"], 棋谱: ["棋谱"], 死路: ["死路", "已探明死路"] };
 /** 摘要必备的二级标题（缺了就说明被截断或跑偏）。 */
 const REQUIRED_SECTIONS = ["目标", "棋谱"];
 /** 只有当**折叠区间里确实有失败边**时，才要求「死路」这一段（否则模型省略它是合理的）。 */
 const REQUIRED_SECTIONS_WITH_FAILURES = ["目标", "棋谱", "死路"];
+/** `## ` 同级标题名；尾部括号注记算同一段（`## 棋谱（状态节点）` → `棋谱`，`### x` 不算）。 */
+export const sectionNames = (text) =>
+  String(text ?? "").split(/\r?\n/).map((line) => /^##[ \t]+(\S.*)$/.exec(line)?.[1]).filter((x) => x !== undefined)
+    .map((name) => name.replace(/[（(][^（()）]*[）)]\s*$/, "").replace(/[:：]\s*$/, "").trim()).filter((name) => name !== "");
 
 /**
  * ★ C528：结构契约 —— 「齐全」和「没被截断」是两件事，指标得分开看。
+ * ★ C638：段名判定改成**别名全等**（`## 已探明死路` ⇒ 「死路」），旧写法 `includes("## 死路")` 恒假红。
  * @param {string} text
  * @returns {{sectionsMissing:string[], sectionsPresent:number, endedCleanly:boolean}}
  */
 export function describeStructure(text, { expectFailures = false } = {}) {
   const body = String(text ?? "");
   const required = expectFailures === true ? REQUIRED_SECTIONS_WITH_FAILURES : REQUIRED_SECTIONS;
-  const present = [];
-  for (const name of required) if (body.includes(`## ${name}`)) present.push(name);
+  const headings = sectionNames(body);
+  const present = required.filter((name) => (SECTION_ALIASES[name] ?? [name]).some((alias) => headings.includes(alias)));
   const sectionsMissing = required.filter((name) => !present.includes(name));
   // 结尾干净 = 最后一行不以分隔符/半个句子结束（行尾是标点、括号闭合、或代码围栏）
   const trimmed = body.trimEnd();
