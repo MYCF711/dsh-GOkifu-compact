@@ -2162,6 +2162,22 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           : "";
         return { text, usage: assembler.usage ?? null, model: target0.model };
       };
+      // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
+      //   `measureQuality` 闭包在调用期间读它 ⇒ `ReferenceError: Cannot access before initialization`
+      //   ⇒ 离线补折每次都在"模型已经答完之后"崩掉。
+      // ★ C539：事实块里出现的 id（e###/n###）—— 它们跨整个会话，越界探针要放行
+      const factsIds = (() => {
+        try {
+          // 与离线 renderFacts 同源：死路 + 已验证边（它们跨整个会话）
+          const ids = new Set();
+          for (const edge of Object.values(graph?.edges ?? {})) {
+            if (edge?.result === "failure" || edge?.result === "success") ids.add(String(edge.id));
+          }
+          return ids;
+        } catch {
+          return null;
+        }
+      })();
       const result = await runOfflineFold({
         graph,
         events,
@@ -2182,19 +2198,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           allowedIds: factsIds,
         }),
       });
-      // ★ C539：事实块里出现的 id（e###/n###）—— 它们跨整个会话，越界探针要放行
-      const factsIds = (() => {
-        try {
-          // 与离线 renderFacts 同源：死路 + 已验证边（它们跨整个会话）
-          const ids = new Set();
-          for (const edge of Object.values(graph?.edges ?? {})) {
-            if (edge?.result === "failure" || edge?.result === "success") ids.add(String(edge.id));
-          }
-          return ids;
-        } catch {
-          return null;
-        }
-      })();
       const outcome = offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq: rangeEnd });
       if ((result?.chunks ?? []).length === 0) {
         this.ctx.logger?.warn?.(`chess-context: 离线补折没产出（${result?.failed ?? "empty"}），保持原结局`);

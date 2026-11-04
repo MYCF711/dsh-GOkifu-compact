@@ -8,17 +8,13 @@
  *
  * 它替代不了重启后的真实验证（见 docs/重启后验证清单.md），但能挡住接线错误。
  */
-
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import nodeOs from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
 export const tests = {};
-
 import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
 import { collectConstraints } from "../src/rooms/ledger.mjs";
-
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SRC = nodePath.join(HERE, "..", "src", "engine.mjs");
 // ★ engine.mjs 里有 ./graph.mjs 这类相对 import，所以副本必须放在 src/ 旁边，
@@ -26,13 +22,10 @@ const SRC = nodePath.join(HERE, "..", "src", "engine.mjs");
 const TMP = nodePath.join(HERE, "..", "src");
 const STUBS = nodePath.join(TMP, ".harness-stubs");
 const GRAPHS = nodePath.join(HERE, ".harness", "graphs");
-
 /* ───────────────────────── stub 生成 ───────────────────────── */
-
 function writeStubs() {
   nodeFs.mkdirSync(STUBS, { recursive: true });
   const w = (name, body) => nodeFs.writeFileSync(nodePath.join(STUBS, name), body, "utf8");
-
   w(
     "stub-schemastery.mjs",
     `const mk = () => {
@@ -43,7 +36,6 @@ const z = { object: mk, array: mk, boolean: mk, string: mk, number: mk, natural:
 export default z;
 `,
   );
-
   w(
     "stub-compaction.mjs",
     `export function toolPairingBalancedBefore() { return true; }
@@ -53,7 +45,6 @@ export function compactCheckpointSource(id) { return { kind: "compact-checkpoint
 export class CompactionEngine { constructor(ctx, name) { this.ctx = ctx; if (ctx && name) ctx[name] = this; } }
 `,
   );
-
   w(
     "stub-llm.mjs",
     `export class LlmError extends Error { constructor(m, code, cause) { super(m); this.code = code; this.cause = cause; } }
@@ -66,7 +57,6 @@ export class BlockAssembler {
 }
 `,
   );
-
   w(
     "stub-basic.mjs",
     `import { CompactionEngine } from "./stub-compaction.mjs";
@@ -95,7 +85,6 @@ export class BasicCompactionEngine extends CompactionEngine {
 }
 `,
   );
-
   const engineSrc = nodeFs.readFileSync(SRC, "utf8");
   const patched = engineSrc
     .replace(`from "@deepseek-ai/schemastery"`, `from "./.harness-stubs/stub-schemastery.mjs"`)
@@ -105,9 +94,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   nodeFs.writeFileSync(nodePath.join(TMP, ".engine-under-test.mjs"), patched, "utf8");
   return { engineUrl: pathToFileURL(nodePath.join(TMP, ".engine-under-test.mjs")).href, graphDir: GRAPHS };
 }
-
 /* ───────────────────────── 假 session / ctx ───────────────────────── */
-
 export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   let seq = 1000;
   const events = new Map();
@@ -165,7 +152,6 @@ export function makeSession({ id = "sess-1", tokensPerNode = 7000 } = {}) {
   session.tokensPerNode = tokensPerNode;
   return session;
 }
-
 export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failModels = new Set(), usage = null, services = {}, summaryText = "## 目标\n- mock" } = {}) {
   const listeners = new Map();
   const overlay = { ...services };
@@ -224,7 +210,6 @@ export function makeCtx({ window = 200_000, measureTotal = () => 10_000, failMod
   };
   return ctx;
 }
-
 function userEvent(text, seq) {
   return { type: "user/message", seq, data: { id: "u", role: "user", content: [{ type: "text", text }], source: { kind: "prompt" } } };
 }
@@ -261,9 +246,7 @@ function resultEvent(callId, text, seq, isError = false) {
     },
   };
 }
-
 /* ───────────────────────── 测试 ───────────────────────── */
-
 let cached;
 export async function load() {
   if (cached) return cached;
@@ -277,20 +260,17 @@ export async function load() {
   })();
   return cached;
 }
-
 /** 模拟 loop 的行为：把 pre-step decision 里新增的消息追加进 surface。 */
 function applyDecision(session, decision, claimed) {
   for (const message of decision.messages) {
     if (!claimed.includes(message)) session.push("user/message", message);
   }
 }
-
 export function readGraph(graphDir, sessionId) {
   const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, "_");
   const file = nodePath.join(graphDir, "sessions", safe, "graph.json");
   return JSON.parse(nodeFs.readFileSync(file, "utf8"));
 }
-
 /** 重放 delta 后读图（foldMarks 常落在增量里，只读基线会漏）——C210 测试用。 */
 export async function readGraphReplayed(graphDir, sessionId) {
   const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, "_");
@@ -298,7 +278,6 @@ export async function readGraphReplayed(graphDir, sessionId) {
   const { loadSessionGraph } = await import("../scripts/graph-audit.mjs");
   return loadSessionGraph(file).graph;
 }
-
 tests["engine 能加载并构造；注册成 ctx.compaction；auto=true 时注册自动压缩"] = async () => {
   const { Engine } = await load();
   const ctx = makeCtx();
@@ -307,7 +286,6 @@ tests["engine 能加载并构造；注册成 ctx.compaction；auto=true 时注�
   if (ctx.compaction !== engine) throw new Error("没有注册成 ctx.compaction");
   if (!engine.autoRegistered) throw new Error("auto=true 时应注册自动压缩");
 };
-
 tests["auto=false：不注册自动压缩，但 keeper 与 ledger 仍然挂上"] = async () => {
   const { Engine } = await load();
   const ctx = makeCtx();
@@ -316,19 +294,16 @@ tests["auto=false：不注册自动压缩，但 keeper 与 ledger 仍然挂上"]
   if (ctx.listenerCount("session/event") === 0) throw new Error("没挂 session/event（落账失效）");
   if (ctx.listenerCount("agent/pre-step") === 0) throw new Error("没挂 pre-step（注入失效）");
 };
-
 tests["事件落账：user/assistant/tool/step 走完后 graph.json 有节点与失败边"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-log" });
   const ctx = makeCtx();
   new Engine(ctx, { graphDir, auto: false });
-
   await ctx.emitRaw("session/event", session, userEvent("必须保持接口不变。先修测试。", 1));
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "AssertionError: boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const g = readGraph(graphDir, "sess-log");
   const users = Object.values(g.nodes).filter((n) => n.kind === "user");
   const agents = Object.values(g.nodes).filter((n) => n.kind === "agent");
@@ -352,18 +327,15 @@ tests["事件落账：user/assistant/tool/step 走完后 graph.json 有节点与
     throw new Error(`stateIndex 未建立：${key} → ${JSON.stringify(g.stateIndex)}`);
   }
 };
-
 tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-context 消息"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-ledger" });
   const ctx = makeCtx();
   new Engine(ctx, { graphDir, auto: false });
-
   await ctx.emitRaw("session/event", session, userEvent("必须保持接口不变。", 1));
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const claimed = [{ id: "claimed-1", role: "user", content: [{ type: "text", text: "继续" }] }];
   const agent = { session, options: { provider: "p", model: "m" } };
   const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1, signal: undefined }, () => ({ kind: "enter", messages: claimed }));
@@ -372,7 +344,6 @@ tests["失败清单注入：pre-step 返回的 messages 里多一条 chess-conte
   if (injected.length !== 1) throw new Error(`注入条数 ${injected.length}`);
   if (!injected[0].content[0].text.includes("LEARNED")) throw new Error("注入内容不是失败清单");
 };
-
 tests["标记档位（hotLedgerMarkers）能一路传到热清单：off 不打标记、semantic 默认带语义"] = async () => {
   const { Engine, graphDir } = await load();
   const run = async (id, config) => {
@@ -400,7 +371,6 @@ tests["标记档位（hotLedgerMarkers）能一路传到热清单：off 不打�
   const bogus = await run("sess-markers-bogus", { hotLedgerMarkers: "随便写的" });
   if (!bogus.includes("blocked:permission")) throw new Error("非法档位应回落到 semantic");
 };
-
 tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只有一条"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-replace" });
@@ -409,7 +379,6 @@ tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只�
   const agent = { session, options: {} };
   const claimed = [{ id: "claimed-r", role: "user", content: [{ type: "text", text: "继续" }] }];
   const ledgerSeqs = () => session.surface.nodes.filter((s) => session.eventAt(s)?.data?.source?.kind === "chess-context");
-
   // 先攒一条失败边 → 第一次注入（surface 上没有清单 ⇒ 追加）
   await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
@@ -421,7 +390,6 @@ tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只�
   if (ledgerSeqs().length !== 1) throw new Error("surface 上应有一条清单");
   const firstSeq = ledgerSeqs()[0];
   const firstText = session.eventAt(firstSeq).data.content[0].text;
-
   // 再攒 5 条失败边，并推进 45 个事件（越过「40 事件 / 失败边 +5」这两道限流门）
   for (let i = 0; i < 5; i += 1) {
     await ctx.emitRaw("session/event", session, assistantEvent(`c${i + 10}`, "bash", { command: `npm test ${i}` }, 10 + i * 3));
@@ -429,7 +397,6 @@ tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只�
     await ctx.emitRaw("session/event", session, { type: "step/end", seq: 12 + i * 3, data: { turn: 1, step: 2 + i } });
   }
   for (let i = 0; i < 45; i += 1) session.nextSeq();
-
   const d2 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 2 }, () => ({ kind: "enter", messages: claimed }));
   if (d2.messages.filter((m) => m.source?.kind === "chess-context").length !== 0) {
     throw new Error("第二次应该是就地替换，不该再往 decision.messages 里加一条");
@@ -440,13 +407,11 @@ tests["P1-4：清单已在 surface 上时就地替换 —— surface 永远只�
   const newText = session.eventAt(after[0]).data.content[0].text;
   if (newText === firstText) throw new Error("内容没变（替换成了同一份）");
   if (!newText.includes("LEARNED (6 failed attempts")) throw new Error(`新清单没反映新的失败数：\n${newText.slice(0, 240)}`);
-
   // 失败数没变、事件间隔不够 ⇒ 限流门仍然拦住（不写日志、不碰 contentGeneration）
   const nodesBefore = session.surface.nodes.length;
   await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 3 }, () => ({ kind: "enter", messages: claimed }));
   if (session.surface.nodes.length !== nodesBefore) throw new Error("限流门没挡住（不该再注入）");
 };
-
 tests["P1-4 兜底：清单被 fold 遮蔽后，下一次 pre-step 立刻补回来（不等限流）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-refold" });
@@ -455,25 +420,21 @@ tests["P1-4 兜底：清单被 fold 遮蔽后，下一次 pre-step 立刻补回�
   const agent = { session, options: {} };
   const claimed = [{ id: "claimed-f", role: "user", content: [{ type: "text", text: "继续" }] }];
   const ledgerSeqs = () => session.surface.nodes.filter((s) => session.eventAt(s)?.data?.source?.kind === "chess-context");
-
   await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
   const d1 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
   applyDecision(session, d1, claimed);
-
   // 模拟 fold：清单节点从 surface 上消失（被 checkpoint 遮蔽）
   const seq = ledgerSeqs()[0];
   session.surface.nodes.splice(session.surface.nodes.indexOf(seq), 1);
   if (ledgerSeqs().length !== 0) throw new Error("前置条件不对");
-
   const d2 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 2 }, () => ({ kind: "enter", messages: claimed }));
   const reinjected = d2.messages.filter((m) => m.source?.kind === "chess-context");
   if (reinjected.length !== 1) throw new Error(`被 fold 遮蔽后应立刻补回，实际 ${reinjected.length}`);
   if (!reinjected[0].content[0].text.includes("LEARNED")) throw new Error("补回来的不是清单");
 };
-
 tests["P1-4 配套：历史遗留的旧清单被换成一行占位（surface 不再背旧账）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-legacy-elide" });
@@ -492,14 +453,12 @@ tests["P1-4 配套：历史遗留的旧清单被换成一行占位（surface 不
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const agent = { session, options: {} };
   const claimed = [{ id: "claimed-e", role: "user", content: [{ type: "text", text: "继续" }] }];
   const ledgerEvents = () =>
     session.surface.nodes
       .map((s) => session.eventAt(s))
       .filter((e) => e?.type === "user/message" && e.data?.source?.kind === "chess-context");
-
   await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
   const events = ledgerEvents();
   if (events.length !== 3) throw new Error(`清单节点数 ${events.length}（不该新增，应就地清理）`);
@@ -512,7 +471,6 @@ tests["P1-4 配套：历史遗留的旧清单被换成一行占位（surface 不
   }
   const newest = events[events.length - 1];
   if (!newest.data.content[0].text.includes("<chess-ledger>")) throw new Error("最后一条应是刷新后的真清单");
-
   // 幂等：再来一次不应再产生占位
   const before = ledgerEvents().filter((e) => e.data.source.form === "ledger-stub").length;
   for (let i = 0; i < 45; i += 1) session.nextSeq();
@@ -520,7 +478,6 @@ tests["P1-4 配套：历史遗留的旧清单被换成一行占位（surface 不
   const after = ledgerEvents().filter((e) => e.data.source.form === "ledger-stub").length;
   if (after !== before) throw new Error(`不幂等：占位从 ${before} 变成 ${after}`);
 };
-
 tests["注入去重：同一份清单不重复注入"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-dedup" });
@@ -530,7 +487,6 @@ tests["注入去重：同一份清单不重复注入"] = async () => {
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "t" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "err\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const agent = { session, options: {} };
   const claimed = [{ id: "c", role: "user", content: [] }];
   const d1 = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1 }, () => ({ kind: "enter", messages: claimed }));
@@ -542,7 +498,6 @@ tests["注入去重：同一份清单不重复注入"] = async () => {
   // 第二次不新增（真实环境里上一轮那条已 append 进 surface，模型仍看得到）
   if (n2 !== 0) throw new Error(`第二次不该重复注入，得到 ${n2}`);
 };
-
 tests["阈值门控：低于阈值不 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-threshold" });
@@ -551,7 +506,6 @@ tests["阈值门控：低于阈值不 fold"] = async () => {
   const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (result !== null) throw new Error("低于阈值却 fold 了");
 };
-
 tests["超过阈值 ⇒ 选中「checkpoint 之后」的范围（增量语义）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-range" });
@@ -569,7 +523,6 @@ tests["超过阈值 ⇒ 选中「checkpoint 之后」的范围（增量语义）
     throw new Error(`起点应为 ${firstPlainSeq}，得到 ${call.start}`);
   }
 };
-
 tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮蔽区间的起点"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-cpseq" });
@@ -610,7 +563,6 @@ tests["fold 记账：checkpointSeq 记 checkpoint 消息的 seq，不是被遮�
     if (typeof dangling[key] !== "number") throw new Error(`foldMarks[0].dangling.${key} 必须是数字，得到 ${JSON.stringify(dangling[key])}`);
   }
 };
-
 tests["增长门控：fold 之后增量不足则不再次 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-growth" });
@@ -631,7 +583,6 @@ tests["增长门控：fold 之后增量不足则不再次 fold"] = async () => {
     // 若范围为空（checkpoint 在末尾）也算合理；但不能抛错
   }
 };
-
 tests["溢出自救：绕过阈值与增长门控"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-overflow" });
@@ -646,7 +597,6 @@ tests["溢出自救：绕过阈值与增长门控"] = async () => {
   const mark = (readGraph(graphDir, "sess-overflow").foldMarks ?? []).at(-1);
   if (mark?.trigger !== "context-overflow") throw new Error(`溢出自救的 foldMark.trigger 必须是 context-overflow，实际 ${JSON.stringify(mark?.trigger)}`);
 };
-
 /**
  * ★ P0 死亡循环的端到端回归（2026-10-28 实机 session-5acafe42）。
  *
@@ -688,14 +638,12 @@ tests["P0 回归：旧磁盘棋谱（worldHash 是对象）也能跑完 summariz
     rootUserNodeIds: ["n1"], checkpointSeq: null, foldCount: 0, lastFoldTotalTokens: 0, foldMarks: [],
   };
   nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(legacy, null, 1), "utf8");
-
   const session = makeSession({ id: "sess-legacy" });
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir: dir, auto: false });
   // 旧版在这一行抛 TypeError：renderFacts → `latest?.worldHash?.slice(0, 12)`
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || !Array.isArray(out.summary) || out.summary.length === 0) throw new Error("summarize 没产出内容");
-
   // 硬事实块必须带着失败边与原因进了 prompt（这是压缩不丢死路的前提）
   const options = ctx.streamCalls.at(-1);
   if (!options) throw new Error("llm.stream 没被调用");
@@ -711,7 +659,6 @@ tests["P0 回归：旧磁盘棋谱（worldHash 是对象）也能跑完 summariz
     throw new Error(`stateIndex 未重建：${JSON.stringify(g.stateIndex)}`);
   }
 };
-
 tests["摘要模型不可用 ⇒ 退回当前路由模型重试一次（实机 `magpie/ima/...` 未配置）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-summarizer-fallback" });
@@ -726,7 +673,6 @@ tests["摘要模型不可用 ⇒ 退回当前路由模型重试一次（实机 `
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || !Array.isArray(out.summary) || out.summary.length === 0) throw new Error("退回后仍没产出摘要");
   if (ctx.streamCalls.length !== 2) throw new Error(`应调用两次（坏的 + 路由的），实际 ${ctx.streamCalls.length}`);
@@ -735,7 +681,6 @@ tests["摘要模型不可用 ⇒ 退回当前路由模型重试一次（实机 `
   if (out.model !== "m") throw new Error(`返回的 model 应是实际使用的 m，实际 ${out.model}`);
   if (!ctx.warns.some((w) => w.includes("不可用") && w.includes("重试"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);
 };
-
 tests["摘要模型不可用、且路由模型就是它 ⇒ 不重试，退回规则摘要"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-summarizer-same" });
@@ -749,28 +694,23 @@ tests["摘要模型不可用、且路由模型就是它 ⇒ 不重试，退回�
   if (ctx.streamCalls.length !== 1) throw new Error(`同一个模型不该重试，实际调用 ${ctx.streamCalls.length} 次`);
   if (!out || out.degraded !== "rules") throw new Error("hybrid 下应退回规则摘要");
 };
-
 tests["index.md 每次落盘都刷新（不再等 fold —— 它是模型读的入口）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-index-fresh" });
   const ctx = makeCtx();
   new Engine(ctx, { graphDir, auto: false });
   const dir = nodePath.join(graphDir, "sessions", "sess-index-fresh");
-
   await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const before = nodeFs.readFileSync(nodePath.join(dir, "index.md"), "utf8");
-
   await ctx.emitRaw("session/event", session, assistantEvent("c9", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c9", "AssertionError: nope\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const after = nodeFs.readFileSync(nodePath.join(dir, "index.md"), "utf8");
   if (after === before) throw new Error("index.md 没有刷新（还停在首次写入的版本）");
   if (!after.includes("AssertionError")) throw new Error(`index.md 里没有新的失败原因：\n${after.slice(0, 400)}`);
 };
-
 tests["hybrid 模式下摘要模型全挂 ⇒ 退回规则摘要（fold 必须能落地）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-rules-fallback" });
@@ -785,7 +725,6 @@ tests["hybrid 模式下摘要模型全挂 ⇒ 退回规则摘要（fold 必须�
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || out.llmStreamCall !== false) throw new Error("应退回规则摘要（llmStreamCall=false）");
   if (out.degraded !== "rules") throw new Error(`degraded 标记缺失：${JSON.stringify(out.degraded)}`);
@@ -796,7 +735,6 @@ tests["hybrid 模式下摘要模型全挂 ⇒ 退回规则摘要（fold 必须�
   if (!text.includes("## 目标")) throw new Error(`规则摘要结构不对：\n${text.slice(0, 300)}`);
   if (!ctx.warns.some((w) => w.includes("退回规则摘要"))) throw new Error(`没有告警：${JSON.stringify(ctx.warns)}`);
 };
-
 tests["llm 模式下摘要模型全挂 ⇒ 直接抛错（用户明确要模型输出，不悄悄降级）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-llm-strict" });
@@ -820,7 +758,6 @@ tests["llm 模式下摘要模型全挂 ⇒ 直接抛错（用户明确要模型�
   }
   if (!threw) throw new Error("llm 模式不该悄悄降级");
 };
-
 /**
  * ★ 2026-10-29 自环回归（端到端）。
  *
@@ -837,7 +774,6 @@ tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to
   const session = makeSession({ id: "sess-selfloop" });
   const ctx = makeCtx();
   new Engine(ctx, { graphDir, auto: false });
-
   await ctx.emitRaw("session/event", session, userEvent("只读核对一遍，不要改任何文件。", 1));
   let seq = 2;
   for (let step = 1; step <= 3; step += 1) {
@@ -847,7 +783,6 @@ tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to
     await ctx.emitRaw("session/event", session, { type: "step/end", seq: seq++, data: { turn: 1, step } });
   }
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const g = readGraph(graphDir, "sess-selfloop");
   const agents = Object.values(g.nodes).filter((n) => n.kind === "agent");
   const selfLoops = Object.values(g.edges).filter((e) => e.from && e.to && e.from === e.to);
@@ -861,7 +796,6 @@ tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to
   const health = Object.values(g.edges).length / agents.length;
   if (health > 2) throw new Error(`边/节点 ${health.toFixed(2)} > 2：图在原地打转`);
 };
-
 /* ═════════════════════════ P7：仪表盘接线（task-58） ═════════════════════════
  *
  * task-54/55 复核指出「仪表盘无消费者」：renderLedger 已经返回 fallback/overBudgetBy，
@@ -870,9 +804,7 @@ tests["★ 自环回归（端到端）：连续只读 step 不产生 from === to
  *   ② over-budget 触发 warn（含 overBudgetBy）并落盘指标；
  *   ③ impossible 触发 error 级日志。
  */
-
 const P7_GRAPH = () => nodePath.join(GRAPHS, "p7-instrument");
-
 /** 跑一次热清单注入，返回注入文本。 */
 async function runLedgerInjection({ id, config = {} } = {}) {
   const { Engine } = await load();
@@ -890,7 +822,6 @@ async function runLedgerInjection({ id, config = {} } = {}) {
   const text = decision.messages.filter((m) => m.source?.kind === "chess-context")[0]?.content[0]?.text ?? "";
   return { text, ctx, engine, session };
 }
-
 tests["P7-1 生产调用：TRACE 是 `sessions/<sid>/index.md`，不泄漏绝对路径"] = async () => {
   const { text } = await runLedgerInjection({ id: "sess-p7-trace" });
   if (!text.includes("LEARNED")) throw new Error(`没有注入热清单：\n${text}`);
@@ -902,7 +833,6 @@ tests["P7-1 生产调用：TRACE 是 `sessions/<sid>/index.md`，不泄漏绝对
   const { text: bare } = await runLedgerInjection({ id: "sess-p7-bare", config: { hotLedgerTraceRoot: "" } });
   if (!bare.includes("TRACE: sess-p7-bare/index.md")) throw new Error(`traceRoot="" 应输出无前缀路径：\n${bare}`);
 };
-
 tests["P7-2 over-budget：warn 日志含 overBudgetBy，且指标落盘可查"] = async () => {
   const { text, ctx, engine } = await runLedgerInjection({ id: "sess-p7-over", config: { hotLedgerMaxTokens: 1 } });
   if (!text) throw new Error("预算 1 也必须交付清单（兜底超限，不是消失）");
@@ -918,7 +848,6 @@ tests["P7-2 over-budget：warn 日志含 overBudgetBy，且指标落盘可查"] 
   const disk = JSON.parse(nodeFs.readFileSync(file, "utf8"));
   if ((disk["over-budget"] ?? 0) < 1) throw new Error(`磁盘统计里必须有 over-budget：${JSON.stringify(disk)}`);
 };
-
 tests["P7-3 impossible：必须 error 级，不许静默"] = async () => {
   const { Engine, graphDir } = await load();
   const ctx = makeCtx();
@@ -932,7 +861,6 @@ tests["P7-3 impossible：必须 error 级，不许静默"] = async () => {
   if (!err) throw new Error(`impossible 必须打 error，实际 errors=${JSON.stringify(ctx.errors)}`);
   if ((engine.getLedgerBudgetStats().impossible ?? 0) !== 1) throw new Error("统计里必须记 1 次 impossible");
 };
-
 tests["P7-4 doctor：展示 fallback 分布与最大 overBudgetBy；缺文件写「未采集」"] = async () => {
   const { execFileSync } = await import("node:child_process");
   const home = nodePath.join(GRAPHS, "p7-home");
@@ -979,7 +907,6 @@ tests["P7-4 doctor：展示 fallback 分布与最大 overBudgetBy；缺文件写
   const emptyCheck = empty.checks.find((c) => c.name === "热清单预算（fallback）");
   if (!emptyCheck || !emptyCheck.detail.includes("未采集")) throw new Error(`缺文件必须写「未采集」：${JSON.stringify(emptyCheck)}`);
 };
-
 tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日志只在掉档时警告"] = async () => {
   const { Engine } = await load();
   const graphDir = nodePath.join(GRAPHS, "p7-provenance");
@@ -1068,7 +995,6 @@ tests["P7-5 出处覆盖率：engine 累计 provenanceMin / provenanceLow，日�
   if (reducible.budgetIrreducible !== undefined) throw new Error("shown < count 时不许计不可约（还有更省形式）");
   if (old.provenanceMin !== 1) throw new Error(`旧文件首累计 provenanceMin 必须是 1，实际 ${old.provenanceMin}`);
 };
-
 tests["C4 折叠摘要机械追加「最近访问的文件」（零模型调用、只进摘要）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c4-touched");
@@ -1094,21 +1020,17 @@ tests["C4 折叠摘要机械追加「最近访问的文件」（零模型调用�
     engine._chessActiveRange = null;
   }
 };
-
 /* ═════════════ S8 首折削峰（task-170） ═════════════ */
-
 /** 造一个可 fold 的会话：system + n 条 user。 */
 function s8Session(id, n = 19) {
   const session = makeSession({ id });
   for (let i = 0; i < n; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
   return session;
 }
-
 /** 200K 窗口、默认 headroom ⇒ 首折阈值 60K（0.30）、正常阈值 90K（0.45）。 */
 const S8_WINDOW = 200_000;
 const S8_FIRST = S8_WINDOW * 0.3;
 const S8_NORMAL = S8_WINDOW * 0.45;
-
 tests["S8-1 首折在 firstFoldRatio（0.30）触发：61K 就 fold，不必等到 90K"] = async () => {
   const { Engine, graphDir } = await load();
   const session = s8Session("sess-s8-first");
@@ -1120,7 +1042,6 @@ tests["S8-1 首折在 firstFoldRatio（0.30）触发：61K 就 fold，不必等�
   const g = readGraph(graphDir, "sess-s8-first");
   if (g.foldCount !== 1) throw new Error(`foldCount 应为 1，实际 ${g.foldCount}`);
 };
-
 tests["S8-2 首折之后回到 thresholdRatio（0.45）：80K 不 fold，91K 才 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const session = s8Session("sess-s8-second", 19);
@@ -1140,7 +1061,6 @@ tests["S8-2 首折之后回到 thresholdRatio（0.45）：80K 不 fold，91K 才
   // graph.json 是「上一回合基线快照」（落后一回合），所以持久面用 compactCalls 断言
   if (engine.compactCalls.length !== 2) throw new Error(`compactRegion 应 2 次（首折 + 91K），实际 ${engine.compactCalls.length}`);
 };
-
 tests["S8-3 firstFoldRatio=0 关闭：61K 不 fold、91K 才 fold（与旧行为一致）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = s8Session("sess-s8-off");
@@ -1153,7 +1073,6 @@ tests["S8-3 firstFoldRatio=0 关闭：61K 不 fold、91K 才 fold（与旧行为
   const later = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!later) throw new Error("91K 应当 fold（0.45）");
 };
-
 tests["S8-4 阈值边界：恰好等于首折阈值就 fold，少 1 token 不 fold"] = async () => {
   const { Engine, graphDir } = await load();
   // 少 1 token
@@ -1169,7 +1088,6 @@ tests["S8-4 阈值边界：恰好等于首折阈值就 fold，少 1 token 不 fo
   const b = await engineB.compactIfNeeded({ session: sessionB, options: {} }, "pressure", undefined);
   if (!b) throw new Error(`恰好等于阈值（${S8_FIRST}）必须 fold（判定是 total < threshold 才跳过）`);
 };
-
 tests["S8-5 fold 次数最多 +1（首折提前一次）：之后的判定点与关闭 S8 完全一致"] = async () => {
   const { Engine, graphDir } = await load();
   const run = async (id, config) => {
@@ -1199,7 +1117,6 @@ tests["S8-5 fold 次数最多 +1（首折提前一次）：之后的判定点与
   if (withS8[0] !== 61_000) throw new Error(`第一次 fold 应在 61K（首折阈值 60K），实际 ${withS8[0]}`);
   if (withoutS8[0] !== 91_000) throw new Error(`关掉 S8 时第一次 fold 应在 91K（0.45），实际 ${withoutS8[0]}`);
 };
-
 tests["S8-6 首折阈值 <= retainTokens 时回退正常阈值（不许让压缩后端起不来）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = s8Session("sess-s8-guard");
@@ -1213,7 +1130,6 @@ tests["S8-6 首折阈值 <= retainTokens 时回退正常阈值（不许让压缩
   const later = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!later) throw new Error("回退后 91K 应当 fold");
 };
-
 tests["S8-7 溢出自救不受首折影响（overflow 的 threshold 恒为 0）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = s8Session("sess-s8-overflow");
@@ -1222,9 +1138,7 @@ tests["S8-7 溢出自救不受首折影响（overflow 的 threshold 恒为 0）"
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压（与 firstFoldRatio 无关）");
 };
-
 /* ═════════════ S3 降级可见 / S4 minFold 缩放（task-186） ═════════════ */
-
 /** 造一个「有失败边、可 fold」的会话（19 个 user 节点 + 1 条失败边）。 */
 async function s34Session(ctx, id, { tokensPerNode = 7000 } = {}) {
   const session = makeSession({ id, tokensPerNode });
@@ -1234,7 +1148,6 @@ async function s34Session(ctx, id, { tokensPerNode = 7000 } = {}) {
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   return session;
 }
-
 tests["S3-3 hybrid 摘要模型挂掉 ⇒ 规则摘要并把 lastFoldMode=rules 写进图（auto 路径同源）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "s3-degraded");
@@ -1245,7 +1158,6 @@ tests["S3-3 hybrid 摘要模型挂掉 ⇒ 规则摘要并把 lastFoldMode=rules 
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || out.degraded !== "rules") throw new Error("hybrid 下模型挂了应退回规则摘要");
   const g = engine.graphs.get("sess-s3-degraded");
@@ -1257,7 +1169,6 @@ tests["S3-3 hybrid 摘要模型挂掉 ⇒ 规则摘要并把 lastFoldMode=rules 
   if (disk.lastFoldMode !== "rules") throw new Error(`graph.json 里 lastFoldMode 应为 rules，实际 ${JSON.stringify(disk.lastFoldMode)}`);
   if (disk.lastFoldDegraded !== true) throw new Error("graph.json 里 lastFoldDegraded 应为 true");
 };
-
 tests["S3-4 正常 hybrid 摘要 ⇒ lastFoldMode=hybrid，热清单不显示降级提示"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-s3-normal" });
@@ -1267,20 +1178,17 @@ tests["S3-4 正常 hybrid 摘要 ⇒ lastFoldMode=hybrid，热清单不显示降
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
-
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || out.llmStreamCall !== true) throw new Error("正常 hybrid 必须走模型（llmStreamCall=true）");
   const g = engine.graphs.get("sess-s3-normal");
   if (g?.lastFoldMode !== "hybrid") throw new Error(`lastFoldMode 应为 hybrid，实际 ${JSON.stringify(g?.lastFoldMode)}`);
   if (g?.lastFoldDegraded !== false) throw new Error("lastFoldDegraded 应为 false");
-
   const agent = { session, options: {} };
   const claimed = [{ id: "claimed-s3", role: "user", content: [{ type: "text", text: "继续" }] }];
   const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 9 }, () => ({ kind: "enter", messages: claimed }));
   const injected = decision.messages.filter((m) => m.source?.kind === "chess-context").map((m) => m.content[0].text).join("\n");
   if (injected.includes("上次摘要是规则生成")) throw new Error(`正常 hybrid 摘要后的热清单不许带降级提示：\n${injected.slice(0, 240)}`);
 };
-
 tests["S3-5 规则摘要之后的热清单固定带「⚠ 上次摘要是规则生成」且 ≤500 tokens"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-s3-ledger" });
@@ -1292,7 +1200,6 @@ tests["S3-5 规则摘要之后的热清单固定带「⚠ 上次摘要是规则�
   await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
   const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!out || out.degraded !== "rules") throw new Error("前置：应退回规则摘要");
-
   const agent = { session, options: {} };
   const claimed = [{ id: "claimed-s3b", role: "user", content: [{ type: "text", text: "继续" }] }];
   const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 9 }, () => ({ kind: "enter", messages: claimed }));
@@ -1306,7 +1213,6 @@ tests["S3-5 规则摘要之后的热清单固定带「⚠ 上次摘要是规则�
   const count = texts[0].split("上次摘要是规则生成").length - 1;
   if (count !== 1) throw new Error(`提示行应恰好 1 次，实际 ${count}`);
 };
-
 tests["S4-1 200K 窗口：minFold 默认缩放到 16000 —— 12000 的可压量不再触发 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const build = async (id) => {
@@ -1326,7 +1232,6 @@ tests["S4-1 200K 窗口：minFold 默认缩放到 16000 —— 12000 的可压�
   const explicit = await explicitEngine.compactIfNeeded({ session: b.session, options: {} }, "pressure", undefined);
   if (!explicit) throw new Error("显式 minFoldTokens: 9000 时必须 fold（显式配置优先）");
 };
-
 tests["S4-2 1M 窗口：minFold 缩放到 80000 —— 20000 的可压量不 fold；显式 8000 才 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const build = async (id) => {
@@ -1344,7 +1249,6 @@ tests["S4-2 1M 窗口：minFold 缩放到 80000 —— 20000 的可压量不 fol
   const explicit = await engineB.compactIfNeeded({ session: b.session, options: {} }, "pressure", undefined);
   if (!explicit) throw new Error("1M 窗口 + 显式 9000 必须 fold");
 };
-
 tests["S4-3 50K 小窗口：缩放值仍是 8000（max(8000, 4000)），照常 fold"] = async () => {
   const { Engine, graphDir } = await load();
   const ctx = makeCtx({ window: 50_000, measureTotal: () => 20_000 });
@@ -1354,7 +1258,6 @@ tests["S4-3 50K 小窗口：缩放值仍是 8000（max(8000, 4000)），照常 f
   const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!result) throw new Error("50K 窗口下 minFold 仍是 8000，34000 的可压量必须 fold（不许被缩放误伤）");
 };
-
 tests["S4-5 headroom 按窗口封顶：100K 窗口阈值回到 45%，64K 窗口不再抛错"] = async () => {
   const { Engine, graphDir } = await load();
   // 100K 窗口、占用 30K：旧代码 headroom=65536 把阈值压到 26272（26.3%）⇒ 会误压；
@@ -1379,7 +1282,6 @@ tests["S4-5 headroom 按窗口封顶：100K 窗口阈值回到 45%，64K 窗口�
   }
   if (threw !== null) throw new Error(`64K 窗口不该抛错（headroom 应按窗口封顶），实际抛了：${threw}`);
 };
-
 tests["S4-4 overflow 路径不受缩放影响（spec.minFoldTokens 缺省时回落配置值）"] = async () => {
   const { Engine, graphDir } = await load();
   const ctx = makeCtx({ window: 200_000, measureTotal: () => 1_000 });
@@ -1389,9 +1291,7 @@ tests["S4-4 overflow 路径不受缩放影响（spec.minFoldTokens 缺省时回�
   const result = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
   if (!result) throw new Error("溢出自救必须能压（minFold 缩放不该拦住 overflow）");
 };
-
 /* ═════════════ P2-2 fold 可观测（task-192） ═════════════ */
-
 /** 造一个可 fold 的会话并给 graph 记上失败边（让 selectRange 有东西可压）。 */
 async function p22Session(ctx, id, n = 19) {
   const session = makeSession({ id });
@@ -1401,7 +1301,6 @@ async function p22Session(ctx, id, n = 19) {
   await ctx.emitRaw("session/event", session, resultEvent("c1", "boom\n[exit code: 1]", 3));
   return session;
 }
-
 tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "p22-fields");
@@ -1467,7 +1366,6 @@ tests["P2-2-1 foldMark 追加 route/fallback/ms/usage，并记 foldCount"] = asy
     throw new Error(`modelConstraintRecall 必须在 0–1，实际 ${mark.quality.modelConstraintRecall}`);
   }
 };
-
 tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "p22-degraded");
@@ -1494,7 +1392,6 @@ tests["P2-2-2 规则降级（模型全挂）⇒ foldMark.fallback=rules"] = asyn
     throw new Error(`规则摘要的 modelConstraintRecall 必须 null，实际 ${JSON.stringify(mark.quality.modelConstraintRecall)}`);
   }
 };
-
 tests["P2-2-3 foldMarks 只保留最近 20 条（旧版无限增长）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "p22-trim");
@@ -1521,7 +1418,6 @@ tests["P2-2-3 foldMarks 只保留最近 20 条（旧版无限增长）"] = async
   if (after.foldMarks.length !== 20) throw new Error(`foldMarks 必须裁到 20 条，实际 ${after.foldMarks.length}`);
   if (after.foldMarks.at(-1).route === undefined) throw new Error("最新一条必须是刚写的（带 route 字段）");
 };
-
 tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"] = async () => {
   const { execFileSync } = await import("node:child_process");
   const home = nodePath.join(GRAPH_PATH_HOME(), "p22-home");
@@ -1634,7 +1530,6 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   const namedAfter = (degraded && (runDoctor().checks ?? []).find((c) => c.name.includes("丢失的约束"))) || namedC;
   if (!namedAfter || !namedAfter.detail.includes("prod")) throw new Error(`必须点名丢失的约束，实际 ${JSON.stringify(namedAfter)}`);
 };
-
 tests["C14 手动 /compact 也记 foldMark + 保真度（覆盖最后一条压缩路径）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c14-manual");
@@ -1671,7 +1566,6 @@ tests["C14 手动 /compact 也记 foldMark + 保真度（覆盖最后一条压�
   const disk = (readGraph(dir, "sess-c14-manual").foldMarks ?? []).at(-1);
   if (disk?.trigger !== "manual") throw new Error(`graph.json 里必须能看到手动压缩记录，实际 ${JSON.stringify(disk?.trigger)}`);
 };
-
 tests["C14b 手动 /compact 的接线：compactNow → compactRegion 记区间 → recordFoldMark"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c14-wiring");
@@ -1702,12 +1596,10 @@ tests["C14b 手动 /compact 的接线：compactNow → compactRegion 记区间 �
     baseProto.compactNow = original;
   }
 };
-
 /** doctor 夹具的上级目录（test/.harness/graphs）。 */
 function GRAPH_PATH_HOME() {
   return GRAPHS;
 }
-
 tests["C7：规则摘要路径也必须记 quality（降级时不能成为指标盲区）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-rules-quality" });
@@ -1737,7 +1629,6 @@ tests["C7：规则摘要路径也必须记 quality（降级时不能成为指标
     }
   }
 };
-
 tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与区间一致、foldMark 字段齐全"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-foldprops" });
@@ -1755,7 +1646,6 @@ tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与�
     await ctx.emitRaw("session/event", session, { type: "step/end", seq: session.nextSeq(), data: { turn: 1, step: i + 1 } });
   }
   for (let i = 0; i < 10; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "tail" }] });
-
   // 真实流程里 fold 的 compactRegion 会调 summarize；stub 不会 ⇒ 先手动调一次，让 _lastSummary* 有值
   await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 回合边界 flush（graph.json 只在 idle 落盘）
@@ -1772,7 +1662,6 @@ tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与�
   const after = readGraph(graphDir, sessionId);
   const mark = after.foldMarks.at(-1);
   if (!mark) throw new Error("fold 后必须留下 foldMark");
-
   // ① 失败边一条不少（折叠只换摘要，不许删记忆）
   const failuresAfter = Object.values(after.edges).filter((e) => e.result === "failure").length;
   if (failuresAfter !== failuresBefore) throw new Error(`失败边从 ${failuresBefore} 变成 ${failuresAfter}`);
@@ -1806,7 +1695,6 @@ tests["C61 引擎级折叠不变量：约束/失败边一条不少、闭包与�
   if (!mark.dangling || typeof mark.dangling !== "object") throw new Error("缺 dangling 快照");
   if (!Number.isFinite(mark.summaryChars) || mark.summaryChars <= 0) throw new Error("缺 summaryChars");
 };
-
 tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次都有 quality，且不重扫已折区域"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c62-multifold");
@@ -1814,7 +1702,6 @@ tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次
   const ctx = makeCtx({ measureTotal: () => 300_000 });
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const sid = "sess-c62";
-
   const seedTurn = async (tag) => {
     for (let i = 0; i < 6; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `pre-${tag}-${i}` }] });
     await ctx.emitRaw("session/event", session, assistantEvent(`c-${tag}`, "bash", { command: `t-${tag}` }, session.nextSeq()));
@@ -1823,7 +1710,6 @@ tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次
     await ctx.emitRaw("session/event", session, { type: "step/end", seq: session.nextSeq(), data: { turn: 1, step: 1 } });
     for (let i = 0; i < 6; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `post-${tag}-${i}` }] });
   };
-
   let lastEnd = -1;
   let lastFailures = -1;
   const marks = [];
@@ -1852,7 +1738,6 @@ tests["C62 连续折叠不变量：区间单调、失败边只增不减、每次
   if (marks.length !== 3) throw new Error(`应留 3 条 foldMark，实际 ${marks.length}`);
   if (lastFailures < 3) throw new Error(`三次折叠后失败边应 >=3，实际 ${lastFailures}`);
 };
-
 tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了一半」的图）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c134-atomic");
@@ -1864,7 +1749,6 @@ tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了
   const beforeNodes = Object.keys(before.nodes).sort();
   const beforeMarks = (before.foldMarks ?? []).length;
   const beforeFoldCount = before.foldCount ?? 0;
-
   // 让真实的 compactRegion 事务在半途炸掉（harness 的 ctx 提供的是桩）
   const original = engine.compactRegion.bind(engine);
   engine.compactRegion = async () => {
@@ -1879,7 +1763,6 @@ tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了
     engine.compactRegion = original;
   }
   if (!threw) throw new Error("compactRegion 抛错时 compactIfNeeded 必须把错抛出来（不许静默）");
-
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" }); // 回滚后的图落盘
   const after = readGraph(dir, "sess-c134");
   const afterNodes = Object.keys(after.nodes).sort();
@@ -1893,7 +1776,6 @@ tests["C134 fold 中途抛错：图与计数器必须原子（不留下「改了
     throw new Error(`fold 失败后 foldCount 不许变：${beforeFoldCount} → ${after.foldCount}`);
   }
 };
-
 tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（不归零、不外溢）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c135-manual");
@@ -1904,12 +1786,10 @@ tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（�
   const before = readGraph(dir, "sess-c135");
   const beforeNodes = Object.keys(before.nodes).sort();
   const beforeMarks = (before.foldMarks ?? []).length;
-
   // ① 顶层调用：深度从 0 → 1 → 0
   const first = await engine.compactNow({ session }, undefined, "cmd-1");
   if ((engine._manualCompactDepth ?? 0) !== 0) throw new Error(`顶层调用后深度必须归零，实际 ${engine._manualCompactDepth}`);
   if (engine._manualRange !== null && engine._manualRange !== undefined) throw new Error(`_manualRange 必须清空，实际 ${JSON.stringify(engine._manualRange)}`);
-
   // ② 嵌套调用（外层已经深度 1）：内层结束后必须回到 1，而不是被清零
   engine._manualCompactDepth = 1;
   try {
@@ -1918,7 +1798,6 @@ tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（�
   } finally {
     engine._manualCompactDepth = 0;
   }
-
   // 桩 compactNow 返回 null ⇒ 不许凭「调用过」就记 foldMark
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const after = readGraph(dir, "sess-c135");
@@ -1926,7 +1805,6 @@ tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（�
   if ((after.foldMarks ?? []).length !== beforeMarks) throw new Error("compactNow 返回 null 时不许新增 foldMark（防「假装压过」）");
   void first;
 };
-
 tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fold（与 C136 同源）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c137-manual-pending");
@@ -1934,7 +1812,6 @@ tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fol
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c137");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   // 模拟：summarize 留下 pending（无论是因为异常还是桩不消费）
   engine._lastSummaryText = "STALE-FROM-MANUAL";
   engine._lastSummaryChars = engine._lastSummaryText.length;
@@ -1945,7 +1822,6 @@ tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fol
   engine._lastSummaryModel = "m";
   engine._lastSummaryUsage = { inputTokens: 9, outputTokens: 9 };
   await engine.compactNow({ session }, undefined, "cmd-1");
-
   if (engine._lastSummaryText !== undefined) throw new Error(`手动压缩后 _lastSummaryText 必须清空，实际 ${JSON.stringify(engine._lastSummaryText)}`);
   if (engine._lastSummaryChars !== undefined) throw new Error("手动压缩后 _lastSummaryChars 必须清空");
   if (engine._lastSummaryModelText !== undefined) throw new Error("手动压缩后 _lastSummaryModelText 必须清空");
@@ -1953,7 +1829,6 @@ tests["C137 手动 /compact 结束后不许把 pending 摘要留给下一次 fol
   if (engine._lastSummaryModel !== undefined) throw new Error("手动压缩后 _lastSummaryModel 必须清空");
   if (engine._lastSummaryUsage !== undefined) throw new Error("手动压缩后 _lastSummaryUsage 必须清空（否则下一次 fold 记假 usage）");
 };
-
 tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔后必须清零"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c138-thrash");
@@ -1964,19 +1839,16 @@ tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔�
   await ctx.emitRaw("session/event", session, userEvent("把测试跑绿。", 1));
   await ctx.emitRaw("session/event", session, assistantEvent("c1", "bash", { command: "npm test" }, 2));
   await ctx.emitRaw("session/event", session, resultEvent("c1", ["boom", "[exit code: 1]"].join(String.fromCharCode(10)), 3));
-
   const fold = async () => {
     await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
     const r = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
     await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
     return r;
   };
-
   if ((await fold()) === null) throw new Error("第 1 次 fold 应当成功（夹具不够？）");
   const g1 = readGraph(dir, "sess-c138");
   if ((g1.foldCount ?? 0) < 1) throw new Error("foldCount 应 >= 1");
   if ((g1.foldThrash ?? 0) !== 0) throw new Error(`第一次 fold 不该计 thrash，实际 ${g1.foldThrash}`);
-
   // 第二次：只推进 <30 个事件 ⇒ 必须累计 thrash
   for (let i = 0; i < 3; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `soon ${i}` }] });
   const second = await fold();
@@ -1984,7 +1856,6 @@ tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔�
     const g2 = readGraph(dir, "sess-c138");
     if ((g2.foldThrash ?? 0) < 1) throw new Error(`间隔 <30 事件的第二次 fold 必须计 thrash，实际 ${g2.foldThrash ?? 0}`);
   }
-
   // 第三次：推进 >=30 事件 ⇒ thrash 必须清零
   const gap = 40;
   for (let i = 0; i < gap; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: `later ${i}` }] });
@@ -1994,7 +1865,6 @@ tests["C138 foldThrash：两次 fold 间隔 <30 事件要累计，拉开间隔�
     if ((g3.foldThrash ?? 0) !== 0) throw new Error(`间隔 >=30 事件后 thrash 必须清零，实际 ${g3.foldThrash}`);
   }
 };
-
 tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usage（伪造的账）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c143-rules-route");
@@ -2005,7 +1875,6 @@ tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usag
   engine._lastSummaryProvider = "p";
   engine._lastSummaryModel = "m";
   engine._lastSummaryUsage = { inputTokens: 999, outputTokens: 111 };
-
   const rule = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   if (!Array.isArray(rule.summary)) throw new Error("规则摘要必须返回 summary");
   if (engine._lastSummaryProvider !== undefined) throw new Error("规则路径必须清掉 provider（否则 foldMark.route 记的是上次的）");
@@ -2013,7 +1882,6 @@ tests["C143 规则降级 fold 不许带「上一次模型调用」的 route/usag
   if (engine._lastSummaryUsage !== undefined) throw new Error("规则路径必须清掉 usage（否则 lastFoldUsage 是伪造的账）");
   if (engine._lastSummaryModelText !== undefined) throw new Error("模型文本也必须清空");
 };
-
 tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型调用），越界后恢复；overflow 前 3 次不受限"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c177-backoff");
@@ -2021,7 +1889,6 @@ tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c177");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   // 让 compactRegion 一直抛错，模拟「摘要路径坏掉」
   const original = engine.compactRegion.bind(engine);
   let attempts = 0;
@@ -2039,12 +1906,10 @@ tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型
     }
     if (!threw) throw new Error("首次失败必须抛错（_lastSummary 那套约定）");
     if (attempts !== 1) throw new Error(`首次应尝试 1 次，实际 ${attempts}`);
-
     // 第 2 次：还在退避窗口内（30 事件）⇒ 必须直接跳过，不再尝试
     const second = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
     if (second !== null) throw new Error(`退避窗口内必须返回 null，实际 ${JSON.stringify(second)}`);
     if (attempts !== 1) throw new Error(`退避窗口内不许再尝试（attempts 应仍为 1，实际 ${attempts}）`);
-
     // 推进事件越过窗口 ⇒ 允许再试一次
     for (let i = 0; i < 60; i += 1) session.nextSeq(); // 推进事件，越过退避窗口
     let threw2 = false;
@@ -2055,7 +1920,6 @@ tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型
     }
     if (!threw2) throw new Error("越过退避窗口后应再试并再次失败（抛错）");
     if (attempts !== 2) throw new Error(`越过窗口后应尝试第 2 次，实际 ${attempts}`);
-
     // overflow 自救路径不受退避限制
     session.nextSeq(); // 只推进 1 个事件 —— 仍在退避窗口内，但 overflow 不受限
     let threw3 = false;
@@ -2069,9 +1933,7 @@ tests["C177 fold 连续失败必须退避：窗口内不再重试（省掉模型
   } finally {
     engine.compactRegion = original;
   }
-
 };
-
 tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场景不许每步都跑一次模型）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c179-overflow-cap");
@@ -2079,7 +1941,6 @@ tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场�
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c179");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const original = engine.compactRegion.bind(engine);
   let attempts = 0;
   engine.compactRegion = async () => {
@@ -2097,13 +1958,11 @@ tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场�
       }
     }
     if (attempts !== 3) throw new Error(`前 3 次 overflow 应各尝试一次（期望 3，实际 ${attempts}）`);
-
     // 第 4 次（仍在窗口内）：必须直接跳过
     session.nextSeq();
     const fourth = await engine.compactIfNeeded({ session, options: {} }, "context-overflow", undefined);
     if (fourth !== null) throw new Error(`第 4 次 overflow 在窗口内必须返回 null，实际 ${JSON.stringify(fourth)}`);
     if (attempts !== 3) throw new Error(`第 4 次不许再尝试（应仍为 3，实际 ${attempts}）`);
-
     // 推进事件越过窗口：允许再试
     for (let i = 0; i < 300; i += 1) session.nextSeq();
     try {
@@ -2116,7 +1975,6 @@ tests["C179 连续失败 3 次后，overflow 自救也必须退避（溢出场�
     engine.compactRegion = original;
   }
 };
-
 tests["C198 宿主直接调 compactRegion 也必须记账（trigger=host 进预算账本），否则证据里整段折叠不存在"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c198-external");
@@ -2124,7 +1982,6 @@ tests["C198 宿主直接调 compactRegion 也必须记账（trigger=host 进预�
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c198");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const nodes = session.surface.nodes;
   const startSeq = nodes[1];
   const endSeq = nodes[nodes.length - 2];
@@ -2132,10 +1989,8 @@ tests["C198 宿主直接调 compactRegion 也必须记账（trigger=host 进预�
   engine._lastSummaryText = "摘要正文：约束 C1、失败 e1";
   engine._lastSummaryChars = 20;
   engine._lastSummaryModelText = "摘要正文：约束 C1、失败 e1";
-
   // 宿主直接调用（不经过 compactIfNeeded / compactNow）
   await engine.compactRegion(startSeq, endSeq, { session, options: {} }, undefined);
-
   const stats = engine.getLedgerBudgetStats();
   if (stats.externalFolds !== 1) throw new Error(`必须记 1 次外部折叠，实际 ${JSON.stringify(stats.externalFolds)}`);
   const last = stats.lastExternalFold;
@@ -2146,7 +2001,6 @@ tests["C198 宿主直接调 compactRegion 也必须记账（trigger=host 进预�
   if (!last.quality || last.quality.constraintRecall !== 1) throw new Error(`必须带 quality（摘要提到 C1 ⇒ 召回 1），实际 ${JSON.stringify(last.quality)}`);
   if (engine._lastSummaryText !== undefined) throw new Error("pending 摘要必须被消费掉（谁生产谁消费）");
 };
-
 tests["C198 我们自己的 pressure fold 不算「外部折叠」（不能把自己的账记两遍）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c198-internal");
@@ -2159,7 +2013,6 @@ tests["C198 我们自己的 pressure fold 不算「外部折叠」（不能把�
   const stats = engine.getLedgerBudgetStats();
   if (stats.externalFolds !== undefined) throw new Error(`自己的 fold 不许计入 externalFolds，实际 ${stats.externalFolds}`);
 };
-
 tests["C210 归档（session/disposed）必须收尾：记 closeout，并真的发起一次收尾折叠"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c210-closeout");
@@ -2169,7 +2022,6 @@ tests["C210 归档（session/disposed）必须收尾：记 closeout，并真的�
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const callsBefore = (engine.compactCalls ?? []).length;
-
   await ctx.emitRaw("session/disposed", session);
   // 收尾折叠是异步的（disposed 是 void 事件）：等它把 compactRegion 调起来
   for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
@@ -2179,12 +2031,10 @@ tests["C210 归档（session/disposed）必须收尾：记 closeout，并真的�
   if (!(Number.isFinite(last.start) && Number.isFinite(last.end) && last.start <= last.end)) {
     throw new Error(`收尾折叠的区间必须有序：${JSON.stringify(last)}`);
   }
-
   const g = await readGraphReplayed(dir, "sess-c210");
   if (!g.closeout || typeof g.closeout.eventsSinceLastFold !== "number") throw new Error("必须记 closeout（归档时刻 + 距上次 fold 的事件数）");
   if (g.closeout.eventsSinceLastFold < 5) throw new Error(`closeout 必须记下尾巴事件数，实际 ${g.closeout.eventsSinceLastFold}`);
 };
-
 tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败也绝不抛给宿主"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c210-guard");
@@ -2198,7 +2048,6 @@ tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败�
   const g1 = await readGraphReplayed(dir, "sess-c210-guard");
   if ((g1.foldMarks ?? []).some((m) => m.trigger === "archive")) throw new Error("尾巴不足时不许折叠");
   if (!g1.closeout) throw new Error("即便不折叠，closeout 也必须记下来");
-
   // ② 折叠抛错（provider 炸）⇒ disposed 不允许把异常抛出去
   const ctx2 = makeCtx({ measureTotal: () => 300_000, failModels: new Set(["group/deepseek-v4.1-flash1017"]) });
   const engine2 = new Engine(ctx2, { graphDir: nodePath.join(graphDir, "c210-fail"), auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 1, closeoutTimeoutMs: 2000 });
@@ -2209,7 +2058,6 @@ tests["C210 归档收尾有两道保险：尾巴太短不折叠；折叠失败�
   const g2 = await readGraphReplayed(nodePath.join(graphDir, "c210-fail"), "sess-c210-fail");
   if (!g2.closeout) throw new Error("失败路径也必须留下 closeout 记录");
 };
-
 tests["C222 K-2 已否决：工具结果清理不许挪到每一步（只在 overflow / fold 前）"] = async () => {
   // 否决依据（docs/knowledge/进度.md 第 6 轮）：本会话实测 tool/result 501 条、单条中位 576 字符、
   // 最大 23.8k、**0 条 ≥25k** —— 压力在条数不在单条；而 C220 证明 97% 的输入走缓存命中，
@@ -2224,7 +2072,6 @@ tests["C222 K-2 已否决：工具结果清理不许挪到每一步（只在 ove
   const ledgerBody = src.slice(start, end);
   if (ledgerBody.includes("pruneSession")) throw new Error("每步注入路径里不许清理工具结果（K-2 已否决）");
 };
-
 tests["C216 GUI 归档不发 session/disposed：必须认 workspace 域的 durable 写入（domain/changed）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-archive");
@@ -2234,33 +2081,28 @@ tests["C216 GUI 归档不发 session/disposed：必须认 workspace 域的 durab
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const callsBefore = (engine.compactCalls ?? []).length;
-
   // 真机 1.17.5 的归档路径：只写 workspace 域 global 记录，会话仍 live、不发 session/disposed
   const archived = { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: ["sess-c216"] } };
   await ctx.emitRaw("domain/changed", archived);
   for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
   if ((engine.compactCalls ?? []).length <= callsBefore) throw new Error("归档必须发起一次收尾折叠（compactRegion 没被调用）");
-
   const g = await readGraphReplayed(dir, "sess-c216");
   if (!g.closeout) throw new Error("归档必须记 closeout（没有就等于「归档了但没补收尾」）");
   if (g.closeout.source !== "archive") throw new Error(`closeout 要能归因到 archive，实际 ${JSON.stringify(g.closeout.source)}`);
   if (typeof g.closeout.eventsSinceLastFold !== "number" || g.closeout.eventsSinceLastFold < 5) {
     throw new Error(`closeout 必须记下尾巴事件数，实际 ${JSON.stringify(g.closeout.eventsSinceLastFold)}`);
   }
-
   // 同一条 durable 写入被重复广播（宿主重放 / 后续无关变更）不许重复收尾
   const atBefore = g.closeout.at;
   await ctx.emitRaw("domain/changed", archived);
   await new Promise((r) => setTimeout(r, 60));
   if ((await readGraphReplayed(dir, "sess-c216")).closeout.at !== atBefore) throw new Error("重复广播同一个归档不许重复收尾");
-
   // 取消归档 → 继续聊 → 再归档：必须能再收尾一次（否则「恢复会话接着用」永远收不了尾）
   await ctx.emitRaw("domain/changed", { ...archived, value: { archivedSessionIds: [] } });
   await ctx.emitRaw("domain/changed", archived);
   await new Promise((r) => setTimeout(r, 80));
   const atAfterSecond = (await readGraphReplayed(dir, "sess-c216")).closeout.at;
   if (atAfterSecond === atBefore) throw new Error("取消归档后再归档必须能重新收尾");
-
   // 同一次归档撞上两个信号（durable 写入 + 宿主顺手销毁）：只许收尾一次
   await ctx.emitRaw("session/disposed", session);
   await new Promise((r) => setTimeout(r, 60));
@@ -2268,7 +2110,6 @@ tests["C216 GUI 归档不发 session/disposed：必须认 workspace 域的 durab
     throw new Error("归档 + 销毁是同一个收尾的两个信号，10s 内只许算一次");
   }
 };
-
 tests["C216 归档信号只认 workspace 的 global 记录：别的域 / 别的表 / delete 都不许触发收尾"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-scope");
@@ -2277,7 +2118,6 @@ tests["C216 归档信号只认 workspace 的 global 记录：别的域 / 别的�
   const session = await p22Session(ctx, "sess-c216b");
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const id = "sess-c216b";
   const noisy = [
     { domain: "session", table: "", key: "", operation: "put", value: { archivedSessionIds: [id] } },
@@ -2287,14 +2127,12 @@ tests["C216 归档信号只认 workspace 的 global 记录：别的域 / 别的�
   for (const change of noisy) await ctx.emitRaw("domain/changed", change);
   await new Promise((r) => setTimeout(r, 80));
   if ((await readGraphReplayed(dir, "sess-c216b")).closeout) throw new Error("非 workspace-global-put 的变更不许触发归档收尾");
-
   // 反向确认：同样一份载荷，走对的门就能收尾
   await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: [id] } });
   await new Promise((r) => setTimeout(r, 80));
   const g = await readGraphReplayed(dir, "sess-c216b");
   if (!g.closeout) throw new Error("workspace/global/put 必须触发归档收尾");
 };
-
 tests["C216 归档信号只认 change.value：registry 在回调里落后一拍（读到的是旧值）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-stale-registry");
@@ -2307,14 +2145,12 @@ tests["C216 归档信号只认 change.value：registry 在回调里落后一拍�
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   const callsBefore = (engine.compactCalls ?? []).length;
-
   await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: ["sess-c216e"] } });
   for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
   const g = await readGraphReplayed(dir, "sess-c216e");
   if (!g.closeout) throw new Error("载荷里已经写着新归档集合，回读 registry 拿到旧值也不许影响收尾");
   if ((engine.compactCalls ?? []).length <= callsBefore) throw new Error("必须真的发起收尾折叠");
 };
-
 tests["C216 归档时没压完的会话：再次打开（变 live）时自动补做收尾（backfill）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-backfill");
@@ -2322,25 +2158,21 @@ tests["C216 归档时没压完的会话：再次打开（变 live）时自动补
   const ctx = makeCtx({ measureTotal: () => 300_000, services: { workspaceRegistry: { archivedSessionIds: ["sess-c216f"] } } });
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 5, closeoutTimeoutMs: 5000 });
   const before = (engine.compactCalls ?? []).length;
-
   // 用户把它恢复/打开：事件进来 + 一次空转
   const session = await p22Session(ctx, "sess-c216f");
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   for (let i = 0; i < 40 && (engine.compactCalls ?? []).length === before; i += 1) await new Promise((r) => setTimeout(r, 20));
-
   const g = await readGraphReplayed(dir, "sess-c216f");
   if (!g.closeout) throw new Error("恢复后的会话必须补做收尾（closeout 没写）");
   if (g.closeout.source !== "backfill") throw new Error(`补账要能归因到 backfill，实际 ${JSON.stringify(g.closeout.source)}`);
   if ((engine.compactCalls ?? []).length <= before) throw new Error("补账必须真的发起一次折叠");
-
   // 第二个空转点不许再补一次
   const at = g.closeout.at;
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
   await new Promise((r) => setTimeout(r, 80));
   if ((await readGraphReplayed(dir, "sess-c216f")).closeout.at !== at) throw new Error("同一次欠账只许补一次");
 };
-
 tests["C216 收尾折叠不受 token 压力门槛限制：压力不高时 pressure 不折，archive 必须折"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-forced");
@@ -2350,16 +2182,13 @@ tests["C216 收尾折叠不受 token 压力门槛限制：压力不高时 pressu
   const session = await p22Session(ctx, "sess-c216g");
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const calls0 = (engine.compactCalls ?? []).length;
   await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   const calls1 = (engine.compactCalls ?? []).length;
   if (calls1 !== calls0) throw new Error("压力不足时 pressure 不该真的 fold");
-
   await engine.compactIfNeeded({ session, options: {} }, "archive", undefined);
   if ((engine.compactCalls ?? []).length <= calls1) throw new Error("archive 必须绕过压力门槛真的折一次");
 };
-
 tests["C216 closeoutNow（面板补账入口）：await 到折叠真的出结果，不是 fire-and-forget"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-closeout-now");
@@ -2369,18 +2198,15 @@ tests["C216 closeoutNow（面板补账入口）：await 到折叠真的出结果
   const session = await p22Session(ctx, "sess-c216h");
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   const before = (engine.compactCalls ?? []).length;
   const r = await engine.closeoutNow({ session, options: {} });
   if (!r || r.ok !== true) throw new Error(`closeoutNow 必须返回结果，实际 ${JSON.stringify(r)}`);
   if (r.folded !== true) throw new Error(`closeoutNow 必须真的折了（folded），实际 ${JSON.stringify(r)}`);
   if ((engine.compactCalls ?? []).length <= before) throw new Error("closeoutNow 返回前必须已经调用过 compactRegion");
-
   const g = await readGraphReplayed(dir, "sess-c216h");
   if (g.closeout?.source !== "backfill") throw new Error(`closeout.source 应为 backfill，实际 ${JSON.stringify(g.closeout)}`);
   if (g.closeout.folded !== true) throw new Error("closeout 必须记下这次到底折没折（folded）");
 };
-
 tests["C216 归档收尾不会碰「启动前就已归档」的历史会话（没有会话对象 ⇒ 不白跑模型）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c216-history");
@@ -2395,7 +2221,6 @@ tests["C216 归档收尾不会碰「启动前就已归档」的历史会话（�
   await new Promise((r) => setTimeout(r, 120));
   if ((engine.compactCalls ?? []).length !== callsBefore) throw new Error("历史归档不许触发收尾折叠");
 };
-
 tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/compactRegion 在构造时就绑定到实例"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c214-bind");
@@ -2403,7 +2228,6 @@ tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/com
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c214");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   // ① 摘下来的方法（模拟 command-compact 之类把函数拿走再调）
   const detachedNow = engine.compactNow;
   const detachedRegion = engine.compactRegion;
@@ -2413,13 +2237,11 @@ tests["C214 手动压缩入口必须「摘下方法也能调」：compactNow/com
   }
   const nodes = session.surface.nodes;
   await detachedRegion(nodes[1], nodes[nodes.length - 1], { session, options: {} }, undefined);
-
   // ② bind 之后，方法不再是「未绑定」状态：调用它不需要靠调用方给 this
   if (Object.prototype.hasOwnProperty.call(engine.compactNow, "prototype")) throw new Error("绑定后的 compactNow 不该是普通函数（应是 bound function）");
   if (Object.prototype.hasOwnProperty.call(engine.compactRegion, "prototype")) throw new Error("compactRegion 也必须是 bound function");
   if (typeof engine.compactIfNeeded !== "function") throw new Error("compactIfNeeded 仍必须可调用");
 };
-
 tests["C215 就算整个对象被换成代理：入口方法也能按 ctx 反查真身（不再抛 Receiver must be an instance）"] = async () => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c215-proxy");
@@ -2427,14 +2249,12 @@ tests["C215 就算整个对象被换成代理：入口方法也能按 ctx 反查
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1 });
   const session = await p22Session(ctx, "sess-c215");
   await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
-
   // 模拟「宿主持有的是代理对象」：只有 ctx，方法来自原型
   const proxyLike = { ctx, compactNow: Engine.prototype.compactNow, compactRegion: Engine.prototype.compactRegion };
   // ① 原型方法 + 外来 this ⇒ 必须转调真身而不是抛私有品牌错误
   await proxyLike.compactNow.call(proxyLike, { session, options: {} }, undefined, "cmd-proxy");
   const nodes = session.surface.nodes;
   await proxyLike.compactRegion.call(proxyLike, nodes[1], nodes[nodes.length - 1], { session, options: {} }, undefined);
-
   // ② 真身仍可用（guard 不能把正常路径带坏）—— 已经折过，返回 null 也算正常，**不许抛**
   const again = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!(again === null || again === undefined || typeof again === "object")) throw new Error(`真身调用必须返回对象或 null，实际 ${typeof again}`);
@@ -2446,7 +2266,6 @@ tests["C215 就算整个对象被换成代理：入口方法也能按 ctx 反查
     await Engine.prototype.compactNow.call(stranger, { session, options: {} }, undefined, "cmd-stranger");
   }
 };
-
 tests["C242 永久性错误（400/401/402）不值得重试：判别式 + 顶到最大退避 + 下次强制规则摘要"] = async () => {
   const { mod } = await load();
   const isPermanent = mod.isPermanentSummaryError;
@@ -2467,7 +2286,6 @@ tests["C242 永久性错误（400/401/402）不值得重试：判别式 + 顶到
   }
   // 反证：数字必须整段匹配，别把 "1401 tokens" 当成 401
   if (isPermanent("shadowed 1401 tokens") !== false) throw new Error("1401 不该命中 401");
-
   // 接线守卫（静态）：判别式必须真的被用上 —— 两处，缺一处这个候选就是摆设。
   const nodeFs2 = await import("node:fs");
   const src = nodeFs2.readFileSync("src/engine.mjs", "utf8");
@@ -2478,7 +2296,6 @@ tests["C242 永久性错误（400/401/402）不值得重试：判别式 + 顶到
     throw new Error("summarize 必须消费 forceRulesNext（消费后清标记）");
   }
 };
-
 tests["C244 over-budget 必须按档位归因（落在 L5 = 设计内，落在 L0–L3 = 还有空间）"] = async () => {
   const { mod } = await load();
   const acc = mod.accumulateLedgerBudget;
@@ -2498,7 +2315,6 @@ tests["C244 over-budget 必须按档位归因（落在 L5 = 设计内，落在 L
   const clamped = acc({}, { fallback: "over-budget", level: 9, overBudgetBy: 1, provenanceCoverage: 1 }, 5);
   if (!clamped.overByLevel.L5) throw new Error("level 必须夹紧到 0..5");
 };
-
 tests["C245 over-budget 要区分成因：约束/根目标占大半（压不动）vs 内容占大头（还能压）"] = async () => {
   const { mod } = await load();
   const acc = mod.accumulateLedgerBudget;
@@ -2513,27 +2329,22 @@ tests["C245 over-budget 要区分成因：约束/根目标占大半（压不动�
   let s3 = acc(s2, { fallback: "none", level: 1, tokens: 300, unyieldingTokens: 200, overBudgetBy: 0, provenanceCoverage: 1 }, 3);
   if ((s3.overByCause.constraints ?? 0) + (s3.overByCause.content ?? 0) !== 2) throw new Error("预算内不许进 overByCause");
 };
-
 tests["C288 收尾折叠预检：尾巴估值超过上限时不许去打那个必败的模型请求"] = async () => {
   const { mod } = await load();
   if (typeof mod.closeoutExceedsLimit !== "function") throw new Error("必须导出纯判定 closeoutExceedsLimit");
   if (mod.CLOSEOUT_MAX_FOLD_TOKENS !== 150_000) throw new Error(`上限应为 150k，实际 ${mod.CLOSEOUT_MAX_FOLD_TOKENS}`);
-
   // 1000 tok/事件 × 尾巴 199900 ≈ 2e8 tok ⇒ 远超上限
   const big = { nodes: { n1: { seq: 200_000 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 100_000 }] };
   const bigVerdict = mod.closeoutExceedsLimit(big);
   if (bigVerdict === null) throw new Error("大尾巴必须被判为过大");
   if (!(bigVerdict.est > mod.CLOSEOUT_MAX_FOLD_TOKENS)) throw new Error(`估值应超上限：${JSON.stringify(bigVerdict)}`);
   if (!Number.isFinite(bigVerdict.tail)) throw new Error("要带回尾巴事件数（日志要用）");
-
   // 10 tok/事件 × 尾巴 20 ⇒ 远低于上限
   const small = { nodes: { n1: { seq: 120 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 1_000 }] };
   if (mod.closeoutExceedsLimit(small) !== null) throw new Error("小尾巴不该被判为过大");
-
   // 估不出来（没有历史 fold）⇒ null，不许瞎猜
   if (mod.closeoutExceedsLimit({ nodes: { n1: { seq: 99_999 } }, foldMarks: [] }) !== null) throw new Error("没有历史 fold ⇒ 判 null");
   if (mod.closeoutExceedsLimit(null) !== null) throw new Error("null 图 ⇒ null");
-
   // 源码接线：跳过路径必须写日志、且**不许**写 g.closeout（写了会永久挡住以后补账）
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   const block = src.slice(src.indexOf("#closeoutTooBig(graph)"), src.indexOf("async #closeoutFold"));
@@ -2542,11 +2353,9 @@ tests["C288 收尾折叠预检：尾巴估值超过上限时不许去打那个�
   if (skip.includes(".closeout =")) throw new Error("预检路径不许写 g.closeout");
   if (!src.includes("归档收尾跳过")) throw new Error("跳过时必须写日志说明原因");
 };
-
 tests["C289 分段收尾：过大的尾巴要切成首尾相接、每段不超上限的若干块"] = async () => {
   const { mod } = await load();
   if (typeof mod.planCloseoutChunks !== "function") throw new Error("必须导出 planCloseoutChunks");
-
   // 1000 tok/事件、单段上限 150k ⇒ 每段 150 事件；尾巴 13785 事件 ⇒ 6 段封顶（36 万事件以内都够）
   const chunks = mod.planCloseoutChunks({ fromSeq: 1000, tail: 13_785, tokensPerEvent: 1000 });
   if (chunks.length === 0) throw new Error("必须切出段");
@@ -2560,24 +2369,20 @@ tests["C289 分段收尾：过大的尾巴要切成首尾相接、每段不超�
     cursor = c.end;
   }
   if (cursor > 1000 + 13_785) throw new Error("不许折到尾巴之外");
-
   // 尾巴小 ⇒ 一段就够
   const one = mod.planCloseoutChunks({ fromSeq: 0, tail: 50, tokensPerEvent: 100 });
   if (one.length !== 1) throw new Error(`小尾巴应一段：${JSON.stringify(one)}`);
   if (one[0].end !== 50) throw new Error("一段要覆盖整个尾巴");
-
   // 缺 tokensPerEvent（估不出来）⇒ 不切（不许瞎猜）
   if (mod.planCloseoutChunks({ fromSeq: 0, tail: 1000, tokensPerEvent: null }).length !== 0) {
     throw new Error("没有估值时不许切段");
   }
   if (mod.planCloseoutChunks({ fromSeq: 0, tail: 0, tokensPerEvent: 100 }).length !== 0) throw new Error("尾巴 0 ⇒ 不切");
-
   // 接线：超限路径必须真的走分段，而不是直接跳过
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("归档收尾分段折叠")) throw new Error("超限时必须走分段折叠并写日志");
   if (!src.includes("this.compactRegion(start, end, this.#asAgent(target)")) throw new Error("每段必须真的调 compactRegion");
 };
-
 tests["C291 分段收尾必须受同一个超时预算（不能绕开 closeoutTimeoutMs）"] = () => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("deadline: Date.now() + limitMs")) throw new Error("分段循环必须用同一个 limitMs 算 deadline");
@@ -2585,8 +2390,6 @@ tests["C291 分段收尾必须受同一个超时预算（不能绕开 closeoutTi
   const log = src.slice(src.indexOf("结束原因"), src.indexOf("结束原因") + 400);
   if (!log.includes("预算")) throw new Error("到点时要说明用满了预算");
 };
-
-
 tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中途抛错 / 时间用完）"] = async () => {
   const { mod } = await load();
   if (typeof mod.runChunkedCloseout !== "function") throw new Error("必须导出 runChunkedCloseout");
@@ -2595,7 +2398,6 @@ tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中�
     { start: 10, end: 20 },
     { start: 20, end: 30 },
   ];
-
   // ① 全部成功
   const okCalls = [];
   const okOut = await mod.runChunkedCloseout({
@@ -2609,7 +2411,6 @@ tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中�
   if (JSON.stringify(okCalls) !== JSON.stringify([[0, 10], [10, 20], [20, 30]])) {
     throw new Error(`每段都要被调、且顺序正确：${JSON.stringify(okCalls)}`);
   }
-
   // ② 第二段抛错：第一段的成果必须保留，且 stop 记为 error
   const errOut = await mod.runChunkedCloseout({
     chunks,
@@ -2621,7 +2422,6 @@ tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中�
   if (errOut.folded !== 1) throw new Error(`出错前的段必须保留：folded=${errOut.folded}`);
   if (errOut.stopped !== "error") throw new Error(`应记 error：${errOut.stopped}`);
   if (!(errOut.error instanceof Error)) throw new Error("要把错误带出来（日志要用）");
-
   // ③ 时间用完：第一段跑完后 deadline 已过 ⇒ 不再继续
   let t = 0;
   const timeOut = await mod.runChunkedCloseout({
@@ -2634,20 +2434,16 @@ tests["C296 分段收尾三种结局必须真的跑出来（全部成功 / 中�
   });
   if (timeOut.folded !== 1) throw new Error(`只用了一段：folded=${timeOut.folded}`);
   if (timeOut.stopped !== "deadline") throw new Error(`应记 deadline：${timeOut.stopped}`);
-
   // ④ 空清单：不调 fold，直接 done
   const emptyOut = await mod.runChunkedCloseout({ chunks: [], deadline: Date.now() + 1000, fold: async () => {} });
   if (emptyOut.folded !== 0 || emptyOut.stopped !== "done") throw new Error(`空清单应 0/done：${JSON.stringify(emptyOut)}`);
 };
-
 tests["C309 planChunkedCloseout：给一张图，直接算出要折成几段（预检 + 切分合成一条链）"] = async () => {
   const { mod } = await load();
   if (typeof mod.planChunkedCloseout !== "function") throw new Error("必须导出 planChunkedCloseout");
-
   // 小尾巴 ⇒ 不需要分段（null）
   const small = { nodes: { n1: { seq: 120 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 1_000 }] };
   if (mod.planChunkedCloseout(small) !== null) throw new Error("小尾巴不该被判为需要分段");
-
   // 大尾巴：1000 tok/事件 × 尾巴 199900 ⇒ 远大于 150k ⇒ 每段 150 事件、最多 6 段
   const big = { nodes: { n1: { seq: 200_000 } }, foldMarks: [{ seqStart: 0, seqEnd: 100, shadowedTokens: 100_000 }] };
   const planned = mod.planChunkedCloseout(big);
@@ -2668,7 +2464,6 @@ tests["C309 planChunkedCloseout：给一张图，直接算出要折成几段（�
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("planChunkedCloseout(graph, {") ) throw new Error("引擎必须走统一入口，并把可配的单段上限定进去（C316）");
 };
-
 tests["C319 摘要终止原因必须从 assembler.finish 读（raw 是块数组，不是响应对象）"] = () => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   if (!src.includes("return assembler.finish;")) throw new Error("必须从 assembler.finish 读终止原因（C319）");
@@ -2678,7 +2473,6 @@ tests["C319 摘要终止原因必须从 assembler.finish 读（raw 是块数组�
   }
   if (!src.includes("finishRaw?.kind")) throw new Error("要归一化 { kind } 形状");
 };
-
 tests["C321 finishReason 必须真的落进 foldMarks（doctor 读的是那里，不是 ledger-budget）"] = () => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   // ① foldMark 里必须有这个字段
@@ -2694,12 +2488,10 @@ tests["C321 finishReason 必须真的落进 foldMarks（doctor 读的是那里�
   if (!(take < markStart)) throw new Error("取值必须在构造 foldMark 之前");
   if (clearBetween < 0 || clearBetween > markStart) throw new Error("取值与构造之间要有一次清理（防泄漏到下一次 fold）");
 };
-
 tests["C328 归档信号解析：只认 workspace/put/global，且 value 可对象可 JSON 串"] = async () => {
   const { mod } = await load();
   const parse = mod.archivedIdsFromChange;
   if (typeof parse !== "function") throw new Error("必须导出 archivedIdsFromChange");
-
   const ok = parse({ domain: "workspace", table: "", operation: "put", value: { archivedSessionIds: ["s1", 2] } });
   if (JSON.stringify(ok) !== JSON.stringify({ ids: ["s1", "2"], trusted: true })) throw new Error(`正常形状解析错：${JSON.stringify(ok)}`);
   if (parse({ domain: "workspace", table: undefined, operation: "put", value: { archivedSessionIds: [] } })?.trusted !== true) {
@@ -2710,7 +2502,6 @@ tests["C328 归档信号解析：只认 workspace/put/global，且 value 可对�
   if (JSON.stringify(viaString?.ids) !== '["s9"]') throw new Error(`JSON 串要能解析：${JSON.stringify(viaString)}`);
   // 坏 JSON ⇒ null（不许抛）
   if (parse({ domain: "workspace", table: "", operation: "put", value: "{坏" }) !== null) throw new Error("坏 JSON 必须 null");
-
   // 这些都不是归档信号
   for (const change of [
     { domain: "session", table: "", operation: "put", value: { archivedSessionIds: ["x"] } },
@@ -2720,13 +2511,11 @@ tests["C328 归档信号解析：只认 workspace/put/global，且 value 可对�
   ]) {
     if (parse(change) !== null) throw new Error(`不该认：${JSON.stringify(change)}`);
   }
-
   // 没有数组时退到 registry（trusted=false：它有一拍延迟）
   const fallback = parse({ domain: "workspace", table: "", operation: "put", value: {} }, { archivedSessionIds: ["r1"] });
   if (fallback?.trusted !== false || JSON.stringify(fallback?.ids) !== '["r1"]') throw new Error("兜底要标 trusted=false");
   if (parse({ domain: "workspace", table: "", operation: "put", value: {} }, null) !== null) throw new Error("没兜底就 null");
 };
-
 tests["C328 差分只挑新出现的 id（取消归档后再归档也要能被认出来）"] = async () => {
   const { mod } = await load();
   const diff = mod.newlyArchived;
@@ -2736,12 +2525,10 @@ tests["C328 差分只挑新出现的 id（取消归档后再归档也要能被�
   if (diff(new Set(), ["x"]).length !== 1) throw new Error("空基线要全挑出来");
   if (diff(new Set(["x"]), ["x"]).length !== 0) throw new Error("没变化不该挑");
 };
-
 tests["C349 永久错误判定：400/401/402/422 永久；429/500/503 官方说稍后重试 ⇒ 必须可重试"] = async () => {
   const { mod } = await load();
   const f = mod.isPermanentSummaryError;
   if (typeof f !== "function") throw new Error("必须导出 isPermanentSummaryError");
-
   // 永久（重试没用）
   for (const msg of [
     "Error 400: invalid format",
@@ -2751,7 +2538,6 @@ tests["C349 永久错误判定：400/401/402/422 永久；429/500/503 官方说�
   ]) {
     if (f(msg) !== true) throw new Error(`应判永久：${msg}`);
   }
-
   // 可重试（官方 Solution 写的是"稍后重试"）
   for (const msg of [
     "429 Rate Limit Reached",
@@ -2761,17 +2547,14 @@ tests["C349 永久错误判定：400/401/402/422 永久；429/500/503 官方说�
   ]) {
     if (f(msg) !== false) throw new Error(`不该判永久：${msg}`);
   }
-
   // 空值
   if (f("") !== false || f(null) !== false) throw new Error("空值必须 false");
 };
-
 tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基数抬高、超时保持原样"] = async () => {
   const { mod } = await load();
   const cls = mod.classifySummaryError;
   const backoff = mod.retryBackoffFor;
   if (typeof cls !== "function" || typeof backoff !== "function") throw new Error("必须导出 classifySummaryError / retryBackoffFor");
-
   // 分类
   const cases = [
     ["429 Rate Limit Reached", "rate-limit"],
@@ -2790,7 +2573,6 @@ tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基�
     const got = cls(msg);
     if (got !== want) throw new Error(`${msg} 应分类为 ${want}，实际 ${got}`);
   }
-
   // 分档：限流 ⇒ 上限翻倍；过载 ⇒ 基数抬高；其它 ⇒ 与默认一致
   const base = { base: 30, cap: 480 };
   const rl = backoff("rate-limit", base);
@@ -2802,7 +2584,6 @@ tests["C350 错误分类与退避分档：限流把上限翻倍、过载把基�
     if (d.base !== 30 || d.cap !== 480) throw new Error(`${kind} 不该改变默认退避：${JSON.stringify(d)}`);
   }
 };
-
 tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / thresholdTokens / windowTokens"] = () => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   // foldMark 里三个字段都要写
@@ -2814,7 +2595,6 @@ tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / 
   if (!src.includes("spec.contextWindow = info.context.contextWindow")) throw new Error("必须把窗口值带进 spec（C366）");
   if (!src.includes("markPressure?.window")) throw new Error("foldMark 必须从快照取窗口（C400）");
 };
-
 tests["C367 限流/过载除了事件退避，还要有「最小等待时间」（事件数≠时间）"] = async (t) => {
   const { mod } = await load();
   const delay = mod.retryMinDelayMs;
@@ -2831,7 +2611,6 @@ tests["C367 限流/过载除了事件退避，还要有「最小等待时间」�
   if (!src.includes("const minDelay = retryMinDelayMs(")) throw new Error("退避判定必须调用 retryMinDelayMs（C367）");
   if (!src.includes("st.lastFoldFailureAt = Date.now()")) throw new Error("失败时必须记时间戳（C367）");
 };
-
 tests["C382 上下文超长的 400 不是永久错误（官方：超窗直接 400，没有 truncation）"] = async (t) => {
   const { mod } = await load();
   const f = mod.isPermanentSummaryError;
@@ -2852,7 +2631,6 @@ tests["C382 上下文超长的 400 不是永久错误（官方：超窗直接 40
   // 429/500/503 仍可重试
   t.eq(f("429 Rate Limit Reached"), false, "429 可重试");
 };
-
 tests["C387 摘要「成功但空白」必须抛错（官方：JSON Output 可能只剩空格，finish_reason 仍是 stop）"] = (t) => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   // 守卫必须存在，且必须用 trim（只含空格的响应也要判空）
@@ -2864,7 +2642,6 @@ tests["C387 摘要「成功但空白」必须抛错（官方：JSON Output 可�
   if (useAt < 0) throw new Error("找不到守卫之后的摘要使用点（判据可能已漂移）");
   t.eq(guardAt < useAt, true, "守卫必须在装配最终摘要之前");
 };
-
 tests["C398 自动折叠必须记 model 与 finishReason（真机实测两者都是 null）"] = (t) => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   // 必须先取局部变量再清（与 C321 同类：先清后读 = 永远 null）
@@ -2879,7 +2656,6 @@ tests["C398 自动折叠必须记 model 与 finishReason（真机实测两者都
   t.includes(block, "model: summaryModel", "usage 里必须写 summaryModel（不是再读字段）");
   t.eq(/provider: this\._lastSummaryProvider \?\? null,\s*\n\s*model: this\._lastSummaryModel/.test(block), false, "不许在构造里再读已被清空的字段");
 };
-
 tests["C399/C400 三个证据字段必须真的落进 foldMark（不再依赖实例字段跨方法传递）"] = (t) => {
   const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
   // 快照必须在节流的 early-return **之前**写（否则会读到几十秒前的旧值）
@@ -2892,12 +2668,10 @@ tests["C399/C400 三个证据字段必须真的落进 foldMark（不再依赖实
   t.includes(block, "measuredBefore: markPressure?.tokens", "foldMark 必须读 markPressure");
   t.eq(/this\._foldDiag\?/.test(block), false, "不许再读 this._foldDiag（已废弃）");
 };
-
 tests["C443 foldMark 的 usage 用行为测住：真机 usage 没有 model 也要补上"] = async (t) => {
   const { mod } = await load();
   const build = mod.buildFoldMarkUsage;
   t.eq(typeof build, "function", "必须导出 buildFoldMarkUsage");
-
   // 真机形状：只有 4 个 token 字段，没有 model
   const real = { inputTokens: 217664, outputTokens: 781, totalTokens: 219000, cacheReadTokens: 19584 };
   const out = build(real, { provider: "magpie", model: "group/deepseek-v4.1-flash1017", instructionTokens: 3996 });
@@ -2909,9 +2683,7 @@ tests["C443 foldMark 的 usage 用行为测住：真机 usage 没有 model 也�
   t.eq(build(null), null, "没有 usage ⇒ null");
   t.eq(build({ inputTokens: 1 }, { instructionTokens: "x" }).instructionTokens, null, "非法 instructionTokens ⇒ null");
 };
-
 /* ───────── C445：循环折叠的**接线**（判据单测证明"算得对"，这里证明"接上了"） ───────── */
-
 /** 造 n 次"同一个 bash 命令"的完整 step（assistant 调用 + 结果 + step/end）。 */
 async function pushIdenticalSteps(ctx, session, n, { command = "ls -la src", startSeq = 1 } = {}) {
   let seq = startSeq;
@@ -2923,7 +2695,6 @@ async function pushIdenticalSteps(ctx, session, n, { command = "ls -la src", sta
   }
   return seq;
 }
-
 tests["C445 循环折叠接线：连续 8 次相同动作、上下文只有 30K（远低于 90K 阈值）也会折，且 trigger=loop"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-loop-wire" });
@@ -2935,7 +2706,6 @@ tests["C445 循环折叠接线：连续 8 次相同动作、上下文只有 30K�
   // 先让表面上有东西可折（否则这条测的就不是"接线"，而是"没内容可折"）
   for (let i = 0; i < 16; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
   await pushIdenticalSteps(ctx, session, 8);
-
   const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!result) throw new Error("连续 8 次相同动作就该折一次（阈值不该拦住循环自救）");
   if (engine.compactCalls.length !== 1) throw new Error(`compactRegion 调用 ${engine.compactCalls.length} 次`);
@@ -2947,7 +2717,6 @@ tests["C445 循环折叠接线：连续 8 次相同动作、上下文只有 30K�
   // 日志必须能回答"为什么折" —— 否则事故复盘只看到一次莫名折叠
   if (!ctx.warns.some((w) => w.includes("思考死循环"))) throw new Error(`warn 里没有循环说明：${JSON.stringify(ctx.warns.slice(-3))}`);
 };
-
 tests["C445 空折不消耗配额：连折不动 4 次后，一旦有内容仍然会折（旧版 3 次就把自己关了）"] = async () => {
   const { Engine, graphDir } = await load();
   const session = makeSession({ id: "sess-loop-nofold" });
@@ -2956,7 +2725,6 @@ tests["C445 空折不消耗配额：连折不动 4 次后，一旦有内容仍�
   // minFoldTokens 抬高 ⇒ planFold 会说"没有可折内容"，每次 compactIfNeeded 都返回 null
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 10_000_000, retainRatio: 0.1 });
   await pushIdenticalSteps(ctx, session, 8);
-
   for (let i = 0; i < 4; i += 1) {
     const out = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
     if (out !== null) throw new Error(`第 ${i + 1} 次本不该折（minFoldTokens 抬高了）`);
@@ -2972,8 +2740,6 @@ tests["C445 空折不消耗配额：连折不动 4 次后，一旦有内容仍�
   const mark = ((await readGraphReplayed(dir, "sess-loop-nofold")).foldMarks ?? []).at(-1);
   if (mark?.trigger !== "loop") throw new Error(`foldMark.trigger 应为 loop，实际 ${JSON.stringify(mark?.trigger)}`);
 };
-
-
 tests["C467 400 要分出「被路由到别的上游」：这类改提示词没用，规则摘要才是救场"] = async (t) => {
   const { mod } = await load();
   const real = '400: {"code":"invalid_request","message":"WPS 灵犀 Lingxi: WPS 灵犀上游返回 400：{\"code\":\"InvalidArgument\"}"}';
@@ -2987,8 +2753,6 @@ tests["C467 400 要分出「被路由到别的上游」：这类改提示词没�
   // 普通 400 在**退避**层面仍按"重试同一路径无意义"处理（参数错不会自己好），这点不变
   t.eq(mod.isPermanentSummaryError("400 invalid format"), true, "退避口径不变：400 仍会强制走规则摘要兜底");
 };
-
-
 tests["C458 清洗接线：模型编出来的 id 在落库前就变成 n?/e?（不是只测纯函数）"] = async (t) => {
   // 纯函数测试只能证明 sanitizeSummaryIds 正确，证明不了**引擎真的调了它**。
   // 这里让假模型吐出一段带编造编号的摘要，再检查引擎保存的那份文本。
@@ -3028,7 +2792,6 @@ tests["C458 清洗接线：模型编出来的 id 在落库前就变成 n?/e?（�
   t.eq(text.includes("n999"), false, "n999 不许留在 checkpoint 里");
   t.eq(text.includes("e77"), false, "e77 同理");
 };
-
 tests["C487 规则摘要的失败行必须截断字段（31k 字符的降级摘要反而更贵）"] = async (t) => {
   const { Engine } = await load();
   const dir = nodePath.join(GRAPHS, "c487-rule-trim");
@@ -3059,13 +2822,11 @@ tests["C487 规则摘要的失败行必须截断字段（31k 字符的降级摘�
   t.includes(line, "evidence seq", "坐标必须保留");
   t.eq(line.includes("y".repeat(200)), false, "超长错误文本不该整段塞进来");
 };
-
 tests["C497 422（参数错误）必须跟 400 归一类 —— 重试同一个请求不会变好"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "422 已经是 permanent", "要写清 422 的归类依据（已由 isPermanentSummaryError 覆盖），别默默改掉");
   t.includes(src, "要改的是请求本身，不是等一会儿", "提示语要让读者知道该做什么");
 };
-
 tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默认模型）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "#offlineCloseoutFold", "必须有这个方法（否则 no-foldable-span 仍然无解）");
@@ -3077,8 +2838,6 @@ tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默
   // 绝不许在引擎里自己拼 HTTP —— 模型调用必须走宿主 ctx.llm
   t.eq(/3425\/v1/.test(src), false, "引擎不许直连 magpie 端口，必须走 ctx.llm.stream");
 };
-
-
 tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;
@@ -3090,7 +2849,6 @@ tests["C500/C501 离线补折的两个入口都必须走同一条判定（null �
   // graphDir 有两种形态，home 推导不能硬编码层数
   t.includes(src, 'base0 === "chess-context"', "home 推导要按目录名判断（真机 graphDir = <home>/chess-context）");
 };
-
 tests["C506 离线补折优先用「上下文压缩设置里选的模型」"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "#summaryTarget()", "必须有一个统一出口读 summarizationProvider/Model");
@@ -3098,7 +2856,6 @@ tests["C506 离线补折优先用「上下文压缩设置里选的模型」"] = 
   t.includes(src, "summarizationProvider", "读的就是设置里那个键");
   t.includes(src, "summarizationModel", "model 同理");
 };
-
 tests["C514 归档收尾的结局必须落盘 —— 不许只在内存里（sessionRefs 已被删）"] = async (t) => {
   const { Engine, graphDir } = await load();
   const dir = nodePath.join(graphDir, "c514-closeout-persist");
@@ -3123,7 +2880,6 @@ tests["C514 归档收尾的结局必须落盘 —— 不许只在内存里（ses
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "this.persist.flush({ id: ref.id, cwd: ref.cwd }, live, { full: true })", "结局要直接走 persist 落盘");
 };
-
 tests["C524 自动补账：默认开、限量、跳过活会话、失败只 warn"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "#startAutoBackfill", "要有启动入口");
@@ -3134,14 +2890,12 @@ tests["C524 自动补账：默认开、限量、跳过活会话、失败只 warn
   t.includes(src, "自动补账失败（不影响压缩）", "失败只 warn");
   t.includes(src, "setInterval(kick, everyMs)", "要按间隔自己跑");
   t.includes(src, "?.unref?.()", "定时器不许吊住宿主退出");
-
   // 配置项必须存在且默认开
   const schema = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "config-schema.mjs"), "utf8");
   t.includes(schema, 'key: "autoBackfill", type: "boolean", default: true', "autoBackfill 默认必须 true");
   t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MIN", "间隔用环境变量调（少一处 golden 漂移）");
   t.includes(src, "DSH_GOKIFU_AUTO_BACKFILL_MAX", "每轮数量同理");
 };
-
 tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   // ① 无头：离线补折调用模型时**不许**带真实 sessionId（宿主会为它建/激活 surface ⇒ 会话被弹出来）
@@ -3154,7 +2908,6 @@ tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 6000);
   t.eq(/resolveAgent|resume|closeoutNow/.test(tick), false, "自动补账不许 resume 会话");
 };
-
 tests["C527 自动补账一次 tick 里连续推进（否则大会话要补好几天）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
@@ -3164,7 +2917,6 @@ tests["C527 自动补账一次 tick 里连续推进（否则大会话要补好�
   t.includes(tick, "break;", "预算用尽或不再欠就要停");
   t.eq(/while \(true\)/.test(tick), false, "不许写死循环");
 };
-
 tests["C529 补账互斥：同一会话不许被自动与面板同时补（两次模型调用 + 两个写者）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "_backfillInFlight", "要有这把锁");
@@ -3174,7 +2926,6 @@ tests["C529 补账互斥：同一会话不许被自动与面板同时补（两�
   const ui = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui.mjs"), "utf8");
   t.includes(ui, 'code: "backfill-busy"', "面板撞上时回 409 并说明原因");
 };
-
 tests["C530 已结清且没有新增事件的会话，不许再收尾一次（真机 3 小时 61 次）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const fn = src.slice(src.indexOf("#closeout(session, source = \"disposed\")"), src.indexOf("#closeout(session, source = \"disposed\")") + 2000);
@@ -3183,7 +2934,6 @@ tests["C530 已结清且没有新增事件的会话，不许再收尾一次（�
   t.includes(fn, "Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold", "事件数没变才跳过（有新增必须重新收尾）");
   t.includes(fn, "return;", "命中就直接返回，不再调模型");
 };
-
 tests["C535 finish 读不到时用 token 数反推截断（真机 65% 的折叠没有 finishReason）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   t.includes(src, "max(assumed)", "撞满时要能推出 max(assumed)");
@@ -3194,7 +2944,6 @@ tests["C535 finish 读不到时用 token 数反推截断（真机 65% 的折叠�
   t.eq(at > 0, true, "必须有一个可测的反推段落");
   t.eq(src.slice(at, at + 800).includes("this._lastSummaryFinishReason = finishReason2;"), true, "反推结果要落回 _lastSummaryFinishReason");
 };
-
 tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
@@ -3203,7 +2952,6 @@ tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] 
   t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
 };
-
 tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"] = async (t) => {
   // 真机：用户归档 4f3cae10 后，closeout 写 folded:1，而 foldMarks 是 0。
   // 彩排发现**单段路径**同样把"返回非空对象"当成"折了" —— 判据已改成看证据。
@@ -3224,7 +2972,6 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
   const zlib = await import("node:zlib");
   const jsonl = events.map((e) => JSON.stringify(e)).join(String.fromCharCode(10)) + String.fromCharCode(10);
   nodeFs.writeFileSync(nodePath.join(sessionsDir, "session.v4.jsonl.zstd"), zlib.zstdCompressSync(Buffer.from(jsonl, "utf8")));
-
   const profileDir = nodePath.join(home, "profiles", "desktop");
   nodeFs.mkdirSync(profileDir, { recursive: true });
   nodeFs.writeFileSync(
@@ -3232,7 +2979,6 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
     ["- id: agent-default-model", "  provider: mock", "  model: mock-model", ""].join(String.fromCharCode(10)),
     "utf8",
   );
-
   const graphDir = nodePath.join(home, "chess-context");
   const gdir = nodePath.join(graphDir, "sessions", sid);
   nodeFs.mkdirSync(gdir, { recursive: true });
@@ -3252,33 +2998,48 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
     }),
     "utf8",
   );
-
   const ctx = makeCtx();
-  ctx.llm.stream = async (options) => {
+  // ★ C572：桩必须是**异步生成器**（引擎是 `for await (... of ctx.llm.stream(...))`）。
+  //   之前写成返回对象的普通 async 函数 ⇒ 离线补折一进去就抛错，于是这条测试永远只能证明"不撒谎"。
+  ctx.llm.stream = async function* (options) {
     ctx.streamCalls.push(options);
-    return { blocks: () => [{ type: "text", text: "## 目标" }], usage: { inputTokens: 1000, outputTokens: 200 } };
+    yield {
+      type: "text-delta",
+      text: [
+        "## 目标",
+        "- 把构建跑通",
+        "## 约束",
+        "- 不许动 prod 配置",
+        "## 棋谱（状态节点）",
+        "- n1 → n2",
+        "## 已探明死路",
+        "- 无",
+        "## 已建立事实",
+        "- 构建可通过",
+        "## 当前节点",
+        "- n2",
+      ].join("\n"),
+    };
+    yield { type: "usage", usage: { inputTokens: 1000, outputTokens: 200 } };
   };
   const engine = new Engine(ctx, { graphDir, auto: false });
   const session = makeSession({ id: sid });
   await engine.closeoutNow({ session }, { source: "archive" });
-
   // ★ C558：**沙盒的图必须真的被读到**。否则引擎会"新建空图"，测试就退化成空转自证。
   //   （坑：图的目录名要跟 `session.id` 一致 —— engine 用 safeId(id) 定位，不是 `session-<id>`。）
   const revivesEmpty = (ctx.warns ?? []).some((w) => String(w).includes("新建空图"));
   t.eq(revivesEmpty, false, "沙盒图没被读到（引擎新建了空图）⇒ 这条测试不算数：" + (ctx.warns ?? []).join(" | "));
-
   const written = JSON.parse(nodeFs.readFileSync(nodePath.join(gdir, "graph.json"), "utf8"));
   const marks = (written.foldMarks ?? []).length;
   const folded = written.closeout?.folded === true;
   t.eq(folded && marks === 0, false, "不许假成功：folded=" + String(written.closeout?.folded) + " / marks=" + marks);
   t.eq(folded ? marks >= 1 : true, true, "说折了就必须有 mark");
-  // ★ C558（诚实边界）：这个沙盒**没有**走到离线补折（`streamCalls` 为 0）。
-  //   所以这条测试只证明「不再假成功」，**不证明**「离线补折在引擎里能跑起来」——
-  //   后者只有重启后的真机才算数（脚本路径已真机验证过，但它不走引擎的 #tryOfflineCloseout）。
-  t.eq(Array.isArray(ctx.streamCalls), true, "只做形状断言，不对离线路径下结论");
+  // ★ C572：home 修好 + 桩改成异步生成器之后，这条彩排**真的走到离线补折**了。
+  //   所以现在可以断言端到端：模型被调用、并且真的写出了 offline foldMark。
+  t.eq(ctx.streamCalls.length >= 1, true, "必须真的调用过模型（离线补折）");
+  t.eq(marks >= 1, true, "离线补折必须写出 foldMark（实际 " + marks + "）");
   nodeFs.rmSync(home, { recursive: true, force: true });
 };
-
 tests["C559 引擎离线补折要关掉思考（官方默认开启，reasoning 吃 max_tokens）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const at = src.indexOf("async #offlineCloseoutFold");
@@ -3289,7 +3050,6 @@ tests["C559 引擎离线补折要关掉思考（官方默认开启，reasoning �
   const offlineCall = seg.slice(seg.indexOf("const callModel = async"));
   t.includes(offlineCall.slice(0, 1200), 'thinking: { type: "disabled" }', "关思考要落在**离线**那次调用上");
 };
-
 tests["C570 日志没了的欠账不该每轮白占名额"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 9000);

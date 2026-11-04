@@ -93,3 +93,14 @@ tests["C572 离线补折覆盖了旧缺口后，旧 partial/gap 必须被清掉"
   t.eq(graph.closeout.offlineUncoveredHead, undefined, "旧缺口必须清掉（否则永远 due）");
   t.eq(Number(graph.closeout.folded) > 0, true, "这次确实折了");
 };
+
+tests["C572⑤ factsIds 必须声明在 runOfflineFold 之前（否则 TDZ 崩在模型答完之后）"] = (t) => {
+  const src = engine();
+  const at = src.indexOf("async #offlineCloseoutFold");
+  const seg = src.slice(at, at + 9000);
+  const factsAt = seg.indexOf("const factsIds = (() =>");
+  const callAt = seg.indexOf("await runOfflineFold({");
+  t.eq(factsAt >= 0 && callAt >= 0, true, "两处都要在");
+  t.eq(factsAt < callAt, true, "factsIds 必须先声明（闭环里被 measureQuality 读取）");
+  t.includes(seg, "Cannot access before initialization", "注释要留下这个坑");
+};
