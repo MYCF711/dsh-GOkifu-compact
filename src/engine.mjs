@@ -1120,6 +1120,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       const lastSeq = Number(last?.seqEnd);
       const endSeq = Number(session.seq);
       const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
+      // ★ C530：**已经结清、而且没有新增事件** ⇒ 直接返回，别再折一次。
+      //   真机（2026-11-04）：3 小时内 61 个会话各被收尾一次，其中多数 `closeout.folded:1` 却
+      //   **没有产生任何新 foldMark** —— 等于每次都在花一次模型调用重做同一件事。
+      const prevCloseout = g.closeout ?? null;
+      if (
+        prevCloseout !== null &&
+        Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold &&
+        closeoutSettles(prevCloseout)
+      ) {
+        return;
+      }
       g.closeout = { at: Date.now(), eventsSinceLastFold, folds: (g.foldMarks ?? []).length, source };
       this.#flush(session, { full: true });
       if (this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40)) {

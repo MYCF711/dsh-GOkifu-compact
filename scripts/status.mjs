@@ -13,6 +13,14 @@
  *   node scripts/status.mjs --no-panel # 跳过面板探测（离线/无宿主时）
  */
 import nodePath from "node:path";
+import nodeFs from "node:fs";
+import { graphRoot } from "../src/rooms/kifu-persist.mjs";
+/** ★ C530：与引擎同口径的 home（`DSH_HOME` 优先）。 */
+function resolveHome() {
+  const env = String(process.env.DSH_HOME ?? "").trim();
+  if (env !== "") return env;
+  return nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
+}
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -38,6 +46,14 @@ export function renderStatus(data) {
     d.debt === null || d.debt === undefined
       ? "未采集"
       : `${d.debt.due ?? "?"} 个欠账 · $${d.debt.costUsd === null ? "?" : d.debt.costUsd.toFixed(2)} · 约 ${d.debt.clicks ?? "?"} 次点击`,
+  ]);
+  rows.push([
+    "自动补账",
+    d.autoBackfill === null || d.autoBackfill === undefined
+      ? "未采集"
+      : (d.autoBackfill.enabled === false ? "已关闭（设置里勾上就恢复）" : "开") +
+        ` · 近 24h 折了 ${d.autoBackfill.last24h} 段` +
+        (d.autoBackfill.lastAt === null ? " · **还没跑过**" : ` · 最近 ${Math.max(0, Math.round((Date.now() - d.autoBackfill.lastAt) / 60000))} 分钟前`),
   ]);
   rows.push([
     "真机基准",
@@ -109,6 +125,50 @@ export async function main(argv = process.argv.slice(2)) {
       : (gateOut.trim().split(String.fromCharCode(10)).filter((l) => l.includes("门禁")).pop() ?? "见 gate 输出");
   // ★ C422：门禁里已经跑过全量测试 —— 它绿了就当作"测试也过了"的证据，不再重跑一遍。
   if (!fast && gateOut !== null && gateOut.includes("全量测试全绿")) data.tests = { passed: -1, failed: 0 };
+
+  // ①.5 ★ C530：**自动补账在动吗** —— 从棋谱上数（不依赖日志，脚本随时可跑）
+  data.autoBackfill = (() => {
+    try {
+      const root = graphRoot({ dshHome: resolveHome() });
+      const dir = nodePath.join(root, "sessions");
+      if (!nodeFs.existsSync(dir)) return { enabled: null, lastAt: null, last24h: 0 };
+      let lastAt = null;
+      let last24h = 0;
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const file = nodePath.join(dir, entry.name, "graph.json");
+        if (!nodeFs.existsSync(file)) continue;
+        let g = null;
+        try {
+          g = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+        } catch {
+          continue;
+        }
+        for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+          if (mark?.offline !== true) continue;
+          const at = Number(mark?.at);
+          if (!Number.isFinite(at)) continue;
+          if (lastAt === null || at > lastAt) lastAt = at;
+          if (at >= cutoff) last24h += 1;
+        }
+      }
+      // 开关：预设里显式 false 才算关（默认开）
+      let enabled = true;
+      try {
+        const patch = nodePath.join(resolveHome(), "profiles", "desktop", "cordis.patch.yml");
+        if (nodeFs.existsSync(patch)) {
+          const text = nodeFs.readFileSync(patch, "utf8");
+          if (/autoBackfill:\s*false/.test(text)) enabled = false;
+        }
+      } catch {
+        /* 读不到就当默认开 */
+      }
+      return { enabled, lastAt, last24h };
+    } catch {
+      return { enabled: null, lastAt: null, last24h: 0 };
+    }
+  })();
 
   // ② doctor
   const docOut = run("doctor.mjs", ["--json"], 180_000);

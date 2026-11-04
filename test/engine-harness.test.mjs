@@ -3172,3 +3172,12 @@ tests["C529 补账互斥：同一会话不许被自动与面板同时补（两�
   const ui = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui.mjs"), "utf8");
   t.includes(ui, 'code: "backfill-busy"', "面板撞上时回 409 并说明原因");
 };
+
+tests["C530 已结清且没有新增事件的会话，不许再收尾一次（真机 3 小时 61 次）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
+  const fn = src.slice(src.indexOf("#closeout(session, source = \"disposed\")"), src.indexOf("#closeout(session, source = \"disposed\")") + 2000);
+  t.includes(fn, "prevCloseout", "要看上一次的收尾记录");
+  t.includes(fn, "closeoutSettles(prevCloseout)", "结清与否要按统一判据");
+  t.includes(fn, "Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold", "事件数没变才跳过（有新增必须重新收尾）");
+  t.includes(fn, "return;", "命中就直接返回，不再调模型");
+};
