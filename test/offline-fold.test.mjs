@@ -338,3 +338,25 @@ tests["C533 事实块必须有长度上限（病态数据不许把 prompt 撑爆
   t.eq(facts.length <= 8200, true, `事实块必须 ≤ ~8000 字符，实际 ${facts.length}`);
   t.includes(facts, "事实块已截断", "截断要写明（不静默）");
 };
+
+tests["C534 没撞上限也可能没写完：正文过短要重试（真机 reasoning 吃掉 3816/4000）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const big = { type: "user/message", seq: 1, data: { message: { content: [{ type: "text", text: "很长的历史".repeat(600) }] } } };
+  const calls = [];
+  const out = await m.runOfflineFold({
+    graph,
+    events: [big],
+    rangeStart: 1,
+    rangeEnd: 1,
+    maxTokens: 4000,
+    callModel: async (prompt, { maxTokens }) => {
+      calls.push({ maxTokens, fed: prompt.length });
+      if (calls.length === 1) return { text: "## 目标\n骨架", usage: { completion_tokens: 4000, completion_tokens_details: { reasoning_tokens: 3816 } }, model: "fake" };
+      return { text: "## 目标\n- 把构建跑通\n## 棋谱\n- 详细内容".repeat(30), usage: { completion_tokens: 2000 }, model: "fake" };
+    },
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(calls.length, 2, "正文过短必须重试一次");
+  t.eq(calls[1].maxTokens, 8000, "重试预算放大 2×");
+  t.eq(out.chunks[0].text.length > 400, true, "用重试那次的长文本");
+};

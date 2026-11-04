@@ -407,7 +407,15 @@ export async function runOfflineFold({
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
     const looksTruncated = (r) => {
       const used = Number(r?.usage?.completion_tokens ?? r?.usage?.outputTokens ?? NaN);
-      return String(r?.finish ?? r?.finishReason ?? "").toLowerCase().includes("max") || (Number.isFinite(used) && used >= budget);
+      if (String(r?.finish ?? r?.finishReason ?? "").toLowerCase().includes("max")) return true;
+      if (Number.isFinite(used) && used >= budget) return true;
+      // ★ C534：**没撞上限，也可能没写完**。真机 3a3fb03c：completion 4000 里 reasoning 3816，
+      //   正文只有 184 token（715 字符）—— 低于上限，旧判据放过它，于是"成功"却只有骨架。
+      //   判据：输入不小（>4000 字符）而正文过短（<400 字符）⇒ 当没写完，放大重试。
+      const produced = String(r?.text ?? "").trim().length;
+      const fed = String(prompt ?? "").length;
+      if (fed > 4000 && produced < 400) return true;
+      return false;
     };
     let truncated = looksTruncated(out);
     if (truncated) {
