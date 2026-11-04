@@ -566,10 +566,15 @@ export async function runOfflineFold({
  * @param {{closeout?:object|null, reason?:string|null, tailEvents?:number, enabled?:boolean, minEvents?:number}} args
  * @returns {{go:boolean, why:string}}
  */
-export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40 } = {}) {
+export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40, marks = null } = {}) {
   if (enabled !== true) return { go: false, why: "disabled" };
   // 顺序有意义：**已经折过**先判（不管原因写着什么，都不该再花一次钱）
-  if (closeout?.folded > 0) return { go: false, why: "already-folded" };
+  // ★ C555：**"已经折过"要有证据**。真机（2026-11-04 4f3cae10）：旧代码写下 `folded: 1`，
+  //   而 `foldMarks` 是 **0** —— 那一刻 `compactRegion` 空转了。若只看 `folded > 0`，
+  //   这类"假冒成功"的会话会被判定"已折过"，永远走不到离线补折。
+  //   `marks === null` 表示调用方没给证据 ⇒ 退回旧行为（保守）。
+  const hasMarks = marks === null || marks === undefined ? null : Number(marks) > 0;
+  if (closeout?.folded > 0 && hasMarks !== false) return { go: false, why: "already-folded" };
   const note = String(reason ?? closeout?.foldNote ?? "");
   // ★ C503：**「在线路径放弃了」都算触发条件**。
   //   这里原来只认 `no-foldable-span`，于是 C501 加的"超时也走离线"实际是**死代码** ——
@@ -580,8 +585,15 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
   //   —— 归档/恢复之后宿主的 surface 里没有这些消息，在线折叠**永远折不了**。
   //   这正是离线补折存在的理由，可它只认前两种原因 ⇒ 白白失败。
   const surfaceMissing = /not found in surface|surface/i.test(note) && /compact|fold|region/i.test(note + " fold");
+  // ★ C555：**`no-op` 也要算"放弃"**。C531 新增了"调用成功但什么都没变"这个停止原因，
+  //   而这里没同步 —— 于是"空转 ⇒ 转离线"这条链在真机上永远不触发（与 C503 那次一模一样的坑）。
   const isGiveUp =
-    note.includes("no-foldable-span") || note === "timeout" || note.includes("timeout") || surfaceMissing;
+    note.includes("no-foldable-span") ||
+    note === "timeout" ||
+    note.includes("timeout") ||
+    note === "no-op" ||
+    note.includes("no-op") ||
+    surfaceMissing;
   if (!isGiveUp) return { go: false, why: "not-a-giveup-reason" };
   if (!(Number(tailEvents) >= Number(minEvents))) return { go: false, why: "tail-too-short" };
   return { go: true, why: "no-foldable-span" };

@@ -382,3 +382,21 @@ tests["C540 建议篇幅按输入规模给（固定 800–2500 在两端都不�
   const prompt = m.buildOfflinePrompt({ facts: "x".repeat(1000), messages: [{ role: "user", text: "y".repeat(14000) }] });
   t.includes(prompt, "按输入规模算出来的", "prompt 里要说明是算出来的");
 };
+
+tests["C555 no-op 必须能触发离线补折（真机 4f3cae10 就是空转）"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const base = { closeout: null, tailEvents: 757, enabled: true, minEvents: 40 };
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "no-op" }).go, true, "C531 的停止原因要算「放弃」");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "no-foldable-span" }).go, true, "老原因仍然可用");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "timeout" }).go, true, "超时仍可用");
+  t.eq(m.shouldTryOfflineFold({ ...base, reason: "随便什么" }).go, false, "其它原因不许乱花钱");
+};
+
+tests["C555 「已折过」要有证据：folded>0 但没有 marks 就是假冒成功"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const closeout = { folded: 1 };
+  const base = { closeout, reason: "no-op", tailEvents: 757, enabled: true, minEvents: 40 };
+  t.eq(m.shouldTryOfflineFold({ ...base, marks: 0 }).go, true, "folded=1 但 0 条 marks ⇒ 仍该走离线");
+  t.eq(m.shouldTryOfflineFold({ ...base, marks: 3 }).go, false, "真有 3 条 marks ⇒ 已折过，别再花钱");
+  t.eq(m.shouldTryOfflineFold({ ...base }).go, false, "没给证据时退回旧行为（保守）");
+};
