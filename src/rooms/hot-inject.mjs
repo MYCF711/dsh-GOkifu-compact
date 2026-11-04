@@ -97,14 +97,17 @@ export function countAfterSeq(session, seq) {
   return n;
 }
 
-export function ledgerDigest(graph, { foldFailures = 0 } = {}) {
+export function ledgerDigest(graph, { foldFailures = 0, failures = null } = {}) {
   const parts = [];
   const roots = graph.rootUserNodeIds.map((id) => graph.nodes[id]).filter(Boolean);
   for (const root of roots) {
     parts.push(root.text);
     parts.push(...(root.constraints ?? []));
   }
-  for (const e of failureEdges(graph)) {
+  // ★ C565：**复用调用方已经数过的失败边列表**。这一步每步都跑，而 `failureEdges` 要遍历全图。
+  //   以前 `decideInjection` 里一共数了**三次**（zeroFailure / 限流判据 / digest）。
+  const list = Array.isArray(failures) ? failures : failureEdges(graph);
+  for (const e of list) {
     parts.push(`${e.id}:${e.verify?.kind ?? ""}:${(e.errorSnippet || e.verify?.summary || "").slice(0, 80)}`);
   }
   const base = sha(parts.join(String.fromCharCode(0)));
@@ -260,7 +263,8 @@ export function decideInjection({
     //   同源且清单还在 ⇒ same-digest skip；被 fold 遮蔽 ⇒ lostToFold 补回。
     // ★ C564：**只数一次失败边**。这一步每步都跑，而 `failureEdges` 要遍历全图边（0.8ms 于 6,010 边）。
     //   以前这里一次、下面限流判据再一次 —— 同一份数据数两遍。
-    const failureCount = failureEdges(graph).length;
+    const failureList = failureEdges(graph);
+    const failureCount = failureList.length;
     const zeroFailure = failureCount === 0 && warning === "";
     if (zeroFailure && !hasLedgerState(graph)) return { decision, action: "skip", reason: "no-ledger" };
 
@@ -270,7 +274,7 @@ export function decideInjection({
     //   只保留"内容一字不差"这一条必须在渲染后判。
     const failureCountEarly = failureCount;
     const existingEarly = findLedgerNode(session);
-    const digestEarly = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0 });
+    const digestEarly = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0, failures: failureList });
     const lostToFoldEarly =
       existingEarly === null && state.lastLedgerDigest === digestEarly && state.lastLedgerFailureCount !== undefined;
     // 清单还在、且 digest 与上次注入相同 ⇒ 内容没变（digest 只由根目标/约束/失败数决定）。

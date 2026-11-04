@@ -642,10 +642,14 @@ tests["C563 限流先于渲染：被限流的那一次不许渲染（99% 的渲�
   t.eq(budgetCalls, afterFirst, "被限流的那一次**没有渲染**（onBudget 没被调用）");
 };
 
-tests["C564 失败边一步只数一次（每步都跑的路径不许重复遍历全图）"] = (t) => {
+tests["C564/C565 失败边一步只数一次（含 digest 也不再重算）"] = (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "hot-inject.mjs"), "utf8");
-  const calls = (src.match(/failureEdges\(graph\)\.length/g) ?? []).length;
-  t.eq(calls, 1, `failureEdges(graph).length 只该出现一次（实际 ${calls}）`);
-  t.includes(src, "const failureCount = failureEdges(graph).length", "要有统一的 failureCount");
-  t.includes(src, "const failureCountEarly = failureCount", "限流判据复用同一个值");
+  // decideInjection 里只允许一次 `failureEdges(graph)`（其余是 ledgerDigest 的兜底分支，调用方会传列表）
+  const decideAt = src.indexOf("export function decideInjection");
+  const body = src.slice(decideAt);
+  const calls = (body.match(/failureEdges\(graph\)/g) ?? []).length;
+  t.eq(calls, 1, `decideInjection 里只该数一次（实际 ${calls}）`);
+  t.includes(body, "const failureList = failureEdges(graph)", "要有统一列表");
+  t.includes(body, "failures: failureList", "digest 必须复用同一个列表");
+  t.includes(src, "export function ledgerDigest(graph, { foldFailures = 0, failures = null } = {})", "digest 要接受预计算列表（保留兜底）");
 };
