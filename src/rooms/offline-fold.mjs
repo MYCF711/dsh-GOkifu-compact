@@ -17,6 +17,58 @@ import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-qu
 const CJK_RE = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 
 /**
+ * ★ C647：**停止原因协议表**（`stopped` 的闭集 —— 全仓唯一登记处）。
+ *
+ * 由来（真机 2026-11-05，`node scripts/backfill-idle-audit.mjs` 原样输出）：欠账清零之后
+ * `runOfflineFold` 拿到的是**空区间**（`rangeStart > rangeEnd`），于是它一条 chunk 都不产出、
+ * 也不带 `failed`，`offlineFoldOutcome` 落到 `result?.failed ?? "empty"` ⇒ 状态文件里出现
+ * 取值 `"empty"`；模型交空回答那条路写的是 `"empty-response"`。
+ * **这两个值从来没在任何协议表里登记过**：`test/fold-protocol.test.mjs` 只抓「`stopped` 后跟一个
+ * 字符串字面量」这种写法，而 `??` 右侧那个字面量按构造抓不到 ⇒「没登记」在测试里是隐形的。
+ *
+ * 为什么必须登记：`stopped` 是**跨进程**的（引擎 → `auto-backfill-state.json` → doctor/checkup/面板），
+ * 下游只能靠这张表判断「这个结局算不算放弃」。表外的值 = 下游 quietly 当它不存在。
+ *
+ * 判据（由 `test/backfill-idle.test.mjs` 钉住）：源码里**任何** `stopped` 取值
+ * （字面量或 `STOPPED_*` 常量）都必须在这张表里；新增取值先在这里写清语义，否则测试红。
+ */
+export const STOPPED_REASONS = Object.freeze({
+  // 分段折叠（closeout-plan.mjs）
+  deadline: "预算用尽（已折的段保留）",
+  "no-op": "调用了但什么都没变（这一种必须转离线）",
+  error: "折叠抛错（看错误内容决定）",
+  done: "正常折完",
+  // 离线补折（engine.mjs）
+  busy: "同一会话已有人在补（同一轮不重复挑）",
+  "no-log": "找不到会话日志",
+  "empty-log": "日志为空",
+  "no-range": "没有可折区间",
+  "no-model": "拿不到模型",
+  "inactive-context": "后台定时器拿不到宿主服务（等活跃回合）",
+  // 离线编排（本文件）
+  "empty-response": "模型交了空回答（不许写半截账）",
+  empty: "区间为空 / 一条消息都没装下（零欠账时的正常结局）",
+});
+
+/** 正常折完。 */
+export const STOPPED_DONE = "done";
+/** 到点收工（已折的段照常写回）。 */
+export const STOPPED_DEADLINE = "deadline";
+/** 区间为空 —— 零欠账时 `runOfflineFold` 的真实结局。 */
+export const STOPPED_EMPTY = "empty";
+/** 模型交了空回答。 */
+export const STOPPED_EMPTY_RESPONSE = "empty-response";
+
+/**
+ * 这个停止原因登记过吗（`stopped` 的闭集判据，纯函数）。
+ * @param {unknown} reason
+ * @returns {boolean}
+ */
+export function isKnownStopped(reason) {
+  return typeof reason === "string" && Object.prototype.hasOwnProperty.call(STOPPED_REASONS, reason);
+}
+
+/**
  * ★ C639：reasoning 块里**值得占用摘要预算**的句子（结论句启发式，闭集）。
  *
  * 由来（真机 2026-11-05，`node scripts/reasoning-share-audit.mjs` 原样输出；718 条 foldMark 重放、
@@ -1054,7 +1106,9 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
 export function offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq } = {}) {
   const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
   if (chunks.length === 0) {
-    return { tier: "offline", folded: 0, chunks: 0, stopped: result?.failed ?? "empty", error: null, partial: true };
+    // ★ C647：三个取值都走协议表里的常量 —— `??` 右侧的字面量以前躲过了「字面量扫描」，
+    //   于是 `"empty"` 从来没被登记过（见 STOPPED_REASONS 的 docblock）。
+    return { tier: "offline", folded: 0, chunks: 0, stopped: result?.failed ?? STOPPED_EMPTY, error: null, partial: true };
   }
   const end = Number(result.coveredEnd);
   const tail = Number.isFinite(end) ? Math.max(0, Number(maxSeq ?? rangeEnd) - end) : Number(rangeEnd ?? 0);
@@ -1063,7 +1117,7 @@ export function offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq } = {}
     tier: "offline",
     folded: chunks.length,
     chunks: chunks.length,
-    stopped: "done",
+    stopped: STOPPED_DONE,
     error: null,
     partial: head > 0 || tail > 0,
     ...(head > 0 ? { uncoveredHead: head } : {}),
