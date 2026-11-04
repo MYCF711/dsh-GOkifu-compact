@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C581 | 自己起测试实例：端到端复现并修掉补账 |
 | C580 | 根因在我们自己代码里：routedTarget 拿到合成会话就抛 |
 | C579 | 状态文件一句话定位：session.requestHeader is not a function |
 | C578 | 三个合理改动叠成零折叠：预算翻倍撞上固定截止 |
@@ -652,6 +653,54 @@
 - **不给降级的命令**：只有真有新版才给 `add …@<latest>`；已知「不新」（比如本地是未发布的开发版）时命令为空。
   registry 不可达时不知道最新版，才回落到 `@latest` 由 npm 解析。
 - registry 不可达时：状态显示「检查失败」，红框显示 `检查失败：<原因>`，页面其余部分完全不受影响。
+
+### C581 · 自己起测试实例：端到端复现并修掉补账
+
+**按你的话做了：自己起测试实例调，不再靠"再重启一次看看"。**
+
+### 一、先复现，再修
+
+搭了一个沙盒实例（临时 home + 真日志 + 真棋谱 + 模型桩），用**公开入口**
+`runAutoBackfillOnce()` 走定时器**完全同一条**代码：
+
+```
+runAutoBackfillOnce: {"ok":true}
+logs: 自动补账跳过 1 个活会话（日志还在写）  ← 第一次跑：日志是刚建的
+state file: { "due": 1, "picked": [], "results": [] }
+```
+
+**第一次复现出的是"跳过"**（日志新建 ⇒ 5 分钟内有写入 ⇒ 活会话）。把日志做旧 10 分钟后再跑：
+
+```
+== 1 passed ==   ← 真的折出 archive-offline、closeout.folded>0、状态文件有结局
+```
+
+### 二、这条测试的价值
+
+以前**没有任何测试能端到端跑到 `#autoBackfillTick`**（它是私有的），
+所以 C597 那个 `routedTarget` 的 TypeError 藏了三天：
+
+| 面 | 为什么看不见 |
+|---|---|
+| 日志 | 宿主控制台 |
+| 图 | `chunks.length === 0` 直接 return，一个字段都不写 |
+| 测试 | 用例传的都是**真会话**，走不到合成对象那条路 |
+
+现在：**公开入口 + 合成 target（`{id, cwd}`，与生产形状一致）** ⇒ 这条路第一次被测试覆盖。
+
+### 三、改动
+
+1. **C598**：新增公开方法 `runAutoBackfillOnce()`（面板「立即补账」与测试共用）；
+2. 新增 `test/backfill-e2e.test.mjs`：临时 home + 真日志（做旧）+ 真棋谱 + 异步生成器模型桩，
+   断言 **foldMark / closeout.folded / 状态文件 results 且无 error**；
+3. **C597**（上一轮）：`routedTarget` 容错合成会话 —— 这是根因。
+
+### 四、验证
+
+```
+node test/run.mjs → 1373 passed, 0 skipped, 0 failed
+node scripts/boundary-audit.mjs → ✅ 0 条
+```
 
 ### C580 · 根因在我们自己代码里：routedTarget 拿到合成会话就抛
 

@@ -1,5 +1,5 @@
 {
- "total": 1053,
+ "total": 1054,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -7,6 +7,7 @@
   "archive-fold.test.mjs": 8,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
+  "backfill-e2e.test.mjs": 1,
   "backfill-plan.test.mjs": 10,
   "bench-cli.test.mjs": 3,
   "boundary-audit.test.mjs": 8,
@@ -149,6 +150,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1372,
- "passedAt": "2026-11-04T15:56:37.887Z"
+ "passed": 1373,
+ "passedAt": "2026-11-04T16:06:07.993Z"
 }

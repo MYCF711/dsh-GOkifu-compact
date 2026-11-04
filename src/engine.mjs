@@ -1998,6 +1998,24 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *   · **活着的会话不碰**（日志 mtime < 5 分钟）—— 宿主手里有内存里的图，我们写会被覆盖；
    *   · 失败只 warn，绝不影响主流程。
    */
+  /**
+   * ★ C598：**手动触发一轮自动补账**（面板「立即补账」/ 测试用）。
+   *
+   * 为什么需要它：`#autoBackfillTick` 是私有的，于是没有任何测试能**端到端**跑通
+   * 「挑人 → 离线补折 → 落盘」这条路 —— 真机三次重启都只能靠猜（C597 的根因就是这么藏了三天）。
+   * 暴露一个薄入口，让测试与面板走**与定时器完全同一条**代码。
+   *
+   * @returns {Promise<{ok:boolean}>}
+   */
+  async runAutoBackfillOnce() {
+    try {
+      await this.#autoBackfillTick();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error).slice(0, 300) };
+    }
+  }
+
   #startAutoBackfill() {
     try {
       if (this.chess.autoBackfill === false) return;
