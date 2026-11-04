@@ -79,3 +79,10 @@ tests["C545 历史记录里的「更晚实体」也要滤掉硬事实 id（否�
   t.includes(src, 'edge?.result === "failure" || edge?.result === "success"', "判据与 C539 一致");
   t.includes(src, "laterIdsRaw.filter((id) => !factsEdgeIds.has(String(id)))", "过滤后再取前 8 个");
 };
+
+tests["C548 折叠缓存命中要拆在线/离线，并说明低是结构性的"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "byKind", "要按 offline 与否分组");
+  t.includes(src, "在线 ${on.pct}% / 离线 ${off.pct}%", "拆开报");
+  t.includes(src, "低是结构性的", "要说清原因（每次压的都是新区间），免得下一个人再去追");
+};

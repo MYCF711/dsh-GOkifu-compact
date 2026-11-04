@@ -1334,7 +1334,18 @@ mark('C347 成本模型');
           const cache = withCache.reduce((n, u) => n + (u.hit ?? 0), 0);
           const denom = miss + cache;
           if (denom <= 0) return "";
-          return ` · fold 缓存命中 ${Math.round((cache / denom) * 100)}%（${withCache.length} 次；分母 = 未命中 + 命中）`;
+          // ★ C548：**按在线/离线拆开报**，并说明"为什么就是这么低"。
+          //   真机（2026-11-06）：在线 121 次命中 7%、离线 19 次命中 10% —— 两条路都低，
+          //   因为**每次折叠压的都是新区间**（内容从没见过），能命中的只有稳定的头部（≈2048 tok）。
+          const byKind = (offline) => {
+            const rows = recentFoldMarks.filter((m) => (m?.offline === true) === offline).map((m) => normalizeUsage(m?.usage)).filter((u) => u.miss !== null);
+            const d0 = rows.reduce((n, u) => n + u.miss + (u.hit ?? 0), 0);
+            return d0 <= 0 ? null : { pct: Math.round((rows.reduce((n, u) => n + (u.hit ?? 0), 0) / d0) * 100), n: rows.length };
+          };
+          const off = byKind(true);
+          const on = byKind(false);
+          const split = off === null || on === null ? "" : `（在线 ${on.pct}% / 离线 ${off.pct}%）`;
+          return ` · fold 缓存命中 ${Math.round((cache / denom) * 100)}%${split}（${withCache.length} 次；分母 = 未命中 + 命中）—— 每次折叠压的都是**新区间**，能命中的只有稳定头部（≈2048 tok），低是结构性的`;
         })() +
         // ★ C237：**我们自己的指令**占 fold 输入多少（facts + 模板）。实测 1.7% ⇒
         //   「input/shadowed = 1.4」不是我们造成的，以后别再猜。
