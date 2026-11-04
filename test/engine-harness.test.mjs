@@ -1611,7 +1611,8 @@ tests["P2-2-4 doctor：显示最近 5 次 fold；旧图缺字段显示「—」"
   const okFidelity = fidelityOf(parsed);
   if (!okFidelity) throw new Error(`doctor 缺「压缩保真度」检查项：${JSON.stringify((parsed.checks ?? []).map((c) => c.name))}`);
   if (okFidelity.status !== "ok") throw new Error(`召回全 1 时保真度应为 ok，实际 ${okFidelity.status}：${okFidelity.detail}`);
-  if (!okFidelity.detail.includes("constraintRecall min=1")) throw new Error(`必须显示约束召回：${okFidelity.detail}`);
+  // ★ C552：判级改中位数后，文案变成「中位=1（最低 1，N/M 次不满）」
+  if (!okFidelity.detail.includes("constraintRecall 中位=1")) throw new Error(`必须显示约束召回：${okFidelity.detail}`);
   if (!okFidelity.detail.includes("compressionRatio 24")) throw new Error(`必须显示压缩比：${okFidelity.detail}`);
   if (!okFidelity.detail.includes("模型自身约束召回 0.5")) throw new Error(`必须显示模型自身召回（和最终产物区分开）：${okFidelity.detail}`);
   // 变异：约束丢一条 + 失败边丢一条 ⇒ 必须 error 并点名

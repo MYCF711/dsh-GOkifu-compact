@@ -94,3 +94,12 @@ tests["C551 折叠性价比判据要用中位数（一个离群样本不该驱�
   t.includes(src, "个别样本低不影响结论", "要说清为什么不用最小值");
   t.eq(/minShare < 0\.3 \? "warn"/.test(src), false, "不许再用最小值判级");
 };
+
+tests["C552 保真度判级用中位数 + 报「几次不满」"] = async (t) => {
+  const src = read("scripts/doctor.mjs");
+  t.includes(src, "const medianOf = (arr)", "要有中位数工具");
+  t.includes(src, "cMed < 1 ? \"error\"", "系统性丢才 error");
+  t.includes(src, "cBelow > 0 || fBelow > 0 ? \"warn\"", "偶发不满要 warn 而不是 error");
+  t.includes(src, "次不满", "要报出几次不满（比例信息）");
+  t.eq(/cMin < 1 \? "error"/.test(src), false, "不许再用最小值判 error");
+};

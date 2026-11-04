@@ -1616,6 +1616,20 @@ mark('C12 触发原因');
     const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 1);
     const cMin = Math.min(...withQuality.map((m) => num(m.quality.constraintRecall)));
     const fMin = Math.min(...withQuality.map((m) => num(m.quality.failureRecall)));
+    // ★ C552：**判级不能只看最小值**（C551 的同一类错）。最近 10 次里只要有**一次**召回不满，
+    //   `cMin < 1` 就恒真 —— 那条旧记录（可能是修好之前跑的）会把这条线永久打红。
+    //   现在：**中位数**判级（系统性丢才算 error），并单独报"几次不满"（偶发用 warn）。
+    const medianOf = (arr) => {
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length === 0 ? 1 : sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+    const cAll = withQuality.map((m) => num(m.quality.constraintRecall));
+    const fAll = withQuality.map((m) => num(m.quality.failureRecall));
+    const cMed = medianOf(cAll);
+    const fMed = medianOf(fAll);
+    const cBelow = cAll.filter((x) => x < 1).length;
+    const fBelow = fAll.filter((x) => x < 1).length;
     const ratios = withQuality.map((m) => m.quality.compressionRatio).filter((x) => Number.isFinite(x));
     // C30：有几次 fold 的区间早于本图（重启续跑的历史没有节点可回查）—— 只在 >0 时写进 detail。
     const preGraph = withQuality.filter((m) => m.closure?.preGraph === true).length;
@@ -1629,8 +1643,10 @@ mark('C12 触发原因');
     const allVacuum = vacuumCount === withQuality.length;
     add(
       "压缩保真度（最近 fold）",
-      cMin < 1 ? "error" : fMin < 1 ? "warn" : allVacuum ? "warn" : "ok",
-      `constraintRecall min=${cMin} · failureRecall min=${fMin}${ratioText}` +
+      // ★ C552：系统性丢（中位 <1）才 error；偶发（个别次不满）warn
+      cMed < 1 ? "error" : cBelow > 0 || fBelow > 0 ? "warn" : allVacuum ? "warn" : "ok",
+      `constraintRecall 中位=${cMed}（最低 ${cMin}，${cBelow}/${cAll.length} 次不满）· ` +
+        `failureRecall 中位=${fMed}（最低 ${fMin}，${fBelow}/${fAll.length} 次不满）${ratioText}` +
         `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
         `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}` +
         (allVacuum ? ` —— 全部 ${withQuality.length} 次样本都是真空（折叠区间内没有约束/失败边可丢），保真度实际未被检验` : ""),
