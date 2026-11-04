@@ -4,6 +4,9 @@
  * 它不重算任何东西，只编排现成脚本；所以这里钉的是**渲染**与**缺省行为**。
  */
 import { renderStatus } from "../scripts/status.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const tests = {};
 
@@ -148,4 +151,10 @@ tests["C468 折叠失败 / 归档收尾两行：转述 doctor 的正文，未采
   const empty = renderStatus({});
   t.eq(empty.find(([k]) => k === "折叠失败")[1], "未采集（重启后跑过折叠才有）", "缺数据要说未采集");
   t.eq(empty.find(([k]) => k === "归档收尾")[1], "未采集", "归档同理");
+};
+
+tests["C549 折叠快照过期要明说（超过 1 天就别当现状）"] = async (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "status.mjs"), "utf8");
+  t.includes(src, "已过期，别当现状看", "过期要有一句明说");
+  t.includes(src, "1440", "阈值写死在源码里（1 天）");
 };

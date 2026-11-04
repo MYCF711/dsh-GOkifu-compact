@@ -74,6 +74,15 @@ export function renderStatus(data) {
     "归档收尾",
     closeout === null || closeout.detail === "" ? "未采集" : `${closeout.status === "warn" ? "⚠ " : ""}${closeout.detail.slice(0, 110)}`,
   ]);
+  // ★ C549：折叠快照的新鲜度 —— 回本点是"按当时数据算的"，过期了就该重算，
+  //   而不是继续把一个几天前的数字当现状。
+  const foldStale = (() => {
+    if (d.fold === null || d.fold === undefined) return null;
+    const at = Number(d.fold.generatedAt ?? NaN);
+    if (!Number.isFinite(at)) return null;
+    return { ageMin: Math.max(0, Math.round((Date.now() - at) / 60000)), stale: Date.now() - at > 24 * 3600 * 1000 };
+  })();
+
   // ★ C463：**折叠回本点** —— 回答"我们到底该不该折这么多"。
   rows.push([
     "折叠回本",
@@ -82,7 +91,11 @@ export function renderStatus(data) {
       : d.economics.paybackMedian === null
         ? `fold ${d.economics.folds} 次 · 回本点算不出（缺 usage/遮蔽量）`
         : `中位 ${Math.ceil(d.economics.paybackMedian)} 次请求 · fold ${d.economics.folds} 次 $${d.economics.costUsd.toFixed(2)}` +
-          (Number.isFinite(d.economics.ageMinutes) ? ` · 快照 ${d.economics.ageMinutes} 分钟前（重算：fold-economics --write）` : ""),
+          (Number.isFinite(d.economics.ageMinutes)
+            ? ` · 快照 ${d.economics.ageMinutes} 分钟前` +
+              // ★ C549：超过 1 天就直说"这不是现状"，别让人把旧账当今天的数
+              (d.economics.ageMinutes > 1440 ? " ⇒ **已过期，别当现状看**（重算：fold-economics --write）" : "（重算：fold-economics --write）")
+            : ""),
   ]);
   // ★ C454：**动作开销**也进日常视图。C451 做了 `action-cost`，但"要专门跑的脚本"= 没人跑（C447 同一个坑）。
   //   这里只报两个数：累计最贵的工具 + 单次最贵 —— 都不需要跑全量报告就能看出趋势。
