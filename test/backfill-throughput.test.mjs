@@ -10,17 +10,10 @@
  *   ② 离线折叠的**重试要先算得过来**（截止时间装不下就不开第二次，保住第一段）；
  *   ③ 引擎 tick 的补位/自适应轮数**仍然有界、仍然串行**（并发不许被顺手破掉）。
  *
- * 全部是纯函数 / 源码断言，不联网、不调模型、不写盘。
+ * 纯函数用例不联网；tick 用例走隔离临时 home + 假模型，不调真模型、不碰真实数据。
  */
-import nodeFs from "node:fs";
-import nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import { roundsWithinBudget, runOfflineFold, HARD_MAX_TOKENS } from "../src/rooms/offline-fold.mjs";
 import { segmentsPerTick, throughputPerHour, invert, segmentPlan, forecast } from "../scripts/backfill-forecast.mjs";
-
-const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
-const ROOT = nodePath.join(HERE, "..");
-const read = (...parts) => nodeFs.readFileSync(nodePath.join(ROOT, ...parts), "utf8");
 
 export const tests = {};
 
@@ -108,35 +101,69 @@ tests["C599 时间够就照旧重试一次（这条保证上面的守卫没把�
 /* ───────────────────────── ③ 引擎 tick 的有界性 ───────────────────────── */
 
 tests["C599 tick：补位与自适应轮数都存在，而且仍然有界、仍然串行"] = async (t) => {
-  const src = read("src", "engine.mjs");
-  const at = src.indexOf("async #autoBackfillTick");
-  t.ok(at > 0, "要有 #autoBackfillTick");
-  const tick = src.slice(at, at + 12_000);
-  t.includes(tick, "autoBackfillQueue", "要有补位队列（picked 全失败时一轮不许白跑）");
-  t.includes(tick, "autoBackfillSegmentBlocker", "要有一个'还能不能再开一段'的统一判据");
-  t.includes(tick, "roundsWithinBudget", "轮数要由剩余预算 ÷ 实测段耗时算");
-  t.includes(tick, "_backfillSegMs", "要记实测段耗时（跨轮保留）");
-  // 有界：三处硬上限都在
-  t.includes(tick, "Math.min(10, ", "补位的总尝试次数要有硬上限");
-  t.includes(tick, "Math.min(5, adaptive)", "每轮会话数上限仍然是 5");
-  t.includes(tick, "cap: 8", "轮数天花板是 8");
-  t.eq(/while \(true\)/.test(tick), false, "不许写死循环");
-  t.eq(/for \(;;\)/.test(tick), false, "也不许写 for(;;)");
-  // 串行：tick 里不许出现并发原语（并发 1 是硬约束）
-  t.eq(/Promise\.all|Promise\.allSettled/.test(tick), false, "补账必须串行（并发会把磁盘/内存峰值放大到不可控）");
-  // 保底轮数仍可配置，且是被 max() 抬起来的下界，不是天花板
-  t.includes(tick, "const roundsFloor = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3))", "环境变量仍是保底轮数");
-  t.includes(tick, "Math.max(roundsFloor, autoBackfillRounds(", "实际轮数 = max(保底, 预算算出来的)");
+  const { runAutoBackfillTickFixture } = await import("./engine-harness.test.mjs");
+
+  // 20s / 实测 1s 理论上能开 20 轮：必须突破旧保底 3，但被天花板 8 夹住。
+  const adaptive = await runAutoBackfillTickFixture({
+    prefix: "c599-adaptive-",
+    sessions: [{ id: "adaptive", events: 60 }],
+    offlineMaxChars: 600,
+    rounds: 3,
+    max: 1,
+    budgetSec: 20,
+    initialSegmentMs: 1_000,
+  });
+  t.eq(adaptive.report.ok, true, "自适应轮数的真实 tick 不许抛错");
+  t.eq(adaptive.report.segments, 8, "20 轮预算必须实际执行 8 轮（>旧保底 3，且不超过天花板 8）");
+  t.eq(adaptive.calls.length, 8, "模型调用数也必须恰好是 8（不是报告里虚写一个轮数）");
+  t.eq((adaptive.graphs.adaptive.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline").length, 8, "八轮都要真落八条折痕");
+  t.ok(adaptive.report.segMs > 0, "真实段耗时必须跨轮记录下来");
+  t.eq(adaptive.maxActive, 1, "自适应加轮不许引入并发");
+
+  // 前五名全部真实失败：补位必须继续试后五名；总尝试 10、每轮 picked 5，且始终串行。
+  const failIds = Array.from({ length: 5 }, (_, i) => `fail-${i}`);
+  const okIds = Array.from({ length: 5 }, (_, i) => `ok-${i}`);
+  const refill = await runAutoBackfillTickFixture({
+    prefix: "c599-refill-",
+    sessions: [
+      ...failIds.map((id) => ({ id, events: 12, fail: true })),
+      ...okIds.map((id) => ({ id, events: 6 })),
+    ],
+    rounds: 1,
+    max: 5,
+  });
+  t.eq(refill.report.ok, true, "补位场景的真实 tick 不许抛错");
+  t.eq(refill.report.max, 5, "每轮首选会话数硬上限是 5");
+  t.eq([...refill.report.picked].sort(), failIds, "首选必须是五笔高欠账（它们随后都会失败）");
+  t.eq(refill.report.attempts, 10, "首选全失败后必须补位，但总尝试不得超过 10");
+  t.eq(refill.report.total, 10, "十个真实结局一个都不能漏");
+  t.eq(refill.report.done, 5, "后五名补位成功，不能让本轮白跑");
+  t.eq(refill.report.idle, 5, "前五名 0 产出必须单独计数");
+  t.eq(refill.report.segments, 5, "总产出只能统计五个成功会话");
+  t.eq(refill.calls.length, 10, "每个失败会话只试一次就换人，不在 0 产出上连打");
+  t.eq(refill.maxActive, 1, "补位也不许并发");
 };
 
 tests["C599 tick：一轮 0 产出不再把它算成'完成'（否则日志把失败报成成绩）"] = async (t) => {
-  const src = read("src", "engine.mjs");
-  const at = src.indexOf("async #autoBackfillTick");
-  const tick = src.slice(at, at + 12_000);
-  t.includes(tick, "if (marks > 0) done += 1;", "只有真折出东西才计入 done");
-  t.includes(tick, "else idle += 1;", "0 产出的要单独计数");
-  t.includes(tick, "if (foldedNow === 0) break;", "同一会话 0 产出就别连打（让补位换下一个）");
-  t.includes(src, "report.attempts = attempts", "状态文件要能看出'试了几个、成了几个'");
+  const { runAutoBackfillTickFixture } = await import("./engine-harness.test.mjs");
+  const { report, calls, graphs } = await runAutoBackfillTickFixture({
+    prefix: "c599-zero-output-",
+    sessions: [
+      { id: "zero", events: 12, fail: true },
+      { id: "productive", events: 6 },
+    ],
+    rounds: 3,
+    max: 1,
+  });
+  t.eq(report.ok, true, "0 产出场景的真实 tick 不许抛错");
+  t.eq(report.attempts, 2, "首选失败后必须补位试第二个");
+  t.eq(calls, ["zero", "productive"], "0 产出要立刻换下一个，不能对 zero 连打三轮");
+  t.eq(report.done, 1, "只有真折出东西的 productive 才计入 done");
+  t.eq(report.idle, 1, "zero 必须计入 idle，而不是完成数");
+  t.eq(report.segments, 1, "总段数不能把失败算成成绩");
+  t.eq(report.results.map((row) => [row.id, row.marks]), [["zero", 0], ["productive", 1]], "每个会话的真实产出要分别记账");
+  t.eq((graphs.zero.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline").length, 0, "失败会话不许伪造折痕");
+  t.eq((graphs.productive.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline").length, 1, "成功会话必须真的有折痕");
 };
 
 /* ───────────────────────── ④ 测算器自身的算术 ───────────────────────── */

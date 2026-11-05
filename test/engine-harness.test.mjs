@@ -2914,14 +2914,154 @@ tests["C525 自动补账要无头：不传 sessionId、必须落盘"] = async (t
   const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 6000);
   t.eq(/resolveAgent|resume|closeoutNow/.test(tick), false, "自动补账不许 resume 会话");
 };
+/**
+ * 真跑一次自动补账 tick。所有会话、日志、模型与状态文件都在临时 home 里；
+ * 返回真实 report / 模型调用顺序 / 最大并发 / 内存图，供 C527 与 C599 断言行为。
+ */
+export async function runAutoBackfillTickFixture({
+  prefix = "auto-backfill-tick-",
+  sessions = [{ id: "debt", events: 3 }],
+  offlineMaxChars = 60_000,
+  rounds = 3,
+  max = 1,
+  budgetSec = 20,
+  initialSegmentMs,
+  config = {},
+} = {}) {
+  const { Engine } = await load();
+  const { default: zlib } = await import("node:zlib");
+  const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), prefix));
+  const graphDir = nodePath.join(home, "chess-context");
+  const specs = sessions.map((spec) => ({ eventChars: offlineMaxChars <= 600 ? 550 : 24, fail: false, ...spec }));
+  const envKeys = ["DSH_HOME", "DSH_GOKIFU_NO_HEAL", "DSH_GOKIFU_AUTO_BACKFILL_ROUNDS", "DSH_GOKIFU_AUTO_BACKFILL_MAX", "DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC"];
+  const previousEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
+  const previousSummary = globalThis.__D460_SUMMARY_TEXT__;
+  let engine = null;
+  try {
+    const profile = nodePath.join(home, "profiles", "desktop");
+    nodeFs.mkdirSync(profile, { recursive: true });
+    nodeFs.writeFileSync(
+      nodePath.join(profile, "cordis.patch.yml"),
+      ["- id: agent-default-model", "  provider: fixture-provider", "  model: fixture-model", ""].join("\n"),
+      "utf8",
+    );
+    for (const spec of specs) {
+      const events = [];
+      for (let seq = 1; seq <= spec.events; seq += 1) {
+        events.push({
+          seq,
+          type: seq % 2 === 1 ? "user/message" : "assistant/message",
+          data: { message: { content: [{ type: "text", text: `第 ${seq} 步 ${"x".repeat(spec.eventChars)}` }] } },
+        });
+      }
+      const logDir = nodePath.join(home, "sessions", "--fixture--", `session-${spec.id}`);
+      nodeFs.mkdirSync(logDir, { recursive: true });
+      const logFile = nodePath.join(logDir, "session.v4.jsonl.zstd");
+      nodeFs.writeFileSync(logFile, zlib.zstdCompressSync(Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8")));
+      const old = (Date.now() - 600_000) / 1000;
+      nodeFs.utimesSync(logFile, old, old);
+
+      const sessionDir = nodePath.join(graphDir, "sessions", spec.id);
+      nodeFs.mkdirSync(sessionDir, { recursive: true });
+      const now = Date.now();
+      nodeFs.writeFileSync(
+        nodePath.join(sessionDir, "graph.json"),
+        JSON.stringify({
+          version: 1,
+          sessionId: spec.id,
+          cwd: home,
+          rootUserNodeIds: ["n1"],
+          nodes: {
+            n1: { id: "n1", kind: "user", seq: 1, text: `goal-${spec.id}`, constraints: [], ts: now },
+            n2: { id: "n2", kind: "agent", seq: spec.events, text: "末", ts: now },
+          },
+          edges: {},
+          order: ["n1", "n2"],
+          stateIndex: {},
+          foldMarks: [],
+          createdAt: now,
+          updatedAt: now,
+        }),
+        "utf8",
+      );
+    }
+
+    process.env.DSH_HOME = home;
+    process.env.DSH_GOKIFU_NO_HEAL = "1";
+    process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS = String(rounds);
+    process.env.DSH_GOKIFU_AUTO_BACKFILL_MAX = String(max);
+    process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC = String(budgetSec);
+    const ctx = makeCtx();
+    const calls = [];
+    let active = 0;
+    let maxActive = 0;
+    ctx.llm.stream = async function* (options) {
+      const prompt = String(options?.messages?.at(-1)?.content?.[0]?.text ?? "");
+      const spec = specs.find((candidate) => prompt.includes(`goal-${candidate.id}`));
+      if (!spec) throw new Error("fixture: 模型请求里没有可识别的会话");
+      calls.push(spec.id);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      try {
+        // 让任何并发实现都真的重叠；串行实现只付出 2ms/段。
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        if (spec.fail === true) throw new Error(`fixture-fold-failure: ${spec.id}`);
+        globalThis.__D460_SUMMARY_TEXT__ = `## 目标\n- goal-${spec.id}\n\n## 已建立事实\n- ${"已完成。".repeat(120)}`;
+        yield { type: "usage", usage: { inputTokens: 100, outputTokens: 40, totalTokens: 140 } };
+      } finally {
+        active -= 1;
+      }
+    };
+    engine = new Engine(ctx, {
+      graphDir,
+      auto: false,
+      closeoutMinEvents: 1,
+      offlineMaxChars,
+      offlineFoldTimeoutMs: 5_000,
+      summarizationProvider: "fixture-provider",
+      summarizationModel: "fixture-model",
+      ...config,
+    });
+    engine._llmHandle = ctx.llm;
+    // 这两个是引擎内部旋钮，不在公开 Config schema 里；夹具显式注入，避免被 resolveChess 丢掉。
+    engine.chess.offlineMaxChars = offlineMaxChars;
+    engine.chess.offlineFoldTimeoutMs = 5_000;
+    if (initialSegmentMs !== undefined) engine._backfillSegMs = initialSegmentMs;
+    const report = await engine.runAutoBackfillOnce();
+    const graphs = Object.fromEntries(specs.map((spec) => [spec.id, engine.graphs.get(spec.id)]));
+    return { report, calls, maxActive, graphs };
+  } finally {
+    clearTimeout(engine?._autoBackfill?.first);
+    clearInterval(engine?._autoBackfill?.timer);
+    for (const [key, value] of previousEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    if (previousSummary === undefined) delete globalThis.__D460_SUMMARY_TEXT__;
+    else globalThis.__D460_SUMMARY_TEXT__ = previousSummary;
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 tests["C527 自动补账一次 tick 里连续推进（否则大会话要补好几天）"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
-  const tick = src.slice(src.indexOf("async #autoBackfillTick"), src.indexOf("async #autoBackfillTick") + 8000);
-  t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_ROUNDS", "轮数可调");
-  t.includes(tick, "DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC", "时间预算可调");
-  t.includes(tick, "stillDue", "每轮之后要看还欠不欠");
-  t.includes(tick, "break;", "预算用尽或不再欠就要停");
-  t.eq(/while \(true\)/.test(tick), false, "不许写死循环");
+  const { report, calls, maxActive, graphs } = await runAutoBackfillTickFixture({
+    prefix: "c527-contiguous-",
+    sessions: [{ id: "long-debt", events: 60 }],
+    offlineMaxChars: 600,
+    rounds: 1,
+    max: 1,
+    initialSegmentMs: 4_500,
+  });
+  t.eq(report.ok, true, "真实 tick 不许抛错");
+  t.eq(report.attempts, 1, "四个小段仍属于同一次会话尝试");
+  t.eq(report.segments, 4, "一次 tick 必须连续折完四段，而不是只折第一段");
+  t.eq(calls, ["long-debt", "long-debt", "long-debt", "long-debt"], "假模型必须被同一会话连续调用四次");
+  t.eq(report.results?.[0]?.marks, 4, "会话结局要累计四段");
+  t.eq(report.results?.[0]?.partial, true, "60 事件欠账折四段后仍应诚实标 partial（不能靠假报结清停轮）");
+  const marks = (graphs["long-debt"]?.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline");
+  t.eq(marks.length, 4, "图上必须真的落下四条折痕");
+  t.eq(new Set(marks.map((mark) => `${mark.seqStart}-${mark.seqEnd}`)).size, 4, "四次调用必须推进四个不同区间，不能原地重复");
+  t.eq(maxActive, 1, "连续推进仍然串行");
 };
 tests["C529 补账互斥：同一会话不许被自动与面板同时补（两次模型调用 + 两个写者）"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
