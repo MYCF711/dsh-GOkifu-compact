@@ -1173,6 +1173,11 @@ export async function runOfflineFold({
   //   判据与 `collectMessages` **同源**（C481：`tool/result` 不进折叠输入 ⇒ 它也不算可折事件）。
   //   注意 `coverageOf` 的 uncovered 是**死值**（生产只用它的 start/end），所以必须在这里改。
   //   只算一次再复用：每段折完都要跑这两行，重复收集全量消息是纯浪费（子代理实测指出）。
+  return { chunks, coveredStart, coveredEnd, ...uncoveredFoldable(events, { rangeStart, rangeEnd, coveredStart, coveredEnd }), ...(stoppedEarly !== null ? { failed: stoppedEarly } : {}) };
+}
+
+/** 手工与自动路径共用：只数 collectMessages 判定为可折、且落在欠账区间内的事件。 */
+export function uncoveredFoldable(events, { rangeStart, rangeEnd, coveredStart, coveredEnd }) {
   const foldable = collectMessages(events, { maxChars: Number.MAX_SAFE_INTEGER, fromSeq: rangeStart }).messages;
   const foldableSeqs = [];
   for (const m of foldable) {
@@ -1183,7 +1188,7 @@ export async function runOfflineFold({
   const uncoveredTail = coveredEnd === null
     ? foldableSeqs.length
     : foldableSeqs.filter((s) => s > coveredEnd).length;
-  return { chunks, coveredStart, coveredEnd, uncoveredHead, uncoveredTail, ...(stoppedEarly !== null ? { failed: stoppedEarly } : {}) };
+  return { uncoveredHead, uncoveredTail };
 }
 
 /**

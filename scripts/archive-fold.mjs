@@ -57,6 +57,7 @@ import {
   readDefaultModel,
   collectMessages,
   coverageOf,
+  uncoveredFoldable,
   repairMissingConstraints,
   renderFacts,
   buildOfflinePrompt,
@@ -273,8 +274,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const end = cov.end;
     const facts = renderFacts(graph, { start, end });
     const prompt = buildOfflinePrompt({ facts, messages, range: { start, end } });
-    const uncoveredHead = Math.max(0, start - rangeStart);
-    const uncoveredTail = Math.max(0, rangeEnd - end);
+    const { uncoveredHead, uncoveredTail } = uncoveredFoldable(events, { rangeStart, rangeEnd, coveredStart: start, coveredEnd: end });
     console.log(
       `  段 ${start}-${end}（欠账区间 ${rangeStart}-${rangeEnd}` +
         `${uncoveredHead > 0 ? `，**前段 ${rangeStart}-${start - 1} 未覆盖（${uncoveredHead} 事件）**` : ""}` +
