@@ -1,11 +1,12 @@
 {
- "total": 1655,
+ "total": 1670,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
   "add-changelog.test.mjs": 4,
   "archive-fold.test.mjs": 8,
   "archive-quadrant.test.mjs": 40,
+  "archive-value.test.mjs": 15,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "backfill-e2e.test.mjs": 1,
@@ -210,6 +211,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1981,
- "passedAt": "2026-11-05T09:19:29.780Z"
+ "passed": 1996,
+ "passedAt": "2026-11-05T10:05:55.104Z"
 }
