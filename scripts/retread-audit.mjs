@@ -157,6 +157,12 @@ const round = (value, digits = 6) =>
 const pct = (value, digits = 2) =>
   value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : `${(Number(value) * 100).toFixed(digits)}%`;
 const int = (value) => (Number.isFinite(Number(value)) ? String(Math.round(Number(value))) : "—");
+/** 会话短名：`session-<uuid>` 的目录名截前 8 位会只剩 `session-`（等于没显示），先剥前缀。 */
+const shortSession = (dir) => {
+  const body = String(dir ?? "");
+  const stripped = body.replace(/^session-/, "");
+  return `${body.startsWith("session-") ? "s-" : ""}${stripped.slice(0, 8)}`;
+};
 const num = (value, digits = 4) =>
   value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(digits);
 
@@ -1187,6 +1193,11 @@ export function renderReport(result) {
     `  5. **观测边界**：${int(result.attribution.marksMeasured)} 条可测折痕里只有 ${int(result.attribution.summaryAvailableMarks)} 条摘要正文可解析，`,
   );
   out.push(`     「摘要写了没写」这一维度在多数折痕上**不可判** —— 归因本身就不是全量的。`);
+  out.push(
+    `  6. **口径本身是下界**：严格口径要求**逐字相同**（完整参数的 sig），模型只要把命令改一个字符` +
+      `（换个 cwd、加个参数）就看不见 —— 而「换个写法重试同一条死路」恰恰是最常见的重蹈覆辙。`,
+  );
+  out.push(`     所以就算这个指标有信号，它测到的也不是「重蹈覆辙」，而是「**逐字**重蹈覆辙」—— 一个更小、更罕见的事件。`);
   out.push("");
 
   /* 明细 */
@@ -1202,7 +1213,7 @@ export function renderReport(result) {
     for (const row of detail.slice(-DEFAULT_LIMIT)) {
       for (const hit of row.attribution?.strict?.detail ?? []) {
         out.push(
-          `  · [严格] ${String(row.session).slice(0, 8)} [${row.trigger}] seq ${int(row.seqStart)}-${int(row.seqEnd)} ` +
+          `  · [严格] ${shortSession(row.session)} [${row.trigger}] seq ${int(row.seqStart)}-${int(row.seqEnd)} ` +
             `${hit.deadId}→${hit.hitId} @${int(hit.hitSeq)}　摘要${hit.listed === null ? "?" : hit.listed ? "写了" : "没写"}` +
             `·注入${hit.injected === null ? "?" : hit.injected ? "可证" : "不可证"}　${hit.deadAction}`,
         );
@@ -1216,7 +1227,7 @@ export function renderReport(result) {
       const hit = (row.attribution?.loose?.detail ?? [])[0];
       if (hit === undefined) continue;
       out.push(
-        `  · [上界] ${String(row.session).slice(0, 8)} [${row.trigger}] ${hit.deadId}→${hit.hitId} @${int(hit.hitSeq)}　${hit.deadAction}`,
+        `  · [上界] ${shortSession(row.session)} [${row.trigger}] ${hit.deadId}→${hit.hitId} @${int(hit.hitSeq)}　${hit.deadAction}`,
       );
     }
   }
