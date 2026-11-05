@@ -131,18 +131,74 @@ export function reasoningConclusionText(text, maxChars = REASONING_CONCLUSION_MA
 }
 
 /**
+ * ★ T38：**宿主注入的角色说明**（闭集 —— 全仓唯一登记处）。
+ *
+ * 由来（真机 2026-11-05，`node scripts/prompt-bleed-audit.mjs` 原样输出）：
+ *   有正文的摘要 392 条，含系统提示词标记的 11 条，其中**逐字**回灌的 1 条
+ *   （`session-f7f835b1`：13,210 字符里 4,750 = **36.0%** 是系统提示词）。
+ *   回灌全部落在摘要的「约束」段 —— 因为摘要 prompt 要求「把硬事实里的约束原样抄一遍」，
+ *   而硬事实块里的约束**本身**就带着系统提示词（见下面的证据链）。
+ *
+ * 为什么只认**显式标记**、不认「像系统提示词的句子」：
+ *   · 用户会把 system prompt 整段粘进对话（真实内容）—— 按内容判会**误伤**，那是把用户的
+ *     任务书删掉，比回灌更严重（`test/prompt-bleed.test.mjs` ③ 钉住了这一条）；
+ *   · 宿主注入的两类东西**自带首尾标记**，机械切除既精确又可审计；
+ *   · 未闭合的开标签**不动**：宁可留着，也不吃掉用户后文（④ 钉住了这一条）。
+ *
+ * 剔除的是**注入外壳**，不是「系统提示词这个词」：`<compacted-summary>`（上一条摘要 = checkpoint）
+ * 与 `system/message` 事件都不在这个清单里 —— 前者是真实历史（剔了会把上一条摘要的棋谱段一起删掉），
+ * 后者 `collectMessages` 本来就跳过。
+ */
+export const HOST_ROLE_SPANS = Object.freeze([
+  { id: "system-reminder", re: /<system-reminder>[\s\S]*?<\/system-reminder>/gi },
+  { id: "sovereign", re: /\[用户启用[^\]]*用户主权声明\][\s\S]*?\[END:\s*SOVEREIGN DECLARATION\]/g },
+]);
+
+/**
+ * ★ T38：把**宿主注入的角色说明**从一段文本里剔掉（纯字符串，不改别的）。
+ *
+ * 语义：删掉 `HOST_ROLE_SPANS` 命中的整段，并把留下的空行收敛（否则剔除后剩一堆空行，
+ * 照样吃预算）。**没有命中就逐字返回**（`stripHostRoleText(x) === x`），这是「不误伤」的判据。
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function stripHostRoleText(text) {
+  let out = String(text ?? "");
+  let changed = false;
+  for (const span of HOST_ROLE_SPANS) {
+    const next = out.replace(span.re, "\n");
+    if (next !== out) {
+      out = next;
+      changed = true;
+    }
+  }
+  if (!changed) return out;
+  return out
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * 把内容块拼成纯文本。
  *
  * ★ C639：`reasoning` 块**默认保留**（`message-size-audit` 之类要的是"这条消息的全部文本"）；
  * 摘要输入在 `collectMessages` 里显式传 `{ reasoning: "conclude" }` —— 只留结论句（理由见上）。
  *
+ * ★ T38：`hostRole` 同理 —— **默认 `keep`**（审计脚本按「这条消息的全部文本」拆账，
+ * 默认就剔会让 `message-size-audit` / `reasoning-share-audit` 的数字与生产悄悄分叉）；
+ * `collectMessages` 显式传 `{ hostRole: "strip" }`。
+ *
  * @param {unknown} content
- * @param {{reasoning?: "keep"|"drop"|"conclude"}} [options] `keep` = 老行为（含 reasoning）；
- *   `drop` = 整块丢掉；`conclude` = 只留结论句（带 `（思考摘录）` 标记）。
+ * @param {{reasoning?: "keep"|"drop"|"conclude", hostRole?: "keep"|"strip"}} [options] `keep` = 老行为；
+ *   `drop` = 整块丢掉；`conclude` = 只留结论句（带 `（思考摘录）` 标记）；
+ *   `hostRole` 的 `strip` = 剔掉宿主注入的角色说明（见 `HOST_ROLE_SPANS`）。
  * @returns {string}
  */
-export function plainText(content, { reasoning = "keep" } = {}) {
-  if (typeof content === "string") return content;
+export function plainText(content, { reasoning = "keep", hostRole = "keep" } = {}) {
+  const strip = (text) => (hostRole === "strip" ? stripHostRoleText(text) : text);
+  if (typeof content === "string") return strip(content);
   if (!Array.isArray(content)) return "";
   const parts = [];
   for (const b of content) {
@@ -155,7 +211,7 @@ export function plainText(content, { reasoning = "keep" } = {}) {
     }
     parts.push(b.text);
   }
-  return parts.join("\n");
+  return strip(parts.join("\n"));
 }
 
 /**
@@ -289,7 +345,11 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
     //   剔掉后同样预算能多装 45.9% 的真实事件（覆盖率 55.2% → 75.2%）。
     //   但**不整块丢**：只留结论句（`REASONING_CONCLUSION_RE`），因为"这条死路别再试"这类话常常只在思考里说。
     //   原样输出与判据见 `scripts/reasoning-share-audit.mjs`。
-    const text = plainText(e.data?.message?.content ?? e.data?.content, { reasoning: "conclude" });
+    // ★ T38：**宿主注入的角色说明也不进输入**（`<system-reminder>` 块 / SOVEREIGN 声明）。
+    //   真机每段 2,000+ 字符的 workspace 指令与技能目录，与「这个区间发生了什么」无关；
+    //   而且它们是**回灌的载体之一**（`scripts/prompt-bleed-audit.mjs` ④：prompt 25,429 字符里
+    //   4,015 是这两类注入）。判据与误伤边界见 `HOST_ROLE_SPANS` / `stripHostRoleText`。
+    const text = plainText(e.data?.message?.content ?? e.data?.content, { reasoning: "conclude", hostRole: "strip" });
     if (text.trim() === "") continue;
     picked.push({ role: e.type === "user/message" ? "user" : "assistant", text: withId(e.seq, text), nodeId: idOf(e.seq), seq: Number(e.seq) || null });
   }
@@ -419,6 +479,31 @@ function limitToolLines(messages, budgetChars) {
 
 /**
  * ★ C491：从「消息预算」反推**实际覆盖的区间**，并算清前后两段没覆盖到多少。
+ *
+ * ★ T37：**消息整体落在欠账区间之外时，不许把区间夹成一点**。
+ *
+ * 由来（真机，`node scripts/degenerate-range-audit.mjs` 原样输出；125 条退化折痕 / 115 会话）：
+ *   107 条折痕的区间是 `seq 8-8` / `9-9` / `11-11` 这种单点，而**区间里一条 user/assistant 消息都没有**
+ *   （`区间内消息 0`），日志却有 500–1500 个事件、摘要 6000+ 字符 —— 也就是模型看的是整个会话。
+ *
+ * 机制（就是下面那两行 `Math.min/Math.max`）：
+ *   · 上一段折叠留下**前缀缺口** `offlineUncoveredHead = {events: 8, from: 1}`（`uncoveredHead = start - rangeStart`）；
+ *   · 下一段把欠账区间算成 `[1, 8]`，而第一条消息在 seq 9 ⇒ `coveredStart (9) > rangeEnd (8)`；
+ *   · `Math.min(coveredStart, rangeEnd)` 把起点**压到 rangeEnd** ⇒ `start = end = 8`；
+ *   · `fromHead` 式的取消息（C522：「补缺口必须从头取」）**不设上界**，于是 prompt 里是整段 9–501，
+ *     账上只记 1 个事件。T35 的「未来」界（`span.end <= range.end` 的最后一个实体）因此取不到，
+ *     全篇 `nN` 被抹成 `n?`（真机零锚点摘要 p50 锚点 = 0，正常区间 = 30）。
+ *
+ * 判据（只在这一种形状上改）：
+ *   收集到的消息跨度与欠账区间**不相交**（`coveredEnd < rangeStart` 或 `coveredStart > rangeEnd`）
+ *   ⇒ 夹出来的那个「区间」里什么都没有，是**账上的虚构**；此时如实报**真正被折的那一段**
+ *   （`[coveredStart, coveredEnd]`），缺口按 `rangeStart/rangeEnd` 照旧算。
+ *   消息跨度与欠账区间有交集时**一个字都不改** —— C491 的夹取契约（「宣称不超过欠账区间」）原样保留。
+ *
+ * 为什么不改「取消息」那一侧（给 head 模式加上界）：那会让 prompt 少看区间外的消息（实测摘要质量
+ * 与正常区间持平：字符 p50 6225 vs 6243、constraintRecall/failureRecall 都 = 1），
+ * 而且尾部要再折一次 = 再付一次模型钱。**错的是账，不是模型看到的输入。**
+ *
  * @param {{rangeStart:number, rangeEnd:number, seqs:number[]}} input
  * @returns {{start:number, end:number, uncoveredHead:number, uncoveredTail:number}}
  */
@@ -426,6 +511,17 @@ export function coverageOf({ rangeStart, rangeEnd, seqs }) {
   const list = (Array.isArray(seqs) ? seqs : []).filter((x) => Number.isFinite(x));
   const coveredStart = list.length > 0 ? Math.min(...list) : rangeStart;
   const coveredEnd = list.length > 0 ? Math.max(...list) : rangeStart;
+  // ★ T37：**欠账区间里一条消息都没收到** ⇒ 报实际跨度，别夹成一点（见上方 docblock）。
+  //   注意 `[50, 999] @ 100..200` 这种「跨度包住区间」的夹取照旧走下面 —— 那时 `Math.min/Math.max`
+  //   夹出来的是**有依据的**（区间本身被覆盖了），不是这里要修的退化。
+  if (list.length > 0 && (coveredEnd < rangeStart || coveredStart > rangeEnd)) {
+    return {
+      start: coveredStart,
+      end: coveredEnd,
+      uncoveredHead: Math.max(0, coveredStart - rangeStart),
+      uncoveredTail: Math.max(0, rangeEnd - coveredEnd),
+    };
+  }
   const start = Math.max(rangeStart, Math.min(coveredStart, rangeEnd));
   const end = Math.max(start, Math.min(rangeEnd, coveredEnd));
   return { start, end, uncoveredHead: Math.max(0, start - rangeStart), uncoveredTail: Math.max(0, rangeEnd - end) };

@@ -1,5 +1,5 @@
 {
- "total": 1280,
+ "total": 1290,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -37,6 +37,7 @@
   "dangling-edge.test.mjs": 0,
   "dangling-exclusion.test.mjs": 0,
   "deadend-adherence.test.mjs": 11,
+  "degenerate-range.test.mjs": 4,
   "doc-numbers.test.mjs": 12,
   "docs-cli-commands.test.mjs": 2,
   "docs-commands.test.mjs": 8,
@@ -127,6 +128,7 @@
   "probe-compaction-wiring.test.mjs": 3,
   "profile-io.test.mjs": 2,
   "progress-index.test.mjs": 2,
+  "prompt-bleed.test.mjs": 6,
   "range.test.mjs": 0,
   "reasoning-share.test.mjs": 7,
   "release-hardening.test.mjs": 0,
@@ -183,6 +185,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1606,
- "passedAt": "2026-11-04T23:53:15.317Z"
+ "passed": 1616,
+ "passedAt": "2026-11-05T00:12:36.417Z"
 }
