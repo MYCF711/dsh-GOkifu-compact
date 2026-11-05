@@ -135,12 +135,10 @@ tests["T49④ 两次形状不同也相加；缺失的字段保持 null；恒等�
   // 写回点会再归一化一次：三个和必须不变；`cacheReadTokens` 会被丢掉（既存缺陷，见下面这条）
   const rewritten = normalizeUsage(both);
   t.eq([rewritten.inputTokens, rewritten.outputTokens, rewritten.totalTokens], [3000, 1300, 5800], "写回点再归一化，三个和逐字不变");
-  t.eq(
-    rewritten.cacheReadTokens,
-    null,
-    "命中量在写回点被丢掉 —— `normalizeUsage` 只认 cachedTokens / prompt_tokens_details.cached_tokens，**不认 cacheReadTokens**（" +
-      "所以命中率只能靠恒等式反推，不能靠这个字段；这是 T49 报告里的 R07，本任务没动）",
-  );
+  // ★ 历史：T49 时期这里断言 cacheReadTokens === null —— 钉的是「写侧丢命中量」这个缺陷**本身**。
+  //   T50 修了 `normalizeUsage` 的 cached 那一行（认 cacheReadTokens）⇒ 断言必须跟着翻，
+  //   否则测试就在保护 bug。1500 = 两次调用里上游给的命中数。
+  t.eq(rewritten.cacheReadTokens, 1500, "R07 已修：写回点不再丢命中量");
 };
 
 tests["T49⑤ 重试抛错 ⇒ 只记第一次；重试返回但仍截断 ⇒ 两次都记（钱都花了）"] = async (t) => {

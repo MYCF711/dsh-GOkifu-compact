@@ -1285,7 +1285,7 @@ export function normalizeUsage(u) {
   };
   const input = pick(u.inputTokens, u.prompt_tokens);
   const output = pick(u.outputTokens, u.completion_tokens);
-  const cached = pick(u.cachedTokens, u.prompt_tokens_details?.cached_tokens);
+  const cached = pick(u.cacheReadTokens, u.cachedTokens, u.prompt_tokens_details?.cached_tokens);
   const reasoning = pick(u.reasoningTokens, u.completion_tokens_details?.reasoning_tokens);
   const total = pick(u.totalTokens, u.total_tokens) ?? (input === null && output === null ? null : (input ?? 0) + (output ?? 0));
   // ★ C587（审核发现，**这是我 C581 引入的回归**）：归一后的字段名必须和**读侧**一致。
