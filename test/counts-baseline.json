@@ -64,6 +64,7 @@
   "fold-closure.test.mjs": 6,
   "fold-cost-time.test.mjs": 2,
   "fold-economics.test.mjs": 3,
+  "fold-list.test.mjs": 0,
   "fold-loss.test.mjs": 6,
   "fold-mark-sites.test.mjs": 8,
   "fold-parity.test.mjs": 7,
@@ -216,6 +217,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2017,
- "passedAt": "2026-11-05T12:26:38.456Z"
+ "passed": 2021,
+ "passedAt": "2026-11-05T12:57:05.810Z"
 }

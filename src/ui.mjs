@@ -328,6 +328,50 @@ export function latestGraphFrom(scan) {
   };
 }
 
+/** 折痕列表只暴露最近 20 条，与图本身的折痕保留上限一致。 */
+export const FOLD_LIST_LIMIT = 20;
+
+function finiteNumberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 页面折痕的字段白名单。保留原始 lastFold 契约不动，列表走 state.foldMarks。
+ * usage 也只给页面实际渲染的三个 token 数，不透出摘要正文、路由等无关字段。
+ */
+export function foldMarksForUi(foldMarks) {
+  const marks = Array.isArray(foldMarks) ? foldMarks : [];
+  return marks.slice(-FOLD_LIST_LIMIT).reverse().map((mark) => {
+    const rawUsage = mark?.usage;
+    const usage = rawUsage !== null && typeof rawUsage === "object" && !Array.isArray(rawUsage)
+      ? {
+          inputTokens: finiteNumberOrNull(rawUsage.inputTokens),
+          outputTokens: finiteNumberOrNull(rawUsage.outputTokens),
+          totalTokens: finiteNumberOrNull(rawUsage.totalTokens),
+        }
+      : null;
+    return {
+      at: finiteNumberOrNull(mark?.at) ?? (typeof mark?.at === "string" && mark.at !== "" ? mark.at : null),
+      seqStart: finiteNumberOrNull(mark?.seqStart),
+      seqEnd: finiteNumberOrNull(mark?.seqEnd),
+      trigger: typeof mark?.trigger === "string" && mark.trigger !== "" ? mark.trigger : null,
+      summaryChars: finiteNumberOrNull(mark?.summaryChars),
+      usage,
+      truncated: typeof mark?.truncated === "boolean" ? mark.truncated : null,
+      finishReason: typeof mark?.finishReason === "string" && mark.finishReason !== "" ? mark.finishReason : null,
+    };
+  });
+}
+
+/** 最近活跃会话的折痕；没有棋谱、坏图或空折痕都返回 []。 */
+export function latestFoldMarksFrom(scan) {
+  const files = Array.isArray(scan?.files) ? scan.files : [];
+  const best = files.reduce((acc, file) => (acc === null || file.mtimeMs > acc.mtimeMs ? file : acc), null);
+  if (best === null) return [];
+  const summary = graphSummary(best).summary;
+  return summary === null ? [] : foldMarksForUi(summary.foldMarks);
+}
+
 /** 今天的 fold 汇总（按 foldMarks.at，不按文件 mtime）。 */
 /**
  * ★ C239：折叠成本的**估算**（美元）。价目来自 DeepSeek 官方页（2026-11-02 抓取，deepseek-flash，低峰）：
@@ -1514,6 +1558,7 @@ function applyInner(ctx) {
             configItems: CONFIG_ITEMS,
             configFile: presets[0]?.file ?? null,
             latest: latestGraphFrom(scan),
+            foldMarks: latestFoldMarksFrom(scan),
             today: todayAggregateFrom(scan),
             health: health(home, allPresets, profileName),
             // ★ U1：首屏一次拿全 —— 摘要模型下拉直接用 state.models，少一个请求。
