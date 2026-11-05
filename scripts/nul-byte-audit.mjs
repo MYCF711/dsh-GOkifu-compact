@@ -165,6 +165,16 @@ export function classifyHit(buf, offset, lineText, charIndex, ext) {
   return { region: "code", intent: "意外", note: "落在代码/正文里 —— 裸控制字符，没有语义理由" };
 }
 
+/**
+ * ★ 单个文件最多逐条打多少处明细。
+ *
+ * 为什么必须有上限：命中明细要**解码所在整行**来算列号与上下文，而列号是 O(行长) 的。
+ * 一个 200KB 单行里塞 10 万个 NUL（实测构造过）⇒ 200KB × 10 万次解码 ⇒ 直接 OOM（exit 134）。
+ * 门禁**崩掉**比门禁红掉更糟：它连"哪里有问题"都说不出来。所以封顶，
+ * 超出的部分折成一条汇总行（仍会让 --check 红）。
+ */
+export const MAX_HITS_PER_FILE = 200;
+
 /** 扫一个文件，返回命中明细。 */
 export function auditFile(file) {
   const buf = nodeFs.readFileSync(file.full);
@@ -177,16 +187,21 @@ export function auditFile(file) {
   // 行首偏移表（二分定位行号，避免每个命中都从头数）
   const lineStarts = [0];
   for (let i = 0; i < buf.length; i += 1) if (buf[i] === LF) lineStarts.push(i + 1);
-
-  for (const i of offsets) {
-    const b = buf[i];
+  const lineOf = (offset) => {
     let lo = 0;
     let hi = lineStarts.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (lineStarts[mid] <= i) lo = mid;
+      if (lineStarts[mid] <= offset) lo = mid;
       else hi = mid - 1;
     }
+    return lo;
+  };
+
+  const detail = offsets.slice(0, MAX_HITS_PER_FILE);
+  for (const i of detail) {
+    const b = buf[i];
+    const lo = lineOf(i);
     const lineStart = lineStarts[lo];
     const lineEnd = lo + 1 < lineStarts.length ? lineStarts[lo + 1] - 1 : buf.length;
     const lineText = buf.subarray(lineStart, Math.min(lineEnd, buf.length)).toString("utf8").replace(/[\r\n]+$/, "");
@@ -207,6 +222,26 @@ export function auditFile(file) {
       intent,
       note,
       ctx: `${before}${visible(b)}${after}`,
+    });
+  }
+  // 超上限的部分折成一条汇总行（别让它把门禁撑爆，也别让它消失）
+  if (offsets.length > detail.length) {
+    const rest = offsets.length - detail.length;
+    const lastOffset = offsets[offsets.length - 1];
+    const lastByte = buf[lastOffset];
+    hits.push({
+      file: file.rel,
+      byte: lastByte,
+      hex: hex2(lastByte),
+      offset: lastOffset,
+      line: lineOf(lastOffset) + 1,
+      col: 0,
+      region: "summary",
+      intent: "意外",
+      note:
+        `该文件控制字符过多：共 ${offsets.length} 处，明细只列前 ${detail.length} 处，另有 ${rest} 处未逐条列出` +
+        `（封顶是为了别把门禁跑崩）`,
+      ctx: "",
     });
   }
   return hits;
@@ -302,10 +337,16 @@ function render(result, { check, strict, quiet }) {
       `｜扣除已知遗留后：NUL ${freshNul.length} 处 · 其它 ${freshOther.length} 处`,
   );
 
+  // 结论行里的位置列表：去重 + 封顶（一个文件里几百处时，逐条列出来只会把结论淹掉）
+  const spotList = (list, withHex) => {
+    const uniq = [...new Set(list.map((h) => (withHex ? `${h.file}:${h.line} ${h.hex}` : `${h.file}:${h.line}`)))];
+    return uniq.slice(0, 8).join(", ") + (uniq.length > 8 ? ` …另 ${uniq.length - 8} 个位置` : "");
+  };
+
   let failed = false;
   if (freshNul.length > 0) {
     failed = true;
-    lines.push(`❌ 发现 ${freshNul.length} 处字面 NUL（不在已知遗留里）：${freshNul.map((h) => `${h.file}:${h.line}`).join(", ")}`);
+    lines.push(`❌ 发现 ${freshNul.length} 处字面 NUL（不在已知遗留里）：${spotList(freshNul, false)}`);
     lines.push("   修法：把真字节换成转义写法 \\u0000（JS 字符串里同一个字符，但文件是纯文本、diff 看得见）。");
   } else {
     lines.push(
@@ -313,7 +354,7 @@ function render(result, { check, strict, quiet }) {
     );
   }
   if (freshOther.length > 0) {
-    const list = freshOther.map((h) => `${h.file}:${h.line} ${h.hex}`).join(", ");
+    const list = spotList(freshOther, true);
     if (strict) {
       failed = true;
       lines.push(`❌ --strict：另有 ${freshOther.length} 处其它控制字符：${list}`);
