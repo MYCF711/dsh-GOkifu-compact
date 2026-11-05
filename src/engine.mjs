@@ -36,7 +36,7 @@ import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/confi
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
-import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget } from "./rooms/offline-fold.mjs";
+import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget, sumFoldUsage } from "./rooms/offline-fold.mjs";
 import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
@@ -278,7 +278,7 @@ export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
   return { base, cap };
 }
 
-/** ★ T67：TRANSPORT / 超时最多补试 2 次；30s → 60s，单次等待上限 120s，±20% 抖动。 */
+/** ★ T67：每轮 TRANSPORT / 超时 = 1 首调 + 最多 2 补试；runOfflineFold 最多再放大一轮 ⇒ 组合硬上限 3×2=6 次。30s → 60s，单次等待上限 120s，±20% 抖动。 */
 const TRANSPORT_RETRY_MAX = 2;
 const TRANSPORT_RETRY_BASE_MS = 30_000;
 const TRANSPORT_RETRY_CAP_MS = 120_000;
@@ -2600,6 +2600,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    */
   async #offlineCloseoutFold(target, { transportRetry = false, provider = null, model = null, signal = null } = {}) {
     let claimed = null;
+    const foldAbort = new AbortController();
+    let foldDeadlineTimer = null;
+    let detachCallerAbort = null;
     try {
       const session = target?.session ?? target;
       const id = typeof session?.id === "string" ? session.id : null;
@@ -2672,32 +2675,56 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         model: chosen?.model ?? dflt.model ?? routed?.model,
       };
       if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
+      // 按钮取消与内部 deadline 共用同一个控制器；自动补折也传 signal，否则 race 到点后原流仍在跑。
+      const abortFromCaller = () => {
+        if (!foldAbort.signal.aborted) foldAbort.abort(signal?.reason ?? new Error("chess-context: offline summary cancelled"));
+      };
+      if (signal?.aborted === true) abortFromCaller();
+      else if (typeof signal?.addEventListener === "function") {
+        signal.addEventListener("abort", abortFromCaller, { once: true });
+        detachCallerAbort = () => signal.removeEventListener("abort", abortFromCaller);
+      }
       const callModel = async (prompt, { maxTokens }) => {
         // 与在线摘要同装配。C594：关思考参数并非所有上游都认；C600：用活跃回合捕获的 llm 句柄，不直连网关。
         const assembler = new BlockAssembler();
         const llmHandle = this._llmHandle ?? this.ctx.llm;
+        // `usage` 仍指被采用的 assembler；`billedUsage/billedCalls` 才是本轮全部网络 attempt 的账。
+        // finish error 可能发生在 usage 之后，所以必须在 finally 里收，不允许异常把已付费用吞掉。
+        let billedUsage = null;
+        let billedCalls = 0;
         const streamOnce = async (extra) => {
           const a = new BlockAssembler();
-          for await (const chunk of llmHandle.stream({
-            provider: target0.provider,
-            model: target0.model,
-            messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-            maxTokens: Number(maxTokens) || 8192,
-            // C525/C597：无头调用只给 provider/model，不传 session/sessionId。
-            ...extra,
-            // 可取消按钮把 AbortSignal 传进宿主流；定时自动补折不传，行为保持不变。
-            ...(signal === null || signal === undefined ? {} : { signal }),
-          })) {
-            a.push(chunk);
+          billedCalls += 1;
+          try {
+            for await (const chunk of llmHandle.stream({
+              provider: target0.provider,
+              model: target0.model,
+              messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+              maxTokens: Number(maxTokens) || 8192,
+              // C525/C597：无头调用只给 provider/model，不传 session/sessionId。
+              ...extra,
+              signal: foldAbort.signal,
+            })) {
+              a.push(chunk);
+            }
+            throwIfOfflineFinishError(a);
+            return a;
+          } finally {
+            billedUsage = sumFoldUsage(billedUsage, a.usage ?? null);
           }
-          throwIfOfflineFinishError(a);
-          return a;
         };
         let usedAssembler = assembler;
         try {
           const attempt = () => streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
           usedAssembler = transportRetry ? await retryOfflineSummary(this, attempt, foldDeadline) : await attempt();
         } catch (error) {
+          // 放大轮会 catch 这个异常并保留首段；把该轮已报告的账单一起带出去，不能只剩异常文案。
+          try {
+            error.offlineSummaryBilledUsage = billedUsage;
+            error.offlineSummaryBilledCalls = billedCalls;
+          } catch {
+            /* 原始异常不可扩展时保持原异常，不影响错误分类。 */
+          }
           const message = String(error?.message ?? error);
           // 传输/参数异常不是空回答；只有明确的 inactive context 才等活跃回合。
           if (!/inactive context|required service "llm"/i.test(message)) throw error;
@@ -2728,7 +2755,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
           return null;
         })();
-        return { text: responseText, usage: usedAssembler.usage ?? null, model: target0.model, finish: finishOut };
+        return { text: responseText, usage: usedAssembler.usage ?? null, billedUsage, billedCalls, model: target0.model, finish: finishOut };
       };
       // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
       //   `measureQuality` 闭包在调用期间读它 ⇒ `ReferenceError: Cannot access before initialization`
@@ -2779,8 +2806,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         }),
         new Promise((resolve) => {
           const ms = Math.max(0, foldDeadline - Date.now());
-          const timer = setTimeout(() => resolve({ chunks: [], coveredStart: null, coveredEnd: null, uncoveredHead: 0, uncoveredTail: 0, failed: "deadline" }), ms);
-          timer?.unref?.();
+          foldDeadlineTimer = setTimeout(() => {
+            // race 只决定调用方何时返回；abort 才负责让仍在进行的网络流真正停下来。
+            if (!foldAbort.signal.aborted) foldAbort.abort(new Error("chess-context: offline summary deadline"));
+            resolve({ chunks: [], coveredStart: null, coveredEnd: null, uncoveredHead: 0, uncoveredTail: 0, failed: "deadline" });
+          }, ms);
+          foldDeadlineTimer?.unref?.();
         }),
       ]);
       const outcome = offlineFoldOutcome(result, { rangeStart, rangeEnd, maxSeq: rangeEnd });
@@ -2818,6 +2849,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this.ctx.logger?.warn?.(`chess-context: 离线补折失败（不影响归档）：${String(error)}`);
       return { tier: "offline", folded: 0, chunks: 0, stopped: "error", error: String(error).slice(0, 300), partial: true };
     } finally {
+      if (foldDeadlineTimer !== null) clearTimeout(foldDeadlineTimer);
+      detachCallerAbort?.();
       if (claimed !== null) this._backfillInFlight.delete(claimed);
     }
   }

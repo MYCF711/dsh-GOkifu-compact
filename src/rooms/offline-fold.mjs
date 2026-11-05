@@ -941,7 +941,7 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
  * @param {number} args.rangeEnd 欠账区间终点
  * @param {number} [args.maxChars] 每段消息预算
  * @param {number} [args.maxChunks] 最多几段（1 = 只压尾部）
- * @param {(prompt:string, opts:{maxTokens:number}) => Promise<{text:string, usage:object|null, model:string|null, finish?:string|null}>} args.callModel
+ * @param {(prompt:string, opts:{maxTokens:number}) => Promise<{text:string, usage:object|null, billedUsage?:object|null, billedCalls?:number, model:string|null, finish?:string|null}>} args.callModel
  * @param {(args:{graph:object, range:{start:number,end:number}, summaryText:string}) => object} args.measureQuality
  * @returns {Promise<{chunks:Array<object>, coveredStart:number|null, coveredEnd:number|null, uncoveredHead:number, uncoveredTail:number}>}
  */
@@ -1032,9 +1032,10 @@ export async function runOfflineFold({
     //   （`test/retry-discard.test.mjs` T44① 逐字钉着 `chunk.usage.outputTokens === 12_000`），
     //   改语义会当场把那条守卫打红。所以：既有字段一个字节都不动，另起 `billedUsage` / `billedCalls`
     //   记「这一段的总用量」，由写回点（`applyOfflineFoldToGraph`）优先用它记账。
-    let billed = out?.usage ?? null;
-    /** 这一段**真的发出去过几次**调用（重试抛错不算：没有 usage 可记，也就没有第二次账单）。 */
-    let billedCalls = 1;
+    // callModel 内部可能已做过 TRANSPORT 重试：usage 仍是被采用那次，billedUsage 才是所有 attempt 之和。
+    let billed = out?.billedUsage ?? out?.usage ?? null;
+    /** 这一段真的发出去过几次调用；没有 usage 的 attempt 也计数，但不凭空造 token。 */
+    let billedCalls = Math.max(1, Math.floor(Number(out?.billedCalls) || 1));
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
@@ -1073,14 +1074,21 @@ export async function runOfflineFold({
           const bigger = await callModel(prompt, { maxTokens: retryBudget });
           // ★ T49：这一次**真的发出去了** ⇒ 无论采不采用（还判截断 / 正文是空）都要记账。
           //   `sumFoldUsage` 先归一化再相加（两次调用的形状可能一个 `prompt_tokens`、一个 `inputTokens`）。
-          billed = sumFoldUsage(billed, bigger?.usage ?? null);
-          billedCalls += 1;
+          billed = sumFoldUsage(billed, bigger?.billedUsage ?? bigger?.usage ?? null);
+          billedCalls += Math.max(1, Math.floor(Number(bigger?.billedCalls) || 1));
           if (!looksTruncated(bigger, retryBudget) && String(bigger?.text ?? "").trim() !== "") {
             out = bigger;
             truncated = false;
           }
-        } catch {
-          /* 重试失败就保留第一次的结果，并标记截断 */
+        } catch (error) {
+          // callModel 在 TRANSPORT 重试耗尽时也会带出每个失败 assembler 已报告的 usage。
+          // 直接注入的 callModel 若没有这个字段，维持 T49⑤ 原契约：只记成功返回的那次。
+          const failedCalls = Math.max(0, Math.floor(Number(error?.offlineSummaryBilledCalls) || 0));
+          if (failedCalls > 0) {
+            billed = sumFoldUsage(billed, error?.offlineSummaryBilledUsage ?? null);
+            billedCalls += failedCalls;
+          }
+          /* 重试失败就保留第一次的结果，并标记截断；已报告的失败 attempt 用量仍进账。 */
         }
       } else {
         skippedRetry = true;
