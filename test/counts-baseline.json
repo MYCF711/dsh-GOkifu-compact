@@ -1,5 +1,5 @@
 {
- "total": 1468,
+ "total": 1492,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -138,6 +138,7 @@
   "range-fidelity.test.mjs": 18,
   "range.test.mjs": 0,
   "reasoning-share.test.mjs": 7,
+  "recall-probes.test.mjs": 24,
   "release-hardening.test.mjs": 0,
   "release-notes-drift.test.mjs": 4,
   "release-tool.test.mjs": 2,
@@ -200,6 +201,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1794,
- "passedAt": "2026-11-05T04:50:33.081Z"
+ "passed": 1818,
+ "passedAt": "2026-11-05T05:09:52.453Z"
 }
