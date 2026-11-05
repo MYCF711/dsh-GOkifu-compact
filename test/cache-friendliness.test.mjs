@@ -52,6 +52,7 @@ import {
   lcpChars,
   messageTextOf,
   replaceCounterfactual,
+  projectedAppendCost,
   requestCost,
   stablePrefixCeiling,
   summarizeByAction,
@@ -385,6 +386,7 @@ tests["C600 审计②：分解必须把 replace 的账拆成「必要（新清�
   // 新清单 2,000 字符 ⇒ ≈500 token；替换那次 miss 90,000
   const text = "x".repeat(2_000);
   const rows = attributeRequests([
+    request(0, { miss: 1_000, hit: 99_000 }), // 没有注入 ⇒ none（提供「正常增量」基线）
     injection(1, "append", text),
     request(2, { miss: 1_000, hit: 99_000 }),
     injection(3, { op: "replace", startSeq: 1, endSeq: 1 }, text),
@@ -404,6 +406,17 @@ tests["C600 审计②：分解必须把 replace 的账拆成「必要（新清�
   t.eq(cf.actual > cf.counterfactual, true, "实际必须比反事实贵（否则这个动作不亏，就不该动它）");
   t.eq(cf.wasted > 0, true, "差价必须为正");
   t.eq(replaceCounterfactual([]).wasted, 0, "空输入 ⇒ 0");
+
+  // 修复后的预计账单：追加只付「新清单 + 正常增量」
+  const proj = projectedAppendCost(rows);
+  t.eq(proj.actual, cf.actual, "实际账单与反事实口径必须一致（同一批 replace 请求）");
+  t.eq(proj.medianAppendMiss, 1_000, "正常增量取 none 组中位 miss");
+  // 未命中 = min(100_000, 500 + 1_000) = 1_500，其余按 hit 价；输出照常计
+  const expected = (1_500 * PRICES.miss + 98_500 * PRICES.hit + 10 * PRICES.out) / 1e6;
+  t.eq(Math.abs(proj.projected - expected) < 1e-15, true, `预计账单算错：${proj.projected}`);
+  t.eq(proj.saving > 0, true, "省下的钱必须为正");
+  t.eq(Math.abs(proj.saving - (proj.actual - proj.projected)) < 1e-15, true, "省下 = 实际 - 预计");
+  t.eq(projectedAppendCost([]).saving, 0, "空输入 ⇒ 0");
 };
 
 tests["C600 审计③：「稳定前缀」的天花板必须能被算出来（这条用来证伪 brief 提的修法）"] = (t) => {
