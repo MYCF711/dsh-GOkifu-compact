@@ -1,5 +1,5 @@
 {
- "total": 1355,
+ "total": 1376,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -21,6 +21,7 @@
   "c17-path-at-every-level.test.mjs": 16,
   "c572-review-fixes.test.mjs": 15,
   "cache-friendliness.test.mjs": 12,
+  "cache-miss.test.mjs": 9,
   "cache-rate.test.mjs": 3,
   "cache-usage.test.mjs": 4,
   "check-maintenance.test.mjs": 6,
@@ -52,6 +53,7 @@
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 21,
   "facts-prompt.test.mjs": 6,
+  "finish-reason.test.mjs": 12,
   "fold-boundary.test.mjs": 4,
   "fold-closure.test.mjs": 6,
   "fold-cost-time.test.mjs": 2,
@@ -192,6 +194,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1681,
- "passedAt": "2026-11-05T01:56:10.605Z"
+ "passed": 1702,
+ "passedAt": "2026-11-05T02:22:03.609Z"
 }
