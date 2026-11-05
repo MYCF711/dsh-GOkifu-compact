@@ -386,6 +386,34 @@ async function retryOfflineSummary(engine, call, deadline) {
   });
 }
 
+/** 读取被采用 assembler 的正文与 finish；不改变 callModel 的内联传输/记账契约。 */
+function offlineAssemblerResult(usedAssembler) {
+  const finishRaw = (() => {
+    try {
+      return usedAssembler.finish ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
+  const text = Array.isArray(blocks)
+    ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
+    : "";
+  const reasoning = Array.isArray(blocks)
+    ? blocks.filter((b) => b?.type === "reasoning").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
+    : "";
+  const responseText = text.trim() === "" ? reasoning : text;
+  // C650：兼容 string / {kind} / {reason:{kind}}，读不到就是 null，不编值。
+  const finishOut = (() => {
+    const raw = finishRaw;
+    if (typeof raw === "string" && raw !== "") return raw;
+    if (typeof raw?.kind === "string" && raw.kind !== "") return raw.kind;
+    if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
+    return null;
+  })();
+  return { responseText, finishOut };
+}
+
 /** ★ C444：边的可排序 seq（evidence 可能是数字，也可能是 {start,end}）。 */
 const edgeSeq = (e) =>
   typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN;
@@ -2675,7 +2703,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         model: chosen?.model ?? dflt.model ?? routed?.model,
       };
       if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
-      // 按钮取消与内部 deadline 共用同一个控制器；自动补折也传 signal，否则 race 到点后原流仍在跑。
+      // 按钮取消与内部 deadline 共用控制器；自动补折也传 signal，否则 race 后原流仍在跑。
       const abortFromCaller = () => {
         if (!foldAbort.signal.aborted) foldAbort.abort(signal?.reason ?? new Error("chess-context: offline summary cancelled"));
       };
@@ -2685,11 +2713,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         detachCallerAbort = () => signal.removeEventListener("abort", abortFromCaller);
       }
       const callModel = async (prompt, { maxTokens }) => {
-        // 与在线摘要同装配。C594：关思考参数并非所有上游都认；C600：用活跃回合捕获的 llm 句柄，不直连网关。
+        // C559/C578/C600：无头 + 关思考；用活跃回合捕获的 llm 句柄，不直连网关。
         const assembler = new BlockAssembler();
         const llmHandle = this._llmHandle ?? this.ctx.llm;
-        // `usage` 仍指被采用的 assembler；`billedUsage/billedCalls` 才是本轮全部网络 attempt 的账。
-        // finish error 可能发生在 usage 之后，所以必须在 finally 里收，不允许异常把已付费用吞掉。
+        // usage=被采用的 assembler；billedUsage/billedCalls=本轮全部 attempt（含失败）。
         let billedUsage = null;
         let billedCalls = 0;
         const streamOnce = async (extra) => {
@@ -2710,6 +2737,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             throwIfOfflineFinishError(a);
             return a;
           } finally {
+            // finish error 可能晚于 usage；异常不能把已付费用吞掉。
             billedUsage = sumFoldUsage(billedUsage, a.usage ?? null);
           }
         };
@@ -2718,7 +2746,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           const attempt = () => streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
           usedAssembler = transportRetry ? await retryOfflineSummary(this, attempt, foldDeadline) : await attempt();
         } catch (error) {
-          // 放大轮会 catch 这个异常并保留首段；把该轮已报告的账单一起带出去，不能只剩异常文案。
+          // 放大轮保留首段时，也要带出这一轮已报告的失败 attempt 账单。
           try {
             error.offlineSummaryBilledUsage = billedUsage;
             error.offlineSummaryBilledCalls = billedCalls;
@@ -2726,35 +2754,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             /* 原始异常不可扩展时保持原异常，不影响错误分类。 */
           }
           const message = String(error?.message ?? error);
-          // 传输/参数异常不是空回答；只有明确的 inactive context 才等活跃回合。
           if (!/inactive context|required service "llm"/i.test(message)) throw error;
           this.ctx.logger?.warn?.(`chess-context: 离线补折需要活跃上下文（${message.slice(0, 120)}）—— 本轮跳过，等下一次活跃触发`);
           return { tier: "offline", folded: 0, chunks: 0, stopped: "inactive-context", partial: true, error: message.slice(0, 200) };
         }
-        // C559/C578：无头 + 关思考。空 blocks 先分 error 与正常空答；reasoning 也是真实内容，不能滤没。
-        const finishRaw = (() => {
-          try {
-            return usedAssembler.finish ?? null;
-          } catch {
-            return null;
-          }
-        })();
-        const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
-        const text = Array.isArray(blocks)
-          ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
-          : "";
-        const reasoning = Array.isArray(blocks)
-          ? blocks.filter((b) => b?.type === "reasoning").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
-          : "";
-        const responseText = text.trim() === "" ? reasoning : text;
-        // C650：finish 透传给截断判据；兼容 string / {kind} / {reason:{kind}}，读不到就是 null，不编值。
-        const finishOut = (() => {
-          const raw = finishRaw;
-          if (typeof raw === "string" && raw !== "") return raw;
-          if (typeof raw?.kind === "string" && raw.kind !== "") return raw.kind;
-          if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
-          return null;
-        })();
+        const { responseText, finishOut } = offlineAssemblerResult(usedAssembler);
         return { text: responseText, usage: usedAssembler.usage ?? null, billedUsage, billedCalls, model: target0.model, finish: finishOut };
       };
       // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
@@ -2773,14 +2777,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           return null;
         }
       })();
-      // ★ C590：**离线补折必须有截止时间**。一次模型调用卡住 ⇒ `_autoBackfillBusy` 一直为真
-      //   ⇒ 后续每个 tick 都直接 return（整机停补，而且没有任何报错）。
-      //   这里两重保险：① 编排内部按 deadline 提前收工；② 整体再 race 一次，防止单次调用挂死。
-      // ★ C595：截止时间按**预算**给足（慢模型 20ms/token），并保证至少 240 秒。
-      //   以前固定 240 秒，遇到 169 秒/段以上的模型就必然判 deadline。
+      // C590/C595：编排按 deadline 提前收工；外层 race 到点同时 abort，防止单次调用挂死。
       const offlineTokens = Math.max(1024, Math.min(16_384, Number(this.chess.offlineMaxTokens) || 8192));
-      const foldDeadline =
-        Date.now() + Math.max(Number(this.chess.offlineFoldTimeoutMs ?? 240_000), Math.round(offlineTokens * 25));
+      const foldDeadline = Date.now() + Math.max(Number(this.chess.offlineFoldTimeoutMs ?? 240_000), Math.round(offlineTokens * 25));
       const result = await Promise.race([
         runOfflineFold({
           deadline: foldDeadline,

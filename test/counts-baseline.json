@@ -1,5 +1,5 @@
 {
- "total": 1701,
+ "total": 1704,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -194,6 +194,7 @@
   "touched-files.test.mjs": 9,
   "trace-relative.test.mjs": 0,
   "traceability.test.mjs": 19,
+  "transport-hardening.test.mjs": 3,
   "transport-retry.test.mjs": 3,
   "tree-freshness.test.mjs": 5,
   "truncation-consumers.test.mjs": 4,
@@ -222,6 +223,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2045,
- "passedAt": "2026-11-05T16:59:57.348Z"
+ "passed": 2048,
+ "passedAt": "2026-11-05T17:56:46.796Z"
 }

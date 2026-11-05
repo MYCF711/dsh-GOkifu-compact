@@ -103,6 +103,20 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 
 ## 2 · 硬规则（违反即作废，不是建议）
 
+### 2.0c Git 工作流：**并行任务走分支进主线，GitHub 只推稳定版**
+- **并行任务一律在**各自的分支 / worktree**上做**，不要多个 agent 共用同一棵工作树、更不要共用 `main`。
+  - 用 `git worktree add ../<task>-<id> -b task/<id>` 给每个并行任务一个**独立工作目录与分支**；
+  - **同文件双写**在分支模型下不再是「互相覆盖」，而是「合并时显式处理」。
+- **集成 = 显式合并（PR 式），不是 `git add -A`。**
+  - Lead 验收某个任务后，**只合并那个分支**（`git merge --no-ff task/<id>`），**不扫全树**。
+  - **`git add -A` 在并行开发中禁用**：它会把**别人没修完的改动**一起签进主线
+    （2026-11-06 真实事故：`3591b65` 本应是 docs 提交，却扫进了 T77 未修完的 3 个文件，引入 3 条回归）。
+- **提交前必须全绿**：`node test/run.mjs` + `node scripts/boundary-audit.mjs` 全过才合并；
+  **测试红的一律不进主线**（宁可留着分支继续修）。
+- **GitHub 只推稳定版本**：日常分支合并不推；只有**稳定版**（见铁律 6 的三条）才 `git push`。
+  - **不是每个 commit 都上 GitHub** —— 本地可以有很多中间态，**远端只放验收过的**。
+- **PR 分支永不强推**（同 `$DSH_HOME/AGENTS.md` 铁律 8）：不 `--force`、不 rebase/amend 已推送提交，要改就追加新 commit。
+
 ### 2.0a UI：**一律用 DSH 原生结构树、素材与设计语言，最小自制约束**
 - **本项目采用 DSH 原生 UI 结构树、素材和设计语言，力求最原生的 DSH 用户交互体验。**
   组件层级、几何、排版、颜色、图标、动效、状态、键鼠、焦点、空态/错误态**均以官方为准** —— 不是「把截图做像」。
@@ -458,3 +472,12 @@ AGENTS.md  本文件（不进包）
 - 两个阻断必须闭合：① fold 成功但切换仍失败时，`lastFoldTotalTokens` 等账本不得按未采纳的新 header 污染旧路由；② `modelPolicies[].compactionRetries` 必须按目标路由合并，不能只看全局值。新增 header-dependent token meter、global/target 重试矩阵和后续普通 pressure 回归。
 - 验收保留原 rc.1 6/6、0.2.1-rc.5 5/5、engine/tier2/loop 子套件与完整新版宿主；生产采用前需独立 reviewer approve。所有复用当前 home 的隔离探针必须设 `DSH_GOKIFU_NO_HEAL=1`，禁止退出时的 home-patch 自动登记写 live 根配置。
 - 完成或继续修改后，在 `default-workspace/AGENTS.md` 的「插件兼容回信」追加本项目回信：实际改动、证据路径、命令/结果、未验证项、回退位置。只改本项目段落，不覆盖其他插件回信。
+
+## 19 · 插话：官方当前版独立实例适配与 PR（2026-11-06）
+
+- 当前官方 Windows nightly 仍为 `0.2.2-rc.1`。干净应用在 `D:/DeepSeek Harness/Desktop-0.2.2-rc.1`；本轮使用独立 `D:/DeepSeek Harness/home-0.2.2-rc.1`，不得写当前 `home` 或启停当前实例。
+- 当前 `src/engine.mjs` 正被会话持续修改，**由当前插件会话完成适配，根 Lead 不抢写**。旧 `tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/staged-v3` 已落后，禁止整文件覆盖当前实现；先等本文件与 engine 哈希稳定，再冻结验收基线。
+- 在独立 worktree/分支 `compat/dsh-0.2.2-rc.1` 做最小适配。先核对本地与远端版本/分叉，当前 main 与 origin 分叉很大，禁止把历史几百个提交或其他会话 dirty 文件带入 PR；禁止 `git add -A`、强推、直接推 main。
+- 每个启用 bundle 必须在独立 home 实际解析到 `package.json`，不能只复制 link；GOkifu 包要隔离复制或指向本任务 worktree，不能写回共享源。
+- 验收至少包括：现有全量测试、boundary-audit、真实独立 home 加载、模型切换/growth-gate/backoff/失败账本、cleanShutdown。beta 仅留本地；PR 分支推送后等 CI 全绿才合并，稳定版按铁律 6 发布。
+- 完成后在本文件回复实际分支/PR、改动、命令与退出码、未验项，并只更新工作区根 `AGENTS.md` 的 GOkifu 小节。根 Lead 负责独立复验，不以自述代替测试。
