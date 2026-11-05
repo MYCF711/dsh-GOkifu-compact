@@ -1178,21 +1178,21 @@ mark('C536 自动补账在动吗');
       }
     }
   }
-  // 开关：预设里显式 false 才算关
-  let enabled = true;
+  // 开关与引擎 #startAutoBackfill 同口径：仅 autoArchiveBackfill 显式 true 才开，默认关。
+  let enabled = false;
   try {
     const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
-    if (nodeFs.existsSync(patch) && /autoBackfill:\s*false/.test(nodeFs.readFileSync(patch, "utf8"))) enabled = false;
+    if (nodeFs.existsSync(patch) && /autoArchiveBackfill:\s*true/.test(nodeFs.readFileSync(patch, "utf8"))) enabled = true;
   } catch {
-    /* 读不到就当默认开 */
+    /* 读不到就当默认关 */
   }
   const ageMin = lastAt === null ? null : Math.round((Date.now() - lastAt) / 60000);
   add(
     "自动补账",
     enabled === false ? "warn" : last24h > 0 ? "ok" : "warn",
     enabled === false
-      ? "**已关闭**（设置里勾上就恢复）"
-      : `开 · 近 24h 折了 ${last24h} 段 · 累计 ${totalOffline} 段` +
+      ? "**已关闭**（autoArchiveBackfill 默认 false，设置里勾上就恢复；旧 autoBackfill 不在 RESOLVE_ORDER，写了也不生效）"
+      : `开（autoArchiveBackfill: true） · 旧 autoBackfill 不在 RESOLVE_ORDER，写了也不生效 · 近 24h 折了 ${last24h} 段 · 累计 ${totalOffline} 段` +
           (ageMin === null ? " · **一次都没跑过**" : ` · 最近一次 ${ageMin} 分钟前`) +
           (last24h === 0 ? " ⇒ 开关开着却没产出：看是不是都是活会话（5 分钟内还在写会被跳过）" : ""),
   );
@@ -1250,9 +1250,9 @@ mark('C599 自动补账的结局');
   const disabledByPatch = (() => {
     try {
       const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
-      return nodeFs.existsSync(patch) && /autoBackfill:\s*false/.test(nodeFs.readFileSync(patch, "utf8"));
+      return !nodeFs.existsSync(patch) || !/autoArchiveBackfill:\s*true/.test(nodeFs.readFileSync(patch, "utf8"));
     } catch {
-      return false; // 读不到就当开着（C536 那一行会单独报开关状态）
+      return true; // 读不到就当默认关（C536 那一行会单独报开关状态）
     }
   })();
   const results = Array.isArray(state?.results) ? state.results : [];

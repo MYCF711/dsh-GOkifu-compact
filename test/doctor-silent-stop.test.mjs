@@ -107,6 +107,10 @@ tests["C599 ① 跑完一轮但结局全是 stopped≠done ⇒ 必须 `!` 警告
 tests["C599 ② 状态文件超过 90 分钟没更新且 due>0 ⇒ 必须 `!` 警告「自动补账可能停了」"] = (t) => {
   // 默认 30 分钟一轮 ⇒ 90 分钟没动就是三轮没跑（定时器被卸载 / 进程卡住）
   const home = makeHome({
+    // ★ Lead 集成：T72 后自动补折开关是 `autoArchiveBackfill`（**默认关**）。
+    //   这条守的是「**开着**却三轮没跑要 warn」，所以必须**显式打开新开关**，
+    //   否则 doctor 读新键得到 false ⇒ 报「已停用」而不是「可能停了」。
+    patchText: "- insert:\n    - id: gokifu-compact\n      config:\n        autoArchiveBackfill: true\n",
     state: {
       at: Date.now() - 3 * 60 * MIN,
       due: 42,
@@ -130,7 +134,8 @@ tests["C599 ② 状态文件超过 90 分钟没更新且 due>0 ⇒ 必须 `!` �
 
 tests["C599 ③ due>0 而状态文件不存在 ⇒ 提示「还没跑过（本版可能需要重启）」"] = (t) => {
   // 夹具图的尾巴 200 事件 ≥ closeoutMinEvents(40) ⇒ debtOfGraph 现算 due>0
-  const home = makeHome({ state: null, seq: 200 });
+  // ★ Lead 集成：同上 —— 这条守的是「**开着**却从没跑过要 warn」，需显式打开新开关。
+  const home = makeHome({ state: null, seq: 200, patchText: "- insert:\n    - id: gokifu-compact\n      config:\n        autoArchiveBackfill: true\n" });
   try {
     const row = runDoctor(home).find("自动补账结局");
     t.eq(!!row, true, "没有状态文件时这条检查也不许消失（消失 = 静默）");

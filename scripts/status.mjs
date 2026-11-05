@@ -52,7 +52,10 @@ export function renderStatus(data) {
     "自动补账",
     d.autoBackfill === null || d.autoBackfill === undefined
       ? "未采集"
-      : (d.autoBackfill.enabled === false ? "已关闭（设置里勾上就恢复）" : "开") +
+      : (d.autoBackfill.enabled === false
+          ? "已关闭（autoArchiveBackfill 默认 false，设置里勾上就恢复）"
+          : "开（autoArchiveBackfill: true）") +
+        " · 旧 autoBackfill 不在 RESOLVE_ORDER，写了也不生效" +
         ` · 近 24h 折了 ${d.autoBackfill.last24h} 段` +
         (Number.isFinite(Number(d.autoBackfill.last1h)) ? `（近 1h ${d.autoBackfill.last1h} 段）` : "") +
         (d.autoBackfill.lastAt === null ? " · **还没跑过**" : ` · 最近 ${Math.max(0, Math.round((Date.now() - d.autoBackfill.lastAt) / 60000))} 分钟前`) +
@@ -148,9 +151,20 @@ export async function main(argv = process.argv.slice(2)) {
   // ①.5 ★ C530：**自动补账在动吗** —— 从棋谱上数（不依赖日志，脚本随时可跑）
   data.autoBackfill = (() => {
     try {
+      // 开关与引擎 #startAutoBackfill 同口径：仅 autoArchiveBackfill 显式 true 才开，默认关。
+      let enabled = false;
+      try {
+        const patch = nodePath.join(resolveHome(), "profiles", "desktop", "cordis.patch.yml");
+        if (nodeFs.existsSync(patch)) {
+          const text = nodeFs.readFileSync(patch, "utf8");
+          if (/autoArchiveBackfill:\s*true/.test(text)) enabled = true;
+        }
+      } catch {
+        /* 读不到就当默认关 */
+      }
       const root = graphRoot({ dshHome: resolveHome() });
       const dir = nodePath.join(root, "sessions");
-      if (!nodeFs.existsSync(dir)) return { enabled: null, lastAt: null, last24h: 0 };
+      if (!nodeFs.existsSync(dir)) return { enabled, lastAt: null, last24h: 0 };
       let lastAt = null;
       let last24h = 0;
       let last1h = 0;
@@ -181,17 +195,6 @@ export async function main(argv = process.argv.slice(2)) {
           const hasSections = mark?.quality !== undefined && "sectionsMissing" in (mark.quality ?? {});
           if (hasTruncated || hasSections) newFields += 1;
         }
-      }
-      // 开关：预设里显式 false 才算关（默认开）
-      let enabled = true;
-      try {
-        const patch = nodePath.join(resolveHome(), "profiles", "desktop", "cordis.patch.yml");
-        if (nodeFs.existsSync(patch)) {
-          const text = nodeFs.readFileSync(patch, "utf8");
-          if (/autoBackfill:\s*false/.test(text)) enabled = false;
-        }
-      } catch {
-        /* 读不到就当默认开 */
       }
       return { enabled, lastAt, last24h, last1h, newFields };
     } catch {
