@@ -667,7 +667,12 @@ function zodField(entry) {
   return field;
 }
 
-export const Config = z.object(Object.fromEntries(SCHEMA.map((entry) => [entry.key, zodField(entry)])));
+export const Config = z.object({
+  ...Object.fromEntries(SCHEMA.map((entry) => [entry.key, zodField(entry)])),
+  // T68：504 个归档会话 / 1158 段摘要真实使用 0 次，却已花 $11.0546。
+  // 这是替用户预付的可选功能，按 AGENTS.md §2.0 默认关；显式 true 才自动补折。
+  autoArchiveBackfill: z.boolean().default(false).description("自动补折已归档会话；默认关闭，打开会产生摘要模型费用"),
+});
 
 function pickBase(config) {
   const out = {};
@@ -812,7 +817,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     };
     if (this.chess.hotLedger) this.#bindLedger();
     this.#bindKeeper();
-    // ★ C524：**自动补账**（默认开）。归档会话的尾巴不用人点，后台自己清。
+    // ★ C524：自动补账入口；T68 后由 autoArchiveBackfill（默认关）决定是否真的布防。
     this.#startAutoBackfill();
   }
 
@@ -2152,6 +2157,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
   #startAutoBackfill() {
     try {
+      // T68：真实使用 0 次、已花 $11.0546 ⇒ 自动替归档会话预付必须默认关。
+      // 这里只关后台调度；runAutoBackfillOnce / archive-fold 的显式手工补折仍可用，
+      // pressure / tier2 与当前会话的 archive / disposed 收尾完全不经过这道闸。
+      if (this.chess.autoArchiveBackfill !== true) return;
       if (this.chess.autoBackfill === false) return;
       // ★ C601（测算脚本给出）：清偿期的瓶颈是**占空比**（预算 420s ÷ 间隔 1800s = 23%），
       //   不是模型、不是每轮会话数。实测 8.2 段/小时 ⇒ 1065 段要 130 小时。
@@ -3442,6 +3451,8 @@ function resolveChess(config) {
   for (const key of RESOLVE_ORDER) {
     out[key] = key === "onLedgerBudget" ? (typeof c.onLedgerBudget === "function" ? c.onLedgerBudget : null) : base[key];
   }
+  // 新开关独立于旧 autoBackfill golden：只有显式 true 才允许后台自动补折。
+  out.autoArchiveBackfill = c.autoArchiveBackfill === true;
   return out;
 }
 function routedTarget(session) {

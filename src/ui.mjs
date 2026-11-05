@@ -97,6 +97,21 @@ import { healHomePatch, planHomePatch, isTestRuntime } from "./rooms/user-patch.
 /** 与 engine.mjs 的 Config 保持一致的默认值（页面用来显示「默认」）。 */
 /** 与 R15（config-schema）保持一致的默认值（页面用来显示「默认」）。 */
 export const DEFAULTS = Object.freeze(configDefaults());
+
+/** T68：自动归档补折是可选的预付功能，默认关；说明随 defaults/state 一并暴露。 */
+export const AUTO_ARCHIVE_BACKFILL_CONFIG = Object.freeze({
+  key: "autoArchiveBackfill",
+  type: "boolean",
+  default: false,
+  label: "自动归档补折",
+  desc: "自动为已归档会话补做离线折叠；默认关闭。打开后会按既有调度调用摘要模型并产生费用（T68：504 个会话 / 1158 段，真实使用 0 次，已花 $11.0546）；设为 true 打开，设为 false 关闭。实时折叠与当前会话归档收尾不受影响；手工补：node scripts/archive-fold.mjs --session <id> --write",
+});
+export const CONFIG_ITEMS = Object.freeze([AUTO_ARCHIVE_BACKFILL_CONFIG]);
+
+function uiDefaults() {
+  return { ...DEFAULTS, autoArchiveBackfill: AUTO_ARCHIVE_BACKFILL_CONFIG.default };
+}
+
 function resolveHome() {
   return process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", "DeepSeek Harness", "home");
 }
@@ -1172,6 +1187,9 @@ export function pruneBackups(presetFile, keep = BACKUP_KEEP) {
  * `test/ui-config.test.mjs` 有一致性断言钉住这两份）。
  */
 export const FIELD_LABELS = Object.freeze(fieldLabels());
+function uiFieldLabels() {
+  return { ...FIELD_LABELS, [AUTO_ARCHIVE_BACKFILL_CONFIG.key]: AUTO_ARCHIVE_BACKFILL_CONFIG.label };
+}
 /**
  * 把 preset 里「实际写了什么」翻译成「引擎实际生效什么」。
  *
@@ -1193,8 +1211,23 @@ export const FIELD_LABELS = Object.freeze(fieldLabels());
  * ★ A2-4：实现已搬到 R15（`config-schema.describeConfig`）—— 这里只保留导出名与返回形状，
  *   避免页面与引擎各算一套（那正是 `hotLedgerReplace` 显示成未勾选的起因）。
  */
-export function describeConfig(presetConfig = {}) {
+function describeSchemaConfig(presetConfig) {
   return describeConfigFromSchema(presetConfig);
+}
+
+export function describeConfig(presetConfig = {}) {
+  const described = describeSchemaConfig(presetConfig);
+  const key = AUTO_ARCHIVE_BACKFILL_CONFIG.key;
+  const raw = presetConfig?.[key];
+  const valid = typeof raw === "boolean";
+  const unconfiguredKeys = [...described.unconfiguredKeys];
+  if (raw === undefined) unconfiguredKeys.push(key);
+  unconfiguredKeys.sort();
+  return {
+    effective: { ...described.effective, [key]: valid ? raw : AUTO_ARCHIVE_BACKFILL_CONFIG.default },
+    origins: { ...described.origins, [key]: raw === undefined ? "default" : valid ? "preset" : "sanitized" },
+    unconfiguredKeys,
+  };
 }
 /**
  * 校验并规整页面提交的 patch。
@@ -1216,8 +1249,22 @@ export function describeConfig(presetConfig = {}) {
  *
  * ★ A2-4：规则与中文文案已搬到 R15（`config-schema.validatePatch`），这里只保留导出名与返回形状。
  */
-export function sanitizePatch(patch) {
+function sanitizeSchemaPatch(patch) {
   return validatePatch(patch);
+}
+
+export function sanitizePatch(patch) {
+  const key = AUTO_ARCHIVE_BACKFILL_CONFIG.key;
+  if (!Object.prototype.hasOwnProperty.call(Object(patch), key)) return sanitizeSchemaPatch(patch);
+  const rest = { ...(patch ?? {}) };
+  const raw = rest[key];
+  delete rest[key];
+  const result = sanitizeSchemaPatch(rest);
+  let value;
+  if (typeof raw === "boolean") value = raw;
+  else if (raw === "true" || raw === "false") value = raw === "true";
+  else throw new Error(`${AUTO_ARCHIVE_BACKFILL_CONFIG.label} 必须是 true / false（收到 ${JSON.stringify(raw)}）`);
+  return { patch: { ...result.patch, [key]: value }, skipped: result.skipped };
 }
 /**
  * 把 patch 写进 preset（带轮转备份；含密钥时不落明文备份）；返回改动清单 + 生效值。
@@ -1462,8 +1509,9 @@ function applyInner(ctx) {
             presetConfig,
             configOrigins: described.origins,
             unconfiguredKeys: described.unconfiguredKeys,
-            defaults: DEFAULTS,
-            fieldLabels: FIELD_LABELS,
+            defaults: uiDefaults(),
+            fieldLabels: uiFieldLabels(),
+            configItems: CONFIG_ITEMS,
             configFile: presets[0]?.file ?? null,
             latest: latestGraphFrom(scan),
             today: todayAggregateFrom(scan),
@@ -1674,7 +1722,9 @@ function applyInner(ctx) {
           // ★ U1：单独的 models 动作（页面切换/刷新下拉时用）。永不失败：失败路径都是空目录。
           return sendJson(res, 200, { ok: true, models: await catalog(), at: new Date().toISOString() });
         }
-        if (action === "defaults") return sendJson(res, 200, { ok: true, defaults: DEFAULTS, fieldLabels: FIELD_LABELS });
+        if (action === "defaults") {
+          return sendJson(res, 200, { ok: true, defaults: uiDefaults(), fieldLabels: uiFieldLabels(), configItems: CONFIG_ITEMS });
+        }
         if (action === "save") {
           const result = saveConfig(body.patch ?? {}, { home: resolveHome() });
           return sendJson(res, 200, { ok: true, ...result });

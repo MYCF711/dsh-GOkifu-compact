@@ -117,13 +117,22 @@ pill = 11px / 2px 8px / 999px radius
 | 标题/说明 | 卡标题12+uppercase；字段13/11+opacity | 卡标题13/20/500；字段标题14/22 primary、说明12/18 tertiary，`lib/client.js:518-530` | `official-settings-tree.md:108-113`、`:204`、`:212` |
 | 输入/选择器/按钮 | 无36高、6/7px圆角、自造蓝 | 36高、radius-md=8、0/14或6/10、l3/module/business 令牌，`lib/client.js:535-547` | `official-settings-tree.md:108-113`、`:169-170`；`official-shell-tree.md:36` |
 | 健康状态 | 999px 胶囊 | 11/16、1/6、radius-xs=4、success/error 令牌，`lib/client.js:548-549` | `official-settings-tree.md:168` 的 tag 几何 |
-| 特有内容 | DAG/fold/失败边/补账/更新/profile/双栏 | 全部保留；可见内容未删，host 未改 | `lib/client.js:1051-1196`；`src/ui.mjs` diff 为空 |
+| 特有内容 | DAG/fold/失败边/补账/更新/profile/双栏 | 全部保留；可见内容未删，本任务未写 host | `lib/client.js:1051-1196`；`src/ui.mjs` 的本任务写入为空（共享树后续他人改动不计入） |
 
 真实执行 `lib/client.js` 后的原样资产断言输出：
 
 ```text
 === AFTER: official asset assertions ===
 compact/chevron/check exact paths = PASS; legacy sliders/▾ = absent
+```
+
+随后直接读取主库 JSX，与客户端的 `d` 属性逐一比对（不是拿客户端常量自证），原样输出：
+
+```text
+compact: 2 official path(s) verbatim = PASS
+chevron: 1 official path(s) verbatim = PASS
+check: 1 official path(s) verbatim = PASS
+model check: provider+model exact equality = PASS
 ```
 
 改后组件树包含 `opacity="0.35"` 的官方外圈 path 与官方弧 path；改后导出样式实测为：`fieldCount=22`、`fieldGrid.padding="16px 0"`、`card.radius=var(--dsw-radius-xl,16px)`、`card.padding="12px 14px"`、`pickerBtn/input/btn.minHeight="36px"`、`pill.padding="1px 6px"`。这些值与上表源码回读一致。
@@ -140,23 +149,13 @@ compact/chevron/check exact paths = PASS; legacy sliders/▾ = absent
 
 ### 7.2 全量串行测试
 
-命令：`node test/run.mjs`（只运行一个实例，完成后才跑边界审计）。原样汇总与失败：
+命令：`node test/run.mjs`（只运行一个实例）。索引集成后的第二次完整运行退出0，原样汇总：
 
 ```text
-== 2012 passed, 0 skipped, 1 failed ==
-
-[docs-index-check.test.mjs] D-3 真实仓库：docs/research 与 evidence 的每个文档都在各自 README 里
-Error: eq: 存在未索引文档：[
- {
-  "label": "docs",
-  "dir": "docs",
-  "file": "ui-差距矩阵.md",
-  "index": "docs/README.md"
- }
-]
+== 2013 passed, 0 skipped, 0 failed ==
 ```
 
-唯一失败不是 UI 或功能回归，而是新增文档的索引门禁：`test/docs-index-check.test.mjs:32-35` 要求 `docs/README.md` 登记本文件；本任务明确禁止修改其他 `docs/**`，所以未越权补索引，也未把结果伪写成0 failed。要达到全绿，集成者必须处理这个写入白名单冲突。
+第一次完整运行曾为 `2012 passed, 0 skipped, 1 failed`，唯一失败是 D-3 新文档尚未登记到 `docs/README.md`。本子任务没有越权修改索引；父级集成补上 `docs/README.md` 的一行登记后，第二次完整运行把同一项转为通过，因此最终数字比第一次多1。不是跳过测试，也不是改写失败结果。
 
 ### 7.3 压缩边界审计
 

@@ -1,5 +1,5 @@
 {
- "total": 1687,
+ "total": 1691,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -10,6 +10,7 @@
   "archive-value.test.mjs": 15,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
+  "auto-backfill-switch.test.mjs": 4,
   "backfill-e2e.test.mjs": 1,
   "backfill-forecast.test.mjs": 9,
   "backfill-idle.test.mjs": 9,
@@ -215,6 +216,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2013,
- "passedAt": "2026-11-05T12:02:28.172Z"
+ "passed": 2017,
+ "passedAt": "2026-11-05T12:26:38.456Z"
 }
