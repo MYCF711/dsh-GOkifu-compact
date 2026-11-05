@@ -278,6 +278,114 @@ export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
   return { base, cap };
 }
 
+/** ★ T67：TRANSPORT / 超时最多补试 2 次；30s → 60s，单次等待上限 120s，±20% 抖动。 */
+const TRANSPORT_RETRY_MAX = 2;
+const TRANSPORT_RETRY_BASE_MS = 30_000;
+const TRANSPORT_RETRY_CAP_MS = 120_000;
+/** 真机 88 段的中位耗时；一旦补账有滚动实测值，就由调用方传入更大的那个。 */
+const TRANSPORT_RETRY_DEFAULT_SEGMENT_MS = 48_500;
+
+function retryableTransportError(error) {
+  const message = String(error?.message ?? error);
+  // 参数名叫 timeout 也可能出现在 400 里；永久性错误优先于超时关键字。
+  if (/(^|[^0-9])400([^0-9]|$)|invalid format|invalid_request/i.test(message)) return false;
+  const code = String(error?.code ?? error?.cause?.code ?? "").toUpperCase();
+  if (code === "TRANSPORT" || code === "TIMEOUT" || code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return true;
+  return /\bTRANSPORT\b|timeout|timed out|etimedout/i.test(message);
+}
+
+function transportRetryDelayMs(retry, random) {
+  const exponential = Math.min(TRANSPORT_RETRY_CAP_MS, TRANSPORT_RETRY_BASE_MS * 2 ** (retry - 1));
+  const sample = Number(random());
+  const unit = Number.isFinite(sample) ? Math.max(0, Math.min(1, sample)) : 0.5;
+  return Math.round(exponential * (0.8 + unit * 0.4));
+}
+
+/** T66：finish error/aborted 必须保留 message+code；提前到流内判，TRANSPORT 才能进入重试。 */
+function throwIfOfflineFinishError(assembler) {
+  const finish = (() => {
+    try {
+      return assembler.finish ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const kind = typeof finish === "string" ? finish : finish?.kind ?? finish?.reason?.kind;
+  if (kind !== "error" && kind !== "aborted") return;
+  const failure = finish?.failure ?? finish?.reason?.failure ?? null;
+  const message = String(failure?.message ?? `offline summarization ${kind}`);
+  const code = typeof failure?.code === "string" && failure.code !== "" ? failure.code : null;
+  throw new LlmError(code !== null && !message.includes(code) ? `${message} [${code}]` : message, code ?? undefined, failure);
+}
+
+/**
+ * 与 C599 同一条「算得过来才重试」：每次调用前都要求
+ * `remaining > jitteredDelay + 1.2×expectedSegmentMs`；sleep  overshoot 后再查一次。
+ * 非 TRANSPORT / 超时错误原样抛出；预算不够也抛**原来的**错误，不改变 T66 的结局分类。
+ */
+async function runWithTransportRetry({
+  call,
+  deadline,
+  expectedMs = TRANSPORT_RETRY_DEFAULT_SEGMENT_MS,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  random = Math.random,
+  onRetry = null,
+  onSkip = null,
+}) {
+  let estimateMs = Math.max(1, Number(expectedMs) || TRANSPORT_RETRY_DEFAULT_SEGMENT_MS);
+  for (let attempt = 0; attempt <= TRANSPORT_RETRY_MAX; attempt += 1) {
+    const started = now();
+    try {
+      return await call();
+    } catch (error) {
+      if (!retryableTransportError(error) || attempt >= TRANSPORT_RETRY_MAX) throw error;
+      estimateMs = Math.max(estimateMs, Math.max(0, now() - started));
+      const retry = attempt + 1;
+      const delayMs = transportRetryDelayMs(retry, random);
+      const reserveMs = estimateMs * 1.2;
+      const remainingMs = Number.isFinite(Number(deadline)) ? Number(deadline) - now() : Infinity;
+      if (!(remainingMs > delayMs + reserveMs)) {
+        onSkip?.({ error, retry, delayMs, remainingMs, reserveMs });
+        throw error;
+      }
+      onRetry?.({ error, retry, delayMs, remainingMs, reserveMs });
+      await sleep(delayMs);
+      const afterSleepMs = Number.isFinite(Number(deadline)) ? Number(deadline) - now() : Infinity;
+      if (!(afterSleepMs > reserveMs)) {
+        onSkip?.({ error, retry, delayMs, remainingMs: afterSleepMs, reserveMs });
+        throw error;
+      }
+    }
+  }
+  /* 循环形状保证不可达；保留 throw 防止未来改最大次数时静默返回 undefined。 */
+  throw new Error("chess-context: TRANSPORT retry exhausted without a terminal result");
+}
+
+/** 把补账的实测段耗时 / deadline / 日志接到纯重试循环；调用体内只留这一行，守住 C572 的 TDZ 窗口。 */
+async function retryOfflineSummary(engine, call, deadline) {
+  return runWithTransportRetry({
+    call,
+    deadline,
+    expectedMs: Math.max(TRANSPORT_RETRY_DEFAULT_SEGMENT_MS, Number(engine._backfillSegMs) || 0),
+    now: engine._transportRetryNow ?? Date.now,
+    sleep: engine._transportRetrySleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    random: engine._transportRetryRandom ?? Math.random,
+    onRetry: ({ retry, delayMs, remainingMs, reserveMs }) => {
+      engine.ctx.logger?.info?.(
+        `chess-context: 离线补折 TRANSPORT/超时，${Math.round(delayMs / 1000)}s 后重试 ${retry}/${TRANSPORT_RETRY_MAX}` +
+          `（剩余 ${Math.round(remainingMs / 1000)}s，为本次调用预留 ${Math.round(reserveMs / 1000)}s）`,
+      );
+    },
+    onSkip: ({ retry, remainingMs, reserveMs }) => {
+      engine.ctx.logger?.info?.(
+        `chess-context: 离线补折剩余 ${Math.round(remainingMs / 1000)}s，不足以为第 ${retry} 次重试预留 ${Math.round(reserveMs / 1000)}s` +
+          "；deadline 硬约束，跳过 TRANSPORT 重试并保留原错误",
+      );
+    },
+  });
+}
+
 /** ★ C444：边的可排序 seq（evidence 可能是数字，也可能是 {start,end}）。 */
 const edgeSeq = (e) =>
   typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN;
@@ -2265,7 +2373,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         let lastOutcome = null;
         for (let round1 = 1; round1 <= rounds; round1 += 1) {
           const roundStarted = Date.now();
-          const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" });
+          const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" }, { transportRetry: true });
           const spent = Math.max(1, Date.now() - roundStarted);
           lastOutcome = outcome;
           const foldedNow = Number(outcome?.folded ?? 0);
@@ -2437,7 +2545,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @param {object} target agent 或 session
    * @returns {Promise<object|null>} 给 `applyCloseoutOutcome` 的结果；做不了就 null（保持原结局）
    */
-  async #offlineCloseoutFold(target) {
+  async #offlineCloseoutFold(target, { transportRetry = false } = {}) {
     let claimed = null;
     try {
       const session = target?.session ?? target;
@@ -2519,11 +2627,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           })) {
             a.push(chunk);
           }
+          throwIfOfflineFinishError(a);
           return a;
         };
         let usedAssembler = assembler;
         try {
-          usedAssembler = await streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
+          const attempt = () => streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
+          usedAssembler = transportRetry ? await retryOfflineSummary(this, attempt, foldDeadline) : await attempt();
         } catch (error) {
           const message = String(error?.message ?? error);
           // 传输/参数异常不是空回答；只有明确的 inactive context 才等活跃回合。
@@ -2539,13 +2649,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             return null;
           }
         })();
-        const finishKind = typeof finishRaw === "string" ? finishRaw : finishRaw?.kind ?? finishRaw?.reason?.kind;
-        if (finishKind === "error" || finishKind === "aborted") {
-          const failure = finishRaw?.failure ?? finishRaw?.reason?.failure ?? null;
-          const message = String(failure?.message ?? `offline summarization ${finishKind}`);
-          const code = typeof failure?.code === "string" && failure.code !== "" ? failure.code : null;
-          throw new LlmError(code !== null && !message.includes(code) ? `${message} [${code}]` : message, code ?? undefined, failure);
-        }
         const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
         const text = Array.isArray(blocks)
           ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
