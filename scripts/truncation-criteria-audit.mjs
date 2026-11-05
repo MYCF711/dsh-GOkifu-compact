@@ -53,6 +53,10 @@ import { collectGraphFiles, estimateFoldCostUsd } from "../src/ui.mjs";
 import { HARD_MAX_TOKENS, estimateTokens } from "../src/rooms/offline-fold.mjs";
 import { estimateTokens as ledgerEstimateTokens } from "../src/rooms/ledger.mjs";
 import { isTruncatedFinish } from "../src/rooms/kifu-model.mjs";
+import { repoBuildId } from "../src/rooms/build-stamp.mjs";
+// ★ C650：**「不可判」的口径只有一份**（在 `finish-reason-audit.mjs`）。三个审计器各写一套字面量
+//   就会重演 C587「写侧改字段名、读侧还是老名字」—— 这里只做展示，判定与世代分界线都从那边来。
+import { FINISH_REASON_SINCE, UNJUDGEABLE, finishStateOf, producerEpochOf } from "./finish-reason-audit.mjs";
 import {
   DEFAULT_FOLD_TIMEOUT_MS,
   DEFAULT_MAX_TOKENS,
@@ -274,6 +278,12 @@ function main() {
     process.exit(2);
   }
 
+  // ★ C650：**世代分界线**（运行实例是不是带 `finishReason` 写回点的那一版）——
+  //   缺键是「历史」还是「真不可判」，只有它分得开。判据在 `finish-reason-audit.mjs` 里只有一份。
+  const epoch = producerEpochOf({ home, repoId: repoBuildId() });
+  const boundary = epoch.boundary;
+  const finishOf = (mark) => finishStateOf(mark, { boundary });
+
   // ── 人口：`looksTruncated` 只在离线补折里跑，别的 trigger 不经过它 ──
   const offlineRows = rows.filter((r) => r.mark.offline === true);
   const walk = offlineRows.map((r) => ({ ...r, c: criteriaOf(r.mark, r.graph, budget) }));
@@ -308,12 +318,21 @@ function main() {
   const oldOnlyCostKnown = oldOnly.filter((r) => costOf(r.mark) !== null).length;
 
   // ── ② finishReason 分布（全库 + 离线子集分开：这两支的结论不一样）──
+  // ★ C650：**「不知道」不再是一档**。缺键有两种修法完全不同的原因 ——
+  //   生产者早于本改动（历史，永远补不回来，等新折痕即可）vs 新生产者没给 `finish`（真不可判，去查调用方）。
+  //   以前并成 `(字段缺失)` 一档，于是真机 911 条历史把「真不可判」彻底盖住（T42 第 2 条）。
   const distribution = (list) => {
     const byFinish = new Map();
     for (const r of list) {
       const raw = r.mark.finishReason;
-      const key = raw === undefined ? "(字段缺失)" : raw === null ? "null" : String(raw);
-      const bucket = byFinish.get(key) ?? { value: key, n: 0, recognized: isTruncatedFinish(raw) };
+      const f = finishOf(r.mark);
+      const key =
+        typeof raw === "string" && raw !== ""
+          ? raw
+          : raw === null
+            ? "null"
+            : `(字段缺失·${f.why ?? UNJUDGEABLE.unknown})`;
+      const bucket = byFinish.get(key) ?? { value: key, n: 0, recognized: f.state === "truncated", verdict: f.state, why: f.why, label: f.label };
       bucket.n += 1;
       byFinish.set(key, bucket);
     }
@@ -321,6 +340,16 @@ function main() {
   };
   const finishAll = distribution(rows.map((r) => ({ ...r, c: criteriaOf(r.mark, r.graph, budget) })));
   const finishRows = distribution(walk);
+  const unjudge = (why) => walk.filter((r) => finishOf(r.mark).why === why).length;
+  const finishSplit = {
+    legacy: unjudge(UNJUDGEABLE.legacy),
+    genuine: unjudge(UNJUDGEABLE.genuine),
+    unknown: unjudge(UNJUDGEABLE.unknown),
+    nullValue: unjudge(UNJUDGEABLE.nullValue),
+    valueUnknown: unjudge(UNJUDGEABLE.valueUnknown),
+    epoch: epoch.why,
+    boundary: boundary === null ? null : Number.isFinite(boundary) ? new Date(boundary).toISOString() : "infinity",
+  };
 
   /** 写入点**能**写出的全部取值（`engine.mjs` 的归一化结果 + C535 的反推值）—— 契约闭集。 */
   const writerValues = ["stop", "end_turn", "tool-calls", "tool_calls", "completed", "max-tokens", "max_tokens", "length", "max(assumed)"];
@@ -345,7 +374,7 @@ function main() {
     oldOnly: { n: oldOnly.length, reasoningHeavy, ratio: describe(ratios), costUsd: oldOnlyCost, costKnown: oldOnlyCostKnown },
     newOnly: { n: newOnly.length },
     body: { exact: describe(bodyExactAll), upper: describe(bodyUpperAll) },
-    finish: { all: finishAll, offline: finishRows },
+    finish: { all: finishAll, offline: finishRows, split: finishSplit },
     writerValues: writerValues.map((v) => ({ value: v, recognized: isTruncatedFinish(v) })),
     retry: {
       hit: hitRows.length,
@@ -368,8 +397,8 @@ function main() {
     return;
   }
 
-  const state = (row) =>
-    row.recognized ? "**截断**" : ["stop", "end_turn", "tool-calls", "tool_calls", "completed"].includes(row.value) ? "没截断" : "**不知道**";
+  // ★ C650：三态的第二态（「不知道」）再按**世代**拆一次 —— 这一档的两种原因修法完全不同。
+  const state = (row) => (row.verdict === "truncated" ? "**截断**" : row.verdict === "clean" ? "没截断" : `**不知道**（${row.label ?? row.why}）`);
   const finishTable = (list) => {
     for (const row of list) {
       console.log(`   ${pad(row.value, 16)} ${String(row.n).padStart(5)}   ${row.recognized ? "✅ 认（截断）" : "❌ 不认"}   ${state(row)}`);
@@ -408,6 +437,14 @@ function main() {
   finishTable(finishAll);
   console.log("   ── 其中离线补折这一支（looksTruncated 的判定面）──");
   finishTable(finishRows);
+  console.log("");
+  console.log(`   「不知道」按**世代**拆分（${FINISH_REASON_SINCE}）—— 两种原因的修法完全不同，别并成一档：`);
+  console.log(`     · 生产者早于本改动 ${String(finishSplit.legacy).padStart(5)} 条  ← 历史：写回点当时不写这个字段，**永远补不回来**（等新折痕即可）`);
+  console.log(`     · 真不可判         ${String(finishSplit.genuine).padStart(5)} 条  ← 生产者已是本版、\`callModel\` 没给 \`finish\` ⇒ **要去查调用方**（引擎那处不返回 \`finish\`）`);
+  console.log(`     · 世代未知         ${String(finishSplit.unknown).padStart(5)} 条  ← 没有 \`build.json\` / 没有 \`at\` ⇒ 判不了世代（不猜）`);
+  console.log(`     · 显式 null        ${String(finishSplit.nullValue).padStart(5)} 条  ← 生产者明确写 \`null\`（引擎那条读不到 \`assembler.finish\`）`);
+  console.log(`     · 值不认识         ${String(finishSplit.valueUnknown).padStart(5)} 条  ← 有值但不在闭集（\`aborted\` / \`error\`…）`);
+  console.log(`     世代：${finishSplit.epoch}`);
   console.log("");
   console.log("   写入点**能**写出的全部取值（契约闭集）—— 认不认决定它落进三态里的哪一态：");
   for (const row of report.writerValues) console.log(`     ${pad(row.value, 14)} ${row.recognized ? "✅ 认（截断）" : "❌ 不认（正常结束）"}`);

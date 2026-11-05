@@ -1134,6 +1134,13 @@ export async function runOfflineFold({
       quality,
       usage: out?.usage ?? null,
       model: out?.model ?? null,
+      // ★ C650：**上游是怎么结束的**（`length` / `max-tokens` / `stop`…）。`callModel` 的契约里
+      //   本来就写着 `finish?:string|null`（见本函数 JSDoc），可 chunk 只搬了 `usage` / `model`
+      //   ⇒ 写回点手上没有这个值 ⇒ 离线折痕的 `finishReason` 永远「字段缺失」，
+      //   「真撞顶」与「写完但没到 2×」分不开（T42 / T44 两次点名）。
+      //   **不编值**：`callModel` 没给（假模型 / 只返回 `{text,usage,model}` 的实现）就是 `null`，
+      //   写回点据此**不写这个键** —— 写 `"unknown"` 会把「不可判」变成假的「已判」。
+      finish: typeof out?.finish === "string" && out.finish !== "" ? out.finish : null,
       ms: Date.now() - startedAt,
     });
     coveredStart = coveredStart === null ? start : Math.min(coveredStart, start);
@@ -1374,6 +1381,10 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       fallback: null,
       ms: chunk.ms ?? null,
       usage: normalizeUsage(chunk.usage),
+      // ★ C650：**怎么结束的**。`callModel` 没给就**不写这个键** —— 写 `"unknown"` / `null` 都会把
+      //   「不可判」伪装成「已采集」（三态里的第三态就再也认不出来了）。旧 mark 没有该键照常读：
+      //   所有读取点都是 `mark?.finishReason`（doctor / 面板 / 三个审计器），缺键 = 不知道。
+      ...(typeof chunk.finish === "string" && chunk.finish !== "" ? { finishReason: chunk.finish } : {}),
       summaryChars: text.length,
       // ★ C642：**正文落盘**。三个审计器（structure / fold-loss / repair-coverage）要复判「模型
       //   到底写没写这一段」，唯一的依据是正文；只留 `summaryChars` 时它们只能报「不可复判，不猜」。

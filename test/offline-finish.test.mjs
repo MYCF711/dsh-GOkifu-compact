@@ -67,15 +67,18 @@ tests["C609 离线折叠被截断（上游 finish=length）⇒ foldMark 与下�
     measureQuality: measure,
   });
   t.eq(out.chunks[0].truncated, true, "上游 finish=length ⇒ chunk 必须标 truncated");
-  // chunk 上没有 finish：这正是"foldMark 那条路上游 finish 取不到"的**证据**，不是笔误
-  t.eq("finish" in out.chunks[0], false, "chunk 不携带上游 finish（所以写入点没法写 finishReason）");
+  // ★ C650：**这两条断言被反转了**。C609 当初钉的是「chunk 上没有 finish」这个**缺陷事实**
+  //   （原文注释：「这正是"foldMark 那条路上游 finish 取不到"的证据，不是笔误」）。
+  //   T42/T44 把那个缺陷修掉了（chunk 组装不再丢 `finish`）⇒ 这里钉新合同，
+  //   否则「绿」等于要求继续丢字段。反向守卫见 `test/finish-reason.test.mjs`。
+  t.eq(out.chunks[0].finish, "length", "chunk 携带上游 finish（写入点据此写 finishReason）");
 
   const g = { foldMarks: [] };
   const now = Date.now();
   applyOfflineFoldToGraph(g, out, { now, provider: "offline", model: "fake" });
   const mark = g.foldMarks[0];
   t.eq(mark.truncated, true, "foldMark 必须写 truncated（截断证据的落点）");
-  t.eq("finishReason" in mark, false, "取不到上游 finish ⇒ 不许编一个 finishReason");
+  t.eq(mark.finishReason, "length", "★ C650：上游原值落进 foldMark.finishReason（以前断言「不许写」，因为当时取不到）");
   t.eq(mark.offline, true, "这条要标成离线补折（来路要能认出来）");
 
   seedHome("session-truncated", g.foldMarks);
