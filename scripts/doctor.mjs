@@ -1361,21 +1361,71 @@ mark('C516 归档后还剩多少没折');
           })();
       const maxSeq = tail === null ? lastEnd : lastEnd + tail;
       if (!closed) continue;
-      if (tail !== null && tail >= 1000) bigTail.push({ id: entry.name.replace(/^session-/, "").slice(0, 8), tail, maxSeq, folds: marks.length });
+      if (tail !== null && tail >= 1000) {
+        /* ★ C649：**这条榜是「归档那一刻」的快照，不是现状**。
+           真机（2026-11-05）：榜单 71 个，而 `debtOfGraph` 说现在只有 1 个还欠（C649 修掉「小缺口吃尾巴」
+           之后变成 40 个）—— 两个数本来都没错，
+           但它们回答的不是一个问题（快照 vs 现状），而旧文案写成「这些是已经归档的…只能补账」，
+           读起来像 71 个都待补。这里把**现在**那一半一起算出来，两边并排。
+           另外单列「补不了」：图里 0 个节点（算不出折叠区间）、会话日志已不在 —— 这两种永远补不到，
+           混在"待补"里会让人以为补账能追平。 */
+        const debt = (() => {
+          try {
+            return debtOfGraph(g);
+          } catch {
+            return null;
+          }
+        })();
+        bigTail.push({
+          id: entry.name.replace(/^session-/, "").slice(0, 8),
+          dir: entry.name,
+          tail,
+          maxSeq,
+          folds: marks.length,
+          nodes: Object.keys(g?.nodes ?? {}).length,
+          nowTail: Number(debt?.tail) || 0,
+          gap: Number(debt?.gapEvents) || 0,
+          closedOut: debt?.closedOut === true,
+          due: debt?.due === true,
+        });
+      }
     }
   }
   bigTail.sort((a, b) => b.tail - a.tail);
   const total = bigTail.reduce((sum, x) => sum + x.tail, 0);
+  // 「现在」这一半：只对榜单里这几十个算（全库算一遍是白花钱的 IO）
+  const stillDue = bigTail.filter((x) => x.due);
+  const stillDueTotal = stillDue.reduce((sum, x) => sum + x.nowTail + x.gap, 0);
+  const doneNow = bigTail.filter((x) => x.nodes > 0 && !x.due && x.nowTail < 40 && x.gap < 40);
+  // 补不了：图上 0 节点（离线补折算不出区间）或会话日志已不在（读不到事件）
+  /* 两边的目录名**不统一**：`<home>/chess-context/sessions/` 里 92 个带 `session-` 前缀、480 个不带，
+     而 `<home>/sessions/<ws>/<id>/` 一律不带 —— 直接 `Set.has` 会把 92 个全判成"日志已不在"。 */
+  const logNames = (() => {
+    try {
+      return new Set(listSessionLogs().map((x) => String(x.session ?? "").replace(/^session-/, "")));
+    } catch {
+      return new Set();
+    }
+  })();
+  const hasLogRoot = nodeFs.existsSync(sessionsRoot);
+  const cannotFix = bigTail.filter(
+    (x) => x.nodes === 0 || (hasLogRoot && !logNames.has(String(x.dir).replace(/^session-/, ""))),
+  );
+  const settledBig = bigTail.filter((x) => x.nodes > 0 && !x.due && x.closedOut && (x.nowTail >= 40 || x.gap >= 40));
   add(
     "归档后剩余的未折尾巴",
     bigTail.length === 0 ? "ok" : "warn",
     bigTail.length === 0
       ? "没有「归档了但还剩一大截没折」的会话"
-      : `${bigTail.length} 个会话归档时仍有 ≥1000 事件未折（合计 ${total.toLocaleString("en-US")}）：` +
+      : `**归档那一刻**有 ${bigTail.length} 个会话还剩 ≥1000 事件未折（合计 ${total.toLocaleString("en-US")}）：` +
           bigTail.slice(0, 5).map((x) => `${x.id}(${x.tail})`).join(" · ") +
           (bigTail.length > 5 ? " …" : "") +
-          " ⇒ 这些是**已经归档**的：收尾不会再跑，只能补账（面板「补账」或 scripts/archive-fold.mjs）；" +
-          "未归档的会在收尾时自动处理，并带 foldNote/foldError 落账（C514）",
+          " · 这是 `closeout.eventsSinceLastFold` 的**快照**（写完不再变），**不是现在**；" +
+          `按 debtOfGraph 现算，其中仍欠 **${stillDue.length}** 个（合计 ${stillDueTotal.toLocaleString("en-US")}，会进补账队列）· ` +
+          `已折完 ${doneNow.length} 个 · ` +
+          `closeout 已判结清但尾巴仍 ≥40：${settledBig.length} 个（合计 ${settledBig.reduce((sum, x) => sum + x.nowTail, 0).toLocaleString("en-US")}，老记录语义，不在欠账里）· ` +
+          `**补不了 ${cannotFix.length} 个**（${cannotFix.filter((x) => x.nodes === 0).length} 个图里没有节点、${cannotFix.filter((x) => x.nodes > 0).length} 个日志已不在）` +
+          " ⇒ 仍欠的只能补账（面板「补账」或自动补账，收尾不会再跑）；已判结清/补不了的不在队列里，别按它们等补账追平",
   );
 }
 

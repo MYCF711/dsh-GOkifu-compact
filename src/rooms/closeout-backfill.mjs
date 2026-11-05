@@ -143,7 +143,24 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   const gapStart = Number(gapHead.from ?? gapHead.start ?? 1) || 1;
   const hasGap = gapEvents > 0;
   const estTokens = tokensPerEvent === null ? null : Math.round((tail + gapEvents) * tokensPerEvent);
-  const due = hasGap ? gapEvents >= minEvents : !closedOut && tail >= minEvents;
+  /* ★ C649：**「有洞」不等于「只看洞」**。老写法是
+   *     `due = 有洞 ? 洞 ≥ 阈值 : 未结清 && 尾巴 ≥ 阈值`
+   *   —— 只要有一个洞，**整条尾巴就不参与判定**了。
+   *
+   *   真机（2026-11-05 全库对账，`scripts/tail-gap-audit.mjs`）：
+   *   **39 个会话 / 约 2.9 万事件**就这么从欠账里消失。它们的 closeout 里同时写着两件事：
+   *     `offlineUncoveredHead: {events: 5}`（前段 5 个事件没压）
+   *     `offlineUncoveredTail: {events: 339}`（尾巴 339 个事件没压）
+   *   而 `due` 只看了前者（5 < 40 ⇒ 不欠），于是后者永远补不到。
+   *   最刺眼的是 `19e24ef7` 那一类：尾巴 363 / 缺口 5 ⇒ 判"不欠"。
+   *
+   *   本模块自己的另外两处口径都是**相加**的（`estTokens` 的 `tail + gapEvents`、
+   *   `rankDebts` 的 `tail + gapEvents`、`closeout-plan` 的 `tooBig.tail + gapEvents`）——
+   *   只有 `due` 是"取代"。所以这不是另一种口径，是漏算。
+   *
+   *   判据改成**各自独立**：洞够大算欠，尾巴够大也算欠。两个方向都只会让 `due` **变宽**
+   *   （严格放宽，不会把任何原本 due 的会话变回不欠），已有用例语义不变。 */
+  const due = (hasGap && gapEvents >= minEvents) || (!closedOut && tail >= minEvents);
   return {
     maxSeq,
     lastFoldSeq,
