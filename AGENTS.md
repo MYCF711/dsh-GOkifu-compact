@@ -163,6 +163,30 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 
 ## 3 · 怎么跑
 
+> ### ★ 验证「改了 src/** 的插件代码」不必重启 DSH —— 开**测试实例**
+>
+> **痛点**：`src/**` 由宿主在启动时以 ESM 加载，改完不重启不生效；而 `AGENTS.md`（$DSH_HOME）铁律 1 禁止重启 DSH。
+> 于是「修好了但没生效」在这条链上反复出现（2026-11-05 一天内 6 次）。
+>
+> **解法**：`test/engine-harness.test.mjs` 已经把宿主的 `@deepseek-ai/*` 全部 stub 掉，
+> **在纯 Node 里 new 一个真 Engine**，挂**隔离的 home**（`test/.harness/`），拿真机会话日志重放。
+> ⇒ **不碰生产实例、不需要重启、不写 live home**，就能验证新代码的行为。
+>
+> ```bash
+> # 起测试实例跑引擎级用例（含 autoBackfillTick、归档收尾、TRANSPORT 重试）
+> node test/run.mjs backfill-e2e          # 真实 Engine + 假 home + 假模型
+> node test/run.mjs transport-retry       # TRANSPORT 退避重试（30s→60s + 抖动 + deadline 闸）
+> node test/run.mjs small-window          # 小窗口合并（T63）
+> node test/run.mjs fictitious-gap        # 虚构缺口只数可折事件（T64）
+> node test/run.mjs empty-response        # TRANSPORT 不再误记空答（T66）
+> ```
+>
+> **分工**：测试实例证「**代码对不对**」；重启后的 `scripts/restart-checklist.mjs --verify` 证「**生产跑的是不是这份代码**」。
+> 两者缺一就会交出「测试绿、生产没生效」的假修复。
+>
+> **禁**：测试实例**不许**把 `DSH_HOME` 指到 live home；**不许**调真模型（用 `callModel` 假实现）；
+> **不许**写 `profiles/*/cordis.patch.yml`（铁律 3）。
+
 ```bash
 # 全量单测（纯 Node，无需 DSH）
 node test/run.mjs
