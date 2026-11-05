@@ -171,7 +171,10 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
     folded,
     // 有洞时**仍然欠着**，哪怕尾巴已经归零
     gapEvents: hasGap ? gapEvents : 0,
-    ...(hasGap ? { gap: { from: gapStart, events: gapEvents } } : {}),
+    // ★ T75（P0）：`gap.end` = 最后一个未覆盖可折事件的**真实 seq**。
+    //   旧记录只有 `from + events`，而 `events` 是条数不是跨度 ⇒ 由它推坐标会把 seq 漏在窗外。
+    //   新记录带 `end`（也认早期写法的 `to`）；老记录没有时保持原样（下游回退到 from+events-1）。
+    ...(hasGap ? { gap: { from: gapStart, events: gapEvents, ...(Number.isFinite(Number(gapHead.end ?? gapHead.to)) ? { end: Number(gapHead.end ?? gapHead.to) } : {}) } } : {}),
     due,
   };
 }

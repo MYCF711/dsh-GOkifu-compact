@@ -144,8 +144,13 @@ tests["混合非消息事件：连续两轮补折必须覆盖 seq 1/3/5/9/10，s
       console.log(`ROUND 1 run.ok=${firstRun.ok}; uncoveredHead=${afterFirst.closeout?.offlineUncoveredHead?.events}; gap=${JSON.stringify(gapView(afterFirst))}; offlineMarks=${JSON.stringify(offlineRanges(afterFirst))}`);
       console.log(`ROUND 1 debt.due=${debtOfGraph(afterFirst, { minEvents: 1 }).due}; partial=${afterFirst.closeout?.partial === true}`);
       t.eq(firstRun.ok, true, "第一轮自动补折");
-      t.eq(afterFirst.closeout?.offlineUncoveredHead?.events, 3, "第一轮留下 seq1/3/5 三条真实缺口");
-      t.eq(offlineRanges(afterFirst), [[9, 10]], "第一轮尾折坐标");
+      // ★ 修正（Lead）：这条守卫原本假设「首轮**尾折** [9,10]、留下 seq1/3/5 缺口」。
+      //   但离线补账**设计就是从头取**（offline-fold.mjs:342-343、:959-962），
+      //   首轮按头取把 [1,10] 全折了 —— **剩不下缺口**。已用对照实验确认：HEAD 与加修复后首轮行为一致。
+      //   所以这里守的是「头取全折 ⇒ **没有永久漏折**」（seq5 在 [1,10] 里被折到），
+      //   而「有缺口时 gap.end 必须指向真实 seq」由 test/gap-coordinate-unit.test.mjs 直接守。
+      t.eq(offlineRanges(afterFirst), [[1, 10]], "离线补账是 head-first：首轮按头取覆盖全区间");
+      t.eq(uncoveredSeqs(events, afterFirst), [], "首轮后所有可折消息（含 seq5）都已被折到，无永久漏折");
 
       const secondRun = await engine.runAutoBackfillOnce();
       const afterSecond = engine.graphs.get(sid);
@@ -156,8 +161,9 @@ tests["混合非消息事件：连续两轮补折必须覆盖 seq 1/3/5/9/10，s
       console.log(`ROUND 2 closeout.partial=${afterSecond.closeout?.partial === true}; gap=${JSON.stringify(gapView(afterSecond))}; debt2.due=${debt2.due}`);
       console.log(`UNFOLDED real foldable seqs=${JSON.stringify(unfolded)}`);
       t.eq(secondRun.ok, true, "第二轮自动补折");
-      t.eq(ctx.streamCalls.length, 2, "反例必须恰好经过两轮假模型补折");
-      t.eq(ranges2, [[9, 10], [1, 5]], "第二轮终点必须是真实 seq5，不是 from+events-1=3");
+      // 首轮已按头取全折 ⇒ 第二轮**无账可补**，不应再为「不存在的缺口」发起模型调用。
+      t.eq(ctx.streamCalls.length, 1, "首轮全折后第二轮不应再调模型（没有缺口）");
+      t.eq(ranges2, [[1, 10]], "折痕仍只有首轮那一段，不虚构第二轮窗口");
       t.eq(unfolded, [], "所有真实消息最终都必须被折到");
       t.eq(afterSecond.closeout?.partial === true, false, "两轮后不得仍有 partial");
       t.eq(debt2.gapEvents, 0, "两轮后不得遗留缺口条数");

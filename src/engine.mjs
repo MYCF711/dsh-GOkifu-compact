@@ -2642,7 +2642,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   写出第二条重叠的 foldMark ——「每段只摘要一次」这条核心承诺被破坏，而且按整段重新付钱。
       const gapFromForEnd = Number(debt?.gap?.from ?? 0);
       const gapEventsForEnd = Number(debt?.gap?.events ?? 0);
-      const gapEnd = gapFromForEnd > 0 && gapEventsForEnd > 0 ? gapFromForEnd + gapEventsForEnd - 1 : 0;
+      // ★ T75（P0）：**优先用真实 seq 终点**。`gap.events` 是「可折条数」不是跨度，
+      //   `from + events - 1` 在混合非消息事件时会把窗口算小 ⇒ 某些 seq 永久漏折。
+      //   新记录带 `gap.end`（最后一个未覆盖可折事件的真实 seq）；老记录没有时回退到旧公式。
+      const gapEndReal = Number(debt?.gap?.end);
+      const gapEnd = Number.isFinite(gapEndReal) && gapEndReal > 0
+        ? gapEndReal
+        : (gapFromForEnd > 0 && gapEventsForEnd > 0 ? gapFromForEnd + gapEventsForEnd - 1 : 0);
       const rangeEndRaw = Number(debt.maxSeq) || 0;
       // ★ T63：**缺口不够一次调用的门槛时不许拿它当窗口**。C575 的夹取本意是「别把缺口**之后
       //   已折过**的尾巴塞进同一个 prompt」，可它无条件生效 ⇒ `gap{from:9,events:7}` 把窗口压成

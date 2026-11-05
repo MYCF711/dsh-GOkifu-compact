@@ -1184,11 +1184,28 @@ export function uncoveredFoldable(events, { rangeStart, rangeEnd, coveredStart, 
     const s = Number(m?.seq);
     if (Number.isFinite(s) && s >= rangeStart && s <= rangeEnd) foldableSeqs.push(s);
   }
-  const uncoveredHead = coveredStart === null ? 0 : foldableSeqs.filter((s) => s < coveredStart).length;
-  const uncoveredTail = coveredEnd === null
-    ? foldableSeqs.length
-    : foldableSeqs.filter((s) => s > coveredEnd).length;
-  return { uncoveredHead, uncoveredTail };
+  const headSeqs = coveredStart === null ? [] : foldableSeqs.filter((s) => s < coveredStart);
+  const uncoveredHead = headSeqs.length;
+  const tailSeqs = coveredEnd === null ? foldableSeqs : foldableSeqs.filter((s) => s > coveredEnd);
+  const uncoveredTail = tailSeqs.length;
+  // ★ T75（P0）：**条数与坐标必须分开承载**。
+  //   旧写法只回条数，调用方再拿 `from + events - 1` 当 seq 终点 —— 混合非消息事件时
+  //   （可折消息在 seq 1/3/5，中间夹着 turn/start 等）会把窗口算成 [1,3]，**seq5 永久漏折**。
+  const headTo = headSeqs.length > 0 ? Math.max(...headSeqs) : undefined;
+  const headFrom = headSeqs.length > 0 ? Math.min(...headSeqs) : undefined;
+  // `coveredEvents` = 这次**真折到的可折条数**（在 `[coveredStart, coveredEnd]` 里，不是欠账区间里）。
+  //   ★ 修正（Lead 实测）：先前写成 `foldableSeqs.length - head - tail`，
+  //   而 `foldableSeqs` 已被 `[rangeStart, rangeEnd]` 过滤。T37 的欠账区间是 [1,8]（**0 条可折**），
+  //   于是 coveredEvents=0，缺口清不掉；正确口径应取**实际折到的那段**（[9,128]，120 条）。
+  //   这里改用 `foldable`（rangeStart 起的**全部**可折消息，未按 rangeEnd 截断）来数。
+  const coveredSeqs = coveredStart === null ? [] : foldable.filter((m) => {
+    const s = Number(m?.seq);
+    return Number.isFinite(s) && s >= coveredStart && s <= coveredEnd;
+  });
+  const coveredEvents = coveredSeqs.length;
+  const uncoveredTailStart = tailSeqs.length > 0 ? Math.min(...tailSeqs) : undefined;
+  const uncoveredTailEnd = tailSeqs.length > 0 ? Math.max(...tailSeqs) : undefined;
+  return { uncoveredHead, uncoveredTail, totalFoldable: foldableSeqs.length, headFrom, headTo, coveredEvents, uncoveredTailStart, uncoveredTailEnd };
 }
 
 /**
@@ -1500,8 +1517,13 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   //   而"上一轮留下的缺口只被补掉一部分"时 remaining > 0 却不算 partial
   //   ⇒ `closeoutSettles` 说结清、`debtOfGraph` 说还欠（两套口径给出相反答案）。
   const prevGapEvents = Number(meta?.previousGapEvents ?? NaN);
+  // ★ T75（P0）：`prevGapEvents` 是**可折条数**（T64 起 `offlineUncoveredHead.events` 只数可折事件），
+  //   所以减去的也必须是**可折条数** `coveredEvents`，不能是 seq 跨度 `coveredEnd-coveredStart+1`。
+  //   单位不匹配时：可折消息在 seq 1/3/5（跨度 3、条数 2），`prevGapEvents=3 - 跨度3 = 0`
+  //   ⇒ 把还剩 seq5 的缺口**提前清光**（永久漏折）。
   const coveredCount = Math.max(0, Number(result?.coveredEnd ?? 0) - Number(result?.coveredStart ?? 0) + 1);
-  const remainingGap = Number.isFinite(prevGapEvents) && prevGapEvents > 0 ? Math.max(0, prevGapEvents - coveredCount) : uncoveredHead;
+  const coveredFoldable = Number.isFinite(Number(result?.coveredEvents)) ? Number(result.coveredEvents) : coveredCount;
+  const remainingGap = Number.isFinite(prevGapEvents) && prevGapEvents > 0 ? Math.max(0, prevGapEvents - coveredFoldable) : uncoveredHead;
   const partial = uncoveredHead > 0 || uncoveredTail > 0 || remainingGap > 0;
   const base = { ...(graphRef.closeout ?? {}) };
   delete base.foldNote;
@@ -1531,8 +1553,15 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       // 有旧缺口 ⇒ 扣掉这次真压掉的事件，游标推到 coveredEnd+1
       const remaining = remainingGap;
       if (remaining <= 0) return {};
-      const nextFrom = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(gapFrom, Number(result?.coveredEnd ?? gapFrom) + 1) : gapFrom;
-      return { offlineUncoveredHead: { events: remaining, from: nextFrom } };
+      // ★ T75（P0）：**剩余缺口的坐标必须用真实可折 seq**，不是 `coveredEnd + 1` 的 seq 算术。
+      //   可折消息在 seq 1/3/5 时，`coveredEnd + 1 = 4` 是个**非消息事件**；
+      //   真正的下一条可折消息在 seq5。旧写法把游标推到 4 ⇒ 窗口算错 ⇒ seq5 永久漏折。
+      //   这里用 `uncoveredTailStart`（剩余第一条可折的真实 seq）与 `uncoveredTailEnd`。
+      const tailStart = Number(result?.uncoveredTailStart);
+      const tailEnd = Number(result?.uncoveredTailEnd);
+      const fallbackFrom = Number.isFinite(prevGap) && prevGap > 0 ? Math.max(gapFrom, Number(result?.coveredEnd ?? gapFrom) + 1) : gapFrom;
+      const nextFrom = Number.isFinite(tailStart) ? tailStart : fallbackFrom;
+      return { offlineUncoveredHead: { from: nextFrom, ...(Number.isFinite(tailEnd) ? { end: tailEnd } : {}), events: remaining } };
     })(),
     ...(uncoveredTail > 0 ? { offlineUncoveredTail: { events: uncoveredTail } } : {}),
   };
