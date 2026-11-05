@@ -1,5 +1,5 @@
 {
- "total": 1449,
+ "total": 1468,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -173,6 +173,7 @@
   "tool-result-share.test.mjs": 3,
   "touched-files.test.mjs": 9,
   "trace-relative.test.mjs": 0,
+  "traceability.test.mjs": 19,
   "tree-freshness.test.mjs": 5,
   "truncation-consumers.test.mjs": 4,
   "truncation-criteria.test.mjs": 11,
@@ -199,6 +200,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1775,
- "passedAt": "2026-11-05T04:21:46.956Z"
+ "passed": 1794,
+ "passedAt": "2026-11-05T04:50:33.081Z"
 }
