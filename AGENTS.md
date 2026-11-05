@@ -479,5 +479,6 @@ AGENTS.md  本文件（不进包）
 - 当前 `src/engine.mjs` 正被会话持续修改，**由当前插件会话完成适配，根 Lead 不抢写**。旧 `tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/staged-v3` 已落后，禁止整文件覆盖当前实现；先等本文件与 engine 哈希稳定，再冻结验收基线。
 - 在独立 worktree/分支 `compat/dsh-0.2.2-rc.1` 做最小适配。先核对本地与远端版本/分叉，当前 main 与 origin 分叉很大，禁止把历史几百个提交或其他会话 dirty 文件带入 PR；禁止 `git add -A`、强推、直接推 main。
 - 每个启用 bundle 必须在独立 home 实际解析到 `package.json`，不能只复制 link；GOkifu 包要隔离复制或指向本任务 worktree，不能写回共享源。
+- 预发布 `engines.dsh` 必须实测：旧 `^0.2.0-rc.2` / `>=0.2.1-rc.5` 不能自动视为覆盖 `0.2.2-rc.1`；按实测保留旧支持时用显式 union，并断言官方 `skippedBundles` 为空。
 - 验收至少包括：现有全量测试、boundary-audit、真实独立 home 加载、模型切换/growth-gate/backoff/失败账本、cleanShutdown。beta 仅留本地；PR 分支推送后等 CI 全绿才合并，稳定版按铁律 6 发布。
 - 完成后在本文件回复实际分支/PR、改动、命令与退出码、未验项，并只更新工作区根 `AGENTS.md` 的 GOkifu 小节。根 Lead 负责独立复验，不以自述代替测试。
