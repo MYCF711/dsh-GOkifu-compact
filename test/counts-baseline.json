@@ -1,10 +1,11 @@
 {
- "total": 1521,
+ "total": 1580,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
   "add-changelog.test.mjs": 4,
   "archive-fold.test.mjs": 8,
+  "archive-quadrant.test.mjs": 40,
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "backfill-e2e.test.mjs": 1,
@@ -191,6 +192,7 @@
   "ui.test.mjs": 13,
   "unverified-tier.test.mjs": 4,
   "usability-by-age.test.mjs": 23,
+  "usage-score.test.mjs": 19,
   "usage-shape.test.mjs": 11,
   "user-patch-heal.test.mjs": 10,
   "user-patch-shadow.test.mjs": 5,
@@ -202,6 +204,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1847,
- "passedAt": "2026-11-05T05:43:19.276Z"
+ "passed": 1866,
+ "passedAt": "2026-11-05T05:56:22.503Z"
 }

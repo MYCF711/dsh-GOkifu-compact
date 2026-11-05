@@ -75,7 +75,7 @@
  *   · **判据必须能返回「不通过」**（否则这个守卫就是永远绿的假门禁 —— T54 的老教训）。
  *
  * 用法：
- *   node scripts/usage-score-audit.mjs                 # 全量（读会话日志，约 12 秒）
+ *   node scripts/usage-score-audit.mjs                 # 全量（读 600+ 份会话日志，约 20 秒）
  *   node scripts/usage-score-audit.mjs --no-logs       # 跳过日志（S1/S2 送达/S4 记「未观测」）
  *   node scripts/usage-score-audit.mjs --json          # 机读（报告/测试用）
  *   node scripts/usage-score-audit.mjs --home=<dir>    # 换 DSH_HOME
@@ -122,8 +122,8 @@ export const USAGE_KINDS = Object.freeze([
  * 热清单每步都进上下文；折叠摘要归档后才落盘，模型基本看不到。
  */
 export const LISTED_SOURCES = Object.freeze([
-  { key: "ledger", label: "热清单（chess-context 注入）" },
-  { key: "summary", label: "折叠摘要（lastOfflineSummary）" },
+  { key: "ledger", label: "热清单（每步注入）" },
+  { key: "summary", label: "折叠摘要（归档落盘）" },
 ]);
 
 /**
@@ -208,18 +208,20 @@ export function resolveHome(env = process.env) {
 /* ───────────────────────── ① 文本 → 节点 id（口径的核心） ───────────────────────── */
 
 /**
- * 工具参数是 **JSON 文本**：Windows 路径是 `\\`（双反斜杠）、换行是 `\n`（单反斜杠 + `n`）。
- * 直接抽 id 会把 `\n1` 数成节点 `n1`。
+ * 工具参数是 **JSON 文本**：Windows 路径在 JSON 里是 `\\`（**两个**反斜杠），
+ * 换行是 `\n`（**一个**反斜杠 + 字母 `n`）。直接抽 id 会把 `\n1` 数成节点 `n1`。
  *
- * 处理顺序（**必须先双后单**，否则 `nodes\n3780.md` 会被当成转义换行）：
- *   ① `\\`（双）→ 路径占位符；② `\n` / `\r` / `\t`（单）→ 空格；③ 占位符 → `/`；④ 残余 `\` → `/`。
+ * 处理顺序（**必须先多后少**，否则 `\\nodes\\n4.md` 会被当成转义换行）：
+ *   ① 2 个以上反斜杠（JSON 文本里的路径分隔符）→ 路径占位符；
+ *   ② 单反斜杠 + `n`/`r`/`t`（转义换行）→ 空格；
+ *   ③ 占位符 → `/`，残余单反斜杠 → `/`（已经解码过的路径）。
  *
  * @param {string} raw
  * @returns {string}
  */
 export function normalizeToolArgs(raw) {
   return String(raw ?? "")
-    .replace(/\\\\/g, "\u0001")
+    .replace(/\\\\+/g, "\u0001")
     .replace(/\\[nrt]/g, " ")
     .replace(/\u0001/g, "/")
     .replace(/\\/g, "/");
@@ -1046,7 +1048,7 @@ export function renderReport(result) {
   out.push(`  ${padDisplay("信号", 28)}${padDisplay("落点", 40)}${padDisplay("覆盖", 10, "right")}  结论`);
   out.push(
     `  ${padDisplay("S1 热清单注入记录", 28)}${padDisplay("user/message · source.kind=chess-context", 40)}` +
-      `${padDisplay(pct(coverage.ledger), 10, "right")}  ${availabilityText(coverage.ledger === 0 ? 0 : 1)}` +
+      `${padDisplay(pct(coverage.ledger), 10, "right")}  ${availabilityText(coverage.ledger === null ? null : coverage.ledger > 0)}` +
       `（${int(signal.ledgerSessions)}/${int(signal.withLog)} 会话 · ${int(signal.ledgerEvents)} 次注入 · ${int(ledger.listed)} 个 (会话,节点) 对）`,
   );
   out.push(
@@ -1056,17 +1058,21 @@ export function renderReport(result) {
   );
   out.push(
     `  ${padDisplay("S3 closeout 的读记录", 28)}${padDisplay("graph.closeout.*", 40)}` +
-      `${padDisplay(pct(coverage.closeout), 10, "right")}  ${coverage.closeout === 0 ? "**不可用**" : "可用"}` +
+      `${padDisplay(pct(coverage.closeout), 10, "right")}  ${coverage.closeout === 0 || coverage.closeout === null ? "**不可用**" : "可用"}` +
       `（${int(signal.closeoutFields.length)} 个字段里没有一个记「读过哪些节点」）`,
   );
+  const s4 =
+    coverage.toolTree === null
+      ? "未观测（--no-logs）"
+      : coverage.toolTree === 0
+        ? "**不可用**（一次树引用都没有）"
+        : `可用但极稀：${int(signal.toolTreeRefs)} 次树引用里只有 **${int(signal.toolNodeDocRefs)} 次**指向具体节点文档`;
   out.push(
-    `  ${padDisplay("S4 工具读取 nodes/nX.md", 28)}${padDisplay("tool/call 参数里的树路径", 40)}` +
-      `${padDisplay(pct(coverage.toolTree), 10, "right")}  ${availabilityText(coverage.toolTree === 0 ? 0 : 1)}但极稀：` +
-      `${int(signal.toolTreeRefs)} 次树引用里只有 **${int(signal.toolNodeDocRefs)} 次**指向具体节点文档`,
+    `  ${padDisplay("S4 工具读取 nodes/nX.md", 28)}${padDisplay("tool/call 参数里的树路径", 40)}${padDisplay(pct(coverage.toolTree), 10, "right")}  ${s4}`,
   );
   out.push("");
   out.push(
-    `  ⇒ **「被注入」与「被使用」差两个量级**：注入 ${int(signal.ledgerEvents)} 次 / 列出 ${int(ledger.listed)} 个节点，` +
+    `  ⇒ **「被注入」与「被使用」差约 20 倍**：注入 ${int(signal.ledgerEvents)} 次 / 列出 ${int(ledger.listed)} 个节点，` +
       `agent 自己写出 id 的只有 ${int(ledger.used)} 个（${int(signal.usedSessions)} 个会话有，占 ${pct(coverage.used)}）。`,
   );
   out.push(
@@ -1085,16 +1091,15 @@ export function renderReport(result) {
     `  ${padDisplay("来源", 26)}${padDisplay("列出", 8, "right")}${padDisplay("用上", 8, "right")}${padDisplay("交集", 8, "right")}` +
       `${padDisplay("精确率", 10, "right")}${padDisplay("召回率", 10, "right")}${padDisplay("噪声", 8, "right")}${padDisplay("漏", 8, "right")}`,
   );
-  out.push(
-    `  ${padDisplay("热清单（每步注入）", 26)}${padDisplay(int(ledger.listed), 8, "right")}${padDisplay(int(ledger.used), 8, "right")}` +
-      `${padDisplay(int(ledger.both), 8, "right")}${padDisplay(pct(ledger.precision), 10, "right")}${padDisplay(pct(ledger.recall), 10, "right")}` +
-      `${padDisplay(int(ledger.noise), 8, "right")}${padDisplay(int(ledger.missed), 8, "right")}`,
-  );
-  out.push(
-    `  ${padDisplay("折叠摘要（归档落盘）", 26)}${padDisplay(int(summary.listed), 8, "right")}${padDisplay(int(summary.used), 8, "right")}` +
-      `${padDisplay(int(summary.both), 8, "right")}${padDisplay(pct(summary.precision), 10, "right")}${padDisplay(pct(summary.recall), 10, "right")}` +
-      `${padDisplay(int(summary.noise), 8, "right")}${padDisplay(int(summary.missed), 8, "right")}`,
-  );
+  const bySource = { ledger, summary };
+  for (const spec of LISTED_SOURCES) {
+    const bucket = bySource[spec.key];
+    out.push(
+      `  ${padDisplay(spec.label, 26)}${padDisplay(int(bucket.listed), 8, "right")}${padDisplay(int(bucket.used), 8, "right")}` +
+        `${padDisplay(int(bucket.both), 8, "right")}${padDisplay(pct(bucket.precision), 10, "right")}${padDisplay(pct(bucket.recall), 10, "right")}` +
+        `${padDisplay(int(bucket.noise), 8, "right")}${padDisplay(int(bucket.missed), 8, "right")}`,
+    );
+  }
   const split = result.summarySplit;
   out.push(
     `    · 摘要按**送达**拆开：送达过（\`compaction/summary\` 里真的带节点 id）的 ${int(split.delivered.listedSessions)} 个会话，` +
