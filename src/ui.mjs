@@ -363,13 +363,36 @@ export function foldMarksForUi(foldMarks) {
   });
 }
 
-/** 最近活跃会话的折痕；没有棋谱、坏图或空折痕都返回 []。 */
+/** 全局最近折痕：跨会话按 foldMark.at 排序，最近 20 条在前；坏图跳过，真空才返回 []。 */
 export function latestFoldMarksFrom(scan) {
   const files = Array.isArray(scan?.files) ? scan.files : [];
-  const best = files.reduce((acc, file) => (acc === null || file.mtimeMs > acc.mtimeMs ? file : acc), null);
-  if (best === null) return [];
-  const summary = graphSummary(best).summary;
-  return summary === null ? [] : foldMarksForUi(summary.foldMarks);
+  const all = [];
+  for (const file of files) {
+    const summary = graphSummary(file).summary;
+    if (summary === null) continue;
+    // 每个会话只取它自己的最近 20 条：全局前 20 不可能落在某个会话的第 21 条之后。
+    all.push(...foldMarksForUi(summary.foldMarks));
+  }
+  const epoch = (mark) => {
+    const at = mark?.at;
+    if (typeof at === "number" && Number.isFinite(at)) return at;
+    if (typeof at === "string" && at !== "") {
+      const parsed = Date.parse(at);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    return null;
+  };
+  return all
+    .map((mark, index) => ({ mark, index, at: epoch(mark) }))
+    .sort((left, right) => {
+      // 没有合法时刻的旧记录仍保留，但排在有时刻的记录之后；原始相对顺序作为稳定次序。
+      if (left.at === null && right.at !== null) return 1;
+      if (left.at !== null && right.at === null) return -1;
+      if (left.at !== right.at) return right.at - left.at;
+      return left.index - right.index;
+    })
+    .slice(0, FOLD_LIST_LIMIT)
+    .map(({ mark }) => mark);
 }
 
 /** 今天的 fold 汇总（按 foldMarks.at，不按文件 mtime）。 */

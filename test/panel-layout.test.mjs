@@ -196,9 +196,9 @@ function fixture(overrides = {}) {
   };
 }
 
-function panelRenderer(state = fixture(), source = SOURCE) {
+function panelRenderer(state = fixture(), source = SOURCE, draftOverrides = null) {
   const loaded = loadClient(source);
-  loaded.runtime.seed("Page", [state, { ...state.config }]);
+  loaded.runtime.seed("Page", [state, state === null ? {} : { ...state.config, ...(draftOverrides ?? {}) }]);
   loaded.runtime.render(loaded.T.Page);
   return loaded;
 }
@@ -326,10 +326,26 @@ export const tests = {
     assertDefaultTree(DEFAULT_TREE);
     const primary = findAll(DEFAULT_TREE, (node) => node.props?.["data-panel-level"] === "primary");
     t.eq(primary.length, 3, "一级必须是状态卡、今日卡、最近折痕卡三张");
-    t.eq(findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-row"] === "true").length, 3, "首屏只画最近3条");
+    const primaryRows = findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-row"] === "true");
+    t.eq(primaryRows.length, 3, "首屏只画最近3条");
+    t.eq(primaryRows.every((row) => childrenOf(row).length === 1), true, "首屏每条折痕只有 foldMain 一个布局子行；完整明细在二级");
+    t.eq(T.styles.foldRow.padding, "16px 0", "单行化不破坏官方16px行距");
+    // 独立盒模型：24 padding + 1 border + 20 title + N个gap + N条单行，不允许漏算 flex gap。
+    const expectedFoldCard = 24 + 1 + 20 + 3 * T.SPACING.card + 3 * 52;
+    t.eq(FIRST_SCREEN_HEIGHT.foldGaps, 24, "标题+3行之间恰好3个8px gap");
+    t.eq(FIRST_SCREEN_HEIGHT.foldRow, 52, "单折痕行=32 padding + 19内容 + 1边框（向上取整）");
+    t.eq(FIRST_SCREEN_HEIGHT.foldCard, expectedFoldCard, "折痕卡高度必须含全部padding/border/title/gap/行高");
+    const expectedPrimary = Math.max(112 + T.SPACING.section + 112 + T.SPACING.section + expectedFoldCard, 3 * 61 + 2 * T.SPACING.section);
+    t.eq(FIRST_SCREEN_HEIGHT.total, 48 + 46 + T.SPACING.section + 74 + expectedPrimary, "整屏高度独立重算一致");
     const text = textOf(DEFAULT_TREE);
-    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 3 条）", "二级 · 完整折痕列表（5）", "二级 · 常用配置", "三级 · 高级·别动"]) {
+    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 3 条）", "折痕列表", "常用配置", "高级"]) {
       t.includes(text, wanted, `首屏缺少 ${wanted}`);
+    }
+    // ★ 用户指正（截图实测）：「二级」「三级」「别动」是**结构概念**，不是给用户看的文案。
+    //   一级 = 点开「上下文压缩」面板**直接可见**；二级 = **展开后**才看到。
+    //   标签按**内容**命名（折痕列表 / 常用配置 / 高级配置），层级编号一律不许印上去。
+    for (const bad of ["二级 ·", "三级 ·", "二级·", "三级·", "高级·别动", "高级 · 别动"]) {
+      t.notIncludes(text, bad, `层级编号/「别动」不许出现在 UI 标签：${bad}`);
     }
     for (const hidden of ["涉及会话", "棋谱总数", "全库失败边", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "次级信息不许平铺到首屏");
     t.eq(DEFAULT_DISCLOSURE_STATES.map((row) => row.defaultExpanded), [false, false, false].map(String), "默认状态全部 false");
@@ -391,16 +407,63 @@ export const tests = {
     assertFixedThresholdControl(T, defaultRuntime);
   },
 
+  "④b 保存事件：非法阈值进入dirty draft后点击保存，fetch必须0次且错误可见"(t) {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error("非法阈值不应到达fetch");
+    };
+    try {
+      const panel = panelRenderer(fixture(), SOURCE, { thresholdRatio: 0.51 });
+      disclosureButton(panel.runtime.tree(), "common-config").props.onClick();
+      panel.runtime.render(panel.T.Page);
+      const saveButtons = findAll(panel.runtime.tree(), (node) => node.type === "button" && textOf(node) === "保存（1 项改动）");
+      t.eq(saveButtons.length, 1, "dirty draft 必须产生一个可点击保存按钮");
+      saveButtons[0].props.onClick();
+      panel.runtime.render(panel.T.Page);
+      t.eq(fetchCalls, 0, "非法阈值必须在callApi/fetch之前被保存事件拒绝");
+      t.includes(textOf(panel.runtime.tree()), "压缩阈值只能选择固定档位", "保存错误必须真实可见");
+      t.eq(findAll(panel.runtime.tree(), (node) => node.props?.["data-status-kind"] === "normal").length, 1, "保存错误不得误报成压缩运行错误");
+    } finally {
+      if (originalFetch === undefined) delete globalThis.fetch;
+      else globalThis.fetch = originalFetch;
+    }
+  },
+
   "⑤ 状态优先级：正常 / 未启用 / 出错都有真实判据"(t) {
     t.eq(T.compressionStatus(fixture(), null).kind, "normal", "接管 + auto + 无截断 = 正常");
     t.eq(T.compressionStatus(fixture({ config: { ...DEFAULTS, auto: false } }), null).kind, "disabled", "关闭自动压缩 = 未启用");
     t.eq(T.compressionStatus(fixture({ health: { installed: false, mounted: false, singleInstance: true } }), null).kind, "disabled", "未接管 = 未启用");
     t.eq(T.compressionStatus(fixture({ health: { installed: true, mounted: true, singleInstance: false } }), null).kind, "error", "多后端 = 出错");
     t.eq(T.compressionStatus(fixture({ today: { truncated: 1, inputTruncated: 0 } }), null).kind, "error", "摘要截断 = 出错");
+    const bothTruncated = T.compressionStatus(fixture({ today: { truncated: 2, inputTruncated: 3 } }), null);
+    t.eq(bothTruncated.kind, "error", "输入裁切也应报出错");
+    t.eq(bothTruncated.hint, "输出截断 2 · 输入裁切 3", "两类截断独立展示，同一fold不得相加成5");
+    const unknown = T.compressionStatus(fixture({ today: { truncated: 0, inputTruncated: 0, truncatedUnknown: 2 } }), null);
+    t.eq(unknown.kind, "unknown", "截断状态未知不能冒充正常");
+    t.eq(unknown.label, "待核查", "未知单独显示待核查");
+    t.eq(unknown.hint, "截断状态未知 2 · 未知不等于未截断", "未知计数必须暴露");
+    const stale = T.compressionStatus(fixture(), "refresh failed");
+    t.eq(stale.kind, "error", "旧state仍在但刷新失败 = 出错，不许继续报正常");
+    t.eq(stale.hint, "状态刷新失败 · 显示旧数据", "明确旧数据语义");
     t.eq(T.compressionStatus(null, new Error("offline")).kind, "error", "host 读取失败 = 出错");
+    t.includes(SOURCE, "compressionStatus(state, loadError)", "一级只消费state加载错误，不消费保存/模型目录错误");
+    t.includes(SOURCE, "setLoadError(message)", "load catch 必须真的写入loadError");
   },
 
-  "⑥ 失败分支真红：内存变异成默认展开或数字阈值时，同一守卫必须抛错"(t) {
+  "⑥ 加载态缺少 today/latest：诊断卡不得因数组下标变化混进一级"(t) {
+    const loading = panelRenderer(null);
+    const primary = findAll(loading.runtime.tree(), (node) => node.props?.["data-panel-level"] === "primary");
+    t.eq(primary.length, 2, "加载态一级只剩状态卡与折痕空态，不能拿诊断卡补位");
+    t.eq(primary.map((node) => node.props["data-status-kind"] ?? "folds"), ["loading", "folds"], "一级身份稳定，不依赖 slice 下标");
+    const text = textOf(loading.runtime.tree());
+    t.notIncludes(text, "最近活跃会话", "latest 缺失时诊断卡仍只能留在三级");
+    t.notIncludes(text, "检查更新", "更新卡不得补进一级");
+    t.notIncludes(text, "开始补账", "补账不得补进一级");
+  },
+
+  "⑦ 失败分支真红：内存变异成默认展开或数字阈值时，同一守卫必须抛错"(t) {
     const expandedSource = SOURCE.replaceAll("defaultOpen: false", "defaultOpen: true");
     t.ne(expandedSource, SOURCE, "默认展开变异确实命中源码");
     const expanded = panelRenderer(fixture(), expandedSource);
