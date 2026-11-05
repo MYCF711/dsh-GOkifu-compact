@@ -1,5 +1,5 @@
 {
- "total": 1580,
+ "total": 1635,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -130,6 +130,7 @@
   "placeholder.test.mjs": 9,
   "post-restart-check.test.mjs": 6,
   "post-restart-pid.test.mjs": 14,
+  "prediction-hit.test.mjs": 23,
   "preset-discovery.test.mjs": 0,
   "preset-wiring.test.mjs": 0,
   "probe-compaction-wiring.test.mjs": 3,
@@ -145,6 +146,7 @@
   "release-tool.test.mjs": 2,
   "render-index-perf.test.mjs": 6,
   "repair-coverage.test.mjs": 6,
+  "reread-roi.test.mjs": 28,
   "retread.test.mjs": 29,
   "retry-discard.test.mjs": 6,
   "retry-usage.test.mjs": 8,
@@ -156,7 +158,7 @@
   "sanitize-anchor.test.mjs": 8,
   "selfloop.test.mjs": 1,
   "session-label.test.mjs": 4,
-  "session-scan.test.mjs": 3,
+  "session-scan.test.mjs": 7,
   "slash-merge.test.mjs": 7,
   "stale-aware-status.test.mjs": 5,
   "stale-claims.test.mjs": 3,
@@ -204,6 +206,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1866,
- "passedAt": "2026-11-05T05:56:22.503Z"
+ "passed": 1961,
+ "passedAt": "2026-11-05T06:32:48.473Z"
 }

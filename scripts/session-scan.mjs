@@ -20,7 +20,10 @@ import { fileURLToPath } from "node:url";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 // ★ C498：多帧解码已搬进 src/rooms/zstd-log.mjs（插件进程也要读日志），这里只做转发
-export { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
+// ★ C651：`export { X } from "…"` **只转发、不建本地绑定** —— 而 `main()` 自己要用它。
+//   所以必须先 `import` 再 `export`（纯 re-export 那句让 CLI 一跑就 ReferenceError）。
+import { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
+export { decodeMultiFrameZstd };
 
 /**
  * ★ C359：统计**真清单消息**。
