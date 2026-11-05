@@ -377,21 +377,41 @@ export function decideInjection({
     //   （另有公共前缀检测、固定 token 间隔两种）。所以：
     //   · **改动点越靠后，作废的单元越少** —— 就地替换末尾这条清单，前缀单元照常命中；
     //   · 反过来，若在开头插一条新消息，等于把后面所有单元全部作废。
-    //   这也是 C220 实测「断点只占 2.6%」的原因：我们改的是尾部。
     //   文档：docs/knowledge/上下文缓存-单元语义-deepseek.md
+    //
+    // ★ C600（2026-11-05）：**上面那条「我们改的是尾部」被真机账单证伪了。**
+    //   `surfaceOp: replace` 保留的是**旧槽位**，而旧槽位是**第一次注入时**的位置 —— 会话越长它越靠前，
+    //   于是每次替换都把「它后面」的整段前缀作废。673 个会话 / 100,128 次请求实测
+    //   （`scripts/cache-friendliness-audit.mjs`）：
+    //     · replace 请求命中 **10.2%**，none 请求 **97.6%**；每次 replace 中位重读 **281,923** token；
+    //     · 孤立 replace 的事件研究：前一次 **100%** → 这一次 **15.5%** → 后一次 **100%**（543 组）；
+    //     · 拆账：新清单自己只 ≈466 token（**0.1%**），剩下 **99.9%** 是「清单后面整段被平移重读」。
+    //   ⇒ 判据（**必要 vs 实现问题**）：
+    //     · 清单内容确实变了（digest 变了 100%）⇒ 必须**送达**，这部分是必要的；
+    //     · 但「必须送达」不等于「必须就地改写早期槽位」。送达方式是可选的，而就地改写让
+    //       466 token 的信息变化赔上 281,923 token 的前缀重读 —— **那是实现，不是内容**。
+    //   ⇒ 做法：清单**后面还压着消息**时不再就地改写，改成「新清单挂到末尾 + 上一条换成占位」。
+    //     新清单仍是完整渲染（语义一条不少），surface 上仍只有一条真清单；差别只在**分叉点**：
+    //     从「第一次注入的槽位」挪到「上一条清单的位置」—— 只差一个注入间隔。
+    //     真机 append 组的中位 miss 是 1,991 token，比替换小两个数量级。
+    const afterTailEarly = existing === null ? 0 : countAfterSeq(session, existing.seq);
+    const repin = existing !== null && afterTailEarly > HOT_LEDGER_REPIN_AFTER;
+
     // ★ C360：**追加前先收缩历史**。`findLedgerNode` 只认**最后一条**清单，
     //   所以当它返回 null（清单被 fold 压掉、或上一版是旧格式）时，旧清单会一直留在 surface 上 ——
     //   实测一个会话残留 17 份真清单（修正口径后），而清理只在会话开头跑一次（`legacyElided`）。
     //   ⇒ 走到"追加"这条路时，顺手把更早的清单换成占位（保留最后一条），让常驻份数收敛到 1~2。
-    if (existing === null && config.hotLedgerReplace) {
+    //   ★ C600：**重挂路径要 keep:0** —— 此刻最后一条马上就会被新清单取代（下面 return 的 decision
+    //     会被宿主落盘），留它一条就等于每注入一次多背 466 token 的过期清单。
+    if (config.hotLedgerReplace && (existing === null || repin)) {
       try {
-        elideLegacyLedgers(session, { createUserMessage });
+        elideLegacyLedgers(session, { createUserMessage, keep: repin ? 0 : 1 });
       } catch {
         /* 清理失败不影响本次注入 */
       }
     }
 
-    if (existing && config.hotLedgerReplace) {
+    if (existing && config.hotLedgerReplace && !repin) {
       try {
         session.append("user/message", message, {
           surfaceOp: { op: "replace", startSeq: existing.seq, endSeq: existing.seq },
@@ -402,11 +422,12 @@ export function decideInjection({
         state.lastLedgerFailureCount = ledger.failureCount;
         log("debug", `chess-context: 替换失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens（surface 仍只有一条）`);
         // ★ C460：**这次替换到底作废了多少缓存**，取决于清单后面还有几条消息。
-        //   doctor 一直说"replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配"，但没说"中间"是哪儿 ——
-        //   实测（9 条清单消息、6 个会话）**89% 的情况下清单就是请求里的最后一条**，后面 0 条。
-        //   那样替换只作废它自己，与 append 的差别很小。这个数必须记下来，否则判据只能靠猜。
-        const afterTail = countAfterSeq(session, existing.seq);
-        return { decision, action: "replace", reason: "replaced", afterTail };
+        //   doctor 一直说"replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配"，但没说"中间"是哪儿。
+        //   真机（C600，100,128 次请求）**100% 的替换都在 `3+` 桶** —— 清单从来不是最后一条。
+        //   所以 `afterTail` 必须继续记：它是「就地替换划不划算」的唯一判据（见 HOT_LEDGER_REPIN_AFTER）。
+        //   ★ C600：用**写之前**的 `afterTailEarly` —— 写完之后旧 seq 已经不在 surface 上，
+        //     再数会把刚写进去的这条算进去（少报 1，判据就飘了）。
+        return { decision, action: "replace", reason: "replaced", afterTail: afterTailEarly };
       } catch (error) {
         // 锚点失效（例如刚好被 fold 遮蔽）→ 退回追加路径，绝不因为这里失败而丢信息
         log("warn", `chess-context: 失败清单替换失败，退回追加：${String(error)}`);
@@ -418,8 +439,12 @@ export function decideInjection({
     state.lastLedgerDigest = digest;
     state.lastLedgerInjectSeq = session.seq;
     state.lastLedgerFailureCount = ledger.failureCount;
-    log("debug", `chess-context: 注入失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens`);
-    return { decision: { ...decision, messages: entered }, action: "append", reason: "appended" };
+    log(
+      "debug",
+      `chess-context: 注入失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens` +
+        (repin ? `（清单漂离尾部 ${afterTailEarly} 条 ⇒ 重挂到末尾，旧清单换占位）` : ""),
+    );
+    return { decision: { ...decision, messages: entered }, action: "append", reason: repin ? "repinned" : "appended" };
   } catch (error) {
     log("warn", `chess-context: 失败清单注入失败（继续本轮）：${String(error)}`);
     return { decision, action: "skip", reason: `error:${String(error?.message ?? error)}` };

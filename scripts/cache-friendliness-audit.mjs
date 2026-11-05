@@ -349,6 +349,35 @@ export function decomposeReplaceCost(rows, prices = PRICES) {
 }
 
 /**
+ * ★ 修复后的预计账单：把这些 replace 请求当成**尾部追加**来付费。
+ *
+ * 口径：追加时前缀一个 token 都不重读，未命中只剩两块 ——
+ *   ① 新清单自己（`ledgerChars` → token）；
+ *   ② 一次正常请求本身的增量（取 none 组的中位 miss）。
+ * 这不是"预测模型"，是把两个**真机量到的数**按最保守的方式拼起来：
+ * 两者都取上界（清单按满长算、增量按中位算），所以只会**高估**修复后的花费。
+ *
+ * @param {Array<object>} rows
+ * @param {{miss:number, hit:number, out:number}} [prices]
+ * @returns {{projected:number, actual:number, saving:number, medianAppendMiss:number}}
+ */
+export function projectedAppendCost(rows, prices = PRICES) {
+  const replaceRows = (rows ?? []).filter((r) => r.action === "replace");
+  const noneRows = (rows ?? []).filter((r) => r.action === "none");
+  const medianNoneMiss = median(noneRows.map((r) => r.miss));
+  let projected = 0;
+  let actual = 0;
+  for (const r of replaceRows) {
+    actual += requestCost(r, prices);
+    const prompt = r.miss + r.hit;
+    const miss = Math.min(prompt, charsToTokens(r.ledgerChars ?? 0) + medianNoneMiss);
+    const hit = Math.max(0, prompt - miss);
+    projected += (miss * prices.miss + hit * prices.hit + r.out * prices.out) / 1e6;
+  }
+  return { projected, actual, saving: actual - projected, medianAppendMiss: medianNoneMiss };
+}
+
+/**
  * ★ 「稳定前缀」这条路的天花板：把 LCP 拉到 100%，还能多命中多少 token？
  *
  * 结论先行（真机）：**几乎为零**。因为清单只有 ~1.9k 字符（≈480 token），
@@ -572,6 +601,7 @@ export function summarizeSessions(sessions) {
     requests: rows.length,
     byAction,
     counterfactual: replaceCounterfactual(rows),
+    projected: projectedAppendCost(rows),
     decomposition: decomposeReplaceCost(rows),
     ceiling: stablePrefixCeiling(pairs, PRICES, byAction.replace.requests),
     gaps: gapBuckets(rows),
@@ -626,7 +656,7 @@ export function main(argv = process.argv.slice(2)) {
     return 0;
   }
 
-  const { byAction, counterfactual, decomposition, ceiling, gaps, study } = sum;
+  const { byAction, counterfactual, projected, decomposition, ceiling, gaps, study } = sum;
   const total = byAction.append.requests + byAction.replace.requests + byAction.none.requests;
 
   console.log("== 热清单注入动作 · 缓存友好性真机审计（只读） ==");
@@ -692,6 +722,10 @@ export function main(argv = process.argv.slice(2)) {
     `   基线命中率（同会话非 replace 请求，加权） ${pct(counterfactual.baselineHitRate)}`,
   );
   console.log(`   实际花费 ${usd(counterfactual.actual)} · 反事实 ${usd(counterfactual.counterfactual)} · **多花 ${usd(counterfactual.wasted)}**`);
+  console.log(
+    `   改成尾部追加后的预计账单：**${usd(projected.projected)}**（未命中 = 新清单 ≈${int(charsToTokens(sum.ledgerChars))} token + 正常增量 ${int(projected.medianAppendMiss)} token）` +
+      ` ⇒ **省下 ${usd(projected.saving)}**（同一批请求，口径最保守：清单按满长、增量按中位）`,
+  );
   console.log("");
 
   console.log("── ⑥ 「稳定前缀 + 增量追加」能给到多少（这条路的天花板） ──");
@@ -713,7 +747,7 @@ export function main(argv = process.argv.slice(2)) {
     `   必要部分只占 ${pct(decomposition.necessaryShare)}，剩下 ${pct(1 - decomposition.necessaryShare)} 是「就地改写早期位置」的实现代价 —— 不是清单内容变化逼出来的。`,
   );
   console.log(`   稳定前缀救不了：清单只有 ≈${int(charsToTokens(sum.ledgerChars))} token，天花板 ${usd(ceiling.extraSavingIfPerfect)}。`);
-  console.log(`   一句话：**别在中间改，到末尾追加**。`);
+  console.log(`   一句话：**别在中间改，到末尾追加** —— 预计把 ${usd(counterfactual.actual)} 压到 ${usd(projected.projected)}（省 ${usd(projected.saving)}）。`);
   return 0;
 }
 

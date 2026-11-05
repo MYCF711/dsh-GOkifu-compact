@@ -33,8 +33,9 @@
  * 旧实现必须交回 `truncated: true` 且正文是首调那份。副本落在 `test/.tmp-retry-discard/`
  * （不写 `src/`，跑完自己删），相对 import 改写成绝对 `file://` URL，否则从临时目录解析不到。
  *
- * 真机依据（`node scripts/retry-discard-audit.mjs`）：确证 68 条「付了两次、只用第一次」，
- * 白付 $0.5425；被丢掉那次的字节从未落盘 ⇒ 这类缺陷在指标上是隐形的，只能靠夹具钉住。
+ * 真机依据（`node scripts/retry-discard-audit.mjs`，2026-11-05 09:4x 快照）：确证 69 条
+ * 「付了两次、只用第一次」、白付 $0.5505 —— 活机还在折，跑一次涨一条，所以别把这个数钉成常量；
+ * 被丢掉那次的字节从未落盘 ⇒ 这类缺陷在指标上是隐形的，只能靠夹具钉住。
  */
 import nodeFs from "node:fs";
 import nodePath from "node:path";
