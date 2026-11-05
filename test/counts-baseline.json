@@ -1,5 +1,5 @@
 {
- "total": 1682,
+ "total": 1683,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -165,6 +165,7 @@
   "session-label.test.mjs": 4,
   "session-scan.test.mjs": 7,
   "slash-merge.test.mjs": 7,
+  "small-window-oom.test.mjs": 1,
   "small-window.test.mjs": 10,
   "stale-aware-status.test.mjs": 5,
   "stale-claims.test.mjs": 3,
@@ -213,6 +214,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2008,
- "passedAt": "2026-11-05T11:00:08.896Z"
+ "passed": 2009,
+ "passedAt": "2026-11-05T11:16:25.361Z"
 }

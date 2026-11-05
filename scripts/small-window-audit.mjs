@@ -434,13 +434,11 @@ export async function audit({ home, small = SMALL_SPAN, tiny = TINY_SPAN, minEve
   const rows = [];
   let sessions = 0;
   let marksTotal = 0;
-  const eventCache = new Map();
+  // 事件只活在当前会话的作用域里：全库缓存会把数百份解压日志同时钉在堆上，
+  // 扫描阶段就 OOM（--no-replay 也躲不过）。重放阶段按会话重新读一次，口径不变。
   const loadEvents = (sessionId) => {
-    if (eventCache.has(sessionId)) return eventCache.get(sessionId);
     const file = logFor(sessionId);
-    const events = file === undefined ? [] : readSessionEvents(file);
-    eventCache.set(sessionId, events);
-    return events;
+    return file === undefined ? [] : readSessionEvents(file);
   };
 
   for (const name of nodeFs.readdirSync(sessionsDir)) {
