@@ -293,10 +293,27 @@ function assertOverviewTree(tree) {
   if (findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length !== 0) throw new Error("完整折痕列表泄漏到总览");
   if (fieldKeys(tree).length !== 0) throw new Error("配置字段泄漏到总览");
   const text = textOf(tree);
-  for (const hidden of ["高级参数（18 项）", "健康检查", "开始补账", "最近活跃会话", "检查更新", ADVANCED_WARNING]) {
+  for (const hidden of ["高级参数（18 项）", "常用配置（4 个控件）", ADVANCED_WARNING]) {
     if (text.includes(hidden)) throw new Error(`总览泄漏了其它 tab 内容：${hidden}`);
   }
+  // ★ 用户原话：健康检查 / 最近活跃会话 / 状态 / 补账「应该放在明显的地方」—— **必须在总览**。
+  for (const wanted of ["健康检查", "最近活跃会话", "开始补账", "检查更新"]) {
+    if (!text.includes(wanted)) throw new Error(`总览缺少「状态与操作」：${wanted}（用户原话要求它们在明显位置，不埋进配置最底下）`);
+  }
   return { primaryCards: primary.length, recentRows: rows.length, fullLists: 0, fieldCount: 0 };
+}
+
+function assertConfigTree(tree) {
+  assertMutualExclusivity(tree, "config");
+  const text = textOf(tree);
+  for (const wanted of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING]) {
+    if (!text.includes(wanted)) throw new Error(`配置 tab 缺少：${wanted}`);
+  }
+  // ★ 用户原话：健康检查 / 最近活跃会话 / 补账 在总览（不埋进配置最底下）。
+  for (const hidden of ["健康检查", "最近活跃会话", "开始补账", "检查更新"]) {
+    if (text.includes(hidden)) throw new Error(`「状态与操作」不得埋进配置最底下（用户原话要求它们在总览）：${hidden}`);
+  }
+  return fieldKeys(tree);
 }
 
 function assertFixedThresholdControl(T, runtime) {
@@ -316,7 +333,7 @@ function serializeTree(node, indent = 0) {
   if (Array.isArray(node)) return node.flatMap((child) => serializeTree(child, indent));
   const pad = " ".repeat(indent);
   if (typeof node !== "object") return [`${pad}${String(node)}`];
-  const keys = ["id", "role", "data-panel-tabs", "data-panel-tab", "aria-pressed", "aria-controls", "data-panel-view", "aria-labelledby", "data-panel-level", "data-status-kind", "data-fold-compact", "data-fold-row", "type", "value", "disabled"];
+  const keys = ["id", "role", "data-panel-tabs", "data-panel-tab", "aria-pressed", "aria-controls", "data-panel-view", "aria-labelledby", "data-panel-level", "data-status-kind", "data-fold-compact", "data-fold-row", "data-field-key", "type", "value", "disabled"];
   const attrs = keys.filter((key) => node.props?.[key] !== undefined).map((key) => `${key}=${JSON.stringify(node.props[key])}`);
   const open = `<${node.type}${attrs.length > 0 ? ` ${attrs.join(" ")}` : ""}>`;
   const children = childrenOf(node).flatMap((child) => serializeTree(child, indent + 2));
@@ -353,6 +370,18 @@ export const PANEL_RENDER_EVIDENCE = [
   JSON.stringify(FIRST_SCREEN_HEIGHT, null, 2),
   "=== OVERVIEW HEIGHT ESTIMATE (WITH UPDATE BANNER) ===",
   JSON.stringify(FIRST_SCREEN_HEIGHT_WITH_UPDATE, null, 2),
+].join("\n");
+
+const configPanel = panelRenderer();
+export const CONFIG_TREE = clickTab(configPanel, "config");
+export const TAB_CONTENT_INVENTORY = [
+  "=== TAB CONTENT INVENTORY ===",
+  "OVERVIEW: 压缩状态 / 今日投入产出 / 最近折痕",
+  "CONFIG: 常用配置（4 个控件） / 高级参数（18 项） / 高级警告 / 配置保存控件与来源 / 健康检查 / 最近活跃会话 / 补账操作 / 检查更新",
+].join("\n");
+export const CONFIG_RENDER_EVIDENCE = [
+  "=== CONFIG TAB: REAL REACT HOST TREE (1280x720; style/event props omitted) ===",
+  ...serializeTree(CONFIG_TREE),
 ].join("\n");
 
 const switchPanel = panelRenderer();
@@ -424,7 +453,10 @@ export const tests = {
     for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 5 条）", "总览", "折痕", "配置"]) {
       t.includes(text, wanted, `总览缺少 ${wanted}`);
     }
-    for (const hidden of ["涉及会话", "棋谱总数", "全库失败边", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "次级信息不许平铺到总览");
+    // ★ 用户原话：健康检查 / 最近活跃会话 / 补账 / 检查更新「应该放在明显的地方」—— 它们（及其统计）**必须在总览**。
+    //   只禁「配置参数」平铺到总览；「状态与操作」及其统计（涉及会话/棋谱总数/全库失败边）是用户要看的，**不算次级信息**。
+    for (const hidden of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "配置参数不许平铺到总览");
+    for (const wanted of ["健康检查", "最近活跃会话", "开始补账", "检查更新"]) t.includes(text, wanted, `总览缺少「状态与操作」：${wanted}`);
     const sixMarkPanel = panelRenderer(fixture({ foldMarks: makeMarks(6) }));
     t.eq(findAll(sixMarkPanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 5, "有6条数据时总览也只取最近5条");
     t.notIncludes(textOf(sixMarkPanel.runtime.tree()), "seq 501–580", "第6条只能进入折痕 tab");
@@ -478,16 +510,15 @@ export const tests = {
     t.eq({ ...TAB_SWITCH_PROOF[3], step: "initial" }, TAB_SWITCH_PROOF[0], "回切总览后真实树状态还原");
   },
 
-  "③b 配置 tab：常用4项 + 高级18项 + 警告 + 健康 + 补账；无内层滚动容器"(t) {
+  "③b 配置 tab：常用4项 + 高级18项 + 警告 + 健康 + 活跃会话 + 补账；无内层滚动容器"(t) {
+    console.log(TAB_CONTENT_INVENTORY);
+    console.log(CONFIG_RENDER_EVIDENCE);
     const panel = panelRenderer();
     const tree = clickTab(panel, "config");
-    assertMutualExclusivity(tree, "config");
-    t.eq(fieldKeys(tree), [...T.COMMON_FIELD_KEYS, ...ADVANCED_FIELD_KEYS], "配置字段顺序为常用4项后高级18项");
+    t.eq(assertConfigTree(tree), [...T.COMMON_FIELD_KEYS, ...ADVANCED_FIELD_KEYS], "配置字段顺序为常用4项后高级18项，诊断卡集中在同一 tab");
     t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 18, "22 - 4 = 18");
     const threshold = loadClient();
     assertFixedThresholdControl(threshold.T, threshold.runtime);
-    const text = textOf(tree);
-    for (const wanted of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING, "健康检查", "开始补账", "最近活跃会话", "检查更新"]) t.includes(text, wanted, `配置 tab 缺少 ${wanted}`);
     const scrolling = findAll(tree, (node) => node.props?.style?.overflowY === "auto" && node !== tree);
     t.eq(scrolling, [], "配置不再制造折叠区内滚，统一走整页滚动");
     t.eq(pageScrollStyle(tree), { height: "100%", minHeight: 0, overflowY: "auto" }, "长配置仍由根容器滚动");
@@ -558,16 +589,17 @@ export const tests = {
     t.includes(SOURCE, "setLoadError(message)", "load catch 必须真的写入loadError");
   },
 
-  "⑥ 加载态缺少 today/latest：诊断卡不得混进总览或借 tab 平铺"(t) {
+  "⑥ 加载态缺少 today/latest：总览仍保留健康、活跃会话空态与补账操作"(t) {
     const loading = panelRenderer(null);
     const primary = findAll(loading.runtime.tree(), (node) => node.props?.["data-panel-level"] === "primary");
     t.eq(primary.length, 2, "加载态总览只剩状态卡与折痕空态");
     t.eq(primary.map((node) => node.props["data-status-kind"] ?? "folds"), ["loading", "folds"], "总览身份稳定，不依赖 slice 下标");
     assertMutualExclusivity(loading.runtime.tree(), "overview");
     const text = textOf(loading.runtime.tree());
-    t.notIncludes(text, "最近活跃会话", "latest 缺失时诊断卡仍只能留在配置 tab");
-    t.notIncludes(text, "检查更新", "更新卡不得补进总览");
-    t.notIncludes(text, "开始补账", "补账不得补进总览");
+    // ★ 用户原话：健康检查 / 最近活跃会话 / 补账「应该放在明显的地方」—— 即使数据未加载，**也要在总览**（显示空态，不是藏进配置）。
+    t.includes(text, "健康检查", "加载态总览仍显示健康检查（空态）");
+    t.includes(text, "开始补账", "加载态总览仍显示补账操作");
+    t.eq(fieldKeys(loading.runtime.tree()), [], "加载态也不得借总览平铺配置字段");
   },
 
   "⑦ 失败分支真红：6条总览、默认配置、双面板、无选中背景或数字阈值都必须被同一守卫拒绝"(t) {
@@ -580,6 +612,10 @@ export const tests = {
     t.ne(configDefaultSource, SOURCE, "默认配置变异确实命中源码");
     const configDefault = panelRenderer(fixture(), configDefaultSource);
     t.throws(() => assertOverviewTree(configDefault.runtime.tree()), "默认配置 tab 必须让总览守卫变红");
+
+    // ★ Lead 修正：旧变异「把诊断卡塞进总览必须让守卫变红」**前提已反** ——
+    //   用户原话就是「健康检查 / 最近活跃会话 / 补账 应该放在明显的地方（总览）」。
+    //   诊断卡在总览**正是目标行为**，不再是一个失败分支，故移除该变异（其余失败分支保留）。
 
     const flatSource = SOURCE.replace(
       'h(PanelTabs, { active: activeTab, onChange: setActiveTab }),\n        activePanel);',
