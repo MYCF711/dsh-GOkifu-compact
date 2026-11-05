@@ -1,5 +1,5 @@
 /**
- * retry-discard.test.mjs —— 「放大 2× 重试，结果被丢弃」的守卫（T45）
+ * retry-discard.test.mjs —— 「放大 2× 重试，结果被丢弃」的守卫（T44）
  *
  * ## 这个文件钉的是什么
  *
@@ -110,7 +110,7 @@ async function fold({ texts, usages = [10_000, 12_000] }) {
 
 /* ────────────────────────── ① 采用 ────────────────────────── */
 
-tests["T45① 重试正文落在 [budget, 2×budget) ⇒ **必须采用**（旧实现丢弃）"] = async (t) => {
+tests["T44① 重试正文落在 [budget, 2×budget) ⇒ **必须采用**（旧实现丢弃）"] = async (t) => {
   t.eq(BUDGET, 8192, "默认配置下离线预算恒 = 8,192（口径写死在审计与夹具里，先自证）");
   t.eq(RETRY_BUDGET, HARD_MAX_TOKENS, "retryBudget = min(16,384, 2×8,192) = 16,384");
 
@@ -127,7 +127,7 @@ tests["T45① 重试正文落在 [budget, 2×budget) ⇒ **必须采用**（旧�
 
 /* ────────────────────────── ② 仍截断（不许放宽） ────────────────────────── */
 
-tests["T45② 重试正文仍是骨架（< 400 字符）⇒ 仍然判截断，不许因为“是重试”就放行"] = async (t) => {
+tests["T44② 重试正文仍是骨架（< 400 字符）⇒ 仍然判截断，不许因为“是重试”就放行"] = async (t) => {
   const first = bodyOf(BUDGET);
   const retry = "a".repeat(280); // < 400 字符 ⇒ C534 骨架判据；estimateTokens = 84，远 < 任何预算
   const { chunk, calls } = await fold({ texts: [first, retry], usages: [10_000, 16_384] });
@@ -140,7 +140,7 @@ tests["T45② 重试正文仍是骨架（< 400 字符）⇒ 仍然判截断，�
 
 /* ────────────────────────── ③ 又撞顶 ────────────────────────── */
 
-tests["T45③ 重试正文 = 2×budget ⇒ 仍判截断（真的又撞顶）"] = async (t) => {
+tests["T44③ 重试正文 = 2×budget ⇒ 仍判截断（真的又撞顶）"] = async (t) => {
   const first = bodyOf(BUDGET);
   const retry = bodyOf(RETRY_BUDGET); // 正好 16,384 token = 本次调用的上限
   const { chunk, calls } = await fold({ texts: [first, retry], usages: [10_000, 16_384] });
@@ -153,7 +153,7 @@ tests["T45③ 重试正文 = 2×budget ⇒ 仍判截断（真的又撞顶）"] =
 
 /* ────────────────────────── ④ 审计器口径 ────────────────────────── */
 
-tests["T45④ 审计器的“丢弃”判定只认能证明的那一档（ms 门槛 + truncated）"] = (t) => {
+tests["T44④ 审计器的“丢弃”判定只认能证明的那一档（ms 门槛 + truncated）"] = (t) => {
   const threshold = retryThresholdMs(DEFAULT_FOLD_TIMEOUT_MS, DEFAULT_OFFLINE_MAX_TOKENS);
   t.eq(threshold, 240_000 / 2.2, "门槛 = max(240,000, 8,192×25) ÷ 2.2 —— 与重试条件 spentMs < D/2.2 同源");
   t.eq(discardStateOf({ truncated: true, ms: 1_000 }, threshold), DISCARD.discarded, "ms < 门槛 ⇒ 重试一定开过且没被采用");
@@ -165,7 +165,7 @@ tests["T45④ 审计器的“丢弃”判定只认能证明的那一档（ms 门
 
 /* ────────────────────────── ⑤ 判据本体不许动 ────────────────────────── */
 
-tests["T45⑤ 只加了参数：三条判据与两处调用点逐字可查（函数体一个字没动）"] = (t) => {
+tests["T44⑤ 只加了参数：三条判据与两处调用点逐字可查（函数体一个字没动）"] = (t) => {
   const src = nodeFs.readFileSync(SOURCE, "utf8");
   t.includes(src, "const looksTruncated = (r, callBudget = budget) => {", "签名接受“本次调用的预算”，默认是 budget");
   t.includes(src, "const budget = callBudget;", "只多绑一个局部名 —— 下面三条判据因此逐字不变");
@@ -207,7 +207,7 @@ async function loadMutant() {
   }
 }
 
-tests["T45⑥ 真红自检：把重试调用点换回 `looksTruncated(bigger)`，夹具①必须翻成“丢弃”"] = async (t) => {
+tests["T44⑥ 真红自检：把重试调用点换回 `looksTruncated(bigger)`，夹具①必须翻成“丢弃”"] = async (t) => {
   const runMutant = await loadMutant();
   try {
     const first = bodyOf(BUDGET);

@@ -33,6 +33,16 @@ export const INJECT_MIN_EVENTS = 40;
 /** 限流：失败边至少多这么多条才允许再注入。 */
 export const INJECT_MIN_FAILURE_DELTA = 5;
 
+/**
+ * ★ C600：清单**后面**还压着这么多条 surface 消息时，就地替换就不划算了 —— 改成「挂到末尾」。
+ *
+ * 为什么是「条数」而不是 token：这一步每回合都跑，数 token 要把整段 surface 走一遍（真机 590k
+ * token 的会话上 ~15ms/步）。条数是个**廉价下界**：0 条 ⇒ 这次替换只作废它自己；>0 条 ⇒ 后面
+ * 那一段全部重读。真机上这个下界几乎总是被跨过（`injectTail` 的 `3+` 桶占 100%），
+ * 所以阈值取 3 只是为了让「刚注入完立刻再注入」这种短路径继续走就地替换（省一次 surface 写）。
+ */
+export const HOT_LEDGER_REPIN_AFTER = 3;
+
 /** 历史清单的占位文案（**冻结**：`<200 字符` 是幂等判据；`form:"ledger-stub"` 是过滤依据）。 */
 // ★ C160：占位文案**不点名内部文件名** —— 模型看到 `graph.json` 会把它当成可读路径去尝试，
 //   而真相是「这条已过时、以最新那条为准」。仍然保留标签名，让模型知道被折叠的是哪类块。
@@ -170,20 +180,25 @@ export function findLedgerNode(session) {
  * 留着只是白占上下文。
  *
  * 幂等：占位本身很短（< 200 字符），下一次进来直接跳过。
+ * @param {object} session
+ * @param {{createUserMessage: Function, keep?: number}} args
+ *   `keep` = 尾部保留几条**真清单**（默认 1；C600 的重挂路径传 0 —— 那一刻新清单正要写进去，
+ *   旧的一条都不该留，否则每注入一次 surface 上就多一条 466 token 的真清单）。
  * @returns {number} 本次替换掉的条数
  */
-export function elideLegacyLedgers(session, { createUserMessage }) {
+export function elideLegacyLedgers(session, { createUserMessage, keep = 1 } = {}) {
   const nodes = session?.surface?.nodes ?? [];
   const seqs = [];
   for (const seq of nodes) {
     const event = session.eventAt(seq);
     if (event?.type === "user/message" && event.data?.source?.kind === "chess-context") seqs.push(seq);
   }
-  if (seqs.length <= 1) return 0; // 只有一条（正常形态）
-  const keep = seqs[seqs.length - 1];
+  const keepCount = Math.max(0, Math.trunc(Number(keep)) || 0);
+  if (seqs.length <= keepCount) return 0; // 没有「多余的」清单（正常形态）
+  const keepFrom = seqs.length - keepCount;
   let elided = 0;
-  for (const seq of seqs) {
-    if (seq === keep) continue;
+  for (let i = 0; i < keepFrom; i += 1) {
+    const seq = seqs[i];
     const event = session.eventAt(seq);
     if (typeof event?.data?.content === "string") continue;
     if (!Array.isArray(event?.data?.content)) continue;

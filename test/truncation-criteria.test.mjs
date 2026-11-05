@@ -91,7 +91,7 @@ function bodyOf(tokens) {
 }
 
 /** 跑一次离线折叠，记录每次模型调用的入参（用来数「白付了几次」）。 */
-async function fold({ text, usage, finish, evts = events }) {
+async function fold({ text, usage, finish, evts = events, retryText, retryUsage }) {
   const calls = [];
   const out = await runOfflineFold({
     graph: graph(),
@@ -105,7 +105,15 @@ async function fold({ text, usage, finish, evts = events }) {
     deadline: Date.now() + 240_000,
     callModel: async (prompt, opts) => {
       calls.push({ promptChars: String(prompt ?? "").length, maxTokens: opts?.maxTokens });
-      return { text, usage, model: "fake", ...(finish === undefined ? {} : { finish }) };
+      // ★ T44：重试那一次用的是 `retryBudget = 2×budget`，所以「仍然截断」的夹具必须
+      //   让第 2 次及以后的正文/usage 也撑到 retryBudget，否则测的就不是「仍截断」而是「被救回」。
+      const isRetry = calls.length >= 2;
+      return {
+        text: isRetry && retryText !== undefined ? retryText : text,
+        usage: isRetry && retryUsage !== undefined ? retryUsage : usage,
+        model: "fake",
+        ...(finish === undefined ? {} : { finish }),
+      };
     },
     measureQuality: ({ graph: g, range, summaryText }) => measureFoldQuality({ graph: g, range, summaryText }),
   });
@@ -126,15 +134,16 @@ tests["C649 假阳性反例：outputTokens=20000 而正文只有 3000 token（�
 tests["C649 真截断仍然报：正文 9000 token ≥ 预算 8192 ⇒ 判截断（更准不是更松）"] = async (t) => {
   const body = bodyOf(9000);
   t.eq(estimateTokens(body), 9000, "夹具正文必须正好 9,000 token");
-  const { chunk, calls } = await fold({ text: body, usage: { outputTokens: 9000 } });
-  t.eq(chunk.truncated, true, "正文撞顶 ⇒ 必须报");
+  // 重试预算 = 2×8,192 = 16,384；真截断的第二次必须**也**撑满它，否则测到的是「被救回」。
+  const { chunk, calls } = await fold({ text: body, usage: { outputTokens: 9000 }, retryText: bodyOf(HARD_MAX_TOKENS), retryUsage: { outputTokens: HARD_MAX_TOKENS } });
+  t.eq(chunk.truncated, true, "两次都撞顶（正文 ≥ 各自预算）⇒ 必须报");
   t.eq(calls.length, 2, "报截断 ⇒ 放大 2× 重试一次");
   t.eq(calls[1].maxTokens, Math.min(HARD_MAX_TOKENS, BUDGET * 2), `重试预算 = min(${HARD_MAX_TOKENS}, ${BUDGET}×2)`);
 };
 
 tests["C649 边界：正文正好 = 预算 8192 ⇒ 撞顶（判据是 ≥ 不是 >）；8,191 就不许报"] = async (t) => {
-  const at = await fold({ text: bodyOf(BUDGET), usage: { outputTokens: BUDGET } });
-  t.eq(at.chunk.truncated, true, "正好等于预算就算撞顶");
+  const at = await fold({ text: bodyOf(BUDGET), usage: { outputTokens: BUDGET }, retryText: bodyOf(HARD_MAX_TOKENS), retryUsage: { outputTokens: HARD_MAX_TOKENS } });
+  t.eq(at.chunk.truncated, true, "正好等于预算就算撞顶（重试也撞满 retryBudget）");
   const below = await fold({ text: bodyOf(BUDGET - 1), usage: { outputTokens: BUDGET - 1 } });
   t.eq(below.chunk.truncated, false, "差一个 token 就没撞顶 —— 阈值不许有别的偏移");
 };
@@ -161,7 +170,7 @@ tests["C649 别放松：provider 报满预算 + 正文只剩骨架（reasoning �
   // 没有这条，「思考多」和「思考把预算吃光」会被混成同一件事，后者就被静默放过了。
   const body = bodyOf(100);
   t.eq(body.length < 400, true, `夹具正文只有 ${body.length} 字符（< 400）`);
-  const { chunk, calls } = await fold({ text: body, usage: { outputTokens: BUDGET } });
+  const { chunk, calls } = await fold({ text: body, usage: { outputTokens: BUDGET }, retryUsage: { outputTokens: HARD_MAX_TOKENS } });
   t.eq(calls[0].promptChars < 4000, true, "prompt 很小 ⇒ C534 的 `fed > 4000` 那条不参与，只能是 `used ≥ 预算 ∧ 正文过短` 命中");
   t.eq(chunk.truncated, true, "provider 报满预算而正文只有骨架 ⇒ 摘要没写完，必须报");
   t.eq(calls.length, 2, "因此必须重试一次（账上不许记成成功）");
@@ -208,8 +217,13 @@ tests["C649 审计器口径不许漂：criteriaOf 的 newCap 与 runOfflineFold 
     const mark = { seqStart: 1, seqEnd: 3, truncated: false, usage: { outputTokens: used }, quality: { summaryTokens: tokens, summaryChars: body.length } };
     const g = { lastOfflineSummary: { range: { start: 1, end: 3 }, text: body } };
     const c = criteriaOf(mark, g, BUDGET);
-    const { chunk } = await fold({ text: body, usage: { outputTokens: used } });
-    t.eq(chunk.truncated, c.newCap, `正文 ${tokens} / output ${used}：编排说 ${chunk.truncated}，审计器说 ${c.newCap} —— 两套口径会让人查错方向`);
+    // ★ T44：编排会**重试**（retryBudget = 2×BUDGET），重试被采用时最终 `truncated` 可能是 false。
+    //   所以「判据口径一致」要比的是**第一次调用有没有被判截断**（= 有没有开重试），
+    //   而不是最终结果 —— 后者被重试救回是正常行为，不是口径漂移。
+    const { chunk, calls } = await fold({ text: body, usage: { outputTokens: used } });
+    const retried = calls.length >= 2;
+    t.eq(retried, c.newCap, `正文 ${tokens} / output ${used}：编排开重试=${retried}，审计器判截断=${c.newCap} —— 两套口径会让人查错方向`);
+    if (!retried) t.eq(chunk.truncated, c.newCap, `没开重试时最终结果必须与审计器一致（正文 ${tokens}）`);
     t.eq(bodyTokensOf(mark, g).tokens, tokens, `正文 token 复读 = ${tokens}`);
   }
 };

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * retry-discard-audit.mjs —— 「放大 2× 重试，结果被丢弃」的真机审计（T45）
+ * retry-discard-audit.mjs —— 「放大 2× 重试，结果被丢弃」的真机审计（T44）
  *
  * ## 缺陷（只读量它，不改它）
  *
@@ -277,7 +277,7 @@ function main() {
     return;
   }
 
-  console.log(`重试丢弃审计（T45）  home=${home}`);
+  console.log(`重试丢弃审计（T44）  home=${home}`);
   console.log(`数据截止 ${report.asOf ?? "—"}（活机快照：每跑一次数字都会再涨一点）`);
   console.log(
     `预算 budget = ${budget}（offlineMaxTokens=${DEFAULT_OFFLINE_MAX_TOKENS}）· retryBudget = ${retryBudget} · ` +
