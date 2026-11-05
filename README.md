@@ -183,7 +183,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **1757 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **1775 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
