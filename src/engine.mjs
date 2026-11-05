@@ -2483,7 +2483,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const gapEventsForEnd = Number(debt?.gap?.events ?? 0);
       const gapEnd = gapFromForEnd > 0 && gapEventsForEnd > 0 ? gapFromForEnd + gapEventsForEnd - 1 : 0;
       const rangeEndRaw = Number(debt.maxSeq) || 0;
-      const rangeEnd = gapEnd > 0 ? Math.min(rangeEndRaw, gapEnd) : rangeEndRaw;
+      // ★ T63：**缺口不够一次调用的门槛时不许拿它当窗口**。C575 的夹取本意是「别把缺口**之后
+      //   已折过**的尾巴塞进同一个 prompt」，可它无条件生效 ⇒ `gap{from:9,events:7}` 把窗口压成
+      //   7 个事件；模型因 `fromHead` 不设上界照样读完整段会话（实测 p50 读 637 个事件），账上只记
+      //   几个 ⇒ 区间外 id 全被 `sanitizeSummaryIds` 抹成 `n?`（小窗口可定位率 0.058 vs 0.787）。
+      //   判据与 `closeoutMinEvents` 同源：缺口 < 门槛 ⇒ **合并**（`rangeEnd = maxSeq`，一次折完、
+      //   账也诚实）；缺口 ≥ 门槛 ⇒ 逐字走 C575 原逻辑（C519 的大缺口语义一个字都不动）。
+      const gapWorthFolding = gapEventsForEnd >= (Number(this.chess.closeoutMinEvents) || 40);
+      const rangeEnd = gapEnd > 0 && gapWorthFolding ? Math.min(rangeEndRaw, gapEnd) : rangeEndRaw;
       if (rangeEnd < rangeStart) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-range", partial: false };
       // ★ C506：**优先用"上下文压缩设置里选的那个模型"**（summarizationProvider/Model），
       //   这才是用户能控制的地方；没选才退回 DSH 默认模型 / 当前路由。
