@@ -79,14 +79,18 @@ export const DISCARD = Object.freeze({
   never: "not-truncated",
 });
 
-/** 首调撞的是哪把尺子（顺序与 `looksTruncated` 一致；最后一条是**旧判据**，C649 之后不再是分支）。 */
+/** 首调撞的是哪把尺子（顺序与 `looksTruncated` 一致；`outputCap*` 是**旧判据**，C649 之后不再是分支）。 */
 export const YARDSTICK = Object.freeze({
   finishMax: "finish-max（上游说撞顶；离线这条路 `callModel` 不返回 finish ⇒ 不可能命中）",
   bodyCap: "正文 token ≥ 预算（C649 判据，与 `foldBudgetFor` 同一个估算器）",
   skeleton: "骨架（正文 < 400 字符，而 prompt > 4000）",
   outputCap: "旧判据：usage.outputTokens ≥ 预算（**含 reasoning**）",
-  unexplained: "解释不了（数据与判据不一致）",
+  outputCapLegacy: "旧判据（C533 之前的 4,000 档）：outputTokens ≥ 4,000",
+  unexplained: "解释不了（多半是骨架但 `summaryChars` 已被机械补回拉长）",
 });
+
+/** C533 之前的输出预算默认值 —— 旧折痕要用它才解释得通（见 `yardstickOf`）。 */
+export const LEGACY_BUDGET = 4000;
 
 /**
  * 重试预算 —— 与 `runOfflineFold` 那一行逐字同源。
@@ -120,6 +124,12 @@ export function discardStateOf(mark, thresholdMs) {
  * `skeleton` 的 `fed > 4000` 一项用**真机事实**代替（每个离线 prompt 都 > 27k 字符，
  * 见 `scripts/truncation-criteria-audit.mjs` 的口径），所以这里按 `produced < 400` 判。
  *
+ * 两个必须写在代码里的口径：
+ *   · **旧判据有两档预算**：C533 之前默认 `maxTokens = 4,000`，之后 8,192 ⇒ 一条 `outputTokens`
+ *     落在 `[4,000, 8,192)` 的旧折痕只能由**旧档**解释。两档都试，否则会把它错误地归到"解释不了"。
+ *   · `produced` 取的是 `summaryChars` = **机械补回之后**的长度 ⇒ 骨架判据只会**低估**
+ *     （模型原文 < 400 字符、补回后变长的那种，落进"解释不了"）。这不是 bug，是数据边界。
+ *
  * @param {object} mark
  * @param {object|null} graph
  * @param {number} budget
@@ -133,6 +143,8 @@ export function yardstickOf(mark, graph, budget) {
   if (c.newCap === true) return drove("bodyCap");
   if (produced !== null && produced < 400) return drove("skeleton");
   if (c.oldCap) return drove("outputCap");
+  const used = Number(c.used);
+  if (Number.isFinite(used) && used >= LEGACY_BUDGET) return drove("outputCapLegacy");
   return drove("unexplained");
 }
 
@@ -253,8 +265,8 @@ function main() {
     cost: {
       discardedUsd: sumCost(disc),
       discardedKnown: knownCost(disc),
-      offlineUsd: sumCost(offline),
-      offlineKnown: knownCost(offline),
+      offlineUsd: sumCost(walk),
+      offlineKnown: knownCost(walk),
       perMarkUsd: disc.length === 0 ? 0 : sumCost(disc) / disc.length,
       models: modelTally(disc),
     },
@@ -282,12 +294,12 @@ function main() {
   console.log(`     · ${pad("字段缺失（C584 之前的旧 mark，没有 truncated）", 34)}${String(missing.length).padStart(4)} 条`);
   console.log("");
 
-  console.log("② 首调撞的是哪把尺子（顺序与 looksTruncated 一致；最后一条是旧判据，C649 之后不再是分支）");
+  console.log("② 首调撞的是哪把尺子（顺序与 looksTruncated 一致；`旧判据*` 两档是 C649 之前的分支）");
   for (const [kind, n] of yardTally(disc)) {
     console.log(`   ${pad(YARDSTICK[kind] ?? kind, 62)}${String(n).padStart(4)} 条  ${pct(disc.length === 0 ? 0 : n / disc.length)}`);
   }
-  const reasoningHeavy = disc.filter((r) => (r.yard.kind === "outputCap" ? 1 : 0)).length;
-  console.log(`   ⇒ 其中 ${reasoningHeavy} 条只能由「含 reasoning 的 outputTokens ≥ ${budget}」解释：`);
+  const reasoningHeavy = disc.filter((r) => r.yard.kind === "outputCap" || r.yard.kind === "outputCapLegacy").length;
+  console.log(`   ⇒ 其中 ${reasoningHeavy} 条只能由「含 reasoning 的 outputTokens ≥ 预算」解释（两档旧预算都算）：`);
   console.log(`     尺子量的是**思考**，不是正文 —— 所以"重试正文多长"在这批记录里从来没被看过一眼。`);
   console.log("");
 
@@ -319,15 +331,15 @@ function main() {
   console.log("④ 白付的钱（真机 usage + 官方价，`estimateFoldCostUsd` 现算）");
   console.log(`   确证丢弃 ${disc.length} 条 × 一次摘要调用 = **${money(report.cost.discardedUsd)}**（${knownCost(disc)}/${disc.length} 条有 usage）`);
   console.log(`     口径：被丢弃那次的 input 与首调逐字相同，输出按首调等价计 ⇒ 这是**下界**，实际只会更多。`);
-  console.log(`   同一批折痕首调合计 ${money(report.cost.offlineUsd)}（${knownCost(offline)}/${offline.length} 条有 usage）`);
+  console.log(`   全库离线折痕合计 ${money(report.cost.offlineUsd)}（${knownCost(walk)}/${offline.length} 条有 usage）`);
   console.log(`     白付占比 ${pct(report.cost.offlineUsd === 0 ? 0 : report.cost.discardedUsd / report.cost.offlineUsd)} · 单条均价 ${money(report.cost.perMarkUsd)}`);
   console.log("   按模型：");
   for (const row of report.cost.models) console.log(`     ${pad(row.model, 40)}${String(row.n).padStart(4)} 条  ${money(row.cost)}`);
   console.log("");
 
   console.log("⑤ 结论");
-  console.log(`   · ${disc.length} 条「付了两次、只用第一次」：按**当前**判据（C649 正文 token）核算，`);
-  console.log(`     其中 ${disc.filter((r) => r.yard.kind === "bodyCap").length} 条会被判截断 ⇒ 这批重试本来一次就够，第二次是白付 ${money(report.cost.discardedUsd)}；`);
+  console.log(`   · ${disc.length} 条「付了两次、只用第一次」：把**保留下来的正文**按当前判据（C649 正文 token）复核，`);
+  console.log(`     撞顶 ${disc.filter((r) => r.yard.kind === "bodyCap").length} 条 ⇒ 第一次就已经写完，这批重试一次都不该发 ⇒ 白付 ${money(report.cost.discardedUsd)}；`);
   console.log(`   · 缺陷的真实面不是"钱"，是**把更好的结果扔掉**：重试正文只要落在 [${budget}, ${retryBudget}) 就会被判仍然截断，`);
   console.log(`     而那正是重试成功的形状（写得更长，只是没到 2×）；修法 = 把"本次调用的预算"传进判据（见 git diff）；`);
   console.log(`   · 不可判 ${unknown.length} 条 + 字段缺失 ${missing.length} 条永远判不了：**离线写回点不写 \`finishReason\`**（T42 第 2 条），`);

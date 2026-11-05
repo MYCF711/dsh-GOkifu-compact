@@ -1028,7 +1028,10 @@ export async function runOfflineFold({
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
     // ★ C649：token 判据比**正文**（`estimateTokens`，与预算同源），不比含 reasoning 的 outputTokens（C73）—— 后者只在「正文只剩骨架」时才算数。
-    const looksTruncated = (r) => {
+    // ★ T45：判据比的是**本次调用的预算**（重试用 `retryBudget` = 2×，拿第一次的 `budget` 比会把
+    //   「写得更长、只是没到 2×」判成仍然截断并丢弃）；纯函数体逐字未动，只多绑一个局部名。
+    const looksTruncated = (r, callBudget = budget) => {
+      const budget = callBudget;
       const used = Number(r?.usage?.completion_tokens ?? r?.usage?.outputTokens ?? NaN);
       if (isTruncatedFinish(r?.finish ?? r?.finishReason) || /max/i.test(String(r?.finish ?? r?.finishReason ?? ""))) return true;
       if (estimateTokens(String(r?.text ?? "")) >= budget) return true;
@@ -1040,7 +1043,7 @@ export async function runOfflineFold({
       if (produced < 400 && (fed > 4000 || (Number.isFinite(used) && used >= budget))) return true;
       return false;
     };
-    let truncated = looksTruncated(out);
+    let truncated = looksTruncated(out, budget);
     if (truncated) {
       // ★ C599：**重试要先算得过来，否则退化成"整段白丢"**。
       //   真机依据（2026-11-05）：
@@ -1057,7 +1060,7 @@ export async function runOfflineFold({
       if (roomMs > spentMs * 1.2) {
         try {
           const bigger = await callModel(prompt, { maxTokens: retryBudget });
-          if (!looksTruncated(bigger) && String(bigger?.text ?? "").trim() !== "") {
+          if (!looksTruncated(bigger, retryBudget) && String(bigger?.text ?? "").trim() !== "") {
             out = bigger;
             truncated = false;
           }
