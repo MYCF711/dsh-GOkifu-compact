@@ -1166,8 +1166,23 @@ export async function runOfflineFold({
     cursor = end + 1;
     if (end >= rangeEnd) break;
   }
-  const uncoveredHead = coveredStart === null ? 0 : Math.max(0, coveredStart - rangeStart);
-  const uncoveredTail = coveredEnd === null ? Math.max(0, rangeEnd - rangeStart + 1) : Math.max(0, rangeEnd - coveredEnd);
+  // ★ T64：**缺口数「可折事件」，不数原始事件序号差**。
+  //   真机：`seq 1–8` 全是 `session` / `turn/start` / `step/start` / `system/message` 等非消息事件，
+  //   第一条 user 消息在 seq 9 ⇒ 旧写法 `coveredStart − rangeStart = 8` 把「没有可折内容」记成
+  //   「8 个事件的缺口」⇒ 60.1% 的小窗口（<20 事件）是这么虚构出来的（T63 已证）。
+  //   判据与 `collectMessages` **同源**（C481：`tool/result` 不进折叠输入 ⇒ 它也不算可折事件）。
+  //   注意 `coverageOf` 的 uncovered 是**死值**（生产只用它的 start/end），所以必须在这里改。
+  //   只算一次再复用：每段折完都要跑这两行，重复收集全量消息是纯浪费（子代理实测指出）。
+  const foldable = collectMessages(events, { maxChars: Number.MAX_SAFE_INTEGER, fromSeq: rangeStart }).messages;
+  const foldableSeqs = [];
+  for (const m of foldable) {
+    const s = Number(m?.seq);
+    if (Number.isFinite(s) && s >= rangeStart && s <= rangeEnd) foldableSeqs.push(s);
+  }
+  const uncoveredHead = coveredStart === null ? 0 : foldableSeqs.filter((s) => s < coveredStart).length;
+  const uncoveredTail = coveredEnd === null
+    ? foldableSeqs.length
+    : foldableSeqs.filter((s) => s > coveredEnd).length;
   return { chunks, coveredStart, coveredEnd, uncoveredHead, uncoveredTail, ...(stoppedEarly !== null ? { failed: stoppedEarly } : {}) };
 }
 
