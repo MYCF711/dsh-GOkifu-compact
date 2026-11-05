@@ -1024,6 +1024,17 @@ export async function runOfflineFold({
     const budgetCap = Math.max(1024, Math.min(16_384, Number(maxTokensCap) || 8_192));
     const budget = Math.min(budgetCap, foldBudgetFor(String(prompt ?? ""), maxTokens));
     let out = await callModel(prompt, { maxTokens: budget });
+    // ★ T49：**付了钱的调用都要进账**。`out` 只回答「采用谁的正文」，`billed` / `billedCalls` 回答
+    //   「这一段到底用了几次模型」—— 以前这两件事由同一个变量承担：C522 的重试成功时
+    //   `out = bigger` 顺手把第一次的 usage 一起覆盖掉 ⇒ 那一次的钱从未进账
+    //   （真机 **367 条**重试折痕 / **5,029,359** 输入 token 不在账上）。
+    //   **为什么不直接改 `out.usage`**：`chunk.usage` 的既有语义是「被采用的那一次」
+    //   （`test/retry-discard.test.mjs` T44① 逐字钉着 `chunk.usage.outputTokens === 12_000`），
+    //   改语义会当场把那条守卫打红。所以：既有字段一个字节都不动，另起 `billedUsage` / `billedCalls`
+    //   记「这一段的总用量」，由写回点（`applyOfflineFoldToGraph`）优先用它记账。
+    let billed = out?.usage ?? null;
+    /** 这一段**真的发出去过几次**调用（重试抛错不算：没有 usage 可记，也就没有第二次账单）。 */
+    let billedCalls = 1;
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
@@ -1060,6 +1071,10 @@ export async function runOfflineFold({
       if (roomMs > spentMs * 1.2) {
         try {
           const bigger = await callModel(prompt, { maxTokens: retryBudget });
+          // ★ T49：这一次**真的发出去了** ⇒ 无论采不采用（还判截断 / 正文是空）都要记账。
+          //   `sumFoldUsage` 先归一化再相加（两次调用的形状可能一个 `prompt_tokens`、一个 `inputTokens`）。
+          billed = sumFoldUsage(billed, bigger?.usage ?? null);
+          billedCalls += 1;
           if (!looksTruncated(bigger, retryBudget) && String(bigger?.text ?? "").trim() !== "") {
             out = bigger;
             truncated = false;
@@ -1132,6 +1147,9 @@ export async function runOfflineFold({
       // ★ C599：标出"重试被截止时间挡掉了"，否则读图的人会以为这条路不会重试
       retrySkipped: skippedRetry,
       quality,
+      // ★ T49：**记账口径 = 这一段花了几次调用**（`billed` 见上面的注释）。
+      //   只在**真的重试过**时出现 ⇒ 99% 的单次调用折痕形状逐字不变。
+      ...(billedCalls > 1 ? { billedUsage: billed, billedCalls } : {}),
       usage: out?.usage ?? null,
       model: out?.model ?? null,
       // ★ C650：**上游是怎么结束的**（`length` / `max-tokens` / `stop`…）。`callModel` 的契约里
@@ -1285,6 +1303,48 @@ export function normalizeUsage(u) {
 }
 
 /**
+ * ★ T49：**把一次折叠里的多次调用 usage 累加**（先归一化，再相加）。
+ *
+ * 为什么要有它：C522 的截断重试会**再发同一条 prompt**（同一段、同一个字符串），
+ * 于是这一段折痕花了**两次**模型钱；而旧代码 `out = bigger` 只换了正文，
+ * 第一次调用的 usage 随 `out` 一起被覆盖 —— `foldMark.usage` 里只剩第二次。
+ *
+ * 三条口径（改这里之前先读；三条都各有一次真机事故在背后）：
+ *
+ *   · **先归一化再相加**：两次调用的形状可能不同（一次 HTTP 的 `prompt_tokens`，一次宿主的
+ *     `inputTokens`）。直接 `a.prompt_tokens + b.inputTokens` 拼出来的是一个**谁都不认识**的数，
+ *     写进 mark 之后成本估算会静默变成 null。
+ *   · **缺失 ≠ 0**：某一侧没给 `cacheReadTokens` 就保持 `null`（字段缺失 = "不知道"，
+ *     不是"命中 0"）。`scripts/cache-rate.mjs` 的 0% 假读就是 `Number(null) === 0` 造成的；
+ *     这里不重犯 —— 恒等式 `hit = total − miss − out` 能从累加后的三个数把它反推回来。
+ *   · **恒等式必须守住**：单次调用满足 `total = miss + hit + out`，逐项相加后仍然满足。
+ *     所以五个数要**一起**加：只加 miss 不加 total，读侧的成本与命中率立刻算歪。
+ *
+ * @param {object|null|undefined} a 已经累计的 usage（`null` = 这一段还没有任何一次进账）
+ * @param {object|null|undefined} b 这一次调用的 usage
+ * @returns {{inputTokens:number|null, outputTokens:number|null, totalTokens:number|null,
+ *            cacheReadTokens:number|null, reasoningTokens:number|null}|null}
+ */
+export function sumFoldUsage(a, b) {
+  const na = normalizeUsage(a);
+  const nb = normalizeUsage(b);
+  // 一侧压根没给 usage（假模型 / 宿主没回用量）⇒ 它不是"一次 0 token 的调用"，原样返回另一侧
+  if (na === null) return nb;
+  if (nb === null) return na;
+  const add = (x, y) => (x === null || y === null ? null : x + y);
+  const inputTokens = add(na.inputTokens, nb.inputTokens);
+  const outputTokens = add(na.outputTokens, nb.outputTokens);
+  const totalTokens = add(na.totalTokens, nb.totalTokens) ?? (inputTokens === null && outputTokens === null ? null : (inputTokens ?? 0) + (outputTokens ?? 0));
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cacheReadTokens: add(na.cacheReadTokens, nb.cacheReadTokens),
+    reasoningTokens: add(na.reasoningTokens, nb.reasoningTokens),
+  };
+}
+
+/**
  * ★ C641：把「补回了几条死路」写进质量记录，并让 `failuresRepaired` **恒在场**（0 也写）。
  *
  * 为什么 0 也要写（原来只在 > 0 时写）：字段**缺失**同时意味着两件事 ——
@@ -1380,7 +1440,10 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       route: { provider: meta.provider ?? "offline", model: chunk.model ?? meta.model ?? null },
       fallback: null,
       ms: chunk.ms ?? null,
-      usage: normalizeUsage(chunk.usage),
+      // ★ T49：**记账用「这一段的总用量」**。`chunk.usage` 的语义（被采用的那一次）保持不变
+      //   （T44① 钉着它），重试过的那一段会把两次调用之和放在 `chunk.billedUsage` 里 ⇒ 这里优先取它。
+      //   于是：折痕的 `usage` 始终 = 「这一段的钱」，而两个调用者的语义各自不变。
+      usage: normalizeUsage(chunk.billedUsage ?? chunk.usage),
       // ★ C650：**怎么结束的**。`callModel` 没给就**不写这个键** —— 写 `"unknown"` / `null` 都会把
       //   「不可判」伪装成「已采集」（三态里的第三态就再也认不出来了）。旧 mark 没有该键照常读：
       //   所有读取点都是 `mark?.finishReason`（doctor / 面板 / 三个审计器），缺键 = 不知道。

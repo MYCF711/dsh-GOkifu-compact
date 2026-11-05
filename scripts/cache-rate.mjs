@@ -20,26 +20,52 @@ import { decodeMultiFrameZstd } from "./session-scan.mjs";
 
 /**
  * ★ C362：把一批 usage 汇总成命中率。纯函数。
- * @param {Array<{inputTokens?:number, cacheReadTokens?:number, outputTokens?:number}>} usages
- * @returns {{requests:number, miss:number, hit:number, output:number, hitRate:number|null}}
+ *
+ * ★ T49：**`cacheReadTokens` 缺失（`null`）不等于 0**。
+ *   真机 926 条离线折痕里 **922 条**该字段是 `null`（字段缺失，不是 0），而旧写法
+ *   `Number.isFinite(Number(u.cacheReadTokens))` 对 `null` 求值恒为真、`Number(null) === 0`
+ *   ⇒ 面板上折叠路径的命中率**永远显示 0%**（真值 38.8%）。
+ *   现在：字段有值就以它为准（provider 直给的口径）；**没有值就用恒等式反推**
+ *   `total = miss + hit + out` ⇒ `hit = total − miss − out`（C361 真机自证：
+ *   `2158 + 19584 + 257 = 21999`）。反推不出来的（连 `totalTokens` 都没有）退回 0，不编。
+ *
+ * @param {Array<{inputTokens?:number, cacheReadTokens?:number|null, outputTokens?:number, totalTokens?:number|null}>} usages
+ * @returns {{requests:number, miss:number, hit:number, output:number, hitRate:number|null, inferred:number, fieldBacked:number}}
+ *   `inferred` = 有多少条请求的命中量是**反推**出来的（旧的 0% 就是这些被当成 0 了）；
+ *   `fieldBacked` = 有多少条是 `cacheReadTokens` 直给的。
  */
 export function aggregateCacheRate(usages) {
+  // `null` 不是数字：`Number(null) === 0` 会把「字段缺失」读成「命中 0」—— 本函数的第一版就这么错过。
+  const numOrNull = (x) => (x === null || x === undefined || x === "" ? null : Number.isFinite(Number(x)) ? Number(x) : null);
   let miss = 0;
   let hit = 0;
   let output = 0;
   let requests = 0;
+  let inferred = 0;
+  let fieldBacked = 0;
   for (const u of usages ?? []) {
     const m = Number(u?.inputTokens);
     if (!Number.isFinite(m) || m < 0) continue;
-    const h = Number(u?.cacheReadTokens);
-    const o = Number(u?.outputTokens);
+    const field = numOrNull(u?.cacheReadTokens);
+    const total = numOrNull(u?.totalTokens);
+    const o = numOrNull(u?.outputTokens);
+    let h;
+    if (field !== null) {
+      h = Math.max(0, field);
+      fieldBacked += 1;
+    } else if (total !== null) {
+      h = Math.max(0, total - m - (o ?? 0));
+      inferred += 1;
+    } else {
+      h = 0; // 没有字段也没有 total ⇒ 反推不出来，不编数
+    }
     miss += m;
-    hit += Number.isFinite(h) && h > 0 ? h : 0;
-    output += Number.isFinite(o) && o > 0 ? o : 0;
+    hit += h;
+    output += o !== null && o > 0 ? o : 0;
     requests += 1;
   }
   const denom = miss + hit;
-  return { requests, miss, hit, output, hitRate: denom === 0 ? null : hit / denom };
+  return { requests, miss, hit, output, hitRate: denom === 0 ? null : hit / denom, inferred, fieldBacked };
 }
 
 /**
