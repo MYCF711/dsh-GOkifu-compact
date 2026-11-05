@@ -90,6 +90,22 @@ const COMPLETE = [
   "",
   "## 当前节点",
   "- 停在 n1，还差一次构建。",
+  "",
+  "## 已验证事实",
+  "- 构建脚本已就位：scripts/build.mjs（跑过 3 次，全绿）",
+  "- 依赖已锁：pnpm-lock.yaml 与 package.json 一致",
+  "- 配置模板在 config/prod.yml.example，真实配置由流水线注入",
+  "- 测试基线：1661 passed / 0 failed（串行，含单实例锁）",
+  "- 边界审计：越界线索 0 条",
+  "",
+  "## 未验证",
+  "- 生产构建（需要 CI 凭据，本机跑不了）",
+  "- 打包产物体积（上次 4.2MB，这次还没量）",
+  "",
+  "## 原始坐标",
+  "- 本段折叠区间 seq 1-3 · 摘要 1,240 字符 · 耗时 52s · 模型 flash1017",
+  "- 相关死路：e1（prod.yml 权限）· e2（pnpm store 硬链接）",
+  "- 下一步：把 CI 凭据接进 build.mjs 的 prod profile，再跑一次全量构建",
 ].join("\n");
 
 /** **真被切断**的摘要：死路一条没写（连 id 都没有），且最后一行停在冒号上。 */
@@ -159,9 +175,9 @@ tests["C648 判据拆解：truncated 由「provider 输出（含 reasoning）≥
   t.eq(classifyEvidence({ truncated: true, usage: { outputTokens: 307 } }, 8192), "skeleton", "没撞预算又判了截断 ⇒ 只可能是 C534 的骨架判据");
   t.eq(classifyEvidence({ truncated: true, usage: { outputTokens: 9000 }, finishReason: "length" }, 8192), "finish-max", "finish 是截断类 ⇒ 先判它");
   t.eq(classifyEvidence({ truncated: true, usage: { outputTokens: 9000 }, finishReason: "max_tokens" }, 8192), "finish-max", "max_tokens 也算截断类");
-  // ★ 侧记（R07，这次不动代码）：C535 写的是 `max(assumed)`，而 `isTruncatedFinish` 只认
-  //   `max_tokens` / `length` 两种写法 ⇒ 「撞满 98% 反推出来的截断」在 doctor 里永远落进「不知道」。
-  t.eq(isTruncatedFinish("max(assumed)"), false, "max(assumed) 不是 close 集里的写法 —— 这是仪器的一个已知盲区（见报告）");
+  // 历史：C648 时期这里断言 false（当时是「已知盲区，先不修」）。
+  // T42 修了源头：max(assumed) 是 C535 亲手反推的截断语义，落进「不知道」等于静默丢掉。
+  t.eq(isTruncatedFinish("max(assumed)"), true, "max(assumed) 是 C535 反推出来的截断语义 —— T42 起认它（历史：C648 时这里断言 false）");
   t.eq(classifyEvidence({ truncated: false, usage: { outputTokens: 9999 } }, 8192), "clean", "写入点说没截断 ⇒ clean（不看 token）");
   t.eq(classifyEvidence({}, 8192), "unknown", "两个字段都没有 ⇒ 不知道，不许并进 clean");
   // ★ 关键：同一条 mark 里「正文 token」远低于预算，却因为 outputTokens 撞顶被判截断
@@ -170,9 +186,14 @@ tests["C648 判据拆解：truncated 由「provider 输出（含 reasoning）≥
   t.eq(classifyEvidence(real, 8192), "output-cap", "而判据仍然说「撞顶」—— 撞的是含 reasoning 的那个数");
 };
 
-/* ────────────────────────── ③ 假阳性可复现 ────────────────────────── */
+/* ────────────────────────── ③ 假阳性已修（T42 翻转；原断言见下方历史注释） ────────────────────────── */
 
-tests["C648 假阳性复现：正文完整收尾 + outputTokens 撞预算 ⇒ truncated:true（这就是那 118 条）"] = async (t) => {
+// 历史：C648 时期这条叫「假阳性复现」，断言 `chunk.truncated === true` —— 它钉的其实是**缺陷本身**
+// （`usage.outputTokens` 含 reasoning 撞预算 ⇒ 假截断）。T42 把判据换成正文 token 之后，同一份夹具
+// 不再报警，所以那条断言必须跟着翻，否则**测试就在保护一个 bug**（这正是 C648 报告里 R07 留下的尾巴）。
+// 夹具补到 > 400 字符（真机被旧判据误报的 149 条，正文 min 是 3,813 字符）—— 145 字符那种「完整摘要」
+// 仍会落进 C534 的骨架支路（provider 报满预算 ∧ 正文 < 400 字符 ⇒ 仍算截断），那不是这条要证的事。
+tests["C648 假阳性已修（T42 翻转）：正文完整收尾 + outputTokens 撞预算 ⇒ truncated:false"] = async (t) => {
   const out = await runOfflineFold({
     graph: graph(),
     events: events(),
@@ -184,8 +205,8 @@ tests["C648 假阳性复现：正文完整收尾 + outputTokens 撞预算 ⇒ tr
     measureQuality: measure,
   });
   const chunk = out.chunks[0];
-  t.eq(chunk.truncated, true, "outputTokens ≥ budget ⇒ 判「被截断」（旧判据的原样行为）");
-  t.eq(chunk.quality.endedCleanly, true, "**但正文是完整收尾的** —— 这就是假阳性");
+  t.eq(chunk.truncated, false, "正文（几百 token）远低于 4,000 预算 ⇒ **不判截断**（T42 前这条断言是 true，钉的是缺陷）");
+  t.eq(chunk.quality.endedCleanly, true, "正文是完整收尾的 —— 旧判据把这种「写完了的摘要」报了 118 条");
   t.eq((chunk.quality.sectionsMissing ?? []).length, 0, "七段该有的都在（目标/棋谱/死路）");
   t.eq(chunk.quality.summaryTokens < 4000, true, `正文只有 ${chunk.quality.summaryTokens} token，远低于 4,000 预算 —— 上限没有卡住它`);
   t.eq(chunk.quality.failureRecall, 1, "死路 id 逐条写出（failureRecall = 1）");

@@ -317,7 +317,9 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
 export function isTruncatedFinish(reason) {
   if (typeof reason !== "string" || reason === "") return false;
   const normalized = reason.toLowerCase().replace(/[-_]/g, "");
-  return normalized === "maxtokens" || normalized === "length";
+  // ★ C649：`max(assumed)` 是 C535 在 `finish` 读不到、completion 顶到 98% 预算时**反推**出来的，
+  //   语义逐字就是「撞满 max_tokens」—— 不认它，这条截断在 doctor / 面板里永远落进「不知道」。
+  return normalized === "maxtokens" || normalized === "length" || normalized === "max(assumed)";
 }
 
 export function evidenceSpan(edge) {

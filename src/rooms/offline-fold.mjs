@@ -10,7 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { evidenceSpan } from "./kifu-model.mjs";
+import { evidenceSpan, isTruncatedFinish } from "./kifu-model.mjs";
 import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-quality.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
@@ -1027,16 +1027,17 @@ export async function runOfflineFold({
     // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
+    // ★ C649：token 判据比**正文**（`estimateTokens`，与预算同源），不比含 reasoning 的 outputTokens（C73）—— 后者只在「正文只剩骨架」时才算数。
     const looksTruncated = (r) => {
       const used = Number(r?.usage?.completion_tokens ?? r?.usage?.outputTokens ?? NaN);
-      if (String(r?.finish ?? r?.finishReason ?? "").toLowerCase().includes("max")) return true;
-      if (Number.isFinite(used) && used >= budget) return true;
+      if (isTruncatedFinish(r?.finish ?? r?.finishReason) || /max/i.test(String(r?.finish ?? r?.finishReason ?? ""))) return true;
+      if (estimateTokens(String(r?.text ?? "")) >= budget) return true;
       // ★ C534：**没撞上限，也可能没写完**。真机 3a3fb03c：completion 4000 里 reasoning 3816，
       //   正文只有 184 token（715 字符）—— 低于上限，旧判据放过它，于是"成功"却只有骨架。
       //   判据：输入不小（>4000 字符）而正文过短（<400 字符）⇒ 当没写完，放大重试。
       const produced = String(r?.text ?? "").trim().length;
       const fed = String(prompt ?? "").length;
-      if (fed > 4000 && produced < 400) return true;
+      if (produced < 400 && (fed > 4000 || (Number.isFinite(used) && used >= budget))) return true;
       return false;
     };
     let truncated = looksTruncated(out);

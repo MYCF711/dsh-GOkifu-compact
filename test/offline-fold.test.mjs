@@ -262,7 +262,7 @@ tests["C522 被截断的摘要不许当完整：撞上限就放大 2× 重试一
     maxTokens: 4000,
     callModel: async (prompt, { maxTokens }) => {
       budgets.push(maxTokens);
-      if (budgets.length === 1) return { text: "## 目标\n- 半句话", usage: { completion_tokens: maxTokens }, model: "fake" };
+      if (budgets.length === 1) return { text: "## 目标\n- 半句话" + "字".repeat(8000), usage: { completion_tokens: maxTokens }, model: "fake" };
       return { text: "## 目标\n- 把构建跑通\n\n## 已验证事实\n- 全须全尾\n- 不许动 prod 配置\n- 不要粉色大象", usage: { completion_tokens: 300 }, model: "fake" };
     },
     measureQuality: () => ({ constraintRecall: 1 }),
@@ -341,7 +341,7 @@ tests["C533 事实块必须有长度上限（病态数据不许把 prompt 撑爆
 
 tests["C534 没撞上限也可能没写完：正文过短要重试（真机 reasoning 吃掉 3816/4000）"] = async (t) => {
   const m = await import("../src/rooms/offline-fold.mjs");
-  const big = { type: "user/message", seq: 1, data: { message: { content: [{ type: "text", text: "很长的历史".repeat(600) }] } } };
+  const big = { type: "user/message", seq: 1, data: { message: { content: [{ type: "text", text: "很长的历史".repeat(900) }] } } };
   const calls = [];
   const out = await m.runOfflineFold({
     graph,

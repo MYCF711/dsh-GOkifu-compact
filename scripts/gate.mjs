@@ -204,6 +204,30 @@ export function main(argv = process.argv.slice(2)) {
     }
   }
 
+  // ★ T43（2026-11-05）：**源码里的字面 NUL（0x00）**。它会让 git 把整个文件判 binary ——
+  //   `git diff --stat` 报 `Bin 16735 -> 21499 bytes`（0 insertions / 0 deletions）、`git diff` 输出为空、
+  //   grep 判 binary。keeper.mjs 就因为这个字节，一晚上改了什么都看不见（得加 `-a`）。
+  //
+  //   为什么放在这里、不进 `GATES`：`test/gate.test.mjs` 把那张清单**逐项钉死**（多一项就红），
+  //   而这条只要求"出现在同一份输出里 + 有 NUL 就判红"。所以子进程结果**塞进 results** ——
+  //   它照样是判分门（进 failed ⇒ 退出码 1、进 `门禁 n/n` 计数），但不动那张被钉住的清单。
+  //   已知遗留（docs/派单表.md 那处当轮不可写）在 nul-byte-audit.mjs 的白名单里，处数上限只许缩小。
+  {
+    const startedAt = Date.now();
+    const res = spawnSync(process.execPath, [nodePath.join(HERE, "nul-byte-audit.mjs"), "--check", "--quiet"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const out = `${String(res.stdout ?? "")}${String(res.stderr ?? "")}`.replace(ANSI, "");
+    const headline = (out.match(/^(✅|❌|⚠)[^\n]*/gm) ?? []).slice(0, 2).map((line) => line.trim());
+    const ok = res.status === 0;
+    const ms = Date.now() - startedAt;
+    results.push({ id: "nul-byte", name: "源码无字面 NUL", ok, ms, status: res.status, out: headline.join("\n") });
+    process.stdout.write(`  ${ok ? "✓" : "✗"} 源码无字面 NUL（${(ms / 1000).toFixed(1)}s）\n`);
+    for (const line of headline) process.stdout.write(`     ↳ ${line}\n`);
+  }
+
   // ★ 文档计数漂移专项：跑完所有门再看一眼「文档里的数字 vs 权威源」（参考位，永不影响退出码）
   const docNumbers = docNumbersAdvisory();
   process.stdout.write("  — 文档数字（passed / CHANGELOG 条目）—— 仅供参考\n");

@@ -1,5 +1,5 @@
 {
- "total": 1320,
+ "total": 1337,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -110,6 +110,7 @@
   "migrate.test.mjs": 2,
   "node-docs-prune.test.mjs": 6,
   "node-docs.test.mjs": 2,
+  "nul-byte.test.mjs": 6,
   "offline-finish.test.mjs": 4,
   "offline-fold.test.mjs": 33,
   "overbudget-report.test.mjs": 4,
@@ -167,6 +168,7 @@
   "trace-relative.test.mjs": 0,
   "tree-freshness.test.mjs": 5,
   "truncation-consumers.test.mjs": 4,
+  "truncation-criteria.test.mjs": 11,
   "ui-backfill.test.mjs": 12,
   "ui-config.test.mjs": 13,
   "ui-health.test.mjs": 0,
@@ -188,6 +190,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 1646,
- "passedAt": "2026-11-05T00:51:09.894Z"
+ "passed": 1663,
+ "passedAt": "2026-11-05T01:14:19.141Z"
 }
