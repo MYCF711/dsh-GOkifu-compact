@@ -61,6 +61,11 @@ import { countResolvedFailures, isTruncatedFinish } from "./rooms/kifu-model.mjs
 import { readProfileBundles, readTextOrNull } from "./rooms/profile-io.mjs";
 import { repoVersion, repoBuildId, processIsAlive } from "./rooms/build-stamp.mjs";
 import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms/preset-format.mjs";
+// ★ T62：补 import。`recentFoldP90` / `closeoutTimeoutAdvice` 由 closeout-plan 导出，
+//   `engine.mjs` 一直正确 import，这里漏了 ⇒ dryRun 的 backfill 路径会 ReferenceError。
+//   此前没被测出来，是因为守卫写的是 `t.includes(src, "closeoutTimeoutAdvice(")`（字符串匹配），
+//   缺 import 也照样绿 —— 这类「只看字面量」的守卫正是它能活下来的原因。
+import { closeoutTimeoutAdvice, recentFoldP90 } from "./rooms/closeout-plan.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
 import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
 // ★ C216「补做收尾」：判债务 / 排序限量 / 串行补（取消归档 → resume → 收尾 → 归档回去）都在 R17 房间里，
@@ -1231,7 +1236,8 @@ export function saveConfig(patch, options = {}) {
     throw error;
   }
   for (const key of Object.keys(clean)) {
-    if (SECRET_KEY_RE.test(key)) throw new Error(`含密钥的键不允许通过页面写入：${label(key)}`);
+    // ★ T62：`label` 在本文件从未定义。这里要打印的是**键名**（不是值），直接用 `key` 即可。
+    if (SECRET_KEY_RE.test(key)) throw new Error(`含密钥的键不允许通过页面写入：${key}`);
   }
   const presets = findPresetFiles(home).filter((p) => p.text.includes(ENTRY_ID));
   if (presets.length === 0) throw new Error(`没有找到含 ${ENTRY_ID} 的 preset（先跑 install）`);

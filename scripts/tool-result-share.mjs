@@ -206,7 +206,9 @@ export function main(argv = process.argv.slice(2), { home = process.env.DSH_HOME
     rows.push({ session: sessionDirName.replace(/^session-/, "").slice(0, 16), ...s });
   }
   if (argv.includes("--json")) {
-    console.log(JSON.stringify({ rows, charsPerToken: CHARS_PER_TOKEN }, null, 2));
+    // ★ T62：`CHARS_PER_TOKEN` 从未定义（C483 把估算改成中英分开的官方比例后，这行没跟着改）。
+    //   本文件实际用的是 `LATIN_TOKENS_PER_CHAR` / `CJK_TOKENS_PER_CHAR`，输出就报这两个真值。
+    console.log(JSON.stringify({ rows, latinTokensPerChar: LATIN_TOKENS_PER_CHAR, cjkTokensPerChar: CJK_TOKENS_PER_CHAR }, null, 2));
     return 0;
   }
   console.log(`== 工具结果占比（最近 ${rows.length} 份会话日志）==`);
