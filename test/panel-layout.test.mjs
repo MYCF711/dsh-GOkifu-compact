@@ -252,9 +252,9 @@ function assertDefaultTree(tree) {
     }
   }
   const primaryRows = findAll(tree, (node) => node.props?.["data-fold-row"] === "true");
-  if (primaryRows.length !== 3) throw new Error(`首屏折痕必须恰好 3 条，实际 ${primaryRows.length}`);
+  if (primaryRows.length !== 5) throw new Error(`普通首屏折痕必须恰好 5 条，实际 ${primaryRows.length}`);
   const text = textOf(tree);
-  for (const hidden of ["高级参数（18 项）", "健康检查", "开始补账", ADVANCED_WARNING, "seq 301–380", "seq 401–480"]) {
+  for (const hidden of ["高级参数（18 项）", "健康检查", "开始补账", ADVANCED_WARNING]) {
     if (text.includes(hidden)) throw new Error(`默认首屏泄露了折叠内容：${hidden}`);
   }
 }
@@ -290,14 +290,17 @@ export const DEFAULT_DISCLOSURE_STATES = disclosures(DEFAULT_TREE).map((node) =>
   defaultExpanded: node.props["data-default-expanded"],
   expanded: node.props["data-expanded"],
 }));
-export const FIRST_SCREEN_HEIGHT = T.estimateFirstScreenHeight({ foldCount: 3, updateBanner: true });
+export const FIRST_SCREEN_HEIGHT = T.estimateFirstScreenHeight({ foldCount: 5, updateBanner: false });
+export const FIRST_SCREEN_HEIGHT_WITH_UPDATE = T.estimateFirstScreenHeight({ foldCount: 5, updateBanner: true });
 export const PANEL_RENDER_EVIDENCE = [
   "=== FIRST SCREEN REACT TREE (1280x720; style/event props omitted) ===",
   ...serializeTree(DEFAULT_TREE),
   "=== DEFAULT DISCLOSURE STATES ===",
   JSON.stringify(DEFAULT_DISCLOSURE_STATES, null, 2),
-  "=== FIRST SCREEN HEIGHT ESTIMATE ===",
+  "=== FIRST SCREEN HEIGHT ESTIMATE (NO UPDATE BANNER) ===",
   JSON.stringify(FIRST_SCREEN_HEIGHT, null, 2),
+  "=== FIRST SCREEN HEIGHT ESTIMATE (WITH UPDATE BANNER) ===",
+  JSON.stringify(FIRST_SCREEN_HEIGHT_WITH_UPDATE, null, 2),
 ].join("\n");
 
 const thresholdProof = loadClient();
@@ -322,23 +325,34 @@ export const THRESHOLD_EVIDENCE = [
 ].join("\n");
 
 export const tests = {
-  "① 一级首屏：状态 + 今日三项 + 最近3条；三个二/三级区全部真实默认收起"(t) {
+  "① 一级首屏：状态 + 今日三项 + 最近5条；三个二/三级区全部真实默认收起"(t) {
     assertDefaultTree(DEFAULT_TREE);
     const primary = findAll(DEFAULT_TREE, (node) => node.props?.["data-panel-level"] === "primary");
     t.eq(primary.length, 3, "一级必须是状态卡、今日卡、最近折痕卡三张");
     const primaryRows = findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-row"] === "true");
-    t.eq(primaryRows.length, 3, "首屏只画最近3条");
+    t.eq(primaryRows.length, 5, "普通首屏画最近5条；711px是5条下的不溢出最大值");
     t.eq(primaryRows.every((row) => childrenOf(row).length === 1), true, "首屏每条折痕只有 foldMain 一个布局子行；完整明细在二级");
+    t.eq(findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-compact"] === "false").length, 0, "完整折痕列表默认不挂载");
     t.eq(T.styles.foldRow.padding, "16px 0", "单行化不破坏官方16px行距");
     // 独立盒模型：24 padding + 1 border + 20 title + N个gap + N条单行，不允许漏算 flex gap。
-    const expectedFoldCard = 24 + 1 + 20 + 3 * T.SPACING.card + 3 * 52;
-    t.eq(FIRST_SCREEN_HEIGHT.foldGaps, 24, "标题+3行之间恰好3个8px gap");
+    const expectedFoldCard = 24 + 1 + 20 + 5 * T.SPACING.card + 5 * 52;
+    t.eq(FIRST_SCREEN_HEIGHT.visibleFolds, 5, "普通首屏折痕数与真实 React 树一致");
+    t.eq(FIRST_SCREEN_HEIGHT.foldGaps, 40, "标题+5行之间恰好5个8px gap");
     t.eq(FIRST_SCREEN_HEIGHT.foldRow, 52, "单折痕行=32 padding + 19内容 + 1边框（向上取整）");
     t.eq(FIRST_SCREEN_HEIGHT.foldCard, expectedFoldCard, "折痕卡高度必须含全部padding/border/title/gap/行高");
     const expectedPrimary = Math.max(112 + T.SPACING.section + 112 + T.SPACING.section + expectedFoldCard, 3 * 61 + 2 * T.SPACING.section);
-    t.eq(FIRST_SCREEN_HEIGHT.total, 48 + 46 + T.SPACING.section + 74 + expectedPrimary, "整屏高度独立重算一致");
+    t.eq(FIRST_SCREEN_HEIGHT.total, 48 + 46 + T.SPACING.section + expectedPrimary, "无横幅整屏高度独立重算一致");
+    t.eq(FIRST_SCREEN_HEIGHT.total, 711, "普通首屏总高必须是711px");
+    t.eq(FIRST_SCREEN_HEIGHT.availableHeight, 720, "可用高度口径固定为720px");
+    t.eq(FIRST_SCREEN_HEIGHT.utilization, 711 / 720, "首屏利用率必须按总高/可用高度计算");
+    t.ok(FIRST_SCREEN_HEIGHT.utilization >= 0.85, "普通首屏利用率必须≥85%");
+    const expectedBannerFoldCard = 24 + 1 + 20 + 3 * T.SPACING.card + 3 * 52;
+    const expectedBannerPrimary = 112 + T.SPACING.section + 112 + T.SPACING.section + expectedBannerFoldCard;
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.visibleFolds, 3, "更新横幅出现时自动减为3条，为74px横幅留位");
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 48 + 46 + T.SPACING.section + 74 + expectedBannerPrimary, "含横幅整屏高度独立重算一致");
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 665, "含更新横幅首屏总高必须是665px");
     const text = textOf(DEFAULT_TREE);
-    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 3 条）", "折痕列表", "常用配置", "高级"]) {
+    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 5 条）", "折痕列表", "常用配置", "高级"]) {
       t.includes(text, wanted, `首屏缺少 ${wanted}`);
     }
     // ★ 用户指正（截图实测）：「二级」「三级」「别动」是**结构概念**，不是给用户看的文案。
@@ -348,9 +362,14 @@ export const tests = {
       t.notIncludes(text, bad, `层级编号/「别动」不许出现在 UI 标签：${bad}`);
     }
     for (const hidden of ["涉及会话", "棋谱总数", "全库失败边", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "次级信息不许平铺到首屏");
-    t.eq(DEFAULT_DISCLOSURE_STATES.map((row) => row.defaultExpanded), [false, false, false].map(String), "默认状态全部 false");
-    t.eq(FIRST_SCREEN_HEIGHT.fits, true, `含更新横幅估算 ${FIRST_SCREEN_HEIGHT.total}px，必须 ≤720px`);
-    t.ok(FIRST_SCREEN_HEIGHT.total <= 720, `首屏高度 ${FIRST_SCREEN_HEIGHT.total}px 超屏`);
+    t.eq(DEFAULT_DISCLOSURE_STATES.map((row) => row.defaultExpanded), [false, false, false].map(String), "完整列表/常用配置/高级配置默认全部 false");
+    t.eq(FIRST_SCREEN_HEIGHT.fits, true, `普通首屏估算 ${FIRST_SCREEN_HEIGHT.total}px，必须 ≤720px`);
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.fits, true, `含更新横幅估算 ${FIRST_SCREEN_HEIGHT_WITH_UPDATE.total}px，必须 ≤720px`);
+    t.ok(FIRST_SCREEN_HEIGHT.total <= FIRST_SCREEN_HEIGHT.availableHeight, `普通首屏高度 ${FIRST_SCREEN_HEIGHT.total}px 超屏`);
+    t.ok(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total <= FIRST_SCREEN_HEIGHT_WITH_UPDATE.availableHeight, `含横幅首屏高度 ${FIRST_SCREEN_HEIGHT_WITH_UPDATE.total}px 超屏`);
+    const sixMarkPanel = panelRenderer(fixture({ foldMarks: makeMarks(6) }));
+    t.eq(findAll(sixMarkPanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 5, "有6条数据时首屏也只取最近5条");
+    t.notIncludes(textOf(sixMarkPanel.runtime.tree()), "seq 501–580", "第6条只能进入完整折痕列表");
   },
 
   "② 二级交互：点击官方 chevron 按钮才挂载完整5条与4个常用控件，再点真正收起"(t) {
@@ -359,7 +378,7 @@ export const tests = {
     panel.runtime.render(panel.T.Page);
     let tree = panel.runtime.tree();
     t.eq(disclosureButton(tree, "fold-history").props["aria-expanded"], "true", "完整折痕已展开");
-    t.eq(findAll(tree, (node) => node.props?.["data-fold-row"] === "true").length, 8, "首屏3条 + 完整5条 = 8条真实行");
+    t.eq(findAll(tree, (node) => node.props?.["data-fold-row"] === "true").length, 10, "首屏5条 + 完整5条 = 10条真实行");
     t.eq(findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length, 1, "完整列表只在二级挂载一份");
     disclosureButton(tree, "common-config").props.onClick();
     panel.runtime.render(panel.T.Page);
@@ -463,7 +482,14 @@ export const tests = {
     t.notIncludes(text, "开始补账", "补账不得补进一级");
   },
 
-  "⑦ 失败分支真红：内存变异成默认展开或数字阈值时，同一守卫必须抛错"(t) {
+  "⑦ 失败分支真红：内存变异成6条折痕、默认展开或数字阈值时，同一守卫必须抛错"(t) {
+    const crowdedSource = SOURCE.replace("const RECENT_FOLD_LIMIT = 5;", "const RECENT_FOLD_LIMIT = 6;");
+    t.ne(crowdedSource, SOURCE, "6条折痕变异确实命中源码");
+    const crowded = panelRenderer(fixture({ foldMarks: makeMarks(6) }), crowdedSource);
+    t.throws(() => assertDefaultTree(crowded.runtime.tree()), "首屏放到第6条必须让折痕守卫变红");
+    t.eq(crowded.T.estimateFirstScreenHeight({ foldCount: 6, updateBanner: false }).total, 771, "第6条会把普通首屏推到771px");
+    t.eq(crowded.T.estimateFirstScreenHeight({ foldCount: 6, updateBanner: false }).fits, false, "771px必须被不溢出门禁拒绝");
+
     const expandedSource = SOURCE.replaceAll("defaultOpen: false", "defaultOpen: true");
     t.ne(expandedSource, SOURCE, "默认展开变异确实命中源码");
     const expanded = panelRenderer(fixture(), expandedSource);
