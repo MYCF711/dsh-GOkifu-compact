@@ -2504,16 +2504,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       };
       if (!target0.provider || !target0.model) return { tier: "offline", folded: 0, chunks: 0, stopped: "no-model", partial: true };
       const callModel = async (prompt, { maxTokens }) => {
-        // 与在线摘要**完全同一套**装配方式：stream → assembler.push(chunk) → assembler.blocks()
+        // 与在线摘要同装配。C594：关思考参数并非所有上游都认；C600：用活跃回合捕获的 llm 句柄，不直连网关。
         const assembler = new BlockAssembler();
-        // ★ C594：**关思考的两个参数不是所有上游都认**。真机（2026-11-04 21:5x）默认模型换成
-        //   `group/kimi-k3.1-pro` 之后补账连续零产出：HTTP 那条路认这两个字段，
-        //   宿主的 `llm.stream` 未必 —— 一旦它严格校验，这里就抛错，而错误只在控制台里。
-        //   所以：**先带、抛了再去掉重试一次**，并把降级记进 notes（可被状态文件带出来）。
-        // ★ C600：**用"活跃回合里捕获的 llm 句柄"**。真机错误是
-        //   `cannot get required service "llm" in inactive context` —— 后台定时器里宿主的
-        //   服务容器已经失活，每次访问都抛。而 C500 明确规定**不许直连网关端口**。
-        //   解法：在活跃回合里（`compactIfNeeded`）把 `ctx.llm` 抓住存下来，补账时用这份引用。
         const llmHandle = this._llmHandle ?? this.ctx.llm;
         const streamOnce = async (extra) => {
           const a = new BlockAssembler();
@@ -2522,8 +2514,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             model: target0.model,
             messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
             maxTokens: Number(maxTokens) || 8192,
-            // ★ C597：**不传 session / sessionId** —— C596 当年是按"宿主适配器要会话"的假设加的，
-            //   真因是 `routedTarget` 拿到合成会话就抛。这里保持 C525 的无头契约：只给 provider/model。
+            // C525/C597：无头调用只给 provider/model，不传 session/sessionId。
             ...extra,
           })) {
             a.push(chunk);
@@ -2535,38 +2526,43 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           usedAssembler = await streamOnce({ purpose: "compaction", thinking: { type: "disabled" }, reasoning_effort: "none" });
         } catch (error) {
           const message = String(error?.message ?? error);
-          // ★ C600（C500 红线）：**引擎不许直连网关端口**，必须走 `ctx.llm.stream`。
-          //   真机错误是 `cannot get required service "llm" in inactive context` ——
-          //   这不是"通道坏了"，是**后台定时器里宿主服务上下文是 inactive 的**。
-          //   正确解法不是绕过宿主，而是**把这一轮挪到活跃上下文里做**（见 #backfillPending 的两处触发点）。
+          // 传输/参数异常不是空回答；只有明确的 inactive context 才等活跃回合。
+          if (!/inactive context|required service "llm"/i.test(message)) throw error;
           this.ctx.logger?.warn?.(`chess-context: 离线补折需要活跃上下文（${message.slice(0, 120)}）—— 本轮跳过，等下一次活跃触发`);
           return { tier: "offline", folded: 0, chunks: 0, stopped: "inactive-context", partial: true, error: message.slice(0, 200) };
         }
-        // ★ C525/C559/C578 的注释留在 streamOnce 的第一次调用里：
-        //   不传真实 sessionId（无头）、thinking:disabled、reasoning_effort:none。
-        const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
-        const text = Array.isArray(blocks)
-          ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
-          : "";
-        // ★ C650：**把上游的 finish 带出去**。契约（`runOfflineFold` 的 JSDoc）一直写着
-        //   `{ text, usage, model, finish? }`，但这里少返回一个字段 ⇒ 离线折叠 917/917 条
-        //   `finishReason` 落盘率 0.0% ⇒ `looksTruncated` 的 finish 分支在**真机主路**上永远不命中
-        //   （不是"没撞顶"，是"看不见撞没撞"）。脚本路由（archive-fold.mjs）本来就带了 finish，
-        //   所以同一个写回点会写出两种形状 —— 这才是那条 0.0% 的来源。
-        //   形状可能是字符串，也可能是 `{kind}` / `{reason:{kind}}`（见 C535 的归一化），两种都收。
-        //   读不到就**不写这个键**（返回 null），绝不编 "unknown" —— 编了就把「不可判」变成假的「已判」。
-        const finishOut = (() => {
+        // C559/C578：无头 + 关思考。空 blocks 先分 error 与正常空答；reasoning 也是真实内容，不能滤没。
+        const finishRaw = (() => {
           try {
-            const raw = usedAssembler.finish;
-            if (typeof raw === "string" && raw !== "") return raw;
-            if (typeof raw?.kind === "string" && raw.kind !== "") return raw.kind;
-            if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
-            return null;
+            return usedAssembler.finish ?? null;
           } catch {
             return null;
           }
         })();
-        return { text, usage: usedAssembler.usage ?? null, model: target0.model, finish: finishOut };
+        const finishKind = typeof finishRaw === "string" ? finishRaw : finishRaw?.kind ?? finishRaw?.reason?.kind;
+        if (finishKind === "error" || finishKind === "aborted") {
+          const failure = finishRaw?.failure ?? finishRaw?.reason?.failure ?? null;
+          const message = String(failure?.message ?? `offline summarization ${finishKind}`);
+          const code = typeof failure?.code === "string" && failure.code !== "" ? failure.code : null;
+          throw new LlmError(code !== null && !message.includes(code) ? `${message} [${code}]` : message, code ?? undefined, failure);
+        }
+        const blocks = typeof usedAssembler.blocks === "function" ? usedAssembler.blocks() : [];
+        const text = Array.isArray(blocks)
+          ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
+          : "";
+        const reasoning = Array.isArray(blocks)
+          ? blocks.filter((b) => b?.type === "reasoning").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
+          : "";
+        const responseText = text.trim() === "" ? reasoning : text;
+        // C650：finish 透传给截断判据；兼容 string / {kind} / {reason:{kind}}，读不到就是 null，不编值。
+        const finishOut = (() => {
+          const raw = finishRaw;
+          if (typeof raw === "string" && raw !== "") return raw;
+          if (typeof raw?.kind === "string" && raw.kind !== "") return raw.kind;
+          if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
+          return null;
+        })();
+        return { text: responseText, usage: usedAssembler.usage ?? null, model: target0.model, finish: finishOut };
       };
       // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
       //   `measureQuality` 闭包在调用期间读它 ⇒ `ReferenceError: Cannot access before initialization`
