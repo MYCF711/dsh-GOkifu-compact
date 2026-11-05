@@ -197,12 +197,14 @@ tests["T42④ landingRates：按 trigger 分组，string / null / 缺键三档�
 
 /* ────────────────────────── ⑤ callModel 的字段集（从源码读） ────────────────────────── */
 
-tests["T42⑤ 引擎那处 callModel **不返回** finish（这才是真机补了也不变色的根因）"] = (t) => {
+tests["T42⑤ 引擎那处 callModel **必须返回** finish（C650 反转：之前它不返回，真机 917/917 不可判）"] = (t) => {
   const source = nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
   const parsed = returnKeysOf(source, "const callModel = async (prompt, { maxTokens }) => {");
   t.eq(parsed.ok, true, `解析要成功（失败说明签名改了，审计该跟着改）：${parsed.why}`);
   t.eq(parsed.keys.includes("text"), true, "成功返回必须带 text（取错了 `return {…}` 就会少报）");
-  t.eq(parsed.keys.includes("finish"), false, "引擎这条**没有** finish ⇒ 真机上「不可判」条数不会因为接线而下降");
+  // 历史：C650 之前这里断言 false（当时钉的是「引擎不返回 finish」这个缺陷本身）。
+  // C650 把引擎那一行补上了 ⇒ 断言必须跟着翻，否则测试在保护 bug。
+  t.eq(parsed.keys.includes("finish"), true, "引擎这条**必须**带 finish（否则真机 917/917 条永远不可判）");
   t.eq(parsed.all.length >= 2, true, "函数体里至少有两个 return 字面量（上下文失活那条是错误分支，不许拿来冒充契约）");
 };
 

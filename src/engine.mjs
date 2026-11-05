@@ -2541,7 +2541,25 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         const text = Array.isArray(blocks)
           ? blocks.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")).join(String.fromCharCode(10))
           : "";
-        return { text, usage: usedAssembler.usage ?? null, model: target0.model };
+        // ★ C650：**把上游的 finish 带出去**。契约（`runOfflineFold` 的 JSDoc）一直写着
+        //   `{ text, usage, model, finish? }`，但这里少返回一个字段 ⇒ 离线折叠 917/917 条
+        //   `finishReason` 落盘率 0.0% ⇒ `looksTruncated` 的 finish 分支在**真机主路**上永远不命中
+        //   （不是"没撞顶"，是"看不见撞没撞"）。脚本路由（archive-fold.mjs）本来就带了 finish，
+        //   所以同一个写回点会写出两种形状 —— 这才是那条 0.0% 的来源。
+        //   形状可能是字符串，也可能是 `{kind}` / `{reason:{kind}}`（见 C535 的归一化），两种都收。
+        //   读不到就**不写这个键**（返回 null），绝不编 "unknown" —— 编了就把「不可判」变成假的「已判」。
+        const finishOut = (() => {
+          try {
+            const raw = usedAssembler.finish;
+            if (typeof raw === "string" && raw !== "") return raw;
+            if (typeof raw?.kind === "string" && raw.kind !== "") return raw.kind;
+            if (typeof raw?.reason?.kind === "string" && raw.reason.kind !== "") return raw.reason.kind;
+            return null;
+          } catch {
+            return null;
+          }
+        })();
+        return { text, usage: usedAssembler.usage ?? null, model: target0.model, finish: finishOut };
       };
       // ★ C572：**必须声明在 runOfflineFold 之前**。原来它在调用之后 ⇒
       //   `measureQuality` 闭包在调用期间读它 ⇒ `ReferenceError: Cannot access before initialization`
