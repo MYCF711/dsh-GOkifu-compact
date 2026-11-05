@@ -140,7 +140,10 @@ function one(node, predicate, description) {
 }
 
 function labelsOf(tree) {
-  return findAll(tree, (node) => node.props?.["data-disclosure"] !== undefined).map(textOf);
+  // ★ Lead 集成：面板从「折叠条（data-disclosure）」改成「tab 切换（data-panel-tab）」。
+  //   这条守卫的真正意图是「标签按内容命名、不含层级编号」—— 与「用折叠条还是 tab」**无关**。
+  //   所以只换「取标签的选择器」，不断言「它是不是折叠条」。
+  return findAll(tree, (node) => node.props?.["data-panel-tab"] !== undefined).map(textOf);
 }
 
 function panelRenderer(state, source = SOURCE) {
@@ -230,7 +233,7 @@ function renderScenario(name, home) {
   const defaultTree = panel.runtime.tree();
   const defaultFoldText = foldCardText(defaultTree, true);
   const labels = labelsOf(defaultTree);
-  one(defaultTree, (node) => node.props?.["data-disclosure"] === "fold-history", "折痕 Disclosure").props.onClick();
+  one(defaultTree, (node) => node.props?.["data-panel-tab"] === "folds", "折痕 tab").props.onClick();
   panel.runtime.render(panel.T.Page);
   const expandedTree = panel.runtime.tree();
   return {
@@ -306,8 +309,10 @@ function countText(text, needle) {
 
 export const tests = {
   "① 三个展开区按内容命名，标签不含结构层级或警告词": (t) => {
-    t.eq(scenarios.global.labels, ["折痕列表（3）", "常用配置", "高级配置"], "全局有折痕时标签与计数准确");
-    t.eq(scenarios.empty.labels, ["折痕列表（0）", "常用配置", "高级配置"], "全局真空时仍按内容命名");
+    // ★ Lead 集成：面板改成 tab 切换后，标签是「总览 / 折痕 / 配置」（学自动化任务页）。
+    //   这条守卫的意图不变：**标签按内容命名、不含「二级/三级/别动」**。
+    t.eq(scenarios.global.labels, ["总览", "折痕", "配置"], "tab 按内容命名");
+    t.eq(scenarios.empty.labels, ["总览", "折痕", "配置"], "全局真空时 tab 标签不变");
     for (const scenario of Object.values(scenarios)) {
       t.throws(() => assertCleanLabels(["二级 · 折痕列表"]), "负例自身必须被守卫拒绝");
       assertCleanLabels(scenario.labels);
@@ -342,7 +347,8 @@ export const tests = {
     t.includes(scenarios.empty.defaultFoldText, "还没有折叠", "只有全局真空时首屏才显示空态");
     t.includes(scenarios.empty.fullFoldText, "还没有折叠", "只有全局真空时完整列表才显示空态");
     t.notIncludes(scenarios.empty.fullFoldText, "seq", "真空不得硬塞折痕行");
-    t.eq(countText(textOf(scenarios.empty.expandedTree), "还没有折叠"), 2, "真空展开后首屏与完整列表各有一个合法空态");
+    // ★ Lead 集成：tab 切换后「总览」与「折痕」**互斥**，展开折痕 tab 时只有**一个**空态（不是折叠条时代的首屏+展开各一个）。
+    t.eq(countText(textOf(scenarios.empty.expandedTree), "还没有折叠"), 1, "tab 互斥后展开折痕 tab 只有一个合法空态");
   },
 
   "④ 全局最近列表跨会话封顶 20 条，空扫描才返回空": (t) => {
@@ -363,9 +369,11 @@ export const tests = {
   },
 
   "⑤ 失败分支真红：旧标签或假空态变异必须被同一守卫拒绝": (t) => {
+    // ★ Lead 集成：旧标签变异改成「把 tab 的 `label: "折痕"` 原位替成 `label: "二级 · 折痕"`」
+    //   （折叠条时代的 `title: \`折痕列表…\`` 已不存在）。
     const oldLabelSource = SOURCE.replace(
-      "title: `折痕列表（${allFoldMarks.length}）`",
-      "title: `二级 · 完整折痕列表（${allFoldMarks.length}）`",
+      'label: "折痕"',
+      'label: "二级 · 折痕"',
     );
     t.ne(oldLabelSource, SOURCE, "旧标签变异必须命中源码");
     const oldLabelPanel = panelRenderer(scenarios.global.state, oldLabelSource);

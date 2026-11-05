@@ -1,8 +1,8 @@
 /**
- * panel-layout.test.mjs —— 一屏分级面板的真实组件树 / 默认折叠 / 固定阈值档位守卫。
+ * panel-layout.test.mjs —— 总览 / 折痕 / 配置三 tab 的真实组件树、互斥切换与固定阈值档位守卫。
  *
  * 不启动 DSH、不访问网络、不调模型。直接执行 lib/client.js 的 Page 与子组件；
- * 轻量 React runtime 按组件实例保存 hooks，因此点击按钮后可以重渲染并检查真实展开状态。
+ * 轻量 React runtime 按组件实例保存 hooks，因此点击 tab 后可以重渲染并检查真实互斥状态。
  */
 
 import nodeFs from "node:fs";
@@ -15,7 +15,7 @@ const CLIENT = nodePath.join(ROOT, "lib", "client.js");
 const SOURCE = nodeFs.readFileSync(CLIENT, "utf8");
 
 const ADVANCED_WARNING = "以下参数影响折叠时机与成本，改错会导致摘要截断、缓存失效或重复扣费";
-const OFFICIAL_CHEVRON_D = "M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6";
+const TAB_IDS = Object.freeze(["overview", "folds", "config"]);
 export const ADVANCED_FIELD_KEYS = Object.freeze([
   "auto",
   "growthFloorTokens",
@@ -196,9 +196,11 @@ function fixture(overrides = {}) {
   };
 }
 
-function panelRenderer(state = fixture(), source = SOURCE, draftOverrides = null) {
+function panelRenderer(state = fixture(), source = SOURCE, draftOverrides = null, update = null) {
   const loaded = loadClient(source);
-  loaded.runtime.seed("Page", [state, state === null ? {} : { ...state.config, ...(draftOverrides ?? {}) }]);
+  const seeded = [state, state === null ? {} : { ...state.config, ...(draftOverrides ?? {}) }];
+  if (update !== null) seeded[8] = update;
+  loaded.runtime.seed("Page", seeded);
   loaded.runtime.render(loaded.T.Page);
   return loaded;
 }
@@ -229,66 +231,30 @@ function textOf(node) {
   return childrenOf(node).map(textOf).filter(Boolean).join("\n");
 }
 
-function disclosures(tree) {
-  return findAll(tree, (node) => typeof node.type === "string" && node.props["data-panel-level"] !== undefined && node.type === "section");
-}
-
-function disclosureButton(tree, id) {
-  const found = findAll(tree, (node) => node.props?.["data-disclosure"] === id);
-  if (found.length !== 1) throw new Error(`Disclosure ${id} 按钮应有 1 个，实际 ${found.length}`);
+function tabButton(tree, id) {
+  const found = findAll(tree, (node) => node.type === "button" && node.props?.["data-panel-tab"] === id);
+  if (found.length !== 1) throw new Error(`tab ${id} 按钮应有 1 个，实际 ${found.length}`);
   return found[0];
 }
 
-function disclosureContent(tree, id) {
-  const contentId = disclosureButton(tree, id).props["aria-controls"];
-  const found = findAll(tree, (node) => node.type === "div" && node.props?.id === contentId);
-  if (found.length !== 1) throw new Error(`Disclosure ${id} 展开体应有 1 个，实际 ${found.length}`);
-  return found[0];
+function tabStates(tree) {
+  return TAB_IDS.map((id) => ({ id, pressed: tabButton(tree, id).props["aria-pressed"] }));
 }
 
-/** 用 host 路径与所属 grid 栏位定义 React 树中的位置，避免把后代节点数量误当成卡片坐标。 */
-function hostLocation(tree, target) {
-  const visit = (node, path, ancestors) => {
-    if (node === target) return { path, ancestors };
-    if (node === null || node === undefined || typeof node === "boolean") return null;
-    if (Array.isArray(node)) {
-      for (let index = 0; index < node.length; index += 1) {
-        const found = visit(node[index], `${path}/${index}`, ancestors);
-        if (found !== null) return found;
-      }
-      return null;
-    }
-    if (typeof node !== "object") return null;
-    const nextAncestors = [...ancestors, node];
-    const children = childrenOf(node);
-    for (let index = 0; index < children.length; index += 1) {
-      const found = visit(children[index], `${path}/${index}`, nextAncestors);
-      if (found !== null) return found;
-    }
-    return null;
-  };
-  const found = visit(tree, "0", []);
-  if (found === null) throw new Error("目标节点不在真实 React host 树中");
-  return found;
+function activePanel(tree) {
+  const panels = findAll(tree, (node) => node.props?.["data-panel-view"] !== undefined);
+  if (panels.length !== 1) throw new Error(`同时只能挂载一个面板，实际 ${panels.length}`);
+  return panels[0];
 }
 
-function firstScreenPositions(tree) {
-  const targets = [
-    ...findAll(tree, (node) => node.props?.["data-panel-level"] === "primary")
-      .map((node) => ({ name: `card:${textOf(node).split("\n")[0]}`, node })),
-    ...["fold-history", "common-config", "advanced-config"]
-      .map((id) => ({ name: `trigger:${id}`, node: disclosureButton(tree, id) })),
-  ];
-  return targets.map(({ name, node }) => {
-    const { path, ancestors } = hostLocation(tree, node);
-    const column = [...ancestors].reverse().find((ancestor) => ancestor.props?.style?.gridColumn !== undefined);
-    return {
-      name,
-      hostPath: path,
-      gridColumn: column?.props.style.gridColumn ?? null,
-      gridRow: column?.props.style.gridRow ?? null,
-    };
-  });
+function clickTab(panel, id) {
+  tabButton(panel.runtime.tree(), id).props.onClick();
+  panel.runtime.render(panel.T.Page);
+  return panel.runtime.tree();
+}
+
+function fieldKeys(tree) {
+  return findAll(tree, (node) => node.props?.["data-field-key"] !== undefined).map((node) => node.props["data-field-key"]);
 }
 
 function pageScrollStyle(tree) {
@@ -296,57 +262,41 @@ function pageScrollStyle(tree) {
   return { height, minHeight, overflowY };
 }
 
-/** 高级区真实展开：一级卡片/其它折叠条不动，18 项内容只能在限高展开体内滚动，根滚动不回退。 */
-function assertExpandedWithoutSqueeze(beforeTree, afterTree) {
-  const content = disclosureContent(afterTree, "advanced-config");
-  const style = content.props.style;
-  if (style?.maxHeight !== "320px" || style?.overflowY !== "auto") {
-    throw new Error(`高级展开体必须 maxHeight:320px + overflowY:auto，实际 ${JSON.stringify(style)}`);
-  }
-  const before = firstScreenPositions(beforeTree);
-  const after = firstScreenPositions(afterTree);
-  if (JSON.stringify(after) !== JSON.stringify(before)) {
-    throw new Error(`高级展开挤动了首屏其它卡片：\n展开前 ${JSON.stringify(before)}\n展开后 ${JSON.stringify(after)}`);
-  }
-  const beforePage = pageScrollStyle(beforeTree);
-  const afterPage = pageScrollStyle(afterTree);
-  const requiredPage = { height: "100%", minHeight: 0, overflowY: "auto" };
-  if (JSON.stringify(beforePage) !== JSON.stringify(requiredPage) || JSON.stringify(afterPage) !== JSON.stringify(requiredPage)) {
-    throw new Error(`整页滚动不得回退：展开前 ${JSON.stringify(beforePage)}，展开后 ${JSON.stringify(afterPage)}`);
-  }
-  if (fieldKeys(afterTree).length !== ADVANCED_FIELD_KEYS.length) throw new Error("高级区必须真实挂载 18 个参数");
-  // 每个 Field 的标签行高 22px；只算 18 行标签就已超过 320px，尚未计控件、提示、间距与诊断卡。
-  const minimumAdvancedLabelHeightPx = ADVANCED_FIELD_KEYS.length * Number.parseFloat(T.styles.fieldLabel.lineHeight);
-  if (!(minimumAdvancedLabelHeightPx > Number.parseFloat(style.maxHeight))) throw new Error("高级内容必须确定超过展开体限高");
-  return {
-    disclosureContent: { id: content.props.id, style },
-    advancedFieldCount: fieldKeys(afterTree).length,
-    minimumAdvancedLabelHeightPx,
-    firstScreenPositionsBefore: before,
-    firstScreenPositionsAfter: after,
-    pageScrollBefore: beforePage,
-    pageScrollAfter: afterPage,
-  };
+function assertNoFoldBars(tree) {
+  const legacy = findAll(tree, (node) => node.props?.["data-disclosure"] !== undefined
+    || node.props?.["data-default-expanded"] !== undefined
+    || node.props?.["data-expanded"] !== undefined);
+  if (legacy.length !== 0) throw new Error(`面板还残留折叠条节点：${legacy.length}`);
 }
 
-function fieldKeys(tree) {
-  return findAll(tree, (node) => node.props?.["data-field-key"] !== undefined).map((node) => node.props["data-field-key"]);
+function assertMutualExclusivity(tree, expected) {
+  assertNoFoldBars(tree);
+  const panel = activePanel(tree);
+  if (panel.props["data-panel-view"] !== expected) throw new Error(`活动面板应为 ${expected}，实际 ${panel.props["data-panel-view"]}`);
+  const expectedPressed = TAB_IDS.map((id) => id === expected);
+  if (JSON.stringify(tabStates(tree).map((row) => row.pressed)) !== JSON.stringify(expectedPressed)) {
+    throw new Error(`tab pressed 状态不互斥：${JSON.stringify(tabStates(tree))}`);
+  }
+  const controls = tabButton(tree, expected).props["aria-controls"];
+  if (controls !== panel.props.id) throw new Error(`选中 tab 的 aria-controls=${controls} 没指向活动面板 ${panel.props.id}`);
+  if (panel.props["aria-labelledby"] !== tabButton(tree, expected).props.id) throw new Error("活动面板 aria-labelledby 未回指选中 tab");
+  return panel;
 }
 
-function assertDefaultTree(tree) {
-  const sections = disclosures(tree);
-  if (sections.length !== 3) throw new Error(`应有 3 个 Disclosure，实际 ${sections.length}`);
-  for (const section of sections) {
-    if (section.props["data-default-expanded"] !== "false" || section.props["data-expanded"] !== "false") {
-      throw new Error(`默认折叠被破坏：${JSON.stringify(section.props)}`);
-    }
-  }
-  const primaryRows = findAll(tree, (node) => node.props?.["data-fold-row"] === "true");
-  if (primaryRows.length !== 5) throw new Error(`普通首屏折痕必须恰好 5 条，实际 ${primaryRows.length}`);
+function assertOverviewTree(tree) {
+  assertMutualExclusivity(tree, "overview");
+  const primary = findAll(tree, (node) => node.props?.["data-panel-level"] === "primary");
+  if (primary.length !== 3) throw new Error(`总览必须直接显示状态/今日/最近折痕三张卡，实际 ${primary.length}`);
+  const rows = findAll(tree, (node) => node.props?.["data-fold-row"] === "true");
+  if (rows.length !== 5) throw new Error(`普通总览最近折痕必须恰好 5 条，实际 ${rows.length}`);
+  if (!rows.every((row) => childrenOf(row).length === 1)) throw new Error("总览每条折痕必须保持单行 foldMain");
+  if (findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length !== 0) throw new Error("完整折痕列表泄漏到总览");
+  if (fieldKeys(tree).length !== 0) throw new Error("配置字段泄漏到总览");
   const text = textOf(tree);
-  for (const hidden of ["高级参数（18 项）", "健康检查", "开始补账", ADVANCED_WARNING]) {
-    if (text.includes(hidden)) throw new Error(`默认首屏泄露了折叠内容：${hidden}`);
+  for (const hidden of ["高级参数（18 项）", "健康检查", "开始补账", "最近活跃会话", "检查更新", ADVANCED_WARNING]) {
+    if (text.includes(hidden)) throw new Error(`总览泄漏了其它 tab 内容：${hidden}`);
   }
+  return { primaryCards: primary.length, recentRows: rows.length, fullLists: 0, fieldCount: 0 };
 }
 
 function assertFixedThresholdControl(T, runtime) {
@@ -360,48 +310,63 @@ function assertFixedThresholdControl(T, runtime) {
   if (JSON.stringify(options) !== JSON.stringify(expected)) throw new Error(`阈值选项漂移：${JSON.stringify(options)} != ${JSON.stringify(expected)}`);
 }
 
-/** 序列化的是执行完函数组件后的 host 树，不把未挂载的 Disclosure children 偷算进首屏。 */
+/** 序列化的是执行完函数组件后的 host 树，不把未选中的面板偷算进总览。 */
 function serializeTree(node, indent = 0) {
   if (node === null || node === undefined || typeof node === "boolean") return [];
   if (Array.isArray(node)) return node.flatMap((child) => serializeTree(child, indent));
   const pad = " ".repeat(indent);
   if (typeof node !== "object") return [`${pad}${String(node)}`];
-  const keys = ["data-panel-level", "data-status-kind", "data-default-expanded", "data-expanded", "data-disclosure", "aria-expanded", "data-fold-compact", "data-fold-row", "type", "value", "disabled"];
+  const keys = ["id", "role", "data-panel-tabs", "data-panel-tab", "aria-pressed", "aria-controls", "data-panel-view", "aria-labelledby", "data-panel-level", "data-status-kind", "data-fold-compact", "data-fold-row", "type", "value", "disabled"];
   const attrs = keys.filter((key) => node.props?.[key] !== undefined).map((key) => `${key}=${JSON.stringify(node.props[key])}`);
   const open = `<${node.type}${attrs.length > 0 ? ` ${attrs.join(" ")}` : ""}>`;
   const children = childrenOf(node).flatMap((child) => serializeTree(child, indent + 2));
   return [`${pad}${open}`, ...children, `${pad}</${node.type}>`];
 }
 
+function switchSnapshot(panel) {
+  const tree = panel.runtime.tree();
+  return {
+    selected: activePanel(tree).props["data-panel-view"],
+    tabs: tabStates(tree),
+    visiblePanels: findAll(tree, (node) => node.props?.["data-panel-view"] !== undefined).map((node) => node.props["data-panel-view"]),
+    compactFoldLists: findAll(tree, (node) => node.props?.["data-fold-compact"] === "true").length,
+    fullFoldLists: findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length,
+    foldRows: findAll(tree, (node) => node.props?.["data-fold-row"] === "true").length,
+    primaryCards: findAll(tree, (node) => node.props?.["data-panel-level"] === "primary").length,
+    fieldCount: fieldKeys(tree).length,
+    advancedWarning: textOf(tree).includes(ADVANCED_WARNING),
+    pageScroll: pageScrollStyle(tree),
+  };
+}
+
 const defaultPanel = panelRenderer();
 export const DEFAULT_TREE = defaultPanel.runtime.tree();
-export const DEFAULT_DISCLOSURE_STATES = disclosures(DEFAULT_TREE).map((node) => ({
-  level: node.props["data-panel-level"],
-  defaultExpanded: node.props["data-default-expanded"],
-  expanded: node.props["data-expanded"],
-}));
+export const DEFAULT_TAB_STATES = tabStates(DEFAULT_TREE);
 export const FIRST_SCREEN_HEIGHT = T.estimateFirstScreenHeight({ foldCount: 5, updateBanner: false });
 export const FIRST_SCREEN_HEIGHT_WITH_UPDATE = T.estimateFirstScreenHeight({ foldCount: 5, updateBanner: true });
 export const PANEL_RENDER_EVIDENCE = [
-  "=== FIRST SCREEN REACT TREE (1280x720; style/event props omitted) ===",
+  "=== OVERVIEW TAB: REAL REACT HOST TREE (1280x720; style/event props omitted) ===",
   ...serializeTree(DEFAULT_TREE),
-  "=== DEFAULT DISCLOSURE STATES ===",
-  JSON.stringify(DEFAULT_DISCLOSURE_STATES, null, 2),
-  "=== FIRST SCREEN HEIGHT ESTIMATE (NO UPDATE BANNER) ===",
+  "=== TAB STATES ===",
+  JSON.stringify(DEFAULT_TAB_STATES, null, 2),
+  "=== OVERVIEW HEIGHT ESTIMATE (NO UPDATE BANNER) ===",
   JSON.stringify(FIRST_SCREEN_HEIGHT, null, 2),
-  "=== FIRST SCREEN HEIGHT ESTIMATE (WITH UPDATE BANNER) ===",
+  "=== OVERVIEW HEIGHT ESTIMATE (WITH UPDATE BANNER) ===",
   JSON.stringify(FIRST_SCREEN_HEIGHT_WITH_UPDATE, null, 2),
 ].join("\n");
 
-const advancedExpansionPanel = panelRenderer();
-const advancedTreeBefore = advancedExpansionPanel.runtime.tree();
-disclosureButton(advancedTreeBefore, "advanced-config").props.onClick();
-advancedExpansionPanel.runtime.render(advancedExpansionPanel.T.Page);
-const advancedTreeAfter = advancedExpansionPanel.runtime.tree();
-export const ADVANCED_EXPANSION_PROOF = assertExpandedWithoutSqueeze(advancedTreeBefore, advancedTreeAfter);
-export const DISCLOSURE_SCROLL_EVIDENCE = [
-  "=== ADVANCED DISCLOSURE: REAL REACT TREE BEFORE / AFTER EXPANSION ===",
-  JSON.stringify(ADVANCED_EXPANSION_PROOF, null, 2),
+const switchPanel = panelRenderer();
+const switchProof = [{ step: "initial", ...switchSnapshot(switchPanel) }];
+clickTab(switchPanel, "folds");
+switchProof.push({ step: "click folds", ...switchSnapshot(switchPanel) });
+clickTab(switchPanel, "config");
+switchProof.push({ step: "click config", ...switchSnapshot(switchPanel) });
+clickTab(switchPanel, "overview");
+switchProof.push({ step: "click overview", ...switchSnapshot(switchPanel) });
+export const TAB_SWITCH_PROOF = switchProof;
+export const TAB_SWITCH_EVIDENCE = [
+  "=== TAB MUTUAL EXCLUSION: REAL CLICK / RERENDER SNAPSHOTS ===",
+  JSON.stringify(TAB_SWITCH_PROOF, null, 2),
 ].join("\n");
 
 const thresholdProof = loadClient();
@@ -426,104 +391,109 @@ export const THRESHOLD_EVIDENCE = [
 ].join("\n");
 
 export const tests = {
-  "① 一级首屏：状态 + 今日三项 + 最近5条；三个二/三级区全部真实默认收起"(t) {
-    assertDefaultTree(DEFAULT_TREE);
-    const primary = findAll(DEFAULT_TREE, (node) => node.props?.["data-panel-level"] === "primary");
-    t.eq(primary.length, 3, "一级必须是状态卡、今日卡、最近折痕卡三张");
-    const primaryRows = findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-row"] === "true");
-    t.eq(primaryRows.length, 5, "普通首屏画最近5条；711px是5条下的不溢出最大值");
-    t.eq(primaryRows.every((row) => childrenOf(row).length === 1), true, "首屏每条折痕只有 foldMain 一个布局子行；完整明细在二级");
-    t.eq(findAll(DEFAULT_TREE, (node) => node.props?.["data-fold-compact"] === "false").length, 0, "完整折痕列表默认不挂载");
-    t.eq(T.styles.foldRow.padding, "16px 0", "单行化不破坏官方16px行距");
-    // 独立盒模型：24 padding + 1 border + 20 title + N个gap + N条单行，不允许漏算 flex gap。
-    const expectedFoldCard = 24 + 1 + 20 + 5 * T.SPACING.card + 5 * 52;
-    t.eq(FIRST_SCREEN_HEIGHT.visibleFolds, 5, "普通首屏折痕数与真实 React 树一致");
+  "① 总览 tab：状态 + 今日 + 最近5条直接显示；没有折叠条，完整列表与配置不挂载"(t) {
+    console.log(PANEL_RENDER_EVIDENCE);
+    t.eq(assertOverviewTree(DEFAULT_TREE), { primaryCards: 3, recentRows: 5, fullLists: 0, fieldCount: 0 }, "真实总览树必须一屏直接呈现三组核心信息");
+    t.eq(DEFAULT_TAB_STATES, [{ id: "overview", pressed: true }, { id: "folds", pressed: false }, { id: "config", pressed: false }], "默认且仅总览被选中");
+    t.eq(T.PANEL_TABS.map((tab) => [tab.id, tab.label]), [["overview", "总览"], ["folds", "折痕"], ["config", "配置"]], "三 tab 内容命名简洁稳定");
+    t.notIncludes(SOURCE, "function Disclosure", "旧折叠组件必须移除");
+    t.notIncludes(SOURCE, "data-disclosure", "旧折叠钩子必须移除");
+    t.eq(pageScrollStyle(DEFAULT_TREE), { height: "100%", minHeight: 0, overflowY: "auto" }, "P0 整页滚动保持原样");
+    t.eq(T.styles.foldRow.padding, "16px 0", "折痕列表保持官方16px行距");
+    t.eq(FIRST_SCREEN_HEIGHT.visibleFolds, 5, "普通总览折痕数与真实 React 树一致");
     t.eq(FIRST_SCREEN_HEIGHT.foldGaps, 40, "标题+5行之间恰好5个8px gap");
     t.eq(FIRST_SCREEN_HEIGHT.foldRow, 52, "单折痕行=32 padding + 19内容 + 1边框（向上取整）");
-    t.eq(FIRST_SCREEN_HEIGHT.foldCard, expectedFoldCard, "折痕卡高度必须含全部padding/border/title/gap/行高");
-    const expectedPrimary = Math.max(112 + T.SPACING.section + 112 + T.SPACING.section + expectedFoldCard, 3 * 61 + 2 * T.SPACING.section);
-    t.eq(FIRST_SCREEN_HEIGHT.total, 48 + 46 + T.SPACING.section + expectedPrimary, "无横幅整屏高度独立重算一致");
-    t.eq(FIRST_SCREEN_HEIGHT.total, 711, "普通首屏总高必须是711px");
+    const expectedFoldCard = 24 + 1 + 20 + 5 * T.SPACING.card + 5 * 52;
+    const expectedOverview = 112 + T.SPACING.section + expectedFoldCard;
+    t.eq(FIRST_SCREEN_HEIGHT.foldCard, expectedFoldCard, "折痕卡高度含全部padding/border/title/gap/行高");
+    t.eq(FIRST_SCREEN_HEIGHT.summary, 112, "宽屏状态与今日并排，只取较高一张卡");
+    t.eq(FIRST_SCREEN_HEIGHT.overview, expectedOverview, "总览正文=并排摘要+分区间距+折痕卡");
+    t.eq(FIRST_SCREEN_HEIGHT.total, 48 + 46 + 28 + 2 * T.SPACING.section + expectedOverview, "无横幅整屏高度独立重算一致");
+    t.eq(FIRST_SCREEN_HEIGHT.total, 627, "普通总览总高必须是627px");
     t.eq(FIRST_SCREEN_HEIGHT.availableHeight, 720, "可用高度口径固定为720px");
-    t.eq(FIRST_SCREEN_HEIGHT.utilization, 711 / 720, "首屏利用率必须按总高/可用高度计算");
-    t.ok(FIRST_SCREEN_HEIGHT.utilization >= 0.85, "普通首屏利用率必须≥85%");
+    t.eq(FIRST_SCREEN_HEIGHT.utilization, 627 / 720, "首屏利用率按总高/可用高度计算");
+    t.ok(FIRST_SCREEN_HEIGHT.utilization >= 0.85, "普通总览利用率必须≥85%");
+    t.eq(FIRST_SCREEN_HEIGHT.fits, true, `普通总览 ${FIRST_SCREEN_HEIGHT.total}px 必须≤720px`);
     const expectedBannerFoldCard = 24 + 1 + 20 + 3 * T.SPACING.card + 3 * 52;
-    const expectedBannerPrimary = 112 + T.SPACING.section + 112 + T.SPACING.section + expectedBannerFoldCard;
-    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.visibleFolds, 3, "更新横幅出现时自动减为3条，为74px横幅留位");
-    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 48 + 46 + T.SPACING.section + 74 + expectedBannerPrimary, "含横幅整屏高度独立重算一致");
-    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 665, "含更新横幅首屏总高必须是665px");
+    const expectedBannerOverview = 112 + T.SPACING.section + expectedBannerFoldCard;
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.visibleFolds, 3, "更新横幅出现时保留既有3条收缩策略");
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 48 + 46 + 28 + 58 + 3 * T.SPACING.section + expectedBannerOverview, "含横幅整屏高度独立重算一致");
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total, 581, "含更新横幅总览总高必须是581px");
+    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.fits, true, "含更新横幅仍必须一屏");
     const text = textOf(DEFAULT_TREE);
-    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 5 条）", "折痕列表", "常用配置", "高级"]) {
-      t.includes(text, wanted, `首屏缺少 ${wanted}`);
+    for (const wanted of ["压缩状态", "正常", "今日投入产出", "今日折叠", "合计遮蔽", "今日成本（估算）", "最近折痕（最近 5 条）", "总览", "折痕", "配置"]) {
+      t.includes(text, wanted, `总览缺少 ${wanted}`);
     }
-    // ★ 用户指正（截图实测）：「二级」「三级」「别动」是**结构概念**，不是给用户看的文案。
-    //   一级 = 点开「上下文压缩」面板**直接可见**；二级 = **展开后**才看到。
-    //   标签按**内容**命名（折痕列表 / 常用配置 / 高级配置），层级编号一律不许印上去。
-    for (const bad of ["二级 ·", "三级 ·", "二级·", "三级·", "高级·别动", "高级 · 别动"]) {
-      t.notIncludes(text, bad, `层级编号/「别动」不许出现在 UI 标签：${bad}`);
-    }
-    for (const hidden of ["涉及会话", "棋谱总数", "全库失败边", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "次级信息不许平铺到首屏");
-    t.eq(DEFAULT_DISCLOSURE_STATES.map((row) => row.defaultExpanded), [false, false, false].map(String), "完整列表/常用配置/高级配置默认全部 false");
-    t.eq(FIRST_SCREEN_HEIGHT.fits, true, `普通首屏估算 ${FIRST_SCREEN_HEIGHT.total}px，必须 ≤720px`);
-    t.eq(FIRST_SCREEN_HEIGHT_WITH_UPDATE.fits, true, `含更新横幅估算 ${FIRST_SCREEN_HEIGHT_WITH_UPDATE.total}px，必须 ≤720px`);
-    t.ok(FIRST_SCREEN_HEIGHT.total <= FIRST_SCREEN_HEIGHT.availableHeight, `普通首屏高度 ${FIRST_SCREEN_HEIGHT.total}px 超屏`);
-    t.ok(FIRST_SCREEN_HEIGHT_WITH_UPDATE.total <= FIRST_SCREEN_HEIGHT_WITH_UPDATE.availableHeight, `含横幅首屏高度 ${FIRST_SCREEN_HEIGHT_WITH_UPDATE.total}px 超屏`);
+    for (const hidden of ["涉及会话", "棋谱总数", "全库失败边", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "次级信息不许平铺到总览");
     const sixMarkPanel = panelRenderer(fixture({ foldMarks: makeMarks(6) }));
-    t.eq(findAll(sixMarkPanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 5, "有6条数据时首屏也只取最近5条");
-    t.notIncludes(textOf(sixMarkPanel.runtime.tree()), "seq 501–580", "第6条只能进入完整折痕列表");
+    t.eq(findAll(sixMarkPanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 5, "有6条数据时总览也只取最近5条");
+    t.notIncludes(textOf(sixMarkPanel.runtime.tree()), "seq 501–580", "第6条只能进入折痕 tab");
+    const updatePanel = panelRenderer(fixture(), SOURCE, null, { current: "1.17.6", latest: "1.18.0", hasUpdate: true });
+    t.eq(findAll(updatePanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 3, "真实更新横幅下总览同样收缩为3条");
   },
 
-  "② 二级交互：点击官方 chevron 按钮才挂载完整5条与4个常用控件，再点真正收起"(t) {
-    const panel = panelRenderer();
-    disclosureButton(panel.runtime.tree(), "fold-history").props.onClick();
-    panel.runtime.render(panel.T.Page);
-    let tree = panel.runtime.tree();
-    t.eq(disclosureButton(tree, "fold-history").props["aria-expanded"], "true", "完整折痕已展开");
-    t.eq(findAll(tree, (node) => node.props?.["data-fold-row"] === "true").length, 10, "首屏5条 + 完整5条 = 10条真实行");
-    t.eq(findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length, 1, "完整列表只在二级挂载一份");
-    disclosureButton(tree, "common-config").props.onClick();
-    panel.runtime.render(panel.T.Page);
-    tree = panel.runtime.tree();
-    t.eq(fieldKeys(tree), T.COMMON_FIELD_KEYS, "常用配置恰好是阈值/摘要方式/provider/model");
-    assertFixedThresholdControl(panel.T, panel.runtime);
-    const chevronPaths = findAll(tree, (node) => node.type === "button" && node.props?.["data-disclosure"] !== undefined)
-      .flatMap((button) => findAll(button, (node) => node.type === "path"))
-      .map((path) => path.props.d);
-    t.eq(chevronPaths, [OFFICIAL_CHEVRON_D, OFFICIAL_CHEVRON_D, OFFICIAL_CHEVRON_D], "三个 Disclosure 都逐 path 复用官方 chevron");
-    disclosureButton(tree, "fold-history").props.onClick();
-    disclosureButton(tree, "common-config").props.onClick();
-    panel.runtime.render(panel.T.Page);
-    assertDefaultTree(panel.runtime.tree());
-    t.eq(disclosures(panel.runtime.tree()).every((node) => node.props["data-expanded"] === "false"), true, "再次点击后两个二级区都收起");
+  "② 官方 tab 素材：chip 几何、选中背景、group/aria-pressed 与自动化任务页一致"(t) {
+    t.eq(T.styles.tabBar.display, "flex", "filterTabs 是横向 flex");
+    t.eq(T.styles.tabBar.flexWrap, "wrap", "filterTabs 允许窄屏换行");
+    t.eq(T.styles.tabBar.gap, "8px 12px", "filterTabs 行列间距逐值复用");
+    t.eq(T.styles.tab.height, "28px", "filterTab 高28");
+    t.eq(T.styles.tab.padding, "0 10px", "filterTab 左右10");
+    t.eq(T.styles.tab.border, 0, "filterTab 无边框");
+    t.eq(T.styles.tab.borderRadius, "14px", "filterTab 胶囊半径14");
+    t.eq(T.styles.tab.fontSize, "14px", "filterTab 字号14");
+    t.eq(T.styles.tab.lineHeight, "22px", "filterTab 行高22");
+    t.eq(T.styles.tab.color, "var(--dsw-alias-label-tertiary, #81858c)", "未选文字用 tertiary");
+    t.eq(T.styles.tabActive.background, "var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.08))", "选中背景使用官方 hover token");
+    t.eq(T.styles.tabActive.color, "var(--dsw-alias-label-primary, currentColor)", "选中文字使用 primary");
+    const group = findAll(DEFAULT_TREE, (node) => node.props?.["data-panel-tabs"] === "true");
+    t.eq(group.length, 1, "只有一个 tab group");
+    t.eq(group[0].props.role, "group", "与自动化任务筛选 chip 一样使用 group");
+    const hoverElement = { style: {} };
+    tabButton(DEFAULT_TREE, "folds").props.onMouseEnter({ currentTarget: hoverElement });
+    t.eq(hoverElement.style.background, "var(--dsw-alias-interactive-bg-hover)", "hover 同样使用官方 token");
+    tabButton(DEFAULT_TREE, "folds").props.onMouseLeave({ currentTarget: hoverElement });
+    t.eq(hoverElement.style.background, "transparent", "未选项离开 hover 恢复透明");
   },
 
-  "③ 三级：18项其余参数 + 警告 + 健康 + 补账，默认一个都不挂载"(t) {
-    const panel = panelRenderer();
-    t.notIncludes(textOf(panel.runtime.tree()), ADVANCED_WARNING, "默认不显示高级内容");
-    disclosureButton(panel.runtime.tree(), "advanced-config").props.onClick();
-    panel.runtime.render(panel.T.Page);
-    const tree = panel.runtime.tree();
-    t.eq(disclosureButton(tree, "advanced-config").props["aria-expanded"], "true", "高级区真实展开");
-    t.eq(fieldKeys(tree), ADVANCED_FIELD_KEYS, "高级恰好收进其余18项，常用4项不重复");
-    const text = textOf(tree);
-    for (const wanted of [ADVANCED_WARNING, "健康检查", "开始补账", "最近活跃会话", "检查更新"]) t.includes(text, wanted, `高级区缺少 ${wanted}`);
-    t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 18, "22 - 4 = 18");
-  },
-
-  "③b 展开不挤压：高级18项限高内滚，首屏卡片host路径不动且整页滚动保留"(t) {
-    t.eq(ADVANCED_EXPANSION_PROOF.disclosureContent.style.maxHeight, "320px", "高级展开体固定最大高度320px");
-    t.eq(ADVANCED_EXPANSION_PROOF.disclosureContent.style.overflowY, "auto", "超限滚动发生在折叠区内部");
-    t.eq(ADVANCED_EXPANSION_PROOF.firstScreenPositionsAfter, ADVANCED_EXPANSION_PROOF.firstScreenPositionsBefore, "高级展开前后一级卡片与其它折叠条host路径/grid栏位完全不动");
-    t.eq(ADVANCED_EXPANSION_PROOF.pageScrollAfter, { height: "100%", minHeight: 0, overflowY: "auto" }, "P0整页滚动保持原样");
-    t.ok(ADVANCED_EXPANSION_PROOF.minimumAdvancedLabelHeightPx > 320, "18项仅标签行高下限就超过320px，内部滚动必然有超限内容");
-    const panel = panelRenderer();
-    for (const id of ["fold-history", "common-config"]) {
-      disclosureButton(panel.runtime.tree(), id).props.onClick();
-      panel.runtime.render(panel.T.Page);
-      const style = disclosureContent(panel.runtime.tree(), id).props.style;
-      t.eq(style.maxHeight, "320px", `${id} 展开体同样限高320px`);
-      t.eq(style.overflowY, "auto", `${id} 同样在折叠区内部滚动`);
+  "③ 互斥切换：点折痕才显示完整5条；点配置才显示4+18项与警告；回切总览还原"(t) {
+    console.log(TAB_SWITCH_EVIDENCE);
+    t.eq(TAB_SWITCH_PROOF.map((row) => row.selected), ["overview", "folds", "config", "overview"], "真实点击序列完整");
+    for (const row of TAB_SWITCH_PROOF) {
+      t.eq(row.visiblePanels, [row.selected], `${row.step} 只能有一个可见面板`);
+      t.eq(row.tabs.filter((tab) => tab.pressed).map((tab) => tab.id), [row.selected], `${row.step} 只能有一个 pressed tab`);
+      t.eq(row.pageScroll, { height: "100%", minHeight: 0, overflowY: "auto" }, `${row.step} 整页滚动不回退`);
     }
+    const folds = TAB_SWITCH_PROOF[1];
+    t.eq(folds.compactFoldLists, 0, "折痕 tab 不再平铺总览最近列表");
+    t.eq(folds.fullFoldLists, 1, "折痕 tab 挂载一份完整列表");
+    t.eq(folds.foldRows, 5, "完整列表真实显示全部5条");
+    t.eq(folds.primaryCards, 0, "总览卡片在折痕 tab 全部卸载");
+    t.eq(folds.fieldCount, 0, "折痕 tab 不显示配置");
+    t.eq(folds.advancedWarning, false, "折痕 tab 不显示高级警告");
+    const config = TAB_SWITCH_PROOF[2];
+    t.eq(config.foldRows, 0, "配置 tab 不再平铺任何折痕");
+    t.eq(config.primaryCards, 0, "配置 tab 不平铺总览卡片");
+    t.eq(config.fieldCount, 22, "配置 tab 同时包含常用4项与高级18项");
+    t.eq(config.advancedWarning, true, "高级配置警告真实可见");
+    t.eq({ ...TAB_SWITCH_PROOF[3], step: "initial" }, TAB_SWITCH_PROOF[0], "回切总览后真实树状态还原");
+  },
+
+  "③b 配置 tab：常用4项 + 高级18项 + 警告 + 健康 + 补账；无内层滚动容器"(t) {
+    const panel = panelRenderer();
+    const tree = clickTab(panel, "config");
+    assertMutualExclusivity(tree, "config");
+    t.eq(fieldKeys(tree), [...T.COMMON_FIELD_KEYS, ...ADVANCED_FIELD_KEYS], "配置字段顺序为常用4项后高级18项");
+    t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 18, "22 - 4 = 18");
+    const threshold = loadClient();
+    assertFixedThresholdControl(threshold.T, threshold.runtime);
+    const text = textOf(tree);
+    for (const wanted of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING, "健康检查", "开始补账", "最近活跃会话", "检查更新"]) t.includes(text, wanted, `配置 tab 缺少 ${wanted}`);
+    const scrolling = findAll(tree, (node) => node.props?.style?.overflowY === "auto" && node !== tree);
+    t.eq(scrolling, [], "配置不再制造折叠区内滚，统一走整页滚动");
+    t.eq(pageScrollStyle(tree), { height: "100%", minHeight: 0, overflowY: "auto" }, "长配置仍由根容器滚动");
+    clickTab(panel, "folds");
+    t.notIncludes(textOf(panel.runtime.tree()), ADVANCED_WARNING, "离开配置后警告卸载");
+    t.eq(fieldKeys(panel.runtime.tree()), [], "离开配置后全部字段卸载");
   },
 
   "④ 阈值固定档位：select 只认45/50/65/75/85%，保存闸门拒绝任意数字"(t) {
@@ -552,14 +522,14 @@ export const tests = {
     };
     try {
       const panel = panelRenderer(fixture(), SOURCE, { thresholdRatio: 0.51 });
-      disclosureButton(panel.runtime.tree(), "common-config").props.onClick();
-      panel.runtime.render(panel.T.Page);
+      clickTab(panel, "config");
       const saveButtons = findAll(panel.runtime.tree(), (node) => node.type === "button" && textOf(node) === "保存（1 项改动）");
       t.eq(saveButtons.length, 1, "dirty draft 必须产生一个可点击保存按钮");
       saveButtons[0].props.onClick();
       panel.runtime.render(panel.T.Page);
       t.eq(fetchCalls, 0, "非法阈值必须在callApi/fetch之前被保存事件拒绝");
       t.includes(textOf(panel.runtime.tree()), "压缩阈值只能选择固定档位", "保存错误必须真实可见");
+      clickTab(panel, "overview");
       t.eq(findAll(panel.runtime.tree(), (node) => node.props?.["data-status-kind"] === "normal").length, 1, "保存错误不得误报成压缩运行错误");
     } finally {
       if (originalFetch === undefined) delete globalThis.fetch;
@@ -584,41 +554,48 @@ export const tests = {
     t.eq(stale.kind, "error", "旧state仍在但刷新失败 = 出错，不许继续报正常");
     t.eq(stale.hint, "状态刷新失败 · 显示旧数据", "明确旧数据语义");
     t.eq(T.compressionStatus(null, new Error("offline")).kind, "error", "host 读取失败 = 出错");
-    t.includes(SOURCE, "compressionStatus(state, loadError)", "一级只消费state加载错误，不消费保存/模型目录错误");
+    t.includes(SOURCE, "compressionStatus(state, loadError)", "总览只消费state加载错误，不消费保存/模型目录错误");
     t.includes(SOURCE, "setLoadError(message)", "load catch 必须真的写入loadError");
   },
 
-  "⑥ 加载态缺少 today/latest：诊断卡不得因数组下标变化混进一级"(t) {
+  "⑥ 加载态缺少 today/latest：诊断卡不得混进总览或借 tab 平铺"(t) {
     const loading = panelRenderer(null);
     const primary = findAll(loading.runtime.tree(), (node) => node.props?.["data-panel-level"] === "primary");
-    t.eq(primary.length, 2, "加载态一级只剩状态卡与折痕空态，不能拿诊断卡补位");
-    t.eq(primary.map((node) => node.props["data-status-kind"] ?? "folds"), ["loading", "folds"], "一级身份稳定，不依赖 slice 下标");
+    t.eq(primary.length, 2, "加载态总览只剩状态卡与折痕空态");
+    t.eq(primary.map((node) => node.props["data-status-kind"] ?? "folds"), ["loading", "folds"], "总览身份稳定，不依赖 slice 下标");
+    assertMutualExclusivity(loading.runtime.tree(), "overview");
     const text = textOf(loading.runtime.tree());
-    t.notIncludes(text, "最近活跃会话", "latest 缺失时诊断卡仍只能留在三级");
-    t.notIncludes(text, "检查更新", "更新卡不得补进一级");
-    t.notIncludes(text, "开始补账", "补账不得补进一级");
+    t.notIncludes(text, "最近活跃会话", "latest 缺失时诊断卡仍只能留在配置 tab");
+    t.notIncludes(text, "检查更新", "更新卡不得补进总览");
+    t.notIncludes(text, "开始补账", "补账不得补进总览");
   },
 
-  "⑦ 失败分支真红：内存变异成6条折痕、默认展开或数字阈值时，同一守卫必须抛错"(t) {
+  "⑦ 失败分支真红：6条总览、默认配置、双面板、无选中背景或数字阈值都必须被同一守卫拒绝"(t) {
     const crowdedSource = SOURCE.replace("const RECENT_FOLD_LIMIT = 5;", "const RECENT_FOLD_LIMIT = 6;");
     t.ne(crowdedSource, SOURCE, "6条折痕变异确实命中源码");
     const crowded = panelRenderer(fixture({ foldMarks: makeMarks(6) }), crowdedSource);
-    t.throws(() => assertDefaultTree(crowded.runtime.tree()), "首屏放到第6条必须让折痕守卫变红");
-    t.eq(crowded.T.estimateFirstScreenHeight({ foldCount: 6, updateBanner: false }).total, 771, "第6条会把普通首屏推到771px");
-    t.eq(crowded.T.estimateFirstScreenHeight({ foldCount: 6, updateBanner: false }).fits, false, "771px必须被不溢出门禁拒绝");
+    t.throws(() => assertOverviewTree(crowded.runtime.tree()), "总览放到第6条必须让守卫变红");
 
-    const expandedSource = SOURCE.replaceAll("defaultOpen: false", "defaultOpen: true");
-    t.ne(expandedSource, SOURCE, "默认展开变异确实命中源码");
-    const expanded = panelRenderer(fixture(), expandedSource);
-    t.throws(() => assertDefaultTree(expanded.runtime.tree()), "默认全展开必须让首屏守卫变红");
+    const configDefaultSource = SOURCE.replace('useState("overview")', 'useState("config")');
+    t.ne(configDefaultSource, SOURCE, "默认配置变异确实命中源码");
+    const configDefault = panelRenderer(fixture(), configDefaultSource);
+    t.throws(() => assertOverviewTree(configDefault.runtime.tree()), "默认配置 tab 必须让总览守卫变红");
 
-    const unclippedSource = SOURCE.replace(', maxHeight: "320px", overflowY: "auto"', "");
-    t.ne(unclippedSource, SOURCE, "去掉展开体限高/内滚的变异确实命中源码");
-    const unclipped = panelRenderer(fixture(), unclippedSource);
-    const unclippedBefore = unclipped.runtime.tree();
-    disclosureButton(unclippedBefore, "advanced-config").props.onClick();
-    unclipped.runtime.render(unclipped.T.Page);
-    t.throws(() => assertExpandedWithoutSqueeze(unclippedBefore, unclipped.runtime.tree()), "展开体没有maxHeight/overflowY时，同一不挤压守卫必须真红");
+    const flatSource = SOURCE.replace(
+      'h(PanelTabs, { active: activeTab, onChange: setActiveTab }),\n        activePanel);',
+      'h(PanelTabs, { active: activeTab, onChange: setActiveTab }),\n        activePanel,\n        h("div", { "data-panel-view": "folds" }, fullFoldListCard));',
+    );
+    t.ne(flatSource, SOURCE, "双面板平铺变异确实命中源码");
+    const flat = panelRenderer(fixture(), flatSource);
+    t.throws(() => assertMutualExclusivity(flat.runtime.tree(), "overview"), "同时平铺折痕必须让互斥守卫变红");
+
+    const noActiveStyleSource = SOURCE.replace("style: selected ? { ...styles.tab, ...styles.tabActive } : styles.tab", "style: styles.tab");
+    t.ne(noActiveStyleSource, SOURCE, "删除选中背景变异确实命中源码");
+    const noActiveStyle = panelRenderer(fixture(), noActiveStyleSource);
+    t.eq(tabButton(noActiveStyle.runtime.tree(), "overview").props.style.background, "transparent", "变异夹具确实失去选中背景");
+    t.throws(() => {
+      if (tabButton(noActiveStyle.runtime.tree(), "overview").props.style.background !== T.styles.tabActive.background) throw new Error("选中背景丢失");
+    }, "官方选中背景守卫对变异必须真红");
 
     const numericSource = SOURCE.replace('panelLabel: "压缩阈值（固定档位）", hint: "只能选 45% / 50% / 65% / 75% / 85%；45% 是现默认值", kind: "threshold"', 'panelLabel: "压缩阈值（固定档位）", hint: "自由数字", kind: "number", step: 0.01, min: 0.05, max: 0.95');
     t.ne(numericSource, SOURCE, "数字输入变异确实命中源码");
