@@ -1,5 +1,5 @@
 {
- "total": 1683,
+ "total": 1687,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -180,6 +180,7 @@
   "test-counts-write.test.mjs": 1,
   "test-counts.test.mjs": 3,
   "test-gate.test.mjs": 0,
+  "test-instance-verify.test.mjs": 4,
   "tewari-perf.test.mjs": 7,
   "tier2.test.mjs": 10,
   "tool-result-share.test.mjs": 3,
@@ -214,6 +215,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2009,
- "passedAt": "2026-11-05T11:16:25.361Z"
+ "passed": 2013,
+ "passedAt": "2026-11-05T11:49:54.370Z"
 }
