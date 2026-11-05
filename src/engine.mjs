@@ -750,6 +750,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         latest: this,
         forCtx,
         closeoutNow: (agent, options) => (forCtx(agent?.ctx) ?? this).closeoutNow(agent, options),
+        // 按钮补折：模型、进度与取消都只随这一次调用传递，不写回 chess 全局配置。
+        runBackfillWithModel: (options) => (forCtx(null) ?? this).runAutoBackfillOnce(options),
         // ★ C529：**面板与人别撞车**。自动补账和面板补账可能同时选中同一个会话，
         //   那就是两次模型调用 + 两个写者。面板动手前先问一句。
         isBackfillBusy: (id) => (forCtx(null) ?? this)?._backfillInFlight?.has?.(String(id)) === true,
@@ -2146,10 +2148,12 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *
    * @returns {Promise<{ok:boolean}>}
    */
-  async runAutoBackfillOnce() {
+  async runAutoBackfillOnce(options = {}) {
     try {
-      await this.#autoBackfillTick();
-      return { ok: true };
+      // manual=true：按钮是显式操作，即使用户关了后台 autoBackfill 也能单跑一次。
+      // provider/model/onProgress/signal 全部只是本轮参数；这里绝不暂存或改写 this.chess。
+      const report = await this.#autoBackfillTick({ ...options, manual: true });
+      return { ok: true, ...(report !== null && typeof report === "object" ? report : {}) };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error).slice(0, 300) };
     }
@@ -2218,9 +2222,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *    预算调到 1800s 时 3 轮只用 237s ⇒ **78% 预算空转**（"给了预算不提速"的真因）。
    *    现在：`max(旧轮数, 剩余预算 ÷ 实测段耗时)`，天花板 8，且每轮复查预算。
    */
-  async #autoBackfillTick() {
-    if (this.chess.autoBackfill === false) return;
-    if (this._autoBackfillBusy === true) return;
+  async #autoBackfillTick(options = {}) {
+    if (options?.manual !== true && this.chess.autoBackfill === false) return;
+    if (this._autoBackfillBusy === true) return { busy: true, error: "已有一轮补折在跑" };
     this._autoBackfillBusy = true;
     const started = Date.now();
     try {
@@ -2314,7 +2318,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C593：**后台 job 必须有可查的状态文件**。真机教训（2026-11-04 21:37 / 21:57 两次重启）：
       //   补账 6 分钟零产出，而日志在宿主控制台里看不到、图上一个字段都没写 ⇒ 只能靠猜。
       //   这里把每轮的决策写成 `auto-backfill-state.json`（谁被挑中、为什么走/不走、结局是什么）。
-      const report = { at: Date.now(), due: Number(listed?.due ?? 0), max, picked: [], results: [] };
+      const report = {
+        at: Date.now(),
+        due: Number(listed?.due ?? 0),
+        max,
+        picked: [],
+        results: [],
+        // 本次按钮选择只落在报告与后续局部参数里；全局 summarization* 保持原值。
+        provider: typeof options?.provider === "string" && options.provider !== "" ? options.provider : null,
+        model: typeof options?.model === "string" && options.model !== "" ? options.model : null,
+      };
       const writeReport = () => {
         try {
           const dir = graphRoot({ graphDir: this.chess.graphDir, dshHome: resolveHome() });
@@ -2338,6 +2351,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       let attempts = 0;
       let idle = 0;
       for (const item of queue) {
+        // 按钮取消是协作式的：不再开下一段；当前段仍由 llm 的 signal 负责尽快结束。
+        if (options?.signal?.aborted === true) {
+          report.cancelled = true;
+          break;
+        }
         // 总预算到点就停（下一轮再继续；不会无限占着）
         if (Date.now() - tickStart > budgetMs) {
           this.ctx?.logger?.info?.(`chess-context: 自动补账本轮时间预算用尽（${Math.round(budgetMs / 1000)}s），下一轮继续`);
@@ -2381,12 +2399,33 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         let marks = 0;
         let lastOutcome = null;
         for (let round1 = 1; round1 <= rounds; round1 += 1) {
+          if (options?.signal?.aborted === true) {
+            report.cancelled = true;
+            break;
+          }
           const roundStarted = Date.now();
-          const outcome = await this.#offlineCloseoutFold({ id, cwd: graph.cwd ?? "" }, { transportRetry: true });
+          const outcome = await this.#offlineCloseoutFold(
+            { id, cwd: graph.cwd ?? "" },
+            { transportRetry: true, provider: options?.provider, model: options?.model, signal: options?.signal },
+          );
           const spent = Math.max(1, Date.now() - roundStarted);
           lastOutcome = outcome;
           const foldedNow = Number(outcome?.folded ?? 0);
           marks += foldedNow;
+          // 每段结束就汇报一次；usage 来自刚写入的真实 foldMark，不做估算。
+          try {
+            options?.onProgress?.({
+              sessionId: id,
+              folded: foldedNow,
+              segments: marks,
+              usage: outcome?.usage ?? null,
+              stopped: outcome?.stopped ?? null,
+              partial: outcome?.partial ?? null,
+              error: outcome?.error ?? null,
+            });
+          } catch {
+            // 面板进度回调异常不许影响补折与落盘。
+          }
           const stillDue = (() => {
             try {
               return debtOfGraph(this.graphs.get(id)).due === true;
@@ -2437,9 +2476,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       }
       report.attempts = attempts;
       report.idle = idle;
+      report.done = done;
+      report.total = report.results.length;
+      report.segments = report.results.reduce((sum, row) => sum + (Number(row?.marks) || 0), 0);
+      if (options?.signal?.aborted === true) report.cancelled = true;
       report.segMs = Math.round(this._backfillSegMs || 0);
       report.doneMs = Date.now() - started;
       writeReport();
+      return report;
     } catch (error) {
       this.ctx?.logger?.warn?.(`chess-context: 自动补账失败（不影响压缩）：${String(error)}`);
       // ★ C593：**异常也要落盘** —— 否则"零产出"和"从没跑"在磁盘上长得一模一样
@@ -2554,7 +2598,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * @param {object} target agent 或 session
    * @returns {Promise<object|null>} 给 `applyCloseoutOutcome` 的结果；做不了就 null（保持原结局）
    */
-  async #offlineCloseoutFold(target, { transportRetry = false } = {}) {
+  async #offlineCloseoutFold(target, { transportRetry = false, provider = null, model = null, signal = null } = {}) {
     let claimed = null;
     try {
       const session = target?.session ?? target;
@@ -2612,7 +2656,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ C506：**优先用"上下文压缩设置里选的那个模型"**（summarizationProvider/Model），
       //   这才是用户能控制的地方；没选才退回 DSH 默认模型 / 当前路由。
       //   顺序：显式设置 > DSH 默认模型（agent-default-model）> 会话当前路由。
-      const chosen = this.#summaryTarget();
+      // 按钮本次显式选择优先；缺省才读全局摘要设置。覆盖值是局部常量，绝不回写 this.chess。
+      const once = typeof provider === "string" && provider !== "" && typeof model === "string" && model !== "" ? { provider, model } : null;
+      const chosen = once ?? this.#summaryTarget();
       const dflt = readDefaultModel(home);
       const routed = routedTarget(session);
       const target0 = {
@@ -2633,6 +2679,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             maxTokens: Number(maxTokens) || 8192,
             // C525/C597：无头调用只给 provider/model，不传 session/sessionId。
             ...extra,
+            // 可取消按钮把 AbortSignal 传进宿主流；定时自动补折不传，行为保持不变。
+            ...(signal === null || signal === undefined ? {} : { signal }),
           })) {
             a.push(chunk);
           }
@@ -2758,7 +2806,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         `chess-context: 离线补折完成 ${applied.marksAdded} 段（段 ${lastChunk.start}-${lastChunk.end}，` +
           `摘要 ${String(lastChunk.text ?? "").length} 字符${outcome.partial ? "，仍有缺口" : ""}）`,
       );
-      return outcome;
+      // maxChunks=1：最后一条 foldMark 就是这一段的实际账单；交给按钮进度逐段累加。
+      return { ...outcome, usage: graph.foldMarks?.at(-1)?.usage ?? null };
     } catch (error) {
       this.ctx.logger?.warn?.(`chess-context: 离线补折失败（不影响归档）：${String(error)}`);
       return { tier: "offline", folded: 0, chunks: 0, stopped: "error", error: String(error).slice(0, 300), partial: true };

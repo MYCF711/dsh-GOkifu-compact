@@ -298,18 +298,47 @@ tests["C261 补账的硬超时默认 3 分钟——客户端必须限量并传�
 };
 
 tests["C392 补账干跑要提前给出「会超时」的会话（否则点下去才发现白跑）"] = async (t) => {
-  const nodeFs = await import("node:fs");
-  const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  const home = mkHome("timeout-advice");
+  let closed = 0;
+  const uninstall = installBridge({
+    closeoutNow: async () => {
+      closed += 1;
+      return { folded: true };
+    },
+  });
+  try {
+    writeGraph(home, "session-risky", { maxSeq: 500 });
+    const graphFile = nodePath.join(home, "chess-context", "sessions", "session-risky", "graph.json");
+    const graph = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"));
+    // 400 个未折事件 × 3000 tokens/event = 1.2M tokens ⇒ 8 段；
+    // 真机样本 p90 = 100s ⇒ 800s，必然超过 dryRun 默认的 90s 超时。
+    graph.foldMarks = [{ seqStart: 0, seqEnd: 100, shadowedTokens: 300_000, ms: 100_000 }];
+    nodeFs.writeFileSync(graphFile, JSON.stringify(graph, null, 1), "utf8");
 
-  // 接线：干跑分支必须复用 closeout-plan 的两个纯函数，不许自己再算一套
-  t.includes(src, "closeoutTimeoutAdvice(", "必须复用 closeoutTimeoutAdvice（C392）");
-  t.includes(src, "recentFoldP90(", "必须用真机 p90（recentFoldP90）");
-  t.includes(src, "warnings", "干跑响应必须带 warnings 字段");
-  // 失败要降级，不许把干跑本身搞挂
-  t.includes(src, "return [];", "算不出来时要返回空数组（降级）");
+    // mount 会真 import src/ui.mjs；call 会执行 dryRun 分支里的 recentFoldP90
+    // 与 closeoutTimeoutAdvice。任何一个 import 缺失都会在这里得到错误的空预警。
+    const handler = await mount();
+    const risky = await withHome(home, () => call(handler, { action: "backfill", dryRun: true }));
+    t.eq(risky.status, 200, "带 p90 样本的干跑必须成功");
+    t.eq(risky.json?.due, 1, "夹具必须真的产生一笔欠账");
+    t.eq(
+      risky.json?.warnings,
+      ["1 个会话按 p90 估算会超过 90s 单会话超时（建议调大 closeoutTimeoutMs 或 closeoutMaxFoldTokens）"],
+      "必须执行真机 p90 与超时建议，返回可观察的预警行为",
+    );
+    t.eq(closed, 0, "计算预警不许真的调用 closeout");
+
+    // 没有可用 p90 样本时也必须真跑一遍：成功返回空预警，而不是让 dryRun 挂掉。
+    graph.foldMarks = [];
+    nodeFs.writeFileSync(graphFile, JSON.stringify(graph, null, 1), "utf8");
+    const noP90Handler = await mount();
+    const noP90 = await withHome(home, () => call(noP90Handler, { action: "backfill", dryRun: true }));
+    t.eq(noP90.status, 200, "没有 p90 样本时 dryRun 不许失败");
+    t.eq(noP90.json?.warnings, [], "算不出 p90 时必须降级为空数组");
+  } finally {
+    uninstall();
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
 };
 
 tests["C408 补账可指定 sessionIds（否则只能先碰最大的那个）"] = async (t) => {
