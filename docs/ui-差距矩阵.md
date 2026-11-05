@@ -20,7 +20,7 @@
 
 本插件是 `sidebar.panellist → main[key=gokifu-compact]` 的**独立插件主面板**，不是官方 SettingsRoot、Conversation、Composer 或 Trajectory。审计只拿相近的官方部件规范做对照，不把整个页面搬入设置模态，也不把棋谱指标伪装成官方会话节点。
 
-“改后”列是本论最小修改的验收目标；实际实施记录、前后文本对照与命令输出见后文。`src/ui.mjs` 不产出 DOM，host 行的五态只表示它对相应可见部件的数据支持方式，不虚构官方 HTTP 路由。
+“改后”列是本论最小修改的验收目标；实际实施记录、前后文本对照与命令输出见后文。表中“当前证据”的 `lib/client.js` 行号是**改前快照**，用于证明差距来源；改后的准确定位见第6节，官方证据行号始终不变。`src/ui.mjs` 不产出 DOM，host 行的五态只表示它对相应可见部件的数据支持方式，不虚构官方 HTTP 路由。
 
 ## 1. 主壳、配置与通用部件矩阵
 
@@ -102,3 +102,76 @@ pill = 11px / 2px 8px / 999px radius
 ```
 
 这些值证明本轮不是“另起炉灶”：修改目标全部能在第1节的官方 file:line 找到对应值；官方没有的 DAG、fold、失败边、补账与插件更新内容均保持原样。
+
+## 6. 实施后的前后对照（文本验收）
+
+本轮没有启动/重启 DSH，也没有另起服务；按任务允许的方式，以真实 React 组件树、导出样式和源码 diff 做文本对照，不伪称截图或像素验收。
+
+| 部件 | 改前 | 改后 | 向官方靠拢的证据 |
+|---|---|---|---|
+| 侧栏图标 | 自画两条横线 + 两个 circle | 官方 Compact 两条 path，`lib/client.js:1219-1223` | `compact.jsx:1-2` 逐属性一致；旧 `M2 5.5h12…` 与 circle 已删除 |
+| 下拉尾部 | 字符 `▾` | 官方 Chevron，14px，`lib/client.js:640`、`:1230-1233` | `chevron-down.jsx:1` 原 path |
+| 当前项 | 仅背景/粗体，无 check | 官方 Check，provider 精确相等；model 必须 provider+model 同时相等，`lib/client.js:662-673`、`:698-722` | `official-shell-tree.md:130` 的完全相等判据；`check.jsx:1` 原 path |
+| 参数行 | 6/8px padding、1px 自造边 | 统一16px 0、`.5px border-l2`，`lib/client.js:79-92` | `official-settings-tree.md:108-113` |
+| 卡片 | 1px、10px、14/16、无 fill | `.5px` settings stroke/fill、xl=16、12/14，`lib/client.js:515-519` | `official-settings-tree.md:164-170`、`:219-223` |
+| 标题/说明 | 卡标题12+uppercase；字段13/11+opacity | 卡标题13/20/500；字段标题14/22 primary、说明12/18 tertiary，`lib/client.js:518-530` | `official-settings-tree.md:108-113`、`:204`、`:212` |
+| 输入/选择器/按钮 | 无36高、6/7px圆角、自造蓝 | 36高、radius-md=8、0/14或6/10、l3/module/business 令牌，`lib/client.js:535-547` | `official-settings-tree.md:108-113`、`:169-170`；`official-shell-tree.md:36` |
+| 健康状态 | 999px 胶囊 | 11/16、1/6、radius-xs=4、success/error 令牌，`lib/client.js:548-549` | `official-settings-tree.md:168` 的 tag 几何 |
+| 特有内容 | DAG/fold/失败边/补账/更新/profile/双栏 | 全部保留；可见内容未删，host 未改 | `lib/client.js:1051-1196`；`src/ui.mjs` diff 为空 |
+
+真实执行 `lib/client.js` 后的原样资产断言输出：
+
+```text
+=== AFTER: official asset assertions ===
+compact/chevron/check exact paths = PASS; legacy sliders/▾ = absent
+```
+
+改后组件树包含 `opacity="0.35"` 的官方外圈 path 与官方弧 path；改后导出样式实测为：`fieldCount=22`、`fieldGrid.padding="16px 0"`、`card.radius=var(--dsw-radius-xl,16px)`、`card.padding="12px 14px"`、`pickerBtn/input/btn.minHeight="36px"`、`pill.padding="1px 6px"`。这些值与上表源码回读一致。
+
+## 7. 实际验收输出
+
+### 7.1 UI 定向回归
+
+命令：`node --check lib/client.js && node test/run.mjs ui-layout`。`node --check` 无输出、退出0；测试原样汇总：
+
+```text
+== 12 passed, 0 skipped, 0 failed ==
+```
+
+### 7.2 全量串行测试
+
+命令：`node test/run.mjs`（只运行一个实例，完成后才跑边界审计）。原样汇总与失败：
+
+```text
+== 2012 passed, 0 skipped, 1 failed ==
+
+[docs-index-check.test.mjs] D-3 真实仓库：docs/research 与 evidence 的每个文档都在各自 README 里
+Error: eq: 存在未索引文档：[
+ {
+  "label": "docs",
+  "dir": "docs",
+  "file": "ui-差距矩阵.md",
+  "index": "docs/README.md"
+ }
+]
+```
+
+唯一失败不是 UI 或功能回归，而是新增文档的索引门禁：`test/docs-index-check.test.mjs:32-35` 要求 `docs/README.md` 登记本文件；本任务明确禁止修改其他 `docs/**`，所以未越权补索引，也未把结果伪写成0 failed。要达到全绿，集成者必须处理这个写入白名单冲突。
+
+### 7.3 压缩边界审计
+
+命令：`node scripts/boundary-audit.mjs`，原样完整输出：
+
+```text
+== 压缩边界审计（扫 26 个 src/**/*.mjs · 豁免 1 条（见脚本 ALLOW））==
+  ✓ 没有发现越界线索（行为指导 / 工具治理）
+
+✅ 越界线索 0 条
+```
+
+### 7.4 范围与未验项
+
+- `git diff --check` 无输出、退出0。
+- 本任务只写 `lib/client.js` 与 `docs/ui-差距矩阵.md`；没有写 `src/**`、其他 `lib/**`、其他 `docs/**`、`evidence/**`、`scripts/**`、`test/**`，没有改生产 home，没有 commit、没有重启 DSH、没有调模型。
+- 工作树在任务开始前已有 `AGENTS.md` 等他人修改，运行期间还有共享工作树变动；这些不属于本任务，不清理、不覆盖、不纳入“本任务改了什么”。
+- 未做可见 GUI、截图、像素 diff、OS 键鼠/IME、高 DPI、真实模型或生产 home 验收。结论上限是主库证据、真实 React 树、样式导出、源码 diff 与上述 Node 门禁。
