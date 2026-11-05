@@ -239,6 +239,96 @@ function disclosureButton(tree, id) {
   return found[0];
 }
 
+function disclosureContent(tree, id) {
+  const contentId = disclosureButton(tree, id).props["aria-controls"];
+  const found = findAll(tree, (node) => node.type === "div" && node.props?.id === contentId);
+  if (found.length !== 1) throw new Error(`Disclosure ${id} 展开体应有 1 个，实际 ${found.length}`);
+  return found[0];
+}
+
+/** 用 host 路径与所属 grid 栏位定义 React 树中的位置，避免把后代节点数量误当成卡片坐标。 */
+function hostLocation(tree, target) {
+  const visit = (node, path, ancestors) => {
+    if (node === target) return { path, ancestors };
+    if (node === null || node === undefined || typeof node === "boolean") return null;
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index += 1) {
+        const found = visit(node[index], `${path}/${index}`, ancestors);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+    if (typeof node !== "object") return null;
+    const nextAncestors = [...ancestors, node];
+    const children = childrenOf(node);
+    for (let index = 0; index < children.length; index += 1) {
+      const found = visit(children[index], `${path}/${index}`, nextAncestors);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  const found = visit(tree, "0", []);
+  if (found === null) throw new Error("目标节点不在真实 React host 树中");
+  return found;
+}
+
+function firstScreenPositions(tree) {
+  const targets = [
+    ...findAll(tree, (node) => node.props?.["data-panel-level"] === "primary")
+      .map((node) => ({ name: `card:${textOf(node).split("\n")[0]}`, node })),
+    ...["fold-history", "common-config", "advanced-config"]
+      .map((id) => ({ name: `trigger:${id}`, node: disclosureButton(tree, id) })),
+  ];
+  return targets.map(({ name, node }) => {
+    const { path, ancestors } = hostLocation(tree, node);
+    const column = [...ancestors].reverse().find((ancestor) => ancestor.props?.style?.gridColumn !== undefined);
+    return {
+      name,
+      hostPath: path,
+      gridColumn: column?.props.style.gridColumn ?? null,
+      gridRow: column?.props.style.gridRow ?? null,
+    };
+  });
+}
+
+function pageScrollStyle(tree) {
+  const { height, minHeight, overflowY } = tree.props.style;
+  return { height, minHeight, overflowY };
+}
+
+/** 高级区真实展开：一级卡片/其它折叠条不动，18 项内容只能在限高展开体内滚动，根滚动不回退。 */
+function assertExpandedWithoutSqueeze(beforeTree, afterTree) {
+  const content = disclosureContent(afterTree, "advanced-config");
+  const style = content.props.style;
+  if (style?.maxHeight !== "320px" || style?.overflowY !== "auto") {
+    throw new Error(`高级展开体必须 maxHeight:320px + overflowY:auto，实际 ${JSON.stringify(style)}`);
+  }
+  const before = firstScreenPositions(beforeTree);
+  const after = firstScreenPositions(afterTree);
+  if (JSON.stringify(after) !== JSON.stringify(before)) {
+    throw new Error(`高级展开挤动了首屏其它卡片：\n展开前 ${JSON.stringify(before)}\n展开后 ${JSON.stringify(after)}`);
+  }
+  const beforePage = pageScrollStyle(beforeTree);
+  const afterPage = pageScrollStyle(afterTree);
+  const requiredPage = { height: "100%", minHeight: 0, overflowY: "auto" };
+  if (JSON.stringify(beforePage) !== JSON.stringify(requiredPage) || JSON.stringify(afterPage) !== JSON.stringify(requiredPage)) {
+    throw new Error(`整页滚动不得回退：展开前 ${JSON.stringify(beforePage)}，展开后 ${JSON.stringify(afterPage)}`);
+  }
+  if (fieldKeys(afterTree).length !== ADVANCED_FIELD_KEYS.length) throw new Error("高级区必须真实挂载 18 个参数");
+  // 每个 Field 的标签行高 22px；只算 18 行标签就已超过 320px，尚未计控件、提示、间距与诊断卡。
+  const minimumAdvancedLabelHeightPx = ADVANCED_FIELD_KEYS.length * Number.parseFloat(T.styles.fieldLabel.lineHeight);
+  if (!(minimumAdvancedLabelHeightPx > Number.parseFloat(style.maxHeight))) throw new Error("高级内容必须确定超过展开体限高");
+  return {
+    disclosureContent: { id: content.props.id, style },
+    advancedFieldCount: fieldKeys(afterTree).length,
+    minimumAdvancedLabelHeightPx,
+    firstScreenPositionsBefore: before,
+    firstScreenPositionsAfter: after,
+    pageScrollBefore: beforePage,
+    pageScrollAfter: afterPage,
+  };
+}
+
 function fieldKeys(tree) {
   return findAll(tree, (node) => node.props?.["data-field-key"] !== undefined).map((node) => node.props["data-field-key"]);
 }
@@ -301,6 +391,17 @@ export const PANEL_RENDER_EVIDENCE = [
   JSON.stringify(FIRST_SCREEN_HEIGHT, null, 2),
   "=== FIRST SCREEN HEIGHT ESTIMATE (WITH UPDATE BANNER) ===",
   JSON.stringify(FIRST_SCREEN_HEIGHT_WITH_UPDATE, null, 2),
+].join("\n");
+
+const advancedExpansionPanel = panelRenderer();
+const advancedTreeBefore = advancedExpansionPanel.runtime.tree();
+disclosureButton(advancedTreeBefore, "advanced-config").props.onClick();
+advancedExpansionPanel.runtime.render(advancedExpansionPanel.T.Page);
+const advancedTreeAfter = advancedExpansionPanel.runtime.tree();
+export const ADVANCED_EXPANSION_PROOF = assertExpandedWithoutSqueeze(advancedTreeBefore, advancedTreeAfter);
+export const DISCLOSURE_SCROLL_EVIDENCE = [
+  "=== ADVANCED DISCLOSURE: REAL REACT TREE BEFORE / AFTER EXPANSION ===",
+  JSON.stringify(ADVANCED_EXPANSION_PROOF, null, 2),
 ].join("\n");
 
 const thresholdProof = loadClient();
@@ -409,6 +510,22 @@ export const tests = {
     t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 18, "22 - 4 = 18");
   },
 
+  "③b 展开不挤压：高级18项限高内滚，首屏卡片host路径不动且整页滚动保留"(t) {
+    t.eq(ADVANCED_EXPANSION_PROOF.disclosureContent.style.maxHeight, "320px", "高级展开体固定最大高度320px");
+    t.eq(ADVANCED_EXPANSION_PROOF.disclosureContent.style.overflowY, "auto", "超限滚动发生在折叠区内部");
+    t.eq(ADVANCED_EXPANSION_PROOF.firstScreenPositionsAfter, ADVANCED_EXPANSION_PROOF.firstScreenPositionsBefore, "高级展开前后一级卡片与其它折叠条host路径/grid栏位完全不动");
+    t.eq(ADVANCED_EXPANSION_PROOF.pageScrollAfter, { height: "100%", minHeight: 0, overflowY: "auto" }, "P0整页滚动保持原样");
+    t.ok(ADVANCED_EXPANSION_PROOF.minimumAdvancedLabelHeightPx > 320, "18项仅标签行高下限就超过320px，内部滚动必然有超限内容");
+    const panel = panelRenderer();
+    for (const id of ["fold-history", "common-config"]) {
+      disclosureButton(panel.runtime.tree(), id).props.onClick();
+      panel.runtime.render(panel.T.Page);
+      const style = disclosureContent(panel.runtime.tree(), id).props.style;
+      t.eq(style.maxHeight, "320px", `${id} 展开体同样限高320px`);
+      t.eq(style.overflowY, "auto", `${id} 同样在折叠区内部滚动`);
+    }
+  },
+
   "④ 阈值固定档位：select 只认45/50/65/75/85%，保存闸门拒绝任意数字"(t) {
     t.eq(T.THRESHOLD_TIERS, [0.45, 0.5, 0.65, 0.75, 0.85], "固定档位含现默认45%");
     for (const tier of T.THRESHOLD_TIERS) t.eq(T.thresholdTierValue(tier), String(tier), `${tier} 必须可选`);
@@ -494,6 +611,14 @@ export const tests = {
     t.ne(expandedSource, SOURCE, "默认展开变异确实命中源码");
     const expanded = panelRenderer(fixture(), expandedSource);
     t.throws(() => assertDefaultTree(expanded.runtime.tree()), "默认全展开必须让首屏守卫变红");
+
+    const unclippedSource = SOURCE.replace(', maxHeight: "320px", overflowY: "auto"', "");
+    t.ne(unclippedSource, SOURCE, "去掉展开体限高/内滚的变异确实命中源码");
+    const unclipped = panelRenderer(fixture(), unclippedSource);
+    const unclippedBefore = unclipped.runtime.tree();
+    disclosureButton(unclippedBefore, "advanced-config").props.onClick();
+    unclipped.runtime.render(unclipped.T.Page);
+    t.throws(() => assertExpandedWithoutSqueeze(unclippedBefore, unclipped.runtime.tree()), "展开体没有maxHeight/overflowY时，同一不挤压守卫必须真红");
 
     const numericSource = SOURCE.replace('panelLabel: "压缩阈值（固定档位）", hint: "只能选 45% / 50% / 65% / 75% / 85%；45% 是现默认值", kind: "threshold"', 'panelLabel: "压缩阈值（固定档位）", hint: "自由数字", kind: "number", step: 0.01, min: 0.05, max: 0.95');
     t.ne(numericSource, SOURCE, "数字输入变异确实命中源码");
