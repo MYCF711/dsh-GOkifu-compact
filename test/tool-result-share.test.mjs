@@ -33,6 +33,16 @@ tests["C481 已被图记住：错误片段出现在失败边的 errorSnippet 里
   t.eq(isRememberedByGraph(body, [{ errorSnippet: "Error" }]), false, "片段太短 ⇒ 不作为依据");
 };
 
+tests["K-32 空白归一化：CRLF / 连续空格不能算「没记住」"] = (t) => {
+  const messyBody = "Error:\r\n  EACCES: permission denied,\r\n    open 'prod.yml'";
+  const cleanSnippet = "Error: EACCES: permission denied, open 'prod.yml'";
+  // 旧判据直接 body.includes(snippet.slice(0,60))，这里会假阴性。
+  t.eq(isRememberedByGraph(messyBody, [{ result: "failure", errorSnippet: cleanSnippet }]), true, "空白差异仍算记住");
+  t.eq(isRememberedByGraph(messyBody, [{ result: "failure", errorSnippet: cleanSnippet.replace("prod.yml", "other.yml") }]), false, "真实内容不同仍不算");
+  t.eq(isRememberedByGraph("   \r\n ", [{ errorSnippet: cleanSnippet }]), false, "纯空白文本 => 没记住");
+  t.eq(isRememberedByGraph(messyBody, [{ errorSnippet: "Error" }]), false, "归一化后太短仍不作为依据");
+};
+
 tests["C481 汇总：可清上限 = 工具结果 − 已被记住的那部分"] = (t) => {
   const rememberable = "Error: EACCES: permission denied, open 'prod.yml'";
   const s = summarizeOverlap(

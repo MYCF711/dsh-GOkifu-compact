@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "./session-scan.mjs";
+import { norm } from "../src/rooms/kifu-model.mjs";
 
 /**
  * ★ C483：token 估算改用**官方比例**（不再是拍脑袋的 3.6 字符/token）。
@@ -97,14 +98,21 @@ function contentChars(content) {
  * @param {Array<object>} edges 图里的边
  * @returns {boolean}
  */
+function probeText(text) {
+  // renderFacts 的 clip() 会先 norm() 再截断；审计也必须用同一空白口径，
+  // 否则 CRLF / 连续空格 / 行尾差异会被误报成「事实丢了」（K-32）。
+  return norm(text).replace(/\s+/g, " ").trim();
+}
+
 export function isRememberedByGraph(text, edges) {
-  const body = String(text ?? "");
+  const body = probeText(text);
   if (body === "") return false;
   for (const edge of Array.isArray(edges) ? edges : []) {
     const snippet = String(edge?.errorSnippet ?? "");
     if (snippet === "") continue;
-    // 边上的片段是截断过的（通常 200–400 字符）—— 用它的前 60 字符去正文里找
-    const needle = snippet.slice(0, 60);
+    // 边上的片段是截断过的（通常 200–400 字符）—— 用它的前 60 字符去正文里找。
+    // 两端都归一化空白：只剩真正的内容差异才算「没记住」。
+    const needle = probeText(snippet).slice(0, 60);
     if (needle.length >= 12 && body.includes(needle)) return true;
   }
   return false;
