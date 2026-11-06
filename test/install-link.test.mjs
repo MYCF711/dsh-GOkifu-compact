@@ -599,7 +599,7 @@ tests["F1 经 junction 路径执行 install.mjs：必须真的干活（旧写法
   try {
     const { view } = makeInstalledCopy(fixture, "install");
     const entry = nodePath.join(view, "scripts", "install.mjs");
-    const result = runNode([entry, "--home", fixture.home, "--dry-run"]);
+    const result = runNode([entry, "--home", fixture.home, "--profile", "desktop", "--dry-run"]);
     t.eq(result.code, 0, `应退出 0：${result.out}`);
     t.ok(result.out.includes("== dsh-gokifu-compact install =="), `必须真的执行 run()（旧写法这里输出为空）：\n${result.out}`);
     t.ok(result.out.includes("[dry]"), `dry-run 应打印计划：\n${result.out}`);
