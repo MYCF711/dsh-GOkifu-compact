@@ -1,0 +1,20 @@
+{
+  "schema": "lme-reader-postprocess-prereg-v1",
+  "createdAt": "2026-11-06T18:59:55.346Z",
+  "model": "group/kimi-k3.1-pro",
+  "promptVariant": "v1",
+  "postprocess": "v1n",
+  "rule": "A pure-digit answer must appear as a standalone token in the reader context; otherwise replace with UNKNOWN. Token boundary excludes [0-9A-Za-z_-].",
+  "rationale": "kimi v1 formal 50/50 was 96/96 with only abstention failing: ABS-07 compact answered 662 although context only had 661,663. This deterministic guard removes fabricated numeric answers without changing prompts, fixtures, answers, thresholds, or non-numeric answers.",
+  "affectedExpected": [
+    "ABS-07"
+  ],
+  "unaffectedExamples": [
+    "retain-20",
+    "之前",
+    "fold-2",
+    "661"
+  ],
+  "changes": "postprocess only; no fixture/threshold change",
+  "plan": "run formal 50/50 100 calls on v2 fixtures with kimi v1 + v1n; report PASS/FAIL."
+}

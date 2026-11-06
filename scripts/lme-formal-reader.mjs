@@ -17,13 +17,14 @@ import {
   makeReaderPayload,
   evaluateRun,
 } from "./lme-task50.mjs";
-import { buildMessages, normalizeReaderAnswer, callTwoStep } from "./lme-pilot-reader.mjs";
+import { buildMessages, normalizeReaderAnswer, postProcessAnswer, callTwoStep } from "./lme-pilot-reader.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = nodePath.join(HERE, "..", "evidence", "lme-task50-v2.fixtures.json");
 const OUT = process.env.LME_FORMAL_OUT || nodePath.join(HERE, "..", "evidence", "lme-formal-reader-2026-11-07.json");
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
 const VARIANT = process.env.LME_READER_VARIANT || "v2";
+const POSTPROCESS = process.env.LME_READER_POSTPROCESS || "none";
 const ENDPOINT = process.env.LME_READER_ENDPOINT || "http://127.0.0.1:3425/v1/chat/completions";
 
 async function callModel(payload) {
@@ -73,7 +74,7 @@ export async function runFormal({ fixtures, log = console.log } = {}) {
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }
-      const answer = normalizeReaderAnswer(call.raw);
+      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS });
       pair[arm] = answer;
       calls.push({
         id: item.id,
@@ -100,6 +101,7 @@ export async function runFormal({ fixtures, log = console.log } = {}) {
     schema: "lme-formal-reader-v1",
     status: "SCORED",
     variant: VARIANT,
+    postprocess: POSTPROCESS,
     qualityGate: evaluation.qualityGate,
     passed: evaluation.passed,
     model: MODEL,

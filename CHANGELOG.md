@@ -598,6 +598,8 @@ v3 两步协议 pilot（extract `9557a339…` / answer `ab2747b2…`，40 次 AP
 
 换 reader 模型 `group/kimi-k3.1-pro`：v1 正式 50/50 full **96%** / compact **96%** / Δ0，仅 **abstention** 失败（ABS-07 compact 编造 662）；v1b 弃答规则把 abstention 修到 10/10，但 compact 退化到 **88%**（Δ-8%），仍 **FAIL**。kimi v1 是当前最接近 PASS 的一版；不再调提示词，下一步转向确定性答案抽取器或换 reader。
 
+v1n 数字 token 校验（预注册）：kimi v1 + v1n 正式 full **96%** / compact **94%** / Δ **-2%**，100 次 0 错误；四条门槛过，仍 **abstention FAIL**——ABS-08 compact 答上下文 id `n-abs08-current` 而非 UNKNOWN。v1n 修掉 662 编造但只到 94%，不采用；不把事后补 id 规则当 PASS。
+
 ### K-33 · 发布后自动验证
 
 `release.mjs --yes --npm` 在 publish/Release 之后自动跑 `release-post-verify.mjs`：轮询 `npm view <pkg>@<version> version` 直到传播完成，校验 `dist-tags.latest`、tarball 内 `## <version>` 段、`verify-release.mjs` 逐文件一致，以及 GitHub Release 非 draft/prerelease。任一失败非零退出，明确写「publish 已完成，不要重跑发布事务」。默认超时 180s、间隔 5s；纯判据 6 条单测，不连网络。

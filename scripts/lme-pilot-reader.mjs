@@ -28,6 +28,7 @@ const FIXTURES_PATH = process.env.LME_PILOT_FIXTURES ? nodePath.resolve(process.
 const DEFAULT_OUT = nodePath.join(HERE, "..", "evidence", "lme-pilot-reader-2026-11-07.json");
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
 const VARIANT = process.env.LME_READER_VARIANT || "v1";
+const POSTPROCESS = process.env.LME_READER_POSTPROCESS || "none";
 const ENDPOINT = process.env.LME_READER_ENDPOINT || "http://127.0.0.1:3425/v1/chat/completions";
 const PER_TYPE = 2;
 
@@ -50,6 +51,19 @@ export function normalizeReaderAnswer(raw) {
     }
   }
   return text;
+}
+
+/**
+ * v1n 确定性校验：纯数字答案必须是上下文中的独立 token；否则改成 UNKNOWN。
+ * 只处理「数字编造/截断」，不改中文词、列表或 id。
+ */
+export function postProcessAnswer(answer, context, { mode = POSTPROCESS } = {}) {
+  if (mode !== "v1n") return answer;
+  const text = String(answer ?? "");
+  if (!/^\d+$/.test(text)) return answer;
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const present = new RegExp(`(?:^|[^0-9A-Za-z_-])${escaped}(?:$|[^0-9A-Za-z_-])`).test(String(context ?? ""));
+  return present ? answer : "UNKNOWN";
 }
 
 export const READER_PROMPTS = Object.freeze({
@@ -172,7 +186,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }
-      const answer = normalizeReaderAnswer(call.raw);
+      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS });
       const grade = gradeAnswer(item.answer, answer, item.grader, item.aliases ?? []);
       results.push({
         id: item.id,
@@ -191,7 +205,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       });
     }
   }
-  return { ...summarize(selected, results), variant: VARIANT };
+  return { ...summarize(selected, results), variant: VARIANT, postprocess: POSTPROCESS };
 }
 
 export function summarize(selected, results) {

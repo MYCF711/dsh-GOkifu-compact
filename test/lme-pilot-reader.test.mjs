@@ -7,7 +7,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectPilot, normalizeReaderAnswer, buildMessages, buildTwoStepMessages, buildAnswerMessages, summarize, READER_PROMPTS } from "../scripts/lme-pilot-reader.mjs";
+import { selectPilot, normalizeReaderAnswer, postProcessAnswer, buildMessages, buildTwoStepMessages, buildAnswerMessages, summarize, READER_PROMPTS } from "../scripts/lme-pilot-reader.mjs";
 import { assertReaderPayload, makeReaderPayload, TYPES } from "../scripts/lme-task50.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -97,4 +97,13 @@ tests["K27-P7 v3 两步协议：抽取只看上下文，回答只看 span"] = (t
   t.eq(answer[1].content.includes("span-fixture"), true, "回答只看 span");
   t.eq(answer[1].content.includes(payload.context), false, "回答不再看完整上下文");
   t.eq(READER_PROMPTS.v3answer.includes("Never substitute"), true, "弃答规则");
+};
+
+tests["K27-P8 v1n 数字校验：只把上下文中不存在的独立数字改成 UNKNOWN"] = (t) => {
+  const ctx = "checkpoint fold-1: visible seqs=661,663\nhot: e-abs07-first and e-abs07-last only";
+  t.eq(postProcessAnswer("662", ctx, { mode: "v1n" }), "UNKNOWN", "编造 662 必须弃答");
+  t.eq(postProcessAnswer("661", ctx, { mode: "v1n" }), "661", "存在的 661 保留");
+  t.eq(postProcessAnswer("retain-20", "constraint=retain-20", { mode: "v1n" }), "retain-20", "非纯数字不改");
+  t.eq(postProcessAnswer("20", "retain-20", { mode: "v1n" }), "UNKNOWN", "词内数字不算独立 token");
+  t.eq(postProcessAnswer("662", ctx), "662", "默认 none 不后处理");
 };
