@@ -527,6 +527,39 @@ export function coverageOf({ rangeStart, rangeEnd, seqs }) {
   return { start, end, uncoveredHead: Math.max(0, start - rangeStart), uncoveredTail: Math.max(0, rangeEnd - end) };
 }
 
+/** 约束判重只忽略空白；最终产物仍必须保留未归一化的原文。 */
+const squeezeConstraint = (value) => String(value ?? "").replace(/\s+/g, "");
+
+/**
+ * ★ C653：把「只差空白」的模型变体**就地替换**为约束原文。
+ *
+ * C522 用去空白判重避免了重复追加，但也把变体当成最终产物保留下来，导致真实
+ * `measureFoldQuality.constraintRecall` 仍为 0。这里用同一份去空白口径定位原文范围，
+ * 只替换那一段，不动摘要其它空白；找不到变体时原样返回，完全缺失仍交给追加路径。
+ *
+ * @param {string} text
+ * @param {string} constraint
+ * @returns {string}
+ */
+function restoreConstraintVerbatim(text, constraint) {
+  const body = String(text ?? "");
+  const original = String(constraint ?? "");
+  const needle = squeezeConstraint(original);
+  if (needle === "" || body.includes(original)) return body;
+  const compact = [];
+  const positions = [];
+  for (let i = 0; i < body.length; i += 1) {
+    if (/\s/.test(body[i])) continue;
+    compact.push(body[i]);
+    positions.push(i);
+  }
+  const at = compact.join("").indexOf(needle);
+  if (at < 0) return body;
+  const start = positions[at];
+  const end = positions[at + needle.length - 1] + 1;
+  return `${body.slice(0, start)}${original}${body.slice(end)}`;
+}
+
 /**
  * ★ C492：**离线摘要丢掉的约束，机械补回去。**
  *
@@ -1109,9 +1142,10 @@ export async function runOfflineFold({
     // 约束补回：用**全量**缺失清单（质量报告只给前 5 条）
     // ★ C522：判重要**忽略空白差异**。真机 8cc34e32：模型写的是「开启 superagent 模式」，
     //   原文是「开启superagent模式」—— 逐字比较判不出来，于是整段约束被重复补了一遍。
-    const squeeze = (x) => String(x ?? "").replace(/\s+/g, "");
-    const squeezedText = squeeze(text);
-    const missing = allConstraints(graph).filter((c) => !squeezedText.includes(squeeze(c)));
+    // ★ C653：判重不再直接把变体留在最终产物里，而是先就地还原为原文；完全缺失才追加。
+    const constraints = allConstraints(graph);
+    for (const constraint of constraints) text = restoreConstraintVerbatim(text, constraint);
+    const missing = constraints.filter((c) => squeezeConstraint(c) !== "" && !text.includes(String(c ?? "")));
     let repaired = 0;
     if (missing.length > 0) {
       const fixed = repairMissingConstraints(text, missing);

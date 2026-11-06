@@ -287,7 +287,7 @@ tests["C522 重试仍截断 ⇒ 明确标 truncated（账上不许记成功）"]
   t.eq(out.chunks[0].truncated, true, "两次都撞上限 ⇒ 必须标出来");
 };
 
-tests["C522 约束判重忽略空白差异（模型排版不一样不该重复补）"] = async (t) => {
+tests["C522 约束空白变体就地还原原文，不重复补段"] = async (t) => {
   const m = await import("../src/rooms/offline-fold.mjs");
   const out = await m.runOfflineFold({
     graph,
@@ -298,6 +298,59 @@ tests["C522 约束判重忽略空白差异（模型排版不一样不该重复�
     measureQuality: () => ({ constraintRecall: 1 }),
   });
   t.eq(out.chunks[0].repaired, 0, "空格式差异不算丢失，不许重复补");
+  t.includes(out.chunks[0].text, "不要粉色大象", "空白变体要还原为逐字原文");
+  t.notIncludes(out.chunks[0].text, "不要 粉色 大象", "模型变体不得留在最终产物");
+  t.eq(out.chunks[0].text.includes("## 约束（逐字补充"), false, "不许追加重复补段");
+};
+
+tests["C653 空白变体必须就地还原逐字原文，完全缺失仍追加且无重复补段"] = async (t) => {
+  const m = await import("../src/rooms/offline-fold.mjs");
+  const { measureFoldQuality } = await import("../src/rooms/fold-quality.mjs");
+  const original = "只改本worktree";
+  const variant = "只改本 worktree";
+  const verbatimGraph = {
+    rootUserNodeIds: ["n1"],
+    order: ["n1"],
+    nodes: { n1: { id: "n1", seq: 1, kind: "user", text: "遵守工作区边界", constraints: [original] } },
+    edges: {},
+  };
+  const modelText = `## 目标\n- 遵守工作区边界\n\n## 棋谱\n- n1 记录约束\n\n## 约束（逐字）\n- ${variant}`;
+  const out = await m.runOfflineFold({
+    graph: verbatimGraph,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    callModel: async () => ({ text: modelText, usage: null, model: "fake" }),
+    measureQuality: measureFoldQuality,
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.quality?.constraintRecall, 1, "真实 measureFoldQuality：最终产物必须逐字包含约束原文");
+  t.includes(chunk.text, original, "模型空白变体必须就地替换为棋谱里的原文");
+  t.notIncludes(chunk.text, variant, "模型变体不得继续留在最终产物里");
+  t.eq(chunk.text.split(original).length - 1, 1, "原文只出现一次，不许再追加一份");
+  t.eq(chunk.text.includes("## 约束（逐字补充"), false, "只有空白差异时不得生成重复补段");
+  t.eq(chunk.repaired, 0, "就地还原不是追加补段");
+
+  const withMissing = {
+    ...verbatimGraph,
+    nodes: {
+      n1: { ...verbatimGraph.nodes.n1, constraints: [original, "不要粉色大象"] },
+    },
+  };
+  const appended = await m.runOfflineFold({
+    graph: withMissing,
+    events,
+    rangeStart: 1,
+    rangeEnd: 5,
+    callModel: async () => ({ text: modelText, usage: null, model: "fake" }),
+    measureQuality: measureFoldQuality,
+  });
+  const fixed = appended.chunks[0];
+  t.eq(fixed.quality?.constraintRecall, 1, "空白变体还原 + 完全缺失追加之后，真实召回仍须为 1");
+  t.eq(fixed.repaired, 1, "只有完全缺失的那条走原追加路径");
+  t.eq(fixed.text.split("## 约束（逐字补充").length - 1, 1, "完全缺失只产生一个补段");
+  t.eq(fixed.text.split(original).length - 1, 1, "补段不得重复写已就地还原的原文");
+  t.includes(fixed.text, "- 不要粉色大象", "完全缺失的约束仍按原路逐字追加");
 };
 
 tests["C532 一次都没折过的会话必须从头部开始（否则前段永远补不上）"] = async (t) => {
