@@ -1,5 +1,5 @@
 {
- "total": 1778,
+ "total": 1782,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -110,6 +110,7 @@
   "ledger.test.mjs": 29,
   "live-bench.test.mjs": 8,
   "live-folds.test.mjs": 11,
+  "lme-pilot-reader.test.mjs": 4,
   "lme-task50.test.mjs": 13,
   "log-stats.test.mjs": 5,
   "log-truth.test.mjs": 5,
@@ -232,6 +233,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2134,
- "passedAt": "2026-11-06T16:59:58.655Z"
+ "passed": 2138,
+ "passedAt": "2026-11-06T17:22:31.649Z"
 }

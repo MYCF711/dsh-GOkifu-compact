@@ -1,0 +1,747 @@
+{
+  "schema": "lme-pilot-reader-v1",
+  "status": "PILOT_ONLY",
+  "qualityGate": "NOT_APPLICABLE_PILOT",
+  "model": "deepseek-v4.1-flash-1017",
+  "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+  "selectionRule": "first 2 per type in frozen fixture order",
+  "selected": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "applicability": "task-process/boundary",
+      "grader": "exact",
+      "answer": "n-ie01-root"
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "applicability": "task-process/failure",
+      "grader": "exact",
+      "answer": "e-ie02-parse"
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "applicability": "task-process/failure",
+      "grader": "ordered",
+      "answer": [
+        "e-mr01-a",
+        "e-mr01-b"
+      ]
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "applicability": "task-process/update",
+      "grader": "set",
+      "answer": [
+        "e-mr02-a",
+        "e-mr02-c"
+      ]
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "applicability": "task-process/update",
+      "grader": "exact",
+      "answer": "later-ok"
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "applicability": "task-process/update",
+      "grader": "exact",
+      "answer": "retain-20"
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "applicability": "task-process/update",
+      "grader": "exact",
+      "answer": "before"
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "applicability": "task-process/multi-fold",
+      "grader": "exact",
+      "answer": "after"
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "applicability": "task-process/failure",
+      "grader": "UNKNOWN",
+      "answer": "UNKNOWN"
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "applicability": "task-process/boundary",
+      "grader": "UNKNOWN",
+      "answer": "UNKNOWN"
+    }
+  ],
+  "summary": {
+    "questions": 10,
+    "calls": 20,
+    "fullCorrect": 8,
+    "compactCorrect": 7,
+    "delta": -1,
+    "byType": {
+      "IE": {
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        }
+      },
+      "MR": {
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        }
+      },
+      "KU": {
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 1,
+          "total": 2
+        }
+      },
+      "TR": {
+        "full": {
+          "correct": 0,
+          "total": 2
+        },
+        "compact": {
+          "correct": 0,
+          "total": 2
+        }
+      },
+      "ABS": {
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        }
+      }
+    },
+    "errors": [
+      {
+        "id": "KU-02",
+        "arm": "compact",
+        "code": "exact-mismatch",
+        "error": null
+      },
+      {
+        "id": "TR-01",
+        "arm": "full",
+        "code": "exact-mismatch",
+        "error": null
+      },
+      {
+        "id": "TR-01",
+        "arm": "compact",
+        "code": "exact-mismatch",
+        "error": null
+      },
+      {
+        "id": "TR-02",
+        "arm": "full",
+        "code": "exact-mismatch",
+        "error": null
+      },
+      {
+        "id": "TR-02",
+        "arm": "compact",
+        "code": "exact-mismatch",
+        "error": null
+      }
+    ],
+    "callsWithError": 0,
+    "usageTotals": {
+      "inputTokens": 2795,
+      "outputTokens": 2479,
+      "totalTokens": 5274,
+      "latencyMs": 44042
+    }
+  },
+  "results": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "full",
+      "question": "根目标对应的节点 id 是什么？",
+      "contextChars": 128,
+      "raw": "n-ie01-root",
+      "answer": "n-ie01-root",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 72,
+        "completion_tokens_details": {
+          "reasoning_tokens": 69
+        },
+        "prompt_tokens": 136,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 208
+      },
+      "latencyMs": 974
+    },
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "compact",
+      "question": "根目标对应的节点 id 是什么？",
+      "contextChars": 74,
+      "raw": "n-ie01-root",
+      "answer": "n-ie01-root",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 68,
+        "completion_tokens_details": {
+          "reasoning_tokens": 65
+        },
+        "prompt_tokens": 122,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 190
+      },
+      "latencyMs": 913
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "full",
+      "question": "哪条边因 schema-mismatch 失败？",
+      "contextChars": 149,
+      "raw": "e-ie02-parse",
+      "answer": "e-ie02-parse",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 53,
+        "completion_tokens_details": {
+          "reasoning_tokens": 49
+        },
+        "prompt_tokens": 144,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 197
+      },
+      "latencyMs": 10368
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "compact",
+      "question": "哪条边因 schema-mismatch 失败？",
+      "contextChars": 74,
+      "raw": "e-ie02-parse",
+      "answer": "e-ie02-parse",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 135,
+        "completion_tokens_details": {
+          "reasoning_tokens": 131
+        },
+        "prompt_tokens": 125,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 260
+      },
+      "latencyMs": 1682
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "full",
+      "question": "跨两个 fold 形成成功路径的两条边，按先后排列是什么？",
+      "contextChars": 179,
+      "raw": "e-mr01-a, e-mr01-b",
+      "answer": "e-mr01-a, e-mr01-b",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "ordered list match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 154,
+        "completion_tokens_details": {
+          "reasoning_tokens": 148
+        },
+        "prompt_tokens": 171,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 325
+      },
+      "latencyMs": 1052
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "compact",
+      "question": "跨两个 fold 形成成功路径的两条边，按先后排列是什么？",
+      "contextChars": 77,
+      "raw": "e-mr01-a,e-mr01-b",
+      "answer": "e-mr01-a,e-mr01-b",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "ordered list match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 128,
+        "completion_tokens_details": {
+          "reasoning_tokens": 123
+        },
+        "prompt_tokens": 133,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 261
+      },
+      "latencyMs": 928
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "full",
+      "question": "两个 fold 中最终标为 later-ok 的边 id 有哪些？",
+      "contextChars": 195,
+      "raw": "e-mr02-a,e-mr02-c",
+      "answer": "e-mr02-a,e-mr02-c",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "set match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 401,
+        "completion_tokens_details": {
+          "reasoning_tokens": 396
+        },
+        "prompt_tokens": 175,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 576
+      },
+      "latencyMs": 10790
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "compact",
+      "question": "两个 fold 中最终标为 later-ok 的边 id 有哪些？",
+      "contextChars": 74,
+      "raw": "e-mr02-a,e-mr02-c",
+      "answer": "e-mr02-a,e-mr02-c",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "set match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 153,
+        "completion_tokens_details": {
+          "reasoning_tokens": 147
+        },
+        "prompt_tokens": 135,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 288
+      },
+      "latencyMs": 1039
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "full",
+      "question": "e-ku01-a 的最新结算状态是什么？",
+      "contextChars": 149,
+      "raw": "later-ok",
+      "answer": "later-ok",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 94,
+        "completion_tokens_details": {
+          "reasoning_tokens": 90
+        },
+        "prompt_tokens": 152,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 246
+      },
+      "latencyMs": 1591
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "compact",
+      "question": "e-ku01-a 的最新结算状态是什么？",
+      "contextChars": 82,
+      "raw": "later-ok",
+      "answer": "later-ok",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 143,
+        "completion_tokens_details": {
+          "reasoning_tokens": 141
+        },
+        "prompt_tokens": 124,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 267
+      },
+      "latencyMs": 1150
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "full",
+      "question": "新约束生效后，当前 retain 数值是什么？",
+      "contextChars": 149,
+      "raw": "retain-20",
+      "answer": "retain-20",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact match"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 143,
+        "completion_tokens_details": {
+          "reasoning_tokens": 141
+        },
+        "prompt_tokens": 150,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 293
+      },
+      "latencyMs": 1523
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "compact",
+      "question": "新约束生效后，当前 retain 数值是什么？",
+      "contextChars": 81,
+      "raw": "20",
+      "answer": "20",
+      "grade": {
+        "correct": false,
+        "code": "exact-mismatch",
+        "message": "trimmed, whitespace-normalized strings differ"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 225,
+        "completion_tokens_details": {
+          "reasoning_tokens": 224
+        },
+        "prompt_tokens": 124,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 349
+      },
+      "latencyMs": 2427
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "full",
+      "question": "e-tr01-a 的失败发生在 later-ok 之前还是之后？",
+      "contextChars": 144,
+      "raw": "之前",
+      "answer": "之前",
+      "grade": {
+        "correct": false,
+        "code": "exact-mismatch",
+        "message": "trimmed, whitespace-normalized strings differ"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 49,
+        "completion_tokens_details": {
+          "reasoning_tokens": 48
+        },
+        "prompt_tokens": 151,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 200
+      },
+      "latencyMs": 705
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "compact",
+      "question": "e-tr01-a 的失败发生在 later-ok 之前还是之后？",
+      "contextChars": 79,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "grade": {
+        "correct": false,
+        "code": "exact-mismatch",
+        "message": "trimmed, whitespace-normalized strings differ"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 108,
+        "completion_tokens_details": {
+          "reasoning_tokens": 105
+        },
+        "prompt_tokens": 129,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 237
+      },
+      "latencyMs": 1690
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "full",
+      "question": "checkpoint fold-2 出现在 e-tr02-a 失败之前还是之后？",
+      "contextChars": 139,
+      "raw": "之后",
+      "answer": "之后",
+      "grade": {
+        "correct": false,
+        "code": "exact-mismatch",
+        "message": "trimmed, whitespace-normalized strings differ"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 158,
+        "completion_tokens_details": {
+          "reasoning_tokens": 157
+        },
+        "prompt_tokens": 148,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 306
+      },
+      "latencyMs": 1301
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "compact",
+      "question": "checkpoint fold-2 出现在 e-tr02-a 失败之前还是之后？",
+      "contextChars": 63,
+      "raw": "之后",
+      "answer": "之后",
+      "grade": {
+        "correct": false,
+        "code": "exact-mismatch",
+        "message": "trimmed, whitespace-normalized strings differ"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 98,
+        "completion_tokens_details": {
+          "reasoning_tokens": 97
+        },
+        "prompt_tokens": 124,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 222
+      },
+      "latencyMs": 1224
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "full",
+      "question": "边 e-abs01-missing 的验证结果是什么？",
+      "contextChars": 156,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact UNKNOWN"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 60,
+        "completion_tokens_details": {
+          "reasoning_tokens": 58
+        },
+        "prompt_tokens": 149,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 209
+      },
+      "latencyMs": 1090
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "边 e-abs01-missing 的验证结果是什么？",
+      "contextChars": 98,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact UNKNOWN"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 53,
+        "completion_tokens_details": {
+          "reasoning_tokens": 51
+        },
+        "prompt_tokens": 130,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 183
+      },
+      "latencyMs": 962
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "full",
+      "question": "节点 n-abs02-missing 的成功路径是什么？",
+      "contextChars": 157,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact UNKNOWN"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 96,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        },
+        "prompt_tokens": 151,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 247
+      },
+      "latencyMs": 1618
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "节点 n-abs02-missing 的成功路径是什么？",
+      "contextChars": 74,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "grade": {
+        "correct": true,
+        "code": "ok",
+        "message": "exact UNKNOWN"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 88,
+        "completion_tokens_details": {
+          "reasoning_tokens": 86
+        },
+        "prompt_tokens": 122,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 210
+      },
+      "latencyMs": 1015
+    }
+  ],
+  "note": "Pilot smoke only. It does not establish the formal 50/50 task-quality gate and does not change defaults."
+}
