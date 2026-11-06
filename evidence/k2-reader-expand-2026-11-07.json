@@ -1,0 +1,60 @@
+{
+  "schema": "k2-reader-expand-v1",
+  "createdAt": "2026-11-06T21:04:57.853Z",
+  "readerModel": "group/kimi-k3.1-pro",
+  "contexts": [
+    {
+      "sessionHash": "8ca0b786fa93ef9f",
+      "baseline": 43585,
+      "everyStep": 41981,
+      "saved": 1604
+    },
+    {
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "baseline": 35925,
+      "everyStep": 22516,
+      "saved": 13409
+    }
+  ],
+  "questions": [
+    {
+      "id": "S1-Q1",
+      "fact": "成功 write 工具结果 Created file",
+      "baseline": true,
+      "everyStep": false,
+      "degraded": true
+    },
+    {
+      "id": "S1-Q2",
+      "fact": "read 失败原文（FAILED_ATTEMPTS）",
+      "baseline": true,
+      "everyStep": true,
+      "degraded": false
+    },
+    {
+      "id": "S2-Q3",
+      "fact": "GitHub JSON id/private",
+      "baseline": true,
+      "everyStep": false,
+      "degraded": true
+    },
+    {
+      "id": "S2-Q4",
+      "fact": "首次 clone 失败原因",
+      "baseline": true,
+      "everyStep": true,
+      "degraded": false
+    }
+  ],
+  "aggregate": {
+    "questions": 4,
+    "calls": 8,
+    "baselineCorrect": 4,
+    "everyStepCorrect": 2,
+    "degraded": 2,
+    "totalSavedChars": 30026
+  },
+  "verdict": "TASK_CONDITIONAL",
+  "rule": "答案在成功 tool/result -> 每步清理丢失；答案在失败边/约束 -> 安全",
+  "note": "2 会话/4 题/8 次真实调用；定向窗口，不是全量质量门。"
+}
