@@ -1,5 +1,5 @@
 {
-  "total": 1765,
+  "total": 1772,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -82,7 +82,7 @@
     "graph-exemptions.test.mjs": 0,
     "graph-fixtures.test.mjs": 5,
     "graph-invariants.test.mjs": 1,
-    "handoff-check.test.mjs": 24,
+    "handoff-check.test.mjs": 25,
     "hot-inject.test.mjs": 9,
     "human-message.test.mjs": 15,
     "index-fingerprint.test.mjs": 2,
@@ -162,6 +162,7 @@
     "release-tool.test.mjs": 2,
     "render-index-perf.test.mjs": 6,
     "repair-coverage.test.mjs": 6,
+    "repair-foldmark-fidelity.test.mjs": 4,
     "reread-roi.test.mjs": 28,
     "restart-checklist.test.mjs": 9,
     "retread.test.mjs": 29,
@@ -174,6 +175,7 @@
     "run-skip.test.mjs": 0,
     "sanitize-anchor.test.mjs": 8,
     "selfloop.test.mjs": 1,
+    "session-activity.test.mjs": 2,
     "session-label.test.mjs": 4,
     "session-scan.test.mjs": 7,
     "slash-merge.test.mjs": 7,
@@ -229,6 +231,6 @@
     "worldhash.test.mjs": 0,
     "ws-install.test.mjs": 19
   },
-  "passed": 2121,
-  "passedAt": "2026-11-06T15:00:21.879Z"
+  "passed": 2128,
+  "passedAt": "2026-11-06T15:28:44.289Z"
 }

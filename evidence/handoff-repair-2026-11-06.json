@@ -1,0 +1,37 @@
+{
+  "schema": "handoff-repair-v1",
+  "generatedAt": "2026-11-06",
+  "codeCommit": "54682bb",
+  "rootCause": "旧 archive-offline fold 在机械补回约束之前生成，foldMark.quality.constraintRecall=0 且摘要缺一条用户约束；当前活跃会话的 openAtEnd 则被交接门禁误判为发布回归",
+  "changes": {
+    "handoffActiveSession": "日志在 home/sessions 与棋谱分树，按 home 建索引；活跃会话 ⑬ openAtEnd>0 降为 WARN，非活跃仍 FAIL",
+    "repairTool": "repair-foldmark-fidelity.mjs 默认 dry-run；--apply 先备份 graph.json，再 tmp+rename，写后重读确认 constraintRecall=1"
+  },
+  "dryRun": {
+    "sessionNeedsRepair": 1,
+    "constraintsAppended": 1,
+    "activeSkipped": 7,
+    "noSummaryTextSkipped": 1
+  },
+  "handoffAfterActiveFix": {
+    "fail": 1,
+    "warn": 265,
+    "remaining": "唯一 FAIL 是上述历史 foldMark 的 constraintRecall=0；尚未 apply"
+  },
+  "expectedAfterApply": {
+    "fail": 0,
+    "note": "需用户确认后执行 --apply；本证据不包含会话 id 或约束原文"
+  },
+  "safety": {
+    "default": "dry-run",
+    "backup": "graph.json.bak-fidelity-<ts>",
+    "atomicWrite": true,
+    "readBackVerified": true,
+    "activeSessionSkipped": true
+  },
+  "limits": [
+    "尚未 apply 到 live home；stable release 仍被这条历史 FAIL 阻断",
+    "未调用真实 reader；本修复只恢复机械保真度，不证明摘要质量",
+    "noSummaryText 的旧折痕无法自动修复，只能保留 WARN"
+  ]
+}

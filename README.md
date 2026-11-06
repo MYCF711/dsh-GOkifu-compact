@@ -183,7 +183,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2121 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2128 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
@@ -213,6 +213,15 @@ node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json
 ```
 
 只读比较原始工具结果与 every-step + 生产 facts 重注入，不改默认行为。旧 10 会话曾判 **REJECT**，但那是 raw/norm 空白差异造成的假阴性；T96 修正判据后，P2 的 **285/285** 条失败 snippet 都在 facts 里，受控 10 会话重跑为 **CANDIDATE**（省约 112 万 tokens，failure/constraint 均 1→1）。仍**不默认开启**，需 shadow / 真实 reader 验证。
+
+**历史 foldMark 保真修复**：
+
+```bash
+node scripts/repair-foldmark-fidelity.mjs          # 干跑，只报需修会话
+node scripts/repair-foldmark-fidelity.mjs --apply  # 备份后原子写回，写后重读
+```
+
+只修旧 fold 摘要里缺失的用户约束；活跃会话自动跳过，默认 dry-run。先记 `foldMark.seqStart > seqEnd` 的反序修复是另一个脚本 `repair-foldmarks.mjs`。
 
 ## 配置
 

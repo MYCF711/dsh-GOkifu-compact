@@ -586,6 +586,10 @@
 
 > 完整脱敏稳定版 1.18.2 公开后，本地下一轮开发线切换为 `1.18.3-beta.1`，避免与稳定版混用。
 
+### T97 · handoff 活跃会话降级与 foldMark 保真修复
+
+`handoff-check` 按 `home/sessions` 索引识别活跃会话：活跃会话 ⑬ `openAtEnd>0` 降为 WARN，非活跃仍 FAIL。新增 `repair-foldmark-fidelity.mjs`，默认 dry-run，`--apply` 先备份再原子写回，把旧 archive-offline 摘要缺失的用户约束机械补回并重算 `constraintRecall`；活跃会话与无摘要旧折痕跳过。干跑：1 个历史 foldMark 补回 1 条约束，7 个活跃会话跳过；handoff 由 FAIL2 降到 FAIL1（只剩该历史项，尚未 apply）。
+
 ### T96 · K-32 failure snippet 归一化修正
 
 `isRememberedByGraph` 改为对正文与 snippet 使用同一空白归一化，再比对前 60 字符；新增 CRLF/连续空格真红用例。修正后 P2 的 285 条 snippet raw 缺 14、归一化后缺 0；受控 K-2 10 会话为 CANDIDATE（省约 1,122,809 tok，failure/constraint 1→1）。旧的 K-2 REJECT 是假阴性，保留为 SUPERSEDED；仍不默认开启每步清理。
