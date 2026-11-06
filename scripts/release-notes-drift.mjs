@@ -88,7 +88,7 @@ export function main(argv = process.argv.slice(2)) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
   };
-  const notesFile = getArg("file", "docs/发布说明-1.17.6.md");
+  const notesFile = getArg("file", "docs/发布说明-1.18.0.md");
   const changelog = nodeFs.readFileSync(nodePath.join(ROOT, "CHANGELOG.md"), "utf8");
   const notesPath = nodePath.join(ROOT, notesFile);
   if (!nodeFs.existsSync(notesPath)) {
