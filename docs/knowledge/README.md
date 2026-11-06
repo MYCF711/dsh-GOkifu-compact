@@ -70,6 +70,7 @@
 | **真机踩坑：后台 job 与探测器** | [`live-踩坑-后台job与探测器.md`](./live-踩坑-后台job与探测器.md) | 2026-11-04 深夜六条：「零产出」与「从没跑过」磁盘上一样、`due`/`already-folded` 互相封印、估算×预算×截止叠成零折叠、后台拿不到宿主服务（`inactive context`）、探测器恒真/恒假三种写法、死进程写的心跳戳 |
 | **发布脱敏与日志清理（OWASP + npm）** | [`发布脱敏与日志清理-外部资料.md`](./发布脱敏与日志清理-外部资料.md) | session id 等应删除/掩码/散列；`files` 只管打包包含面；永久隐私门需 pack ⊆ git、分类扫描、tarball=tag，且不机械替换可执行默认值 |
 | **关联标识与隐私（OpenTelemetry）** | [`关联标识与隐私-OpenTelemetry.md`](./关联标识与隐私-OpenTelemetry.md) | TraceId/SpanId 用于 logs↔trace 关联，不等于 session；真实 session/user/private telemetry 联接仍 confirmed，未知 request/run/trace id 先 review |
+| **长上下文任务评测（LongBench）** | [`长上下文任务评测-LongBench.md`](./长上下文任务评测-LongBench.md) | v2 503 道四选一、六类任务、full/no_context/RAG 对照；K-27 用同一 reader 的 full/compact 配对与机械判分，真实分数未跑标 NOT_RUN |
 
 ## 纪律（写给未来的自己）
 
