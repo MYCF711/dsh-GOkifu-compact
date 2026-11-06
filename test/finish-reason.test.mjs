@@ -197,15 +197,20 @@ tests["T42④ landingRates：按 trigger 分组，string / null / 缺键三档�
 
 /* ────────────────────────── ⑤ callModel 的字段集（从源码读） ────────────────────────── */
 
-tests["T42⑤ 引擎那处 callModel **必须返回** finish（C650 反转：之前它不返回，真机 917/917 不可判）"] = (t) => {
-  const source = nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
-  const parsed = returnKeysOf(source, "const callModel = async (prompt, { maxTokens }) => {");
-  t.eq(parsed.ok, true, `解析要成功（失败说明签名改了，审计该跟着改）：${parsed.why}`);
-  t.eq(parsed.keys.includes("text"), true, "成功返回必须带 text（取错了 `return {…}` 就会少报）");
-  // 历史：C650 之前这里断言 false（当时钉的是「引擎不返回 finish」这个缺陷本身）。
-  // C650 把引擎那一行补上了 ⇒ 断言必须跟着翻，否则测试在保护 bug。
-  t.eq(parsed.keys.includes("finish"), true, "引擎这条**必须**带 finish（否则真机 917/917 条永远不可判）");
-  t.eq(parsed.all.length >= 2, true, "函数体里至少有两个 return 字面量（上下文失活那条是错误分支，不许拿来冒充契约）");
+tests["T42⑤ 引擎那处 callModel **必须返回** finish（C650 反转：之前它不返回，真机 917/917 不可判）"] = async (t) => {
+  // 不再按函数签名/return 字面量猜字段：真走引擎离线补折，字段必须穿过
+  // callModel → runOfflineFold chunk → applyOfflineFoldToGraph 全链落到磁盘图上。
+  const { runAutoBackfillTickFixture } = await import("./engine-harness.test.mjs");
+  const { calls, graphs } = await runAutoBackfillTickFixture({
+    prefix: "t42-engine-finish-",
+    sessions: [{ id: "t42-finish", events: 3 }],
+  });
+  t.eq(calls, ["t42-finish"], "夹具必须真的走完一次模型调用");
+  const graph = graphs["t42-finish"];
+  const mark = (graph?.foldMarks ?? []).find((item) => item.trigger === "archive-offline");
+  t.eq(typeof graph?.lastOfflineSummary?.text === "string" && graph.lastOfflineSummary.text.length > 0, true,
+    "callModel.text 必须真的成为离线摘要正文");
+  t.eq(mark?.finishReason, "stop", "callModel.finish 必须穿完整条写回链成为 foldMark.finishReason");
 };
 
 tests["T42⑤ 脚本那处 callModel **返回** finish（同一个写回点，两条路的字段集不一样）"] = (t) => {

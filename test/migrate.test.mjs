@@ -703,10 +703,25 @@ Object.assign(tests, {
     const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
     const count = (src.match(/opts\.mode === "merge"/g) ?? []).length;
     t.eq(count, 2, `merge 分支必须恰好 2 处（执行 + 输出），实际 ${count}`);
-    // mergeMany 的真实调用由 P6C-C1 的 CLI dry-run/apply/幂等行为覆盖；
-    // 这里只保留本用例自身的输出结构检查，不再用函数名文本冒充接线证明。
     t.includes(src, "backup:", "人类摘要必须打印备份目录");
     t.includes(src, "已回灌并重建 index.md", "apply 人类摘要必须说明写了什么");
+
+    // 本用例自身也必须吃到真实 CLI 行为：删 mergeMany import 后这里会直接失败，
+    // 不能只靠相邻的 P6C-C1 间接兜底。
+    const fx = archivedSession("cli2");
+    try {
+      const cli = nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs");
+      const out = execFileSync(process.execPath, [cli, `--merge-sidecar=${fx.dir}`, `--backup-dir=${fx.backupRoot}`, "--json"], {
+        encoding: "utf8",
+        timeout: 120_000,
+      });
+      const result = JSON.parse(out);
+      t.eq(result.merged, 3, "merge dispatch 必须真的调用 mergeMany 并返回三条可回灌边");
+      t.eq(result.dryRun ?? true, true, "本探针保持 dry-run，不写图");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
   },
 });
 

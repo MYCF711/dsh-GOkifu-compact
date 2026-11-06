@@ -109,15 +109,19 @@ tests["C572 离线补折覆盖了旧缺口后，旧 partial/gap 必须被清掉"
   t.eq(Number(graph.closeout.folded) > 0, true, "这次确实折了");
 };
 
-tests["C572⑤ factsIds 必须声明在 runOfflineFold 之前（否则 TDZ 崩在模型答完之后）"] = (t) => {
-  const src = engine();
-  const at = src.indexOf("async #offlineCloseoutFold");
-  const seg = src.slice(at, at + 9000);
-  const factsAt = seg.indexOf("const factsIds = (() =>");
-  const callAt = seg.indexOf("runOfflineFold({", seg.indexOf("const foldDeadline") >= 0 ? 0 : 0);
-  t.eq(factsAt >= 0 && callAt >= 0, true, "两处都要在");
-  t.eq(factsAt < callAt, true, "factsIds 必须先声明（闭环里被 measureQuality 读取）");
-  t.includes(seg, "Cannot access before initialization", "注释要留下这个坑");
+tests["C572⑤ factsIds 必须声明在 runOfflineFold 之前（否则 TDZ 崩在模型答完之后）"] = async (t) => {
+  // 真实跑过“模型答完之后”的 measureQuality 与写回：若 factsIds 仍在 TDZ，
+  // 这里不会得到带完整 quality 的 foldMark，而会直接在夹具里抛错/零折痕。
+  const { runAutoBackfillTickFixture } = await import("./engine-harness.test.mjs");
+  const { calls, graphs } = await runAutoBackfillTickFixture({
+    prefix: "c572-factsids-",
+    sessions: [{ id: "c572-factsids", events: 3 }],
+  });
+  t.eq(calls, ["c572-factsids"], "必须真的拿到一次模型回答");
+  const mark = (graphs["c572-factsids"]?.foldMarks ?? []).find((item) => item.trigger === "archive-offline");
+  t.eq(!!mark, true, "模型回答后必须真的写回 foldMark");
+  t.eq(Array.isArray(mark?.quality?.unknownIds), true, "measureQuality 必须真的读取 factsIds 并写出 unknownIds");
+  t.eq(Array.isArray(mark?.quality?.outOfRangeIds), true, "同一质量闭环必须写出 outOfRangeIds");
 };
 
 tests["C577 面板「补做收尾」必须认 graphDir（否则自定义目录时列 0 条）"] = (t) => {

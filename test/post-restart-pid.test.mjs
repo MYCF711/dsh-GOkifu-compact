@@ -80,28 +80,75 @@ tests["C338 端口属主与心跳 pid 对不上时要说清楚（多进程环境
   t.eq(mod.listeningPidOf("  TCP    127.0.0.1:9999  0.0.0.0:0  ESTABLISHED  777", 9999), null, "非 LISTENING 不算");
 };
 
-tests["C353 验收脚本不许把 buildOk 写死 true（旧代码是最常见的情形）"] = async (t) => {
-  const mod = await import("../scripts/accept-after-restart.mjs");
+async function runAcceptFixture({ json = false, staleBuild = false } = {}) {
   const nodeFs = await import("node:fs");
+  const nodeOs = await import("node:os");
   const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
-  t.eq(src.includes("buildOk: true"), false, "不许写死 buildOk: true（C353）");
-  t.includes(src, "repoBuildId", "必须真的去比构建");
+  const mod = await import("../scripts/accept-after-restart.mjs");
+  const { repoBuildId } = await import("../src/rooms/build-stamp.mjs");
+  const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "accept-fixture-"));
+  const previousFetch = globalThis.fetch;
+  const previousLog = console.log;
+  const previousDiscover = process.env.DSH_GOKIFU_NO_PORT_DISCOVER;
+  const logs = [];
+  try {
+    const graphDir = nodePath.join(home, "chess-context");
+    const sessionDir = nodePath.join(graphDir, "sessions", "debt");
+    nodeFs.mkdirSync(sessionDir, { recursive: true });
+    const now = Date.now();
+    nodeFs.writeFileSync(nodePath.join(sessionDir, "graph.json"), JSON.stringify({
+      version: 1,
+      sessionId: "debt",
+      cwd: home,
+      rootUserNodeIds: ["n1"],
+      nodes: {
+        n1: { id: "n1", kind: "user", seq: 1, text: "目标", constraints: [], ts: now },
+        n2: { id: "n2", kind: "agent", seq: 200, text: "末", ts: now },
+      },
+      edges: {}, order: ["n1", "n2"], stateIndex: {},
+      foldMarks: [{ seqStart: 1, seqEnd: 100, shadowedTokens: 100_000, ms: 1000 }],
+      createdAt: now,
+      updatedAt: now,
+    }), "utf8");
+    nodeFs.writeFileSync(nodePath.join(graphDir, "ui-route.json"), JSON.stringify({
+      state: "open",
+      pid: process.pid,
+      port: 1,
+      at: now,
+      buildId: staleBuild ? "definitely-not-the-disk-build" : repoBuildId(),
+    }), "utf8");
+    globalThis.fetch = async (_url, init = {}) => {
+      const action = JSON.parse(String(init.body ?? "{}")).action;
+      const payload = action === "health"
+        ? { ok: true, installed: true, profile: "fixture" }
+        : action === "backfill"
+          ? { ok: true, dryRun: true, due: 1, items: [] }
+          : { ok: true };
+      return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    process.env.DSH_GOKIFU_NO_PORT_DISCOVER = "1";
+    console.log = (...args) => logs.push(args.join(" "));
+    const code = await mod.main(["--home", home, "--port", "1", ...(json ? ["--json"] : [])]);
+    const text = logs.join("\n");
+    return { code, text, json: json ? JSON.parse(text) : null };
+  } finally {
+    globalThis.fetch = previousFetch;
+    console.log = previousLog;
+    if (previousDiscover === undefined) delete process.env.DSH_GOKIFU_NO_PORT_DISCOVER;
+    else process.env.DSH_GOKIFU_NO_PORT_DISCOVER = previousDiscover;
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+}
 
-  // 判定：构建不一致 ⇒ stale，且理由里提到 buildId
-  const stale = mod.verdictOf({
-    caps: { level: "ok", known: ["update"], unknown: [] },
-    backfill: { reachable: true, due: 0, error: null },
-    closeout: { seen: true, sessions: 1 },
-    truncation: { collected: 3, truncated: 0 },
-    buildOk: false,
-  });
-  t.eq(stale.verdict, "stale", "构建不一致必须 stale");
-  t.eq(stale.todo.some((x) => x.includes("buildId")), true, "要说清是 buildId 不一致");
+tests["C353 验收脚本不许把 buildOk 写死 true（旧代码是最常见的情形）"] = async (t) => {
+  // 真跑 main：新鲜心跳里的 buildId 与磁盘不同，必须经 repoBuildId 实算后判 stale。
+  const stale = await runAcceptFixture({ json: true, staleBuild: true });
+  t.eq(stale.code, 2, `构建不一致必须返回 stale 退出码：${stale.text}`);
+  t.eq(stale.json.verdict, "stale", "构建不一致必须 stale");
+  t.eq(stale.json.todo.some((line) => line.includes("buildId")), true, "必须说明是实际 buildId 比较不一致");
 
-  // 未知（拿不到心跳/磁盘）不许当成"不一致"硬判 stale
+  // 判定函数本身仍保留 unknown 三态：拿不到磁盘/心跳时不许硬判 stale。
+  const mod = await import("../scripts/accept-after-restart.mjs");
   const unknown = mod.verdictOf({
     caps: { level: "ok", known: ["update"], unknown: [] },
     backfill: { reachable: true, due: 0, error: null },
@@ -113,29 +160,19 @@ tests["C353 验收脚本不许把 buildOk 写死 true（旧代码是最常见的
 };
 
 tests["C386 验收命令要顺带给出补账摘要（别让人再跑第二条命令）"] = async (t) => {
-  const nodeFs = await import("node:fs");
-  const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
-  t.includes(src, "backfill-plan.mjs", "必须复用 backfill-plan 的口径（而不是自己再算一套）");
-  t.includes(src, "补账：", "必须打印补账摘要行");
-  t.includes(src, "closeoutMaxFoldTokens", "要给出建议旋钮");
-  t.includes(src, "次点击", "要给出点击次数（用户真正关心的调度量）");
-  // 失败要降级，不许把验收整体搞挂
-  t.includes(src, "算不出来", "算不出来时要降级提示，而不是抛错");
+  // 隔离 home 放一笔真实欠账，人读 main 必须经 backfill-plan 算出计划，而非落入降级文案。
+  const result = await runAcceptFixture();
+  t.includes(result.text, "补账：1 个欠账", `必须打印真实欠账数：\n${result.text}`);
+  t.includes(result.text, "次点击", "必须打印由计划算出的点击数");
+  t.includes(result.text, "closeoutMaxFoldTokens", "必须打印由计划算出的建议旋钮");
+  t.notIncludes(result.text, "补账：算不出来", "有真实欠账时不许掉进降级分支");
 };
 
 tests["C405 验收命令顺带带上 doctor 一句话（健康与接管是同一时刻的两个问题）"] = async (t) => {
-  const nodeFs = await import("node:fs");
-  const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "accept-after-restart.mjs"), "utf8");
-  t.includes(src, "doctor.mjs", "必须调用 doctor（C405）");
-  t.includes(src, "doctor：", "必须打印 doctor 一行");
-  t.eq(src.includes('match(/错误\s*(\d+)\s*\/\s*警告\s*(\d+)/)') || src.includes("错误"), true, "要解析「错误 N / 警告 M」");
-  t.includes(src, "拿不到就不说", "解析不到时不许瞎说");
+  // 真跑人读 main：doctor 行只能来自子进程 stdout 的「错误 N / 警告 M」。
+  const result = await runAcceptFixture();
+  t.eq(/doctor：错误 \d+ \/ 警告 \d+/.test(result.text), true,
+    `必须真的执行 doctor 子进程并解析其汇总行：\n${result.text}`);
 };
 
 tests["C409/C410 参数级探针 + 端口自动发现（心跳被覆盖时也能找到面板）"] = async (t) => {

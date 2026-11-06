@@ -2832,33 +2832,49 @@ tests["C497 422（参数错误）必须跟 400 归一类 —— 重试同一个�
   t.includes(src, "要改的是请求本身，不是等一会儿", "提示语要让读者知道该做什么");
 };
 tests["C500 引擎里已接上离线补折（算不出区间 ⇒ 读日志用默认模型）"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
-  t.includes(src, "#offlineCloseoutFold", "必须有这个方法（否则 no-foldable-span 仍然无解）");
-  t.includes(src, "shouldTryOfflineFold", "触发条件要走纯函数判定（别在引擎里另写一套）");
-  t.includes(src, "runOfflineFold", "编排复用 rooms 里那份，不许再写一遍");
-  t.includes(src, "readDefaultModel", "模型用 DSH 默认模型（用户明确要求）");
-  t.includes(src, 'trigger: "archive-offline"', "写回的 foldMark 要能跟在线折叠区分开");
-  t.includes(src, "partial: true", "有缺口必须标 partial，不许记成全压过");
-  // 绝不许在引擎里自己拼 HTTP —— 模型调用必须走宿主 ctx.llm
-  t.eq(/3425\/v1/.test(src), false, "引擎不许直连 magpie 端口，必须走 ctx.llm.stream");
+  // 真跑公开补账入口：日志 → 共享离线编排 → 宿主假模型 → archive-offline 写回。
+  // 删除 shouldTryOfflineFold/runOfflineFold/readDefaultModel 任一 import，这条链都会断。
+  const { report, calls, requestTargets, graphs } = await runAutoBackfillTickFixture({
+    prefix: "c500-offline-",
+    sessions: [{ id: "c500-debt", events: 3 }],
+    config: { summarizationProvider: "", summarizationModel: "" },
+  });
+  t.eq(report.ok, true, "自动补账必须成功");
+  t.eq(calls, ["c500-debt"], "必须真的调用一次宿主假模型");
+  t.eq(requestTargets, [{ provider: "fixture-provider", model: "fixture-model" }], "空设置必须真的读取 profile 默认模型");
+  const marks = (graphs["c500-debt"]?.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline");
+  t.eq(marks.length, 1, "必须真的写回一条 archive-offline foldMark");
+  t.eq(graphs["c500-debt"]?.closeout?.source, "archive-offline", "结局必须来自共享离线写回");
+  t.eq(Number(graphs["c500-debt"]?.closeout?.folded) > 0, true, "共享离线写回必须记录真实折段数");
 };
 tests["C500/C501 离线补折的两个入口都必须走同一条判定（null 与 timeout 各一次）"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
-  const calls = [...src.matchAll(/#tryOfflineCloseout\(target,/g)].length;
-  // ★ C517 后又多了两个入口（单段抛错 / 分段一段没折成）；C557 又加了一个（单段空转）⇒ 6 处
-  t.eq(calls, 6, `调用点 ${calls - 1} 个 + 定义本身，实际 ${calls} 处`);
-  t.includes(src, '#tryOfflineCloseout(target, "timeout")', "超时分支必须尝试离线，而不是直接放弃");
-  t.includes(src, "shouldTryOfflineFold", "判定复用纯函数");
-  t.includes(src, "未走离线补折", "不走也要留痕（调参时靠这行）");
-  // graphDir 有两种形态，home 推导不能硬编码层数
-  t.includes(src, 'base0 === "chess-context"', "home 推导要按目录名判断（真机 graphDir = <home>/chess-context）");
+  for (const entry of ["null", "timeout"]) {
+    const id = `c501-${entry}`;
+    const { calls, graphs } = await runAutoBackfillTickFixture({
+      prefix: `c501-${entry}-`,
+      sessions: [{ id, events: 3 }],
+      entry,
+      config: { closeoutTimeoutMs: entry === "timeout" ? 20 : 90_000 },
+    });
+    t.eq(calls, [id], `${entry} 入口必须真的进入离线模型调用`);
+    const marks = (graphs[id]?.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline");
+    t.eq(marks.length, 1, `${entry} 入口必须真的留下一条离线折痕`);
+  }
 };
 tests["C506 离线补折优先用「上下文压缩设置里选的模型」"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
-  t.includes(src, "#summaryTarget()", "必须有一个统一出口读 summarizationProvider/Model");
-  t.includes(src, "chosen?.provider ?? dflt.provider ?? routed?.provider", "顺序：设置 > DSH 默认模型 > 当前路由");
-  t.includes(src, "summarizationProvider", "读的就是设置里那个键");
-  t.includes(src, "summarizationModel", "model 同理");
+  const run = async (config) => runAutoBackfillTickFixture({
+    prefix: "c506-target-",
+    sessions: [{ id: "c506-debt", events: 3 }],
+    config,
+    profileProvider: "profile-provider",
+    profileModel: "profile-model",
+  });
+  const chosen = await run({ summarizationProvider: "settings-provider", summarizationModel: "settings-model" });
+  t.eq(chosen.requestTargets, [{ provider: "settings-provider", model: "settings-model" }],
+    "显式摘要设置必须胜过 profile 默认模型");
+  const fallback = await run({ summarizationProvider: "", summarizationModel: "" });
+  t.eq(fallback.requestTargets, [{ provider: "profile-provider", model: "profile-model" }],
+    "留空必须真的回退到 profile 默认模型");
 };
 tests["C514 归档收尾的结局必须落盘 —— 不许只在内存里（sessionRefs 已被删）"] = async (t) => {
   const { Engine, graphDir } = await load();
@@ -2927,6 +2943,9 @@ export async function runAutoBackfillTickFixture({
   budgetSec = 20,
   initialSegmentMs,
   config = {},
+  entry = "auto",
+  profileProvider = "fixture-provider",
+  profileModel = "fixture-model",
 } = {}) {
   const { Engine } = await load();
   const { default: zlib } = await import("node:zlib");
@@ -2942,7 +2961,7 @@ export async function runAutoBackfillTickFixture({
     nodeFs.mkdirSync(profile, { recursive: true });
     nodeFs.writeFileSync(
       nodePath.join(profile, "cordis.patch.yml"),
-      ["- id: agent-default-model", "  provider: fixture-provider", "  model: fixture-model", ""].join("\n"),
+      ["- id: agent-default-model", `  provider: ${profileProvider}`, `  model: ${profileModel}`, ""].join("\n"),
       "utf8",
     );
     for (const spec of specs) {
@@ -2993,6 +3012,8 @@ export async function runAutoBackfillTickFixture({
     process.env.DSH_GOKIFU_AUTO_BACKFILL_BUDGET_SEC = String(budgetSec);
     const ctx = makeCtx();
     const calls = [];
+    const requestTargets = [];
+    const requestOptions = [];
     let active = 0;
     let maxActive = 0;
     ctx.llm.stream = async function* (options) {
@@ -3000,6 +3021,8 @@ export async function runAutoBackfillTickFixture({
       const spec = specs.find((candidate) => prompt.includes(`goal-${candidate.id}`));
       if (!spec) throw new Error("fixture: 模型请求里没有可识别的会话");
       calls.push(spec.id);
+      requestTargets.push({ provider: options.provider ?? null, model: options.model ?? null });
+      requestOptions.push({ thinking: options.thinking ?? null, reasoningEffort: options.reasoning_effort ?? null });
       active += 1;
       maxActive = Math.max(maxActive, active);
       try {
@@ -3027,9 +3050,31 @@ export async function runAutoBackfillTickFixture({
     engine.chess.offlineMaxChars = offlineMaxChars;
     engine.chess.offlineFoldTimeoutMs = 5_000;
     if (initialSegmentMs !== undefined) engine._backfillSegMs = initialSegmentMs;
-    const report = await engine.runAutoBackfillOnce();
+    let report;
+    if (entry === "auto") {
+      report = await engine.runAutoBackfillOnce();
+    } else {
+      const session = makeSession({ id: specs[0].id });
+      if (entry === "timeout") {
+        const original = engine.compactIfNeeded;
+        let first = true;
+        engine.compactIfNeeded = async function (...args) {
+          if (first) {
+            first = false;
+            // 保留一个短的真实定时器：引擎自己的 timeout timer 会 unref，
+            // 若这里永远 pending，纯 Node 测试进程会先于超时分支退出。
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            return null;
+          }
+          return original(...args);
+        };
+      } else if (entry !== "null") {
+        throw new Error(`unknown closeout entry fixture: ${entry}`);
+      }
+      report = await engine.closeoutNow({ session, options: {} });
+    }
     const graphs = Object.fromEntries(specs.map((spec) => [spec.id, engine.graphs.get(spec.id)]));
-    return { report, calls, maxActive, graphs };
+    return { report, calls, requestTargets, requestOptions, maxActive, graphs };
   } finally {
     clearTimeout(engine?._autoBackfill?.first);
     clearInterval(engine?._autoBackfill?.timer);
@@ -3188,14 +3233,16 @@ tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"]
   nodeFs.rmSync(home, { recursive: true, force: true });
 };
 tests["C559 引擎离线补折要关掉思考（官方默认开启，reasoning 吃 max_tokens）"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
-  const at = src.indexOf("async #offlineCloseoutFold");
-  const seg = src.slice(at, at + 9000);
-  t.includes(seg, 'thinking: { type: "disabled" }', "离线摘要必须关思考（与脚本那条路一致）");
-  t.includes(seg, "C559", "注释要说明为什么（免得下次又被删掉）");
-  // 两个调用点（在线摘要 / 离线补折）不该只有一处关
-  const offlineCall = seg.slice(seg.indexOf("const callModel = async"));
-  t.includes(offlineCall.slice(0, 2600), 'thinking: { type: "disabled" }', "关思考要落在**离线**那次调用上");
+  // 直接观察真正发给宿主 LLM 的离线请求，不再从函数片段里找配置字面量。
+  const { calls, requestOptions, graphs } = await runAutoBackfillTickFixture({
+    prefix: "c559-thinking-",
+    sessions: [{ id: "c559-thinking", events: 3 }],
+  });
+  t.eq(calls, ["c559-thinking"], "必须真的发出一次离线模型请求");
+  t.eq(requestOptions, [{ thinking: { type: "disabled" }, reasoningEffort: "none" }],
+    "离线请求必须实际关闭 thinking，并传 reasoning_effort=none");
+  t.eq((graphs["c559-thinking"]?.foldMarks ?? []).filter((mark) => mark.trigger === "archive-offline").length, 1,
+    "带关思考配置的请求必须真的完成离线写回");
 };
 tests["C570 日志没了的欠账不该每轮白占名额"] = async (t) => {
   const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "engine.mjs"), "utf8");
