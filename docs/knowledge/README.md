@@ -25,6 +25,8 @@
 | 为 agent 写工具（官方） | [`为agent写工具-外部资料.md`](./为agent写工具-外部资料.md) | 工具返回值三件事：限量（Claude Code 25k tok）、截断要带指引、别只给隐晦 id |
 | 上下文编辑 / 记忆工具（官方公告） | [`上下文编辑与记忆工具-外部资料.md`](./上下文编辑与记忆工具-外部资料.md) | 官方 +29%/+39%、token −84%；与本机实测对撞后 **K-2 被否掉** |
 | Agent 评测（官方） | [`agent评测-外部资料.md`](./agent评测-外部资料.md) | eval = 输入+判分+度量；我们已有判分逻辑，缺的是**回归夹具**与「仪器走对路」 |
+| 摘要事实性（FActScore） | [`摘要事实性-FActScore.md`](./摘要事实性-FActScore.md) | 原子事实 + 指定证据源 + 人工金标校准；只测精确率不够，还需并列覆盖/拒答/截断；不把未校准 LLM 评委塞进付费热路径 |
+| 长期记忆任务验收（LongMemEval） | [`长期记忆任务验收-LongMemEval.md`](./长期记忆任务验收-LongMemEval.md) | 500 题、五类长期记忆能力；对本仓只借「full/compact 配对任务验收」，不揽个人事实索引与跨会话检索 |
 | 上下文工程**四类策略** | [`上下文工程四类策略-外部资料.md`](./上下文工程四类策略-外部资料.md) | write/select/compress/isolate —— 我们占三格（都更硬），isolate 属宿主 |
 | 提示词压缩（LLMLingua） | [`提示词压缩-LLMLingua.md`](./提示词压缩-LLMLingua.md) | token 级删字 vs 我们的结构压缩；它把「压缩比 + 保真」成对报 ⇒ 立 K-12 |
 | Building effective agents（官方） | [`构建有效agent-外部资料.md`](./构建有效agent-外部资料.md) | workflow/agent/evaluator 三种角色我们各占哪一格；「复杂度要挣来」= 候选表先证伪再动手 |

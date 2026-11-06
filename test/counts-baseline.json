@@ -1,5 +1,5 @@
 {
- "total": 1709,
+ "total": 1716,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -11,7 +11,7 @@
   "audit-duplicates.test.mjs": 4,
   "audit-field-reads.test.mjs": 3,
   "auto-backfill-switch.test.mjs": 4,
-  "backfill-button.test.mjs": 5,
+  "backfill-button.test.mjs": 11,
   "backfill-e2e.test.mjs": 1,
   "backfill-forecast.test.mjs": 9,
   "backfill-idle.test.mjs": 9,
@@ -50,7 +50,7 @@
   "docs-commands.test.mjs": 8,
   "docs-index-check.test.mjs": 4,
   "docs-numbers.test.mjs": 12,
-  "doctor-cli.test.mjs": 46,
+  "doctor-cli.test.mjs": 47,
   "doctor-fixes.test.mjs": 12,
   "doctor-perf.test.mjs": 11,
   "doctor-silent-stop.test.mjs": 7,
@@ -226,6 +226,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2059,
- "passedAt": "2026-11-06T05:28:04.574Z"
+ "passed": 2067,
+ "passedAt": "2026-11-06T06:58:42.029Z"
 }
