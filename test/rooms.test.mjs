@@ -39,6 +39,36 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "loop-guard": {
+    // C444：思考死循环判据（连续相同动作 + 限流），纯函数
+    file: "loop-guard.mjs",
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "zstd-log": {
+    // C498：读宿主会话日志（多帧 zstd）—— 插件进程与脚本共用
+    file: "zstd-log.mjs",
+    allowed: ["node:zlib", "node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "offline-fold": {
+    // C495/C496：离线归档压缩的纯逻辑与编排（脚本与引擎共用；模型调用由调用方注入）
+    file: "offline-fold.mjs",
+    allowed: ["node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "closeout-plan": {
+    // C339：归档收尾的"要不要分段/怎么切/怎么执行"纯函数（engine 与离线脚本共用）
+    file: "closeout-plan.mjs",
+    allowed: ["./closeout-backfill.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /(^|\/)kifu-model\.mjs$/],
+  },
+  "profile-io": {
+    // C306：面板与安装器共用的两个读文件小工具（原来各写一遍）
+    file: "profile-io.mjs",
+    allowed: ["node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "config-schema": {
     file: "config-schema.mjs",
     allowed: [],
@@ -59,9 +89,27 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "node-docs": {
+    file: "node-docs.mjs",
+    // 纯函数：只比对「图里的节点 id」与「nodes/ 目录里的文件名」，不碰 fs
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "fold-planner": {
     file: "fold-planner.mjs",
     allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "build-stamp": {
+    file: "build-stamp.mjs",
+    // 读 package.json 版本 + src 内容哈希（C53）+ 写 <chess-context>/build.json：允许 fs/path/url/crypto
+    allowed: ["node:fs", "node:path", "node:url", "node:crypto"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "user-patch": {
+    file: "user-patch.mjs",
+    // 只读用户层/机器级 patch、写 home 层托管段：允许 node:fs / node:path
+    allowed: ["node:fs", "node:path"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "world": {
@@ -99,6 +147,29 @@ const ROOMS = {
     // R16（task-174）：手动压缩失败诊断。零依赖纯函数 —— 只吃 error 对象，不许碰宿主/engine/scripts/lib。
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "fold-quality": {
+    file: "fold-quality.mjs",
+    // ★ 2026-11-01（并行会话产出，本会话补登记）：L1 保真度指标（纯函数）——
+    //   只读图的失败边与约束，不写盘、不调模型。依赖面与 ledger 同源（它本来就要用同一套判据）。
+    allowed: ["./kifu-model.mjs", "./ledger.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "touched-files": {
+    file: "touched-files.mjs",
+    // ★ 2026-11-01（并行会话产出，本会话补登记）：C4「折叠摘要里的最近访问文件」。
+    //   设计上**零 import** —— 只从图边的 action 字符串里机械解析路径，不读盘、不跨会话。
+    //   所以 allowed 为空；forbid 与其它房间同口径。
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "closeout-backfill": {
+    file: "closeout-backfill.mjs",
+    // ★ C216（2026-11-02）：归档「补账」房间 —— 判债务 / 排序限量 / 串行补（取消归档→resume→收尾→归档回去）。
+    //   设计上**零 import**：resume 与收尾都由调用方注入，房间不碰磁盘、不碰 ctx、不碰宿主包，
+    //   所以 allowed 为空；forbid 与其它房间同口径。
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//,],
   },
   "migrate": {
     file: "migrate.mjs",
@@ -359,18 +430,20 @@ export const tests = {
     t.notIncludes(install, "export function replaceCompactionBlock", "install.mjs 不得再有自持实现");
   },
 
-  "A2-1：preset 块格式逐字未变（engineBlock 22 行 / 16 个配置键；S8 加 firstFoldRatio）"(t) {
+  "A2-1：preset 块格式逐字未变（engineBlock 27 行 / 21 个配置键；C524 加 autoBackfill）"(t) {
     // 动态 import 房间，直接比对块内容 —— 这是「一个字节都不许变」的机器判据。
     return import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href).then((room) => {
       const block = room.engineBlock();
-      t.eq(block.length, 22, "engineBlock 行数");
+      t.eq(block.length, 27, "engineBlock 行数（C524 加 autoBackfill）");
       t.eq(block[0], "# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。", "首行注释");
       t.eq(block[3], "- id: gokifu-compact", "id 行");
       t.eq(block[4], "  name: 'dsh-gokifu-compact/engine'", "name 行（单引号）");
       t.eq(block[8], "    firstFoldRatio: 0.30      # 首折阈值：只作用于本会话第一次 fold（0 = 关闭）", "S8 首折行（紧跟在 thresholdRatio 之后）");
-      t.eq(block[21], "    tier2After: 8", "末行");
+      t.eq(block[22], "    tier2After: 8", "tier2After 行（前一行是 autoBackfill）");
+      t.eq(block[25], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
+      t.eq(block[26], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
       const parsed = room.parseEngineBlock(block.join("\n"));
-      t.eq(Object.keys(parsed.config).length, 16, "配置键数");
+      t.eq(Object.keys(parsed.config).length, 21, "配置键数（C524 +1）");
       t.eq(parsed.config.thresholdRatio, 0.45, "thresholdRatio 数值型");
       t.eq(parsed.config.firstFoldRatio, 0.3, "firstFoldRatio 数值型（0.30 → 0.3）");
       t.eq(parsed.config.summarizationProvider, "", "空字符串写成 ''");
@@ -431,11 +504,15 @@ export const tests = {
     t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
   },
 
-  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；P6C-2 起 12 个）"(t) {
+  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；C444 起 22 个）"(t) {
     const bad = roomPathViolations();
     t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
     // 契约最终路径集合：11 个房间（顺序无关）
-    t.eq(Object.keys(ROOMS).sort(), ["config-schema", "facts-prompt", "fold-planner", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "manual-compact", "migrate", "preset-format", "verify", "world"], "房间集合必须与契约 13 个一致（P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact）");
+    t.eq(
+      Object.keys(ROOMS).sort(),
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world", "zstd-log"],
+      "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
+    );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
     t.eq(roomPathViolations({ ghost: { file: "ghost.mjs" } }), ["ghost: src/rooms/ghost.mjs 不存在"], "文件不存在必须被检出");
@@ -481,3 +558,25 @@ export const tests = {
 
 // pathToFileURL 在上面动态 import 用例里用到
 import { pathToFileURL } from "node:url";
+tests["C254 两套 preset 渲染器不许漂：模板里每个键都要有注释，注释表里不许有死键"] = async (t) => {
+  const room = await import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href);
+  const schema = await import(pathToFileURL(nodePath.join(SRC, "rooms", "config-schema.mjs")).href);
+  const templateKeys = Object.keys(room.parseEngineBlock(room.engineBlock().join(String.fromCharCode(10))).config);
+  const commentKeys = Object.keys(room.KEY_COMMENTS);
+  const schemaKeys = schema.SCHEMA.map((f) => f.key);
+
+  // ① 安装器模板里的每个键都要有注释 —— 否则 UI 保存（renderEngineBlock）会丢掉那行的解释
+  for (const key of templateKeys) {
+    t.eq(typeof room.KEY_COMMENTS[key], "string", `模板键 ${key} 缺 KEY_COMMENTS（UI 保存后这一行没有解释）`);
+  }
+  // ② 注释表里不许有 SCHEMA 里不存在的键（死注释会误导人）
+  for (const key of commentKeys) {
+    t.eq(schemaKeys.includes(key), true, `KEY_COMMENTS 里的 ${key} 不在 SCHEMA（死注释）`);
+  }
+  // ③ 两套渲染器对同一个键必须给出同样的解释（这里是逐键比对**是否存在**，文案可以不同）
+  const rendered = room.renderEngineBlock(Object.fromEntries(templateKeys.map((k) => [k, 1])));
+  for (const key of templateKeys) {
+    t.includes(rendered, `# `, `renderEngineBlock 输出的 ${key} 行必须带注释`);
+    t.eq(rendered.includes(`${key}: 1 # `) || rendered.includes(`${key}: 1 `), true, `${key} 行格式异常`);
+  }
+};

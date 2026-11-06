@@ -1,5 +1,10 @@
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureEdges, currentPath } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, _internal } from "../src/rooms/ledger.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, _internal } from "../src/rooms/ledger.mjs";
+
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
 const { traceRecentSegment } = _internal;
 
@@ -125,7 +130,7 @@ tests["collectConstraints 去重"] = () => {
 
 /** 胖夹具：长 root + 长约束 + 8 跳成功链 + N 条长原因失败边 ⇒ 小预算必然落到兜底档。 */
 function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
   const u = addUserNodeId(g, {
     seq: 1,
@@ -404,4 +409,174 @@ tests["S3-2 降级提示行在各档位都在，且预算口径成立（500 预�
   const r500 = renderLedger(normal, { maxTokens: 500 });
   if (r500.tokens > 500) throw new Error(`500 预算下 ${r500.tokens} tokens（L${r500.level}）`);
   if (!r500.text.includes("⚠ 上次摘要是规则生成")) throw new Error("500 预算下提示行不该被裁掉");
+};
+
+tests["C302 证据位置只读一处：evidence 数字 / {start,end} / 缺失 三种形态口径一致"] = async (t) => {
+  const mod = await import("../src/rooms/kifu-model.mjs");
+  t.eq(typeof mod.evidenceEndSeq, "function", "必须导出 evidenceEndSeq");
+  t.eq(typeof mod.evidenceStartSeq, "function", "必须导出 evidenceStartSeq");
+
+  // ① 老形态：evidence 是数字
+  t.eq(mod.evidenceEndSeq({ evidence: 42 }), 42, "数字形态的 end = 数字本身");
+  t.eq(mod.evidenceStartSeq({ evidence: 42 }), 42, "数字形态没有 start ⇒ 退回 end");
+
+  // ② 新形态：{start,end}
+  t.eq(mod.evidenceEndSeq({ evidence: { start: 10, end: 20 } }), 20, "对象形态取 end");
+  t.eq(mod.evidenceStartSeq({ evidence: { start: 10, end: 20 } }), 10, "对象形态取 start");
+
+  // ③ 缺失 / 坏值：默认 NaN，比较场景可以传 -Infinity
+  t.eq(Number.isNaN(mod.evidenceEndSeq({})), true, "没有 evidence ⇒ NaN");
+  t.eq(mod.evidenceEndSeq({}, -Infinity), -Infinity, "可以指定 fallback");
+  t.eq(Number.isNaN(mod.evidenceEndSeq({ evidence: { end: "x" } })), true, "坏 end ⇒ NaN（不许当 0）");
+
+  // ④ 接线：ledger 不许再自己拼一遍
+  const ledgerSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "ledger.mjs"), "utf8");
+  t.eq(ledgerSrc.includes('typeof e?.evidence === "number" ? e.evidence :'), false, "ledger 不许再有第四份实现");
+};
+
+tests["C313 分项计时仪器：给出 total + parts，且各段之和不超过 total 的数倍（不许瞎报）"] = async (t) => {
+  const { measureLedgerTimings } = await import("../src/rooms/ledger.mjs");
+  t.eq(typeof measureLedgerTimings, "function", "必须导出 measureLedgerTimings");
+
+  const g = createGraph({ sessionId: "sess-c313" });
+  addUserNodeId(g, { seq: 1, text: "做点事" });
+  const a = addAgentNode(g, { seq: 2 });
+  addEdge(g, { from: a, action: "run tests", intent: "跑测试", seq: 3 });
+
+  const r = measureLedgerTimings(g, { reps: 3 });
+  t.eq(typeof r.total, "number", "total 必须是数字");
+  t.eq(r.total >= 0, true, "total 不许为负");
+  t.eq(typeof r.parts, "object", "parts 必须是对象");
+  for (const key of ["failureEdges", "successScan", "danglingStats", "options", "paths", "tewari"]) {
+    t.eq(typeof r.parts[key], "number", `parts.${key} 必须是数字`);
+    t.eq(r.parts[key] >= 0, true, `parts.${key} 不许为负`);
+  }
+  const sum = Object.values(r.parts).reduce((x, y) => x + y, 0);
+  t.eq(sum <= r.total * 20 + 50, true, `各段之和 ${sum.toFixed(1)}ms 明显超过 total ${r.total.toFixed(1)}ms —— 仪器在瞎报`);
+  t.eq(typeof r.split, "string", "要给一句可归因说明");
+};
+
+tests["C320 截断判定要吃掉三种拼法（max-tokens / max_tokens / length），别再猜口径"] = async (t) => {
+  const { isTruncatedFinish } = await import("../src/rooms/kifu-model.mjs");
+  t.eq(typeof isTruncatedFinish, "function", "必须导出 isTruncatedFinish");
+  // 三层口径实测：assembler 用连字符、zStopReason 用下划线、OpenAI 用 length
+  t.eq(isTruncatedFinish("max-tokens"), true, "宿主流式块口径（连字符）");
+  t.eq(isTruncatedFinish("max_tokens"), true, "宿主终态联合口径（下划线）");
+  t.eq(isTruncatedFinish("length"), true, "OpenAI 原始口径");
+  t.eq(isTruncatedFinish("LENGTH"), true, "大小写不敏感");
+  // 正常结束都不算截断
+  for (const ok of ["stop", "end_turn", "tool-calls", "tool_calls", "completed", ""]) {
+    t.eq(isTruncatedFinish(ok), false, `${ok} 不该算截断`);
+  }
+  t.eq(isTruncatedFinish(null), false, "null 不算截断");
+  t.eq(isTruncatedFinish(undefined), false, "undefined 不算截断");
+};
+
+tests["C351 token 估算的偏差必须被写死（改常量就得回来改这条，防悄悄漂移）"] = async (t) => {
+  const { estimateTokens } = await import("../src/rooms/ledger.mjs");
+  // 官方（token_usage 文档）：英文 0.3 token/字、中文 0.6 token/字。
+  // 我们故意不用官方比例：CJK 1.0/字（高估 67%，中文场景更安全）、ASCII 0.25/字（低估 17%）。
+  // ⇒ 这条测试钉的是"**我们的偏差本身**"：谁改了常量，这里必须一起改，且要来说明理由。
+  const cjk = estimateTokens("汉字汉字汉字汉字"); // 8 字
+  const ascii = estimateTokens("abcdefgh"); // 8 字
+  t.eq(cjk, 8, `CJK 8 字应估 8 token（= 官方 0.6 的 1.67 倍），实际 ${cjk}`);
+  t.eq(ascii, 2, `ASCII 8 字应估 2 token（= 官方 0.3 的 0.83 倍），实际 ${ascii}`);
+  t.eq(cjk > ascii * 3, true, "CJK 必须明显比 ASCII 贵（这是分档设计的前提）");
+};
+
+tests["C352 官方比例估算器：中文 0.6/字、英文 0.3/字（校准脚本依赖它）"] = async (t) => {
+  const { officialEstimate, compareEstimates } = await import("../scripts/token-calib.mjs");
+  // 10 个汉字 ⇒ 6 token
+  t.eq(officialEstimate("汉字汉字汉字汉字汉字").tokens, 6, "10 汉字 ⇒ 6 token（0.6/字）");
+  // 10 个英文 ⇒ 3 token
+  t.eq(officialEstimate("abcdefghij").tokens, 3, "10 英文 ⇒ 3 token");
+  // 换行不计
+  t.eq(officialEstimate("\n\n").tokens, 0, "换行不产生 token");
+  // 混合：4 汉字(2.4) + 4 英文(1.2) ⇒ ceil(3.6)=4
+  t.eq(officialEstimate("数据压缩test").tokens, 4, "混合按各自比例相加后向上取整");
+
+  // compareEstimates 给出比值；纯中文时我们应偏高（CJK 1.0 vs 官方 0.6）
+  const cjkOnly = compareEstimates("汉字汉字汉字汉字汉字汉字汉字汉字汉字汉字");
+  t.eq(cjkOnly.ratio > 1.5, true, `纯中文时应明显偏高，实际 ${cjkOnly.ratio}`);
+  // 纯英文时我们应偏低（0.25 vs 0.3）
+  const asciiOnly = compareEstimates("abcdefghijklmnopqrst");
+  t.eq(asciiOnly.ratio < 1, true, `纯英文时应偏低，实际 ${asciiOnly.ratio}`);
+};
+
+/* ───────── C448：CURRENT GOAL 的原料问题（真机 93.3% 的 assistant 消息没有 text 块） ───────── */
+
+tests["C448 currentGoalOf：agent 有 goal 就用它；没有再兜底最近一条 user 原话（且不能是根）"] = (t) => {
+  const g = buildGraph({ failures: 1 });
+  const latest = (g.order ?? []).map((id) => g.nodes[id]).filter((n) => n && n.kind === "agent").at(-1);
+  // ① 只有根用户 ⇒ 不给（否则就是重复 ROOT）
+  t.eq(currentGoalOf(g, { goal: "" }), null, "单轮会话不该伪造 CURRENT GOAL（与 ROOT 重复）");
+  // ② 多轮 ⇒ 用最近一条 user 原话
+  const g2 = buildGraph({ failures: 1, extraUser: "改成先跑 lint，再跑测试。" });
+  const got = currentGoalOf(g2, { goal: "" });
+  t.eq(got?.source, "latest-user", "没有 goal 时应回落到最近一条 user 原话");
+  t.includes(got?.text ?? "", "先跑 lint", "回落内容必须是用户原话");
+  // ③ agent 自己有 goal ⇒ 优先它
+  const got2 = currentGoalOf(g2, { goal: "跑通 lint" });
+  t.eq(got2?.source, "agent-goal", "有 goal 时不许被兜底覆盖");
+  t.eq(got2?.text, "跑通 lint", "goal 原文");
+  // ④ 最新那条就是根 ⇒ 不给
+  const g3 = buildGraph({ failures: 0 });
+  const rootId = g3.rootUserNodeIds[0];
+  t.eq(currentGoalOf(g3, { goal: "" }), null, "只有根时不给");
+  t.eq(currentGoalOf({ ...g3, rootUserNodeIds: [g3.order.at(-1)] }, { goal: "" }), null, "最新一条就是根时不给");
+  t.eq(typeof rootId, "string", "夹具应有根 id");
+};
+
+tests["C448 renderLedger：多轮会话必须真的出现 CURRENT GOAL 行（真机现状是 0.3% 才有）"] = (t) => {
+  // 有路径才会渲染 CURRENT GOAL 行（它挂在路径块里）⇒ 夹具必须有 agent 节点
+  const withPath = (extraUser) => {
+    const g = createGraph({ sessionId: "c448" });
+    const u = addUserNodeId(g, { seq: 1, text: "把 data.jsonl 算出来。" });
+    const e1 = addEdge(g, { from: u, intent: "跑一下", action: "bash(node calc.mjs)" });
+    const n2 = addAgentNode(g, { seq: 5, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
+    g.edges[e1].to = n2;
+    settleEdge(g, e1, { result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    if (extraUser !== null) addUserNodeId(g, { seq: 9, text: extraUser });
+    return g;
+  };
+  const single = renderLedger(withPath(null), { now: 1_760_000_000_000 });
+  t.eq(single.text.includes("CURRENT GOAL"), false, "单轮会话不出现（与 ROOT 重复）");
+  const multi = renderLedger(withPath("改成先跑 lint，再跑测试。"), { now: 1_760_000_000_000 });
+  t.includes(multi.text, "CURRENT GOAL:", "多轮会话必须出现");
+  t.includes(multi.text, "先跑 lint", "内容要带上用户原话");
+  // 长指令要截断（一行不许无限长）
+  const clipped = renderLedger(withPath("改".repeat(400)), { now: 1_760_000_000_000 });
+  const line = clipped.text.split(String.fromCharCode(10)).find((l) => l.startsWith("CURRENT GOAL:"));
+  t.eq((line ?? "").length <= 240 + 20, true, `CURRENT GOAL 行必须截断，实际 ${(line ?? "").length} 字`);
+};
+
+/* ───────── C449：兜底内容要过信息量这道门（真机最新 user 消息中位只有 12 字） ───────── */
+
+tests["C449 isInformativeAsk：纯接续/确认词不算目标，2 字以内一律不算"] = (t) => {
+  for (const junk of ["继续", "继续吧。", "go", "GO", "ok", "好的", "嗯", "可以", "接着", "请继续", ""]) {
+    t.eq(isInformativeAsk(junk), false, `「${junk}」不该被当成当前目标`);
+  }
+  for (const real of ["修一下", "都是0", "我重启好了", "按照 gokifu 的方式完善 kifu", "继续修 data.jsonl 那个解析"]) {
+    t.eq(isInformativeAsk(real), true, `「${real}」应当被当成当前目标`);
+  }
+};
+
+tests["C449 currentGoalOf：最新一条只是「继续」⇒ 宁可不给（更早那条多半已做完，写成目标会把模型拽回去重做）"] = (t) => {
+  const mk = (extra) => {
+    const g = createGraph({ sessionId: "c449" });
+    const u = addUserNodeId(g, { seq: 1, text: "把 data.jsonl 算出来。" });
+    const e1 = addEdge(g, { from: u, action: "bash(node calc.mjs)" });
+    const n2 = addAgentNode(g, { seq: 5, goal: "", worldHash: "W1", constraintHash: "C1", via: e1 }).id;
+    g.edges[e1].to = n2;
+    addUserNodeId(g, { seq: 9, text: extra });
+    return g;
+  };
+  t.eq(currentGoalOf(mk("继续"), { goal: "" }), null, "「继续」不渲染");
+  t.eq(currentGoalOf(mk("go"), { goal: "" }), null, "英文接续词同样不渲染");
+  t.eq(currentGoalOf(mk("改成先跑 lint 再跑测试"), { goal: "" })?.text, "改成先跑 lint 再跑测试", "有信息量才渲染");
+  // agent 自己有 goal 时，接续词过滤不该把 goal 也挡掉
+  t.eq(currentGoalOf(mk("继续"), { goal: "跑通 lint" })?.source, "agent-goal", "goal 优先，且不受兜底过滤影响");
+  // 真渲染：最新是「继续」⇒ 不出这行
+  const noLine = renderLedger(mk("继续"), { maxTokens: 500, now: 1_760_000_000_000 });
+  t.eq(noLine.text.includes("CURRENT GOAL"), false, "「继续」不该在清单里出现");
 };

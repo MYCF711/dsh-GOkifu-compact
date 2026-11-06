@@ -1,0 +1,60 @@
+{
+ "version": 1,
+ "sessionId": "sess-c503",
+ "cwd": "<WORKSPACE>\\repos\\dsh-GOkifu-compact",
+ "createdAt": 1793712643615,
+ "updatedAt": 1793712643615,
+ "nextNode": 2,
+ "nextEdge": 2,
+ "nodes": {
+  "n1": {
+   "id": "n1",
+   "kind": "user",
+   "seq": 1,
+   "turn": null,
+   "text": "把测试跑绿。",
+   "constraints": [],
+   "ts": 1793712643615
+  }
+ },
+ "edges": {
+  "e1": {
+   "id": "e1",
+   "from": "n1",
+   "to": null,
+   "intent": "试试这个办法。",
+   "action": "bash(command=npm test)",
+   "sig": "c4f21ebf081b946a",
+   "result": "failure",
+   "verify": {
+    "kind": "exit",
+    "summary": "exit 1"
+   },
+   "errorSnippet": "boom\n[exit code: 1]",
+   "evidence": {
+    "start": 2,
+    "end": 3
+   },
+   "transposition": false,
+   "ts": 1793712643615
+  }
+ },
+ "order": [
+  "n1"
+ ],
+ "stateIndex": {},
+ "rootUserNodeIds": [
+  "n1"
+ ],
+ "checkpointSeq": null,
+ "foldCount": 0,
+ "lastFoldTotalTokens": 0,
+ "foldMarks": [],
+ "lastFoldUsage": null,
+ "closeout": {
+  "at": 1793712643623,
+  "eventsSinceLastFold": 1032,
+  "folds": 0,
+  "source": "disposed"
+ }
+}

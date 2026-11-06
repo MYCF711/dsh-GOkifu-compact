@@ -15,16 +15,43 @@
  */
 
 import nodeFs from "node:fs";
+import { decodeMultiFrameZstd } from "./session-scan.mjs";
+import { logCacheKey, summarizeLogEvents, replayLogStats } from "./log-stats.mjs";
+import { nodeDocStats } from "../src/rooms/node-docs.mjs";
+// ★ C607：「真缺失 / 在途」的判据**只有一份** —— 与 `repair-node-docs` 共用。
+//   doctor 的 CLI 输出与退出码只在直接执行时生效；测试可以 import 这里的纯函数。
+//   两边各写一套判据的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
+import { IN_FLIGHT_MS, splitMissingNodeDocs } from "./repair-node-docs.mjs";
+import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
+// ★ C639：C140 的「已标记 dangling」口径**只有一份** —— 标记由 `scripts/dangling-audit.mjs`
+//   写进 delta 层（append-only，改基线会让全部旧帧失效），doctor 这里只负责别把它再当 error。
+import { splitDanglingProblems } from "./dangling-audit.mjs";
+// ★ C608：折叠证据字段的**判据只有一份** —— 「这条 fold 该不该有这些字段」由写入点决定，
+//   口径落在 instrument-audit.mjs（脚本本体也是它的 CLI）。两边各写一套，就会重演下面那条假红。
+import { summarizeFoldEvidence } from "./instrument-audit.mjs";
+// ★ T27：正文在不在的判据只有一份（C642 的 `summaryTextFor`）—— doctor 只读，不重写规则。
+import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { fromJSON } from "../src/rooms/kifu-model.mjs";
+import { GRAPH_VERSION, fromJSON, countResolvedFailures, isTruncatedFinish } from "../src/rooms/kifu-model.mjs";
+import { measureLedgerTimings } from "../src/rooms/ledger.mjs";
 import { inspectProfileInstall } from "./link-path.mjs";
+import { selectSessionLogs } from "./log-window.mjs";
+import { accumulateCacheUsage, createCacheUsage, summarizeCacheUsage } from "./cache-usage.mjs";
 // ★ W5/W-B（2026-11-01）：preset 发现复用 install.mjs 的两代兼容实现（与 UI 半的 findPresetFiles 同构），
 //   不再写死「旧 home 的某个固定 preset 目录/名字」—— 新版 DSH 没有 preset-bundles，旧 home 才走它。
 //   选 `./install.mjs` 而不是 `../src/ui.mjs`：doctor 是 CLI 侧脚本，install.mjs 就在同目录、
 //   模块级零副作用；ui.mjs 是**宿主半**（webServer 路由 + DEFAULTS），CLI 不该为一段发现逻辑拉它进来。
 import { presetsWithCompaction } from "./install.mjs";
+import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
+import { planHomePatch } from "../src/rooms/user-patch.mjs";
+import { compareBuildId, compareBuildStamp, readBuildStamp, readUiRouteHeartbeat, repoBuildId, repoVersion } from "../src/rooms/build-stamp.mjs";
+import { foldCostMetrics, normalizeUsage } from "../src/rooms/fold-quality.mjs";
+// ★ C599：欠账口径只留一份（`debtOfGraph` 就是引擎/面板/补账共用的那个实现）——
+//   doctor 自己再写一遍"还欠多少"，迟早会和补账的口径打架。
+import { debtOfGraph } from "../src/rooms/closeout-backfill.mjs";
 
 const asJson = process.argv.includes("--json");
 const home = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
@@ -40,6 +67,27 @@ const sessionsRoot = nodePath.join(home, "sessions");
 
 const checks = [];
 const add = (name, status, detail) => checks.push({ name, status, detail });
+
+/**
+ * ★ C464：**一次运行只解一次图**。doctor 有 9 个块各自 `loadSessionGraph()`，
+ *   每块都重新 readFile + JSON.parse + fromJSON + sha 一遍 116 个图（合计 26 MB）。
+ *   实测这是 7.3s 里约 4-5 秒的来源。doctor 是一次性进程，进程内缓存绝对安全。
+ */
+const wsTitles = loadWorkspaceTitles(home);
+const graphCache = new Map();
+function loadGraphCached(file) {
+  if (!graphCache.has(file)) graphCache.set(file, loadSessionGraph(file));
+  return graphCache.get(file);
+}
+
+const TRACE = process.env.DSH_DOCTOR_TRACE === "1";
+const T0 = Date.now();
+// ★ C467：折叠失败按类别统计（图上的 lastFoldFailure）—— 报告块在文件前部就要用，所以在这里声明
+const foldFailures = [];
+/** 分段计时（DSH_DOCTOR_TRACE=1 打到 stderr）—— 回答「doctor 到底慢在哪」。 */
+function mark(name) {
+  if (TRACE) console.error(`[${String(Date.now() - T0).padStart(6)} ms] ${name}`);
+}
 
 /* ── 1. 安装态 ──
    以前这里只 `existsSync(node_modules/<pkg>)`：junction 在就报 ok，而依赖声明可能指向
@@ -81,14 +129,39 @@ function readPresetSummarizer() {
   return { provider, model };
 }
 function providerModels(name) {
-  if (!nodeFs.existsSync(profilePatch)) return [];
-  const text = nodeFs.readFileSync(profilePatch, "utf8");
-  const idx = text.indexOf(`- id: ${name}`);
-  if (idx < 0) return [];
-  const slice = text.slice(idx, idx + 4000);
-  const models = [];
-  for (const m of slice.matchAll(/^\s+- id:\s*(\S+)/gm)) models.push(m[1]);
-  return models;
+  const fromPatch = (() => {
+    if (!nodeFs.existsSync(profilePatch)) return [];
+    const text = nodeFs.readFileSync(profilePatch, "utf8");
+    const idx = text.indexOf(`- id: ${name}`);
+    if (idx < 0) return [];
+    const slice = text.slice(idx, idx + 4000);
+    const models = [];
+    for (const m of slice.matchAll(/^\s+- id:\s*(\S+)/gm)) models.push(m[1]);
+    return models;
+  })();
+  if (fromPatch.length > 0) return fromPatch;
+  // ★ C513：**patch 里没有模型表 ≠ 这个 provider 没有模型**。
+  //   magpie 的模型目录是它自己运行时给的（`/v1/models`），不是写在 patch 里的 ——
+  //   只看 patch 会把「配了 magpie 的模型」误判成 error。
+  return liveProviderModels(name);
+}
+
+/**
+ * ★ C513：向本机网关要一次模型表（只读、5 秒上限、失败就当读不到）。
+ * 只认 127.0.0.1 的 magpie（端口 3425，AGENTS.md 里登记的唯一模型出口）。
+ * @param {string} name
+ * @returns {string[]}
+ */
+function liveProviderModels(name) {
+  if (name !== "magpie") return [];
+  try {
+    const out = execFileSync("curl.exe", ["-s", "-m", "5", "http://127.0.0.1:3425/v1/models"], { encoding: "utf8", timeout: 8000 });
+    const parsed = JSON.parse(out);
+    const list = Array.isArray(parsed?.data) ? parsed.data : [];
+    return list.map((m) => String(m?.id ?? "")).filter((x) => x !== "");
+  } catch {
+    return [];
+  }
 }
 /* ── 2.5 压缩后端接管：preset 里必须是我们的引擎，且没有 compaction-basic ── */
 const hasOurEngine = hasOurName;
@@ -102,6 +175,82 @@ add(
       ? "preset 的 compaction group 内是 dsh-gokifu-compact（自动压缩由它提供）"
       : `preset（${preset.file}）里没有 dsh-gokifu-compact —— 跑一次 dsh-gokifu-compact install`,
 );
+/* ── 1.5 用户层 patch 是否遮蔽引擎 / 机器级层是否已登记（2026-11-02 实机事故）
+   用户层 `profiles/<p>/cordis.patch.yml` 是**最后应用**的一层：GUI 的 preset 快照会把
+   `@deepseek-ai/dsh-compaction-basic` 写回去。插件 1.17.1 起会在**进程退出时**自动把该行
+   复制到机器级 `$DSH_HOME/cordis.patch.yml`（宿主最后应用），下次启动接管 —— 用户不需要命令。
+   判定：遮蔽 + 机器级层已有引擎 ⇒ ok（等下次启动）；遮蔽 + 没有 ⇒ warn（自动登记待生效）。 */
+{
+  let shadowed = [];
+  let homeHasEngine = false;
+  try {
+    const profileText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    shadowed = findShadowedUserPresets(profileText);
+    const homePatch = nodePath.join(home, "cordis.patch.yml");
+    homeHasEngine = nodeFs.existsSync(homePatch) && nodeFs.readFileSync(homePatch, "utf8").includes("dsh-gokifu-compact/engine");
+  } catch {
+    /* 读不出按未采集处理 */
+  }
+  add(
+    "用户层 patch 不遮蔽压缩引擎",
+    shadowed.length === 0 || homeHasEngine ? "ok" : "warn",
+    shadowed.length === 0
+      ? "用户层 patch 没有把 preset 写回 compaction-basic"
+      : homeHasEngine
+        ? `${shadowed.join(", ")} 已被机器级层接管（home/cordis.patch.yml 有 engine 覆盖）—— 重启后生效`
+        : `${shadowed.join(", ")} 在用户层写回了 @deepseek-ai/dsh-compaction-basic；插件会在退出时自动登记到机器级层，**下次启动生效**（无需命令）。急用可跑 home/.gokifu-fix-2026-11-02/apply-fix.cmd`,
+  );
+}
+
+/* ── 1.6 机器级层是否与用户层一致（漂移检测）
+   home 层是用户层 preset 行的**副本**（只换 compaction 成员）。用户改了 persona 但还没退出时，
+   home 层还是旧的 —— 下次启动会先看到旧 persona，直到退出时自愈才刷新。
+   这里只做观测：不一致 ⇒ 提示「退出时自动刷新」，不判 error（自动机制会收敛）。 */
+{
+  let drift = false;
+  let checked = false;
+  try {
+    const profileText = nodeFs.existsSync(profilePatch) ? nodeFs.readFileSync(profilePatch, "utf8") : "";
+    const homePatch = nodePath.join(home, "cordis.patch.yml");
+    if (nodeFs.existsSync(homePatch) && findShadowedUserPresets(profileText).length > 0) {
+      checked = true;
+      drift = planHomePatch(profileText, nodeFs.readFileSync(homePatch, "utf8")).needed;
+    }
+  } catch {
+    /* 读不出按未采集处理 */
+  }
+  add(
+    "机器级层与用户层一致（未漂移）",
+    !drift ? "ok" : "warn",
+    checked === false
+      ? "没有需要复核的机器级层登记（用户层未遮蔽）"
+      : drift
+        ? "home 层副本比用户层旧（persona/配置已改）—— 插件退出时会自动刷新，下次启动生效"
+        : "home 层与用户层一致（只差 compaction 成员）",
+  );
+}
+
+/* ── 1.7 运行实例版本（C34）：磁盘更新了但进程还是旧代码时，必须一眼看出来 ── */
+{
+  const stamp = readBuildStamp(nodePath.join(home, "chess-context"));
+  const cmp = compareBuildStamp(stamp, repoVersion());
+  // ★ C53：semver 长期不变（1.17.1），只比版本号会把「运行实例是几小时前的代码」判成一致 ——
+  //   构建标识（src 内容哈希）才能看出落后。
+  const diskBuild = repoBuildId();
+  const buildCmp = compareBuildId(stamp, diskBuild);
+  const started = Number.isFinite(cmp.startedAt) ? new Date(cmp.startedAt).toISOString().slice(11, 19) + "Z" : "?";
+  const buildNote = `build ${buildCmp.running ?? "?"} vs 磁盘 ${diskBuild}`;
+  add(
+    "运行实例版本（build.json）",
+    cmp.state === "ok" && buildCmp.state === "ok" ? "ok" : "warn",
+    cmp.state === "missing"
+      ? `未采集（还没有 build.json —— 旧版本或还没重启过；磁盘代码 v${cmp.disk} · build ${diskBuild}）`
+      : buildCmp.state === "stale" || cmp.state === "stale"
+        ? `运行实例 v${cmp.running} / **${buildNote}** —— 磁盘代码已变（新字段/新检查此时还不会出现），**重启 DSH 后才生效**`
+        : `运行实例 v${cmp.running}（启动于 ${started}，${buildNote}）与磁盘代码一致`,
+  );
+}
+
 add(
   "原生 compaction-basic 已让位（单实例）",
   preset === null ? "warn" : hasNative ? "error" : "ok",
@@ -123,11 +272,12 @@ if (sum === null) {
   );
 }
 
+mark('安装/版本检查');
 /* ── 3. 压缩健康：最近会话的 compaction 成败 ── */
 const PY = `import sys, zstandard
 with open(sys.argv[1],'rb') as f:
     sys.stdout.buffer.write(zstandard.ZstdDecompressor().stream_reader(f, read_across_frames=True).read())`;
-function recentSessionLogs(limit) {
+function listSessionLogs() {
   if (!nodeFs.existsSync(sessionsRoot)) return [];
   const files = [];
   for (const ws of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
@@ -147,7 +297,7 @@ function recentSessionLogs(limit) {
     }
   }
   files.sort((a, b) => b.mtime - a.mtime);
-  return files.slice(0, limit);
+  return files;
 }
 let foldOk = 0;
 let logUsage = null;
@@ -159,50 +309,77 @@ let lastFailAt = 0;
 const lastErrors = [];
 const WINDOW_MS = 60 * 60 * 1000; // 1 小时：只看「现在是不是还在坏」，历史失败是已修掉的旧账
 const since = Date.now() - WINDOW_MS;
-for (const { file, session } of recentSessionLogs(6)) {
-  let events;
+// ★ C218：按**时间窗**选日志，而不是「最新 6 份」——旧写法会漏掉真实折叠（C-18 事故：
+//   01:12 那次 fold 落在第 7 份日志里，doctor 报「成功 0 / 失败 0」）。上限 24 份，解压成本可控。
+// ★ C465：日志是**追加写**的 ⇒ `(size, mtime)` 不变就可以复用上一次的聚合，只解变了的那几份。
+//   缓存里只存**与时间无关**的量（每次调用的缓存读数、每次 fold 的事件）；"最近一小时"的过滤在回放时做。
+//   `--no-log-cache` 可强制全量重算（对账用）。
+const LOG_CACHE_FILE = nodePath.join(home, "chess-context", "doctor-log-cache.json");
+const useLogCache = !process.argv.includes("--no-log-cache");
+let logCache = {};
+if (useLogCache) {
   try {
-    events = execFileSync("python", ["-c", PY, file], { maxBuffer: 512 * 1024 * 1024 }).toString("utf8").split("\n");
+    logCache = JSON.parse(nodeFs.readFileSync(LOG_CACHE_FILE, "utf8"));
+    if (logCache === null || typeof logCache !== "object" || logCache.v !== 1) logCache = { v: 1 };
+  } catch {
+    logCache = { v: 1 };
+  }
+} else {
+  logCache = { v: 1 };
+}
+let logCacheDirty = false;
+const logParts = [];
+for (const { file, session } of selectSessionLogs(listSessionLogs(), { windowMs: WINDOW_MS, head: 6, limit: 24 })) {
+  let stats = null;
+  try {
+    const st = nodeFs.statSync(file);
+    const key = logCacheKey(st);
+    const hit = logCache[file];
+    if (useLogCache && hit && typeof hit === "object" && hit.key === key && hit.stats) {
+      stats = hit.stats;
+    } else {
+      const raw = decodeMultiFrameZstd(nodeFs.readFileSync(file)).text.split("\n");
+      const events = [];
+      for (const line of raw) {
+        if (line.length === 0) continue;
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          /* 坏行跳过（与旧实现一致） */
+        }
+      }
+      stats = summarizeLogEvents(events, { session });
+      logCache[file] = { key, stats };
+      logCacheDirty = true;
+    }
   } catch {
     continue;
   }
-  for (const line of events) {
-    if (line.length === 0) continue;
-    let e;
-    try {
-      e = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const at = typeof e.time === "number" ? e.time : 0;
-    if (e.type === "compaction/summary" && e.data?.usage) {
-      // 旧版本写的 graph 没有 lastFoldUsage —— 从会话日志里捞最近一次摘要的真实 usage 兜底
-      if (logUsage === null || at > logUsage.at) {
-        logUsage = {
-          at,
-          inputTokens: e.data.usage.inputTokens,
-          outputTokens: e.data.usage.outputTokens,
-          provider: e.data.provider ?? null,
-          model: e.data.model ?? null,
-          shadowedTokens: e.data.shadowedTokenCount ?? null,
-          session,
-        };
-      }
-      continue;
-    }
-    if (e.type !== "compaction/end") continue;
-    if (e.data?.error) {
-      foldFailAll += 1;
-      lastFailAt = Math.max(lastFailAt, at);
-      if (at >= since) {
-        foldFail += 1;
-        if (lastErrors.length < 3) lastErrors.push(`${session.slice(0, 20)}: ${e.data.error}`);
-      }
-    } else {
-      foldOkAll += 1;
-      lastOkAt = Math.max(lastOkAt, at);
-      if (at >= since) foldOk += 1;
-    }
+  logParts.push({ ...stats, session });
+}
+const replay = replayLogStats(logParts, { since });
+foldOk = replay.foldOk;
+foldFail = replay.foldFail;
+foldOkAll = replay.foldOkAll;
+foldFailAll = replay.foldFailAll;
+lastOkAt = replay.lastOkAt;
+lastFailAt = replay.lastFailAt;
+if (replay.logUsage !== null) logUsage = replay.logUsage;
+for (const item of replay.errors) {
+  if (lastErrors.length >= 3) break;
+  // ★ C212：类身份不一致这类错误，光看原文没法处置 —— 附一句「该做什么」。
+  const hint = /Receiver must be an instance of class/i.test(String(item.error))
+    ? "（插件被装载了两份/类身份不一致 ⇒ 重启 DSH，并确认同名插件只有一条）"
+    : "";
+  lastErrors.push(`${String(item.session).slice(0, 20)}: ${item.error}${hint}`);
+}
+const cacheUsage = { calls: replay.calls, inputTokens: replay.inputTokens, cacheTokens: replay.cacheTokens, ratios: replay.ratios, breaks: replay.breaks, lastRatio: replay.ratios.length > 0 ? replay.ratios.at(-1) : null };
+if (logCacheDirty) {
+  try {
+    nodeFs.mkdirSync(nodePath.dirname(LOG_CACHE_FILE), { recursive: true });
+    nodeFs.writeFileSync(LOG_CACHE_FILE, JSON.stringify(logCache), "utf8");
+  } catch {
+    /* 缓存写不进去不影响本次结果 */
   }
 }
 const inWindow = foldOk + foldFail > 0;
@@ -218,15 +395,161 @@ add(
     `${lastErrors.length ? `；最近错误：${lastErrors[0]}` : ""}`,
 );
 
+// ★ C467：**失败也要分类**。真机那次 400 的正文写着别家上游的名字（WPS 灵犀）——
+//   那说明请求根本没到 DeepSeek，改提示词是白费力气。分类落图之后这里才说得清。
+if (foldFailures.length > 0) {
+  const byKind = {};
+  for (const f of foldFailures) byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
+  const newest = foldFailures.sort((a, b) => b.at - a.at)[0];
+  const hintOf = (kind) => {
+    if (kind === "upstream-routing") return "⇒ 查 magpie 分组/换非 group 模型（改提示词没用）";
+    if (kind === "balance") return "⇒ 余额不足，充值是唯一解";
+    if (kind === "invalid-request") return "⇒ 先看错误正文里的上游名字，再查 max_tokens 上限";
+    if (kind === "rate-limit") return "⇒ 放慢节奏（已加最小等待）";
+    if (kind === "overload") return "⇒ 上游过载，稍后重试";
+    if (kind === "timeout") return "⇒ 调大 closeoutTimeoutMs 或减小单段上限";
+    return "";
+  };
+  add(
+    "折叠失败分类（C467）",
+    newest.kind === "upstream-routing" || newest.kind === "balance" ? "warn" : "ok",
+    `${foldFailures.length} 个会话记着失败：${Object.entries(byKind).map(([k, n]) => `${k}=${n}`).join(" / ")}` +
+      ` · 最近一次 ${fmtAt(newest.at)}（${sessionLabel(newest.session, wsTitles).label}）：${newest.message.slice(0, 80)} ${hintOf(newest.kind)}`,
+  );
+}
+
+mark('会话日志扫描 ★');
 /* ── 4. 棋谱健康 ── */
 let sessions = 0;
 let agents = 0;
 let objectHash = 0;
+/**
+ * ★ C459：`index.md` 到底陈不陈旧 —— 纯函数（判据必须可单测，否则又会变成"看着像"）。
+ *
+ * 由来：真机上 doctor 报「index.md 落后 graph.json 超过 5 分钟的会话：2 个」，
+ * 把两个都打开复验 —— **最新节点 id 都在 index.md 里**（`n2467` / `n72`）。
+ * ⇒ 那是 **mtime 假阳性**：`graph.json` 因标量/增量写入不断刷新（foldCount、压力快照、预算计数），
+ *   而 `index.md` **只在节点集合变化时**才追加。两个文件的 mtime 本来就不该同步。
+ *
+ * 所以：mtime 只当**预筛**（便宜），真判据是「**最新节点 id 有没有出现在 index.md 里**」（准）。
+ * @param {{graphMtime:number, indexMtime:number, now?:number, indexText?:string|null,
+ *          lastNodeId?:string|null, idleMs?:number, lagMs?:number}} input
+ * @returns {{stale:boolean, reason:string}}
+ */
+/**
+ * ★ C475：把会话 id 翻成**用户界面上看到的名字**。
+ *
+ * 由来（用户原话）：「你说的是你看到的编号，不是我这里看到的中文名」——
+ * doctor 满屏 `session-b4664e8f…`，而用户界面上写的是「发布代码仓库并公开」。
+ * 报告要给人看，就得说人话；id 保留在括号里（排查时仍要能定位）。
+ *
+ * @param {string} sessionId 形如 `session-b4664e8f-…` 或目录名
+ * @param {Record<string,string>} titles 会话 id（可带或不带 `session-` 前缀）→ 标题
+ * @returns {{label:string, title:string|null}}
+ */
+/**
+ * ★ C484：算「输出 token ÷ 摘要本身」时，**分母要用我们记的那个 token 数**。
+ *
+ * 由来：这里以前写死 `chars / 3.5` —— 又一个"一律按英文算"的系数，而摘要里中文不少，
+ * 于是分母偏小、比值偏大。`foldMark.quality.summaryTokens` 是 `estimateTokens()` 按字符类别
+ * 加权算出来的（CJK 侧取上界），就在记录里躺着不用，没有理由再手搓一个 3.5。
+ *
+ * @param {object} mark foldMark
+ * @returns {number|null} 分母（token），拿不到就 null（调用方跳过，不编数字）
+ */
+export function summaryTokenDenominator(mark) {
+  const recorded = Number(mark?.quality?.summaryTokens);
+  if (Number.isFinite(recorded) && recorded > 0) return recorded;
+  const chars = Number(mark?.summaryChars);
+  if (Number.isFinite(chars) && chars > 0) return Math.max(1, Math.round(chars / 3.5)); // 老记录：留个兜底并标注
+  return null;
+}
+
+export function sessionLabel(sessionId, titles = {}) {
+  const raw = String(sessionId ?? "");
+  const bare = raw.replace(/^session-/, "");
+  const title = titles[bare] ?? titles[raw] ?? null;
+  if (title === null || title === "") return { label: raw.slice(0, 20), title: null };
+  return { label: `「${title}」（${bare.slice(0, 8)}）`, title };
+}
+
+/**
+ * 从 `storages/workspace.json` 取「会话 → 工作区标题」映射（同一会话跨工作区时取第一个）。
+ * 读不到就返回空表 —— 报告退回显示 id，不许因此失败。
+ * @param {string} home
+ * @returns {Record<string,string>}
+ */
+export function loadWorkspaceTitles(home) {
+  try {
+    const file = nodePath.join(home, "storages", "workspace.json");
+    const parsed = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+    const out = {};
+    for (const info of Object.values(parsed?.tables?.workspaces ?? {})) {
+      const title = typeof info?.title === "string" ? info.title : "";
+      if (title === "") continue;
+      for (const sid of Array.isArray(info?.sessionIds) ? info.sessionIds : []) {
+        const bare = String(sid).replace(/^session-/, "");
+        if (out[bare] === undefined) out[bare] = title;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function indexFreshness({
+  graphMtime,
+  indexMtime,
+  now = Date.now(),
+  indexText = null,
+  lastNodeId = null,
+  idleMs = 5 * 60 * 1000,
+  lagMs = 5 * 60 * 1000,
+}) {
+  if (!(now - graphMtime > idleMs)) return { stale: false, reason: "graph-active" };
+  if (!(indexMtime > 0)) return { stale: true, reason: "no-index" };
+  if (graphMtime - indexMtime <= lagMs) return { stale: false, reason: "mtime-fresh" };
+  // 到这里才是"看着陈旧"——必须再用内容确认
+  if (typeof indexText === "string" && typeof lastNodeId === "string" && lastNodeId !== "") {
+    return indexText.includes(lastNodeId)
+      ? { stale: false, reason: "content-fresh" }
+      : { stale: true, reason: "content-missing-node" };
+  }
+  // 拿不到内容 ⇒ 只能按 mtime 保守判陈旧，并让调用方知道这是"没复验过的"
+  return { stale: true, reason: "mtime-only" };
+}
+
 let indexStale = 0;
+// ★ C467：折叠失败按类别统计（图上的 lastFoldFailure）—— **必须在用到它的报告块之前声明**（TDZ 会直接崩）
+// ★ C461：换过任务的会话数（旧任务的历史之后每轮都在付费）
+let pivotSessions = 0;
+let pivotTotal = 0;
+let indexMtimeFalsePositives = 0; // ★ C459：mtime 看着陈旧、内容其实是最新的
+let lastNodeId = null;
 let newestFlush = 0;
 let lastFold = null;
 /** ★ P2-2（task-192）：跨会话收集 foldMarks（带 session 名），供「最近 5 次 fold」展示。 */
 const recentFoldMarks = [];
+  const foldGrowth = [];
+/** ★ 2026-11-01：出现「压缩无效」的会话数 / 最深连续次数。 */
+let thrashGraphs = 0;
+let maxThrash = 0;
+/** ★ C216：归档收尾观测 —— 归档时插件有没有补最后一段（closeout + archive foldMark）。 */
+const closeouts = [];
+const missingCloseout = [];
+let archivedWithGraph = 0;
+/** 宿主 registry 里的归档集合（workspace 域 global 记录）。读不到就当没有 —— 只是观测。 */
+const archivedIds = (() => {
+  try {
+    const f = nodePath.join(home, "storages", "workspace.json");
+    const raw = JSON.parse(nodeFs.readFileSync(f, "utf8"));
+    const ids = raw?.global?.archivedSessionIds;
+    return new Set(Array.isArray(ids) ? ids.map((x) => String(x)) : []);
+  } catch {
+    return new Set();
+  }
+})();
 let todayFolds = 0;
 let todayShadow = 0;
 let todaySessions = 0;
@@ -235,6 +558,10 @@ let graphEdges = 0;
 let graphNodes = 0;
 let selfLoops = 0;
 let collapsedGraphs = 0;
+// ★ C33：置换合并的可审计性（有 superseded 记录的节点 / 记录总数 / 自相矛盾数）
+let mergeNodes = 0;
+let mergeOps = 0;
+let mergeBad = 0;
 const todayStart = new Date();
 todayStart.setHours(0, 0, 0, 0);
 const today0 = todayStart.getTime();
@@ -247,7 +574,8 @@ if (nodeFs.existsSync(chessRoot)) {
     const mtime = nodeFs.statSync(f).mtimeMs;
     newestFlush = Math.max(newestFlush, mtime);
     try {
-      const g = fromJSON(nodeFs.readFileSync(f, "utf8"));
+      // ★ C183：聚合统计同样要重放 delta（否则节点/边数系统性偏低，自环率也会被扭曲）
+      const g = loadGraphCached(f).graph;
       {
         const es = Object.values(g.edges ?? {});
         const ns = Object.keys(g.nodes ?? {}).length;
@@ -262,9 +590,61 @@ if (nodeFs.existsSync(chessRoot)) {
         if (node?.kind !== "agent") continue;
         agents += 1;
         if (node.worldHash && typeof node.worldHash === "object") objectHash += 1;
+        if (Array.isArray(node.superseded) && node.superseded.length > 0) {
+          mergeNodes += 1;
+          mergeOps += Number(node.supersededCount ?? node.superseded.length);
+          for (const rec of node.superseded) {
+            // 记录必须指向「已被吞掉」的节点（仍在 nodes 里 = 自相矛盾），且带 seq
+            if (!rec || typeof rec.id !== "string" || g.nodes[rec.id] !== undefined) mergeBad += 1;
+            else if (rec.seq !== null && typeof rec.seq !== "number") mergeBad += 1;
+          }
+        }
       }
+      // ★ C467：最近一次折叠失败（分类落图）—— 以前只看得到日志里那句原始错误
+      if (g.lastFoldFailure && typeof g.lastFoldFailure === "object") {
+        const f0 = g.lastFoldFailure;
+        if (foldFailures.length < 20) foldFailures.push({ session: d.name.slice(0, 20), kind: String(f0.kind ?? "other"), message: String(f0.message ?? "").slice(0, 120), at: Number(f0.at) || 0 });
+      }
+      // ★ C461：任务切换记账（由 keeper 落盘，这里只读）
+      if (Number(g.pivots) > 0) {
+        pivotSessions += 1;
+        pivotTotal += Number(g.pivots);
+      }
+      // ★ C459：给「树新鲜度」用 —— 最新节点 id（内容复验的判据）
+      lastNodeId = (g.order ?? []).at(-1) ?? null;
       const marks = g.foldMarks ?? [];
       for (const mark of marks) recentFoldMarks.push({ ...mark, session: d.name });
+      // ★ C216：归档收尾 —— closeout 是「归档那一刻」的记账，archive foldMark 是「真的补折了」。
+      //   两者缺一都说明「归档了但 kifu 最后一段没压过」，而这条以前完全看不见。
+      {
+        const bareId = d.name.startsWith("session-") ? d.name : `session-${d.name}`;
+        const archived = archivedIds.has(d.name) || archivedIds.has(bareId);
+        const archiveFold = marks.filter((m) => m.trigger === "archive").at(-1);
+        if (archived && g.closeout === undefined) {
+          archivedWithGraph += 1;
+          missingCloseout.push(d.name);
+        }
+        if (g.closeout !== undefined || archiveFold !== undefined) {
+          closeouts.push({ session: d.name, closeout: g.closeout, archiveFold, archived });
+        }
+      }
+      // ★ C196：fold 新鲜度 —— 距上次 fold 之后又长了多少事件。只展示不判断（阈值 doctor 看不到）。
+      if (marks.length > 0) {
+        const last = marks.filter((m) => Number.isFinite(m.seqEnd)).at(-1);
+        let maxSeq = 0;
+        for (const node of Object.values(g.nodes ?? {})) {
+          const seq = Number(node?.seq);
+          if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+        }
+        if (last !== undefined && maxSeq > 0) {
+          foldGrowth.push({ session: d.name, growth: Math.max(0, maxSeq - Number(last.seqEnd)), at: last.at ?? 0, folds: marks.length });
+        }
+      }
+      // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 连续两次 fold 间隔 < 30 事件的会话数。
+      if (typeof g.foldThrash === "number" && g.foldThrash >= 2) {
+        thrashGraphs += 1;
+        maxThrash = Math.max(maxThrash, g.foldThrash);
+      }
       const todayMarks = marks.filter((m) => (m.at ?? 0) >= today0);
       if (todayMarks.length > 0) todaySessions += 1;
       todayFolds += todayMarks.length;
@@ -278,11 +658,416 @@ if (nodeFs.existsSync(chessRoot)) {
     }
     const indexPath = nodePath.join(chessRoot, d.name, "index.md");
     const indexMtime = nodeFs.existsSync(indexPath) ? nodeFs.statSync(indexPath).mtimeMs : 0;
-    if (indexMtime === 0 || mtime - indexMtime > 5 * 60 * 1000) indexStale += 1;
+    // ★ C180（C146 同族）：**活跃会话里 index.md 落后是常态** —— graph.json 每 ~1.2s 追加一帧，
+    //   index.md 只在 tree 落盘（fold）时重写。只看「index 比 graph 旧 5 分钟」会把**所有**
+    //   正在跑、还没 fold 的会话都算成陈旧（本轮 live 立刻出现 1 个）。
+    //   判据改成：**图自己也不再更新**（静止 > 5 分钟）却仍比 index 新 5 分钟 ⇒ 才是真陈旧。
+    // ★ C459：mtime 只做预筛；预筛通过才读 index.md 做**内容复验**（最新节点在不在里面）。
+    const prefilterStale = indexMtime === 0 ? Date.now() - mtime > 5 * 60 * 1000 : Date.now() - mtime > 5 * 60 * 1000 && mtime - indexMtime > 5 * 60 * 1000;
+    let indexText = null;
+    if (prefilterStale && indexMtime > 0) {
+      try {
+        indexText = nodeFs.readFileSync(indexPath, "utf8");
+      } catch {
+        indexText = null;
+      }
+    }
+    const verdictIndex = indexFreshness({ graphMtime: mtime, indexMtime, indexText, lastNodeId });
+    if (verdictIndex.stale) indexStale += 1;
+    else if (verdictIndex.reason === "content-fresh") indexMtimeFalsePositives += 1;
   }
 }
+mark('棋谱健康扫描');
+/* ── 3.3d 新观测字段覆盖（C193）──
+   这五个字段是「压缩是否被真正观测到」的指标；缺哪个就说明对应路径**还没有真机样本**
+   （不是错误，但必须让人看见「我们现在到底看得到什么」）。 */
+{
+  const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
+  let keys = [];
+  if (nodeFs.existsSync(budgetFile)) {
+    try {
+      keys = Object.keys(JSON.parse(nodeFs.readFileSync(budgetFile, "utf8")));
+    } catch {
+      keys = [];
+    }
+  }
+  const wanted = ["renderErrors", "skipReasons", "budgetFloorOver", "budgetIrreducible", "overBySession"];
+  const present = wanted.filter((k) => keys.includes(k));
+  const missing = wanted.filter((k) => !keys.includes(k));
+  add(
+    "观测字段覆盖（C193）",
+    // 只有「一个都没有」才 warn（说明新代码还没跑过任何 fold）；部分落盘是正常进度
+    present.length > 0 ? "ok" : "warn",
+    present.length === wanted.length
+      ? `全部 ${wanted.length} 个字段已落盘（${present.join(", ")}）`
+      : `已落盘 ${present.length}/${wanted.length}${present.length > 0 ? `（${present.join(", ")}）` : ""}；缺：${missing.join(", ")} —— 缺的字段等对应路径（fold / 超预算 / 渲染失败）出现真机样本`,
+  );
+}
+
 add("棋谱库", objectHash === 0 ? "ok" : "error", `${sessions} 个会话 / ${agents} 个 agent 节点 / worldHash 对象残留 ${objectHash}`);
-add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个`);
+add("树新鲜度", indexStale === 0 ? "ok" : "warn", `index.md 落后 graph.json 超过 5 分钟的会话：${indexStale} 个` + (indexMtimeFalsePositives > 0 ? `（另有 ${indexMtimeFalsePositives} 个 mtime 看着陈旧、**内容复验是最新的** —— graph.json 会因标量写入刷新，index.md 只在节点变化时追加，两者 mtime 本来不同步）` : ""));
+// ★ C461：任务切换 = 旧任务的历史之后每轮都在付费（Claude Code 的解法是 /clear）
+if (pivotSessions > 0) {
+  add(
+    "任务切换（可清理的会话）",
+    "ok",
+    `${pivotSessions} 个会话里出现过 ${pivotTotal} 次「换了件事」（与根目标/约束几乎无词重叠）—— ` +
+      "这些会话之后每轮请求都在为旧任务的历史付费（无状态 API 每轮重发历史；缓存热时打折、过期后全价）",
+  );
+}
+
+// ★ C230：抗干扰度的累加器（3.3c 里逐会话累加，报告在该块之后）
+const interference = { total: 0, resolved: 0, worst: [] };
+
+mark('观测字段覆盖');
+/* ── 3.3c 棋谱结构自洽（C140）──
+   结构坏掉的图会安静地留在磁盘上（validate 只在写盘时告警一行）。这里逐会话体检：
+   悬空边 / 悬空 stateIndex / order 漂移 / foldMark 闭包越界。发现即 error（数据损坏）。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  const bad = [];
+  const legacy = [];
+  const badTail = [];
+  const legacyFoldMarks = [];
+  // ★ C639：**已标记 dangling** 的边（端点节点的记录从未落盘，补不回来）——
+  //   它们仍要出现在报告里（降级为 `!`），但不再是 error。判据只有一份：
+  //   `scripts/dangling-audit.mjs` 的 `splitDanglingProblems`（标记也由它写进 delta 层）。
+  const danglingMarks = [];
+  let scanned = 0;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let loaded;
+      try {
+        loaded = loadGraphCached(graphFile);
+      } catch (error) {
+        // ★ C145/C148：把「旧版本图」和「真的损坏」分开 ——
+        //   但**判据必须是文件里的 version 值**，不能靠错误文案：
+        //   `{}`（缺 version）也会抛 "unsupported version"，那是坏图，不是旧版本。
+        let version;
+        try {
+          version = JSON.parse(nodeFs.readFileSync(graphFile, "utf8"))?.version;
+        } catch {
+          version = undefined;
+        }
+        const message = String(error?.message ?? error);
+        if (typeof version === "number" && version !== GRAPH_VERSION) {
+          legacy.push(`${entry.name.slice(0, 16)}: v${version}（当前 v${GRAPH_VERSION}）`);
+        } else {
+          bad.push(`${entry.name.slice(0, 16)}: ${message.slice(0, 60)}`);
+        }
+        continue;
+      }
+      scanned += 1;
+      // ★ C230：失败边里「后来同一 action 跑通过」的占比（与热清单的 ↑later-ok 同口径）
+      {
+        const seqEnd = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+        const all = Object.values(loaded.graph?.edges ?? {});
+        const fails = all.filter((e) => e?.result === "failure" && typeof e.action === "string" && e.action !== "");
+        // ★ C300：**不在这里重写一遍** —— 用 `rooms/kifu-model.mjs` 的那份，
+        //   面板卡片与这里的口径必须永远一致（这一族 bug 已经出过三次）。
+        const resolved = countResolvedFailures(loaded.graph);
+        interference.total += fails.length;
+        interference.resolved += resolved;
+        if (fails.length >= 5 && resolved / fails.length > 0.5) {
+          interference.worst.push(`${entry.name.slice(0, 16)}(${resolved}/${fails.length})`);
+        }
+      }
+      // ★ C142（审查 P1-3）：悬空 stateIndex 只能在**原始 JSON** 上查（fromJSON 会重建）
+      // ★ C143（审查 P1-4）：结构检查也必须在**重放 delta 之后**的图上做
+      const problems = [...auditRawIndex(loaded.raw), ...auditGraph(loaded.graph)];
+      // ★ C148（复审 P1-3）：delta 回放失败 ⇒ 体检看到的是**部分回放**的图，必须报出来
+      if (loaded.deltaError) problems.push(`delta 帧无法回放（图可能停在部分回放）：${loaded.deltaError}`);
+      if (loaded.badTail) badTail.push(`${entry.name.slice(0, 16)}: delta 尾部残帧（写入中断）`);
+      // ★ C187：`foldMarks[i] seqStart>seqEnd` 是**旧版本**（<C187）tier-2 合并写下的历史记录 ——
+      //   surface 顺序不保证按 seq 递增，旧代码直接取 cps[0]/cps[1] 得到反向区间。
+      //   新代码（C187 起）按 seq 排序后取最老两条，不会再产生。这类记录**不在新数据里出现**，
+      //   因此降为 warn（`graph-audit --repair-foldmarks` 可清理，原值保留在 legacyRange）。
+      const legacyRangeProblems = problems.filter((x) => /^foldMarks\[\d+\] seqStart>seqEnd$/.test(x));
+      // ★ C639：先切出「已标记 dangling」的边 —— 它们**不是** error（历史脏数据已被显式标记），
+      //   但也不许消失：留在报告里，让 C140 降级为 `!` 而不是绿。
+      const { real: danglingReal, marked: danglingMarked } = splitDanglingProblems(loaded.graph, problems);
+      for (const text of danglingMarked) danglingMarks.push(`${entry.name.slice(0, 16)}: ${text}`);
+      const realProblems = danglingReal.filter((x) => !legacyRangeProblems.includes(x));
+      if (legacyRangeProblems.length > 0) legacyFoldMarks.push(`${entry.name.slice(0, 16)}: ${legacyRangeProblems[0]}`);
+      if (realProblems.length > 0) bad.push(`${entry.name.slice(0, 16)}: ${realProblems[0]}`);
+    }
+  }
+  add(
+    "棋谱结构自洽（C140）",
+    bad.length > 0 ? "error" : legacy.length > 0 || badTail.length > 0 || legacyFoldMarks.length > 0 || danglingMarks.length > 0 ? "warn" : "ok",
+    scanned === 0
+      ? legacy.length > 0 || badTail.length > 0
+        ? `0 个可读会话（${legacy.length} 个旧版本 + ${badTail.length} 个残帧会话；不是「没有图」）：${[...legacy, ...badTail].slice(0, 3).join(" / ")}`
+        : "未采集（没有会话图）"
+      : bad.length > 0
+        ? `${bad.length}/${scanned} 个会话不自洽：${bad.slice(0, 3).join(" / ")}`
+        : legacy.length > 0
+          ? `${scanned} 个会话自洽；${legacy.length} 个**旧版本图**（引擎读到会重建空图 ⇒ 升级/降级前请先停窗备份）：${legacy.slice(0, 3).join(" / ")}`
+          : danglingMarks.length > 0
+            ? // ★ C639：**标记是「已处置」，不是「没问题」** —— 降级为 `!`，且原文照报。
+              //   旧版把这类边算 error（`✗`）⇒ 一条永远修不回来的历史脏数据让 C140 长期红，
+              //   红到最后没人看。标记 = 保留边 + 显式 `dangling: true`，可追溯、可复查。
+              `${scanned} 个会话自洽（悬空边 / 索引 / order / 闭包）；另有 ${danglingMarks.length} 条边**已标记 dangling**（端点节点的记录从未落盘，补不回原内容 ⇒ 保留边 + 标记，\`scripts/dangling-audit.mjs\` 可复核）：${danglingMarks.slice(0, 2).join(" / ")}`
+            : legacyFoldMarks.length > 0
+              ? `${scanned} 个会话自洽；${legacyFoldMarks.length} 个含**旧版本反向 foldMark**（C187 前的 tier-2，新版本不再产生；\`graph-audit --repair-foldmarks\` 可清理，但**必须先退出 DSH** —— 运行实例手里有内存态，重启后会把它写回来）：${legacyFoldMarks.slice(0, 2).join(" / ")}`
+              : `${scanned} 个会话全部自洽（悬空边 / 索引 / order / 闭包）`,
+  );
+}
+
+
+{
+  const { total, resolved } = interference;
+  const share = total > 0 ? resolved / total : 0;
+  if (total === 0) {
+    add("热清单抗干扰（已修正失败占比）", "warn", "未采集（本轮没有扫到任何失败边）");
+  } else {
+    const pct = Math.round(share * 100);
+    add(
+      "热清单抗干扰（已修正失败占比）",
+      share > 0.5 ? "warn" : "ok",
+      `${resolved}/${total} 条失败边背后的命令**后来跑通过**（${pct}%）—— 这些行仍会出现在 LEARNED 里（契约要求不丢失败记忆），但它们的判别价值最低` +
+        (interference.worst.length > 0 ? `；占比 ≥50% 的会话：${interference.worst.slice(0, 3).join(" / ")}` : ""),
+    );
+  }
+}
+
+mark('结构自洽');
+/* ── 3.3b 节点文档与棋谱一致（C110）──
+   热清单省略行会写「见 nodes/<id>.md」。文件缺失 = 空指针（模型会去读，然后 ENOENT）；
+   文件比节点多 = 陈旧工件（不影响引用，只计数）。
+
+   ★ C607：**「真缺失」与「在途」必须分两段说，不许混成一个数。**
+   `nodes/*.md` 是按落盘节流写出的，活跃会话里「刚建的节点还没写 md」是**正常中间态** ——
+   把它算进「缺」会让人以为坏了（C146/C148 反复踩过）；可把它算成 ok 又会掩盖真缺失。
+   所以拆成两段，各自带自己的判据。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let scanned = 0;
+  /** 真缺失：图已静止，md 就是写不出来 ⇒ 空指针。 */
+  let missingAll = 0;
+  /** 在途：节点刚创建 + 图仍在写 ⇒ md 还没轮到写，**不算缺失**。 */
+  let inFlightAll = 0;
+  let orphanAll = 0;
+  const skippedDocs = [];
+  const deltaIssues = [];
+  const worst = [];
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = nodePath.join(sessionsRoot, entry.name);
+      const graphFile = nodePath.join(dir, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let loaded;
+      try {
+        // ★ C143（审查 P1-2）：必须重放 delta —— 运行时 load 会重放；只读基线会把
+        //   「只在 delta 里、其实还活着」的节点当成不存在（误报陈旧）或漏报真实缺失（假绿）。
+        loaded = loadGraphCached(graphFile);
+      } catch (error) {
+        // ★ C148（复审 P1-1）：**不许静默跳过** —— 否则旧版本/坏图会话完全不进这条检查，
+        //   而 detail 还写「齐全」，等于永久假绿。
+        skippedDocs.push(`${entry.name.slice(0, 16)}: ${String(error?.message ?? error).slice(0, 40)}`);
+        continue;
+      }
+      const graph = loaded.graph;
+      if (loaded.deltaError) deltaIssues.push(`${entry.name.slice(0, 16)}: ${loaded.deltaError.slice(0, 60)}`);
+      else if (loaded.badTail) deltaIssues.push(`${entry.name.slice(0, 16)}: delta 尾部残帧`);
+      scanned += 1;
+      const nodesDir = nodePath.join(dir, "nodes");
+      const files = nodeFs.existsSync(nodesDir) ? nodeFs.readdirSync(nodesDir) : [];
+      const stats = nodeDocStats({ graphNodes: Object.keys(graph.nodes ?? {}), files });
+      // ★ C146（C143 的真实副作用）：delta 重放后能看到「刚建、md 还没写出」的节点 ——
+      //   nodes/*.md 是**节流写出**的（pending 攒到下一次落盘才写），活跃会话里这会持续出现。
+      //   所以：图在最近 2 分钟内更新过（会话仍在跑）⇒ 记为**在途**，不报警；
+      //   只有「图已静止」却仍缺文档，才是真正的空指针风险。
+      // ★ C148（复审 P2-4）：在途只对**刚创建**的节点成立（按节点自己的 ts）——
+      //   只看 graph.updatedAt 会让「一直活跃的会话里永久缺失的 md」永远算在途、永不报警。
+      // ★ C607：这段判据已收进 `splitMissingNodeDocs`（与 repair-node-docs 共用一份）。
+      const split = splitMissingNodeDocs(graph, stats.missing, Date.now());
+      missingAll += split.missing.length;
+      inFlightAll += split.inFlight.length;
+      for (const id of split.missing) {
+        if (worst.length < 3) worst.push(`${entry.name.slice(0, 16)}:${id}`);
+      }
+      orphanAll += stats.orphan.length;
+    }
+  }
+  // ★ C607：两段各自成句 —— **不许把在途并进「缺」那个数里**（也贴在报告里）。
+  const segments = [];
+  if (missingAll > 0) {
+    segments.push(`真缺失 ${missingAll} 个（图已静止、md 就是写不出来 ⇒ 热清单省略行会指向它们 ⇒ 空指针）：${worst.join(" / ")}`);
+  }
+  if (inFlightAll > 0) {
+    segments.push(`在途 ${inFlightAll} 个（节点创建 <${Math.round(IN_FLIGHT_MS / 1000)} 秒且图仍在写 ⇒ md 按落盘节流延迟写出；**不计入真缺失**）`);
+  }
+  if (orphanAll > 0) segments.push(`${orphanAll} 个陈旧 md（节点已不在图里；\`repair-node-docs --prune\` 可清，不影响引用）`);
+  if (deltaIssues.length > 0) segments.push(`${deltaIssues.length} 个会话的 delta 无法完整回放：${deltaIssues.slice(0, 2).join(" / ")}`);
+  if (skippedDocs.length > 0) segments.push(`${skippedDocs.length} 个会话被跳过（旧版本/坏图，无法体检）：${skippedDocs.slice(0, 2).join(" / ")}`);
+
+  const verdict = missingAll > 0
+    ? { level: "warn", detail: segments.join(" · ") }
+    : {
+        level: skippedDocs.length > 0 || deltaIssues.length > 0 ? "warn" : "ok",
+        detail:
+          scanned === 0
+            ? `0 个可读会话${skippedDocs.length > 0 ? `（${skippedDocs.length} 个被跳过：${skippedDocs.slice(0, 3).join(" / ")}，不是「没有图」）` : "（没有会话图）"}`
+            : `${scanned} 个会话 · 真缺失 0 个${segments.length > 0 ? ` · ${segments.join(" · ")}` : " · 节点文档齐全"}`,
+      };
+  add("节点文档与棋谱一致（C110）", verdict.level, verdict.detail);
+}
+
+mark('节点文档一致');
+/* ── 3.4 第三方 preset 的压缩后端（C94）──
+   我们的 patch 只覆盖**四个官方 preset**。第三方插件若自带 preset（例如 dsh-design-studio 的
+   `preset-design`「设计模式」），它可能在自己的 bundle patch 里重新声明 compaction-basic ⇒
+   那个模式下**不经过棋谱压缩**。这不是我们该强行覆盖的东西（越权 + 会被对方升级覆盖），
+   但用户看到「同一个插件，有的模式记忆行为不一样」时必须能查到原因。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const foreign = [];
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        if (name.includes("gokifu")) continue; // 自己的 patch 不参与
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        // 逐个 preset 块看：块内是否出现 `- id: compaction-basic`
+        // ★ preset 行可能缩进（第三方 patch 常放在 insert: 块里），所以允许前导空白
+        const ids = [...text.matchAll(/^\s*- id:\s*(preset-[a-z0-9-]+)\s*$/gm)].map((m) => ({ id: m[1], at: m.index }));
+        for (let i = 0; i < ids.length; i += 1) {
+          const end = i + 1 < ids.length ? ids[i + 1].at : text.length;
+          if (/- id:\s*compaction-basic/.test(text.slice(ids[i].at, end))) foreign.push(`${name}:${ids[i].id}`);
+        }
+      }
+    } catch {
+      /* 读不出 profile 清单不影响其它检查 */
+    }
+  }
+  if (scanned === 0) {
+    add("第三方 preset 的压缩后端（C94）", "ok", "未采集（profile 里没有其它带 bundle patch 的插件）");
+  } else if (foreign.length > 0) {
+    add(
+      "第三方 preset 的压缩后端（C94）",
+      "warn",
+      `${foreign.length} 个第三方 preset 仍用 compaction-basic：${foreign.join(" · ")} —— 那些模式下不经过棋谱压缩（不强行覆盖，属设计边界）`,
+    );
+  } else {
+    add("第三方 preset 的压缩后端（C94）", "ok", `扫了 ${scanned} 个第三方 bundle patch，没有 preset 自带压缩后端`);
+  }
+}
+
+mark('第三方 preset');
+/* ── 3.4b insert id 唯一性（C96）──
+   bundle patch 的 `insert` 行靠 id 建索引：两个插件插同一个 id，后写的会**替换**先写的 ——
+   被替掉的那个插件等于静默禁用。若撞的是我们的 `gokifu-ui`，设置页/`/gokifu/api` 会消失。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const owners = new Map();
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        // insert 块的子行固定 4 空格缩进（宿主 patch 语法），这里只认这一层
+        for (const m of text.matchAll(/^    - id:\s*([a-z0-9-]+)\s*$/gm)) {
+          const id = m[1];
+          if (!owners.has(id)) owners.set(id, []);
+          if (!owners.get(id).includes(name)) owners.get(id).push(name);
+        }
+      }
+    } catch {
+      /* 读不出清单不影响其它检查 */
+    }
+  }
+  const conflicts = [...owners.entries()].filter(([, list]) => list.length > 1);
+  const ours = conflicts.filter(([id]) => id === "gokifu-ui");
+  if (scanned === 0) {
+    add("insert id 唯一性（C96）", "ok", "未采集（profile 里没有 bundle patch）");
+  } else if (ours.length > 0) {
+    add(
+      "insert id 唯一性（C96）",
+      "error",
+      `**本插件的 gokifu-ui 行被别的 bundle 撞了**：${ours.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 设置页/\`/gokifu/api\` 可能消失`,
+    );
+  } else if (conflicts.length > 0) {
+    add(
+      "insert id 唯一性（C96）",
+      "warn",
+      `${conflicts.length} 个 insert id 被多个 bundle 使用：${conflicts.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 后写者会替换先写者（被替掉的插件等于静默禁用）`,
+    );
+  } else {
+    add("insert id 唯一性（C96）", "ok", `${owners.size} 个 insert id 各只有一个 owner（扫了 ${scanned} 个 bundle patch）`);
+  }
+}
+
+mark('insert id');
+/* ── 3.45 preset 覆盖唯一性（C95）──
+   多个 bundle 若覆盖**同一个 preset id**，后写的那份会整体接管 config ——
+   若别人的覆盖里又带回调 compression-basic，我们的引擎就被**静默顶掉**了。
+   live 目前每个 preset 只有一个 owner；这条检查是为了将来出现第二个 owner 时能立刻看见。 */
+{
+  const profileDir = nodePath.join(home, "profiles", "desktop");
+  const pkgFile = nodePath.join(profileDir, "package.json");
+  const owners = new Map();
+  let scanned = 0;
+  if (nodeFs.existsSync(pkgFile)) {
+    try {
+      const pkg = JSON.parse(nodeFs.readFileSync(pkgFile, "utf8"));
+      const bundles = Array.isArray(pkg?.dsh?.profile?.bundles) ? pkg.dsh.profile.bundles : [];
+      for (const name of bundles) {
+        const patch = nodePath.join(profileDir, "node_modules", name, "cordis.patch.yml");
+        if (!nodeFs.existsSync(patch)) continue;
+        scanned += 1;
+        const text = nodeFs.readFileSync(patch, "utf8");
+        for (const m of text.matchAll(/^\s*- id:\s*(preset-[a-z0-9-]+)\s*$/gm)) {
+          const id = m[1];
+          if (!owners.has(id)) owners.set(id, []);
+          if (!owners.get(id).includes(name)) owners.get(id).push(name);
+        }
+      }
+    } catch {
+      /* 读不出清单不影响其它检查 */
+    }
+  }
+  const conflicts = [...owners.entries()].filter(([, list]) => list.length > 1);
+  if (scanned === 0) {
+    add("preset 覆盖唯一性（C95）", "ok", "未采集（profile 里没有 bundle patch）");
+  } else if (conflicts.length > 0) {
+    add(
+      "preset 覆盖唯一性（C95）",
+      "warn",
+      `${conflicts.length} 个 preset 被多个 bundle 覆盖：${conflicts.map(([id, list]) => `${id}←${list.join("+")}`).join(" · ")} —— 后写者整体接管 config，压缩后端可能被静默顶掉`,
+    );
+  } else {
+    add("preset 覆盖唯一性（C95）", "ok", `${owners.size} 个 preset 各只有一个覆盖者（扫了 ${scanned} 个 bundle patch）`);
+  }
+}
+
+mark('preset 覆盖');
+/* ── 3.5 置换合并可追溯（C33）：被吞节点的身份必须留有记录 ── */
+add(
+  "置换合并可追溯（superseded）",
+  mergeBad > 0 ? "error" : "ok",
+  mergeBad > 0
+    ? `${mergeBad} 条记录自相矛盾（指向仍在图里的节点 / 缺 seq）—— 合并审计不可信`
+    : mergeNodes > 0
+      ? `${mergeNodes} 个节点记录过合计 ${mergeOps} 次合并（被吞节点 id/seq/goal 有界保留）`
+      : "没有发生置换合并（无需审计）",
+);
 {
   const rate = graphEdges > 0 ? (selfLoops / graphEdges) * 100 : 0;
   const ratio = graphNodes > 0 ? graphEdges / graphNodes : 0;
@@ -311,8 +1096,570 @@ add(
     : `遮蔽 ${cost.mark?.shadowedTokens ?? cost.shadowedTokens ?? "?"} tok` +
       `${cost.mark ? `（seq ${cost.mark.seqStart ?? "?"}-${cost.mark.seqEnd ?? "?"}）` : ""}` +
       ` → 摘要输入 ${cost.inputTokens ?? "?"} / 输出 ${cost.outputTokens ?? "?"} tok` +
-      `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）`,
+      `（${cost.provider ?? "?"}/${cost.model ?? "?"}${cost.source ? "，来自" + cost.source : `，fold #${cost.foldCount}`}，${cost.session.slice(0, 24)}）` +
+      // ★ C356：API 是**无状态**的（官方 multi_round_chat）—— 折掉的 N token 之后**每轮都省**。
+      //   只说"这次花了多少"会严重低估收益，所以给一句口径，不编数字。
+      " · 口径：这是**单次**花费；被遮蔽的 token 在之后每轮请求里都会省（无状态 API 每轮重发历史）",
 );
+mark('3.5 置换合并');
+/* ★ C348：**思考模式默认开着**（官方《Thinking Mode》：默认 enabled、默认 effort=high）。
+   摘要请求也会带上思考 ⇒ 输出 token 里有一部分是推理。这块要**看得见**，否则
+   "一次 fold 输出 3k token" 会被读成"摘要写了 3k 字"。宿主的 usage 里本来就有 `reasoningTokens`。 */
+{
+  let out = 0;
+  let reasoning = 0;
+  let seen = 0;
+  const graphRoot2 = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(graphRoot2)) {
+    for (const entry of nodeFs.readdirSync(graphRoot2, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot2, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        const usage = mark?.usage;
+        if (!usage || typeof usage !== "object") continue;
+        const o = Number(usage.outputTokens);
+        if (!Number.isFinite(o) || o <= 0) continue;
+        out += o;
+        seen += 1;
+        const r = Number(usage.reasoningTokens);
+        if (Number.isFinite(r) && r > 0) reasoning += r;
+      }
+    }
+  }
+  if (seen === 0) {
+    add("fold 输出里的推理占比", "warn", "未采集（没有带 outputTokens 的 fold usage）");
+  } else if (reasoning === 0) {
+    add("fold 输出里的推理占比", "ok", `${seen} 条 fold · 输出合计 ${out} tok · **没有 reasoningTokens**（思考模式关闭，或宿主没上报）`);
+  } else {
+    const pct = Math.round((reasoning / out) * 100);
+    add(
+      "fold 输出里的推理占比",
+      pct >= 50 ? "warn" : "ok",
+      `${seen} 条 fold · 输出 ${out} tok 其中**推理 ${reasoning} tok（${pct}%）**` +
+        (pct >= 50 ? " —— 一半以上的\"输出\"其实是思考（默认 effort=high）；想省钱要靠宿主把这个环节的思考关掉" : ""),
+    );
+  }
+}
+
+mark('C536 自动补账在动吗');
+/* ★ C536：**"开了"和"在动"是两件事**。
+   真机（2026-11-04）：开关是开的，可近 24h 只折了 4 段 —— 这个差别以前没有任何一处会告诉人。
+   判据全部来自棋谱（不依赖日志）：离线折叠的条数与最近时刻。 */
+{
+  const root5 = nodePath.join(home, "chess-context", "sessions");
+  let lastAt = null;
+  let last24h = 0;
+  let totalOffline = 0;
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  if (nodeFs.existsSync(root5)) {
+    for (const entry of nodeFs.readdirSync(root5, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(root5, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const m of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        if (m?.offline !== true) continue;
+        totalOffline += 1;
+        const at = Number(m?.at);
+        if (!Number.isFinite(at)) continue;
+        if (lastAt === null || at > lastAt) lastAt = at;
+        if (at >= cutoff) last24h += 1;
+      }
+    }
+  }
+  // 开关与引擎 #startAutoBackfill 同口径：仅 autoArchiveBackfill 显式 true 才开，默认关。
+  let enabled = false;
+  try {
+    const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
+    if (nodeFs.existsSync(patch) && /autoArchiveBackfill:\s*true/.test(nodeFs.readFileSync(patch, "utf8"))) enabled = true;
+  } catch {
+    /* 读不到就当默认关 */
+  }
+  const ageMin = lastAt === null ? null : Math.round((Date.now() - lastAt) / 60000);
+  add(
+    "自动补账",
+    enabled === false ? "warn" : last24h > 0 ? "ok" : "warn",
+    enabled === false
+      ? "**已关闭**（autoArchiveBackfill 默认 false，设置里勾上就恢复；旧 autoBackfill 不在 RESOLVE_ORDER，写了也不生效）"
+      : `开（autoArchiveBackfill: true） · 旧 autoBackfill 不在 RESOLVE_ORDER，写了也不生效 · 近 24h 折了 ${last24h} 段 · 累计 ${totalOffline} 段` +
+          (ageMin === null ? " · **一次都没跑过**" : ` · 最近一次 ${ageMin} 分钟前`) +
+          (last24h === 0 ? " ⇒ 开关开着却没产出：看是不是都是活会话（5 分钟内还在写会被跳过）" : ""),
+  );
+}
+
+mark('C599 自动补账的结局');
+/* ★ C599：**「跑完一轮」和「补进东西」是两件事**（C536 的姊妹条）。
+   真机（2026-11-05 00:03）：`auto-backfill-state.json` 里 `due:217` / `doneMs:13775`，
+   看起来一切正常 —— 而 `results` 五条**全是** `stopped:"error"`（`cannot get required service "llm"
+   in inactive context`）、`folded:0`。补账一轮都没成功，磁盘上只留下"跑完了"的时间戳，
+   于是「补账在空转」在 doctor 里与「补账很健康」长得一模一样。
+   三条判据（前两条直接读状态文件 = 补账自己的口径；只有文件不存在时用 `debtOfGraph` 现算）：
+     ① 文件在、`doneMs` 正常、但 `results` 全是 stopped≠done ⇒ 警告并写清原因；
+     ② `at` 超过 90 分钟没更新（默认 30 分钟一轮）而 `due>0` ⇒ 定时器可能停了；
+     ③ `due>0` 而状态文件不存在 ⇒ 本版可能还没重启（引擎不会写这个文件）。 */
+{
+  const stateFile = nodePath.join(home, "chess-context", "auto-backfill-state.json");
+  const sessionsForDue = nodePath.join(home, "chess-context", "sessions");
+  const fileExists = nodeFs.existsSync(stateFile);
+  let state = null;
+  let parseError = null;
+  if (fileExists) {
+    try {
+      state = JSON.parse(nodeFs.readFileSync(stateFile, "utf8"));
+    } catch (error) {
+      parseError = String(error?.message ?? error).slice(0, 120);
+    }
+  }
+  // 现算欠账（只在状态文件给不出 `due` 时用；doctor 已有图缓存，不额外解一遍图）
+  const dueFromGraphs = () => {
+    if (!nodeFs.existsSync(sessionsForDue)) return 0;
+    let count = 0;
+    for (const entry of nodeFs.readdirSync(sessionsForDue, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(sessionsForDue, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue; // 坏图由「棋谱结构自洽」点名，这里不重复报
+      }
+      try {
+        if (debtOfGraph(g).due === true) count += 1;
+      } catch {
+        /* 判不出债务就当没欠 —— 不许为一行统计把整份体检打挂 */
+      }
+    }
+    return count;
+  };
+  const reportedDue = Number(state?.due);
+  const due = Number.isFinite(reportedDue) ? reportedDue : dueFromGraphs();
+  // ★ 开关关掉时状态文件**本来就不该更新**（引擎每轮先 `return`）——
+  //   不排除它，这条检查会让「我自己关的」永远变红，退化成又一个恒假探测器。
+  const disabledByPatch = (() => {
+    try {
+      const patch = nodePath.join(home, "profiles", "desktop", "cordis.patch.yml");
+      return !nodeFs.existsSync(patch) || !/autoArchiveBackfill:\s*true/.test(nodeFs.readFileSync(patch, "utf8"));
+    } catch {
+      return true; // 读不到就当默认关（C536 那一行会单独报开关状态）
+    }
+  })();
+  const results = Array.isArray(state?.results) ? state.results : [];
+  const picked = Array.isArray(state?.picked) ? state.picked.length : 0;
+  const doneCount = results.filter((r) => r?.stopped === "done").length;
+  const foldedSum = results.reduce((acc, r) => acc + (Number(r?.folded) || 0), 0);
+  const doneMs = Number(state?.doneMs);
+  const doneMsOk = Number.isFinite(doneMs) && doneMs >= 0;
+  const ageMin = Number.isFinite(Number(state?.at)) ? Math.max(0, Math.round((Date.now() - Number(state.at)) / 60000)) : null;
+  const ago = (m) => (m === null ? "时间未知" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`);
+  const secs = doneMsOk ? `${Math.round(doneMs / 1000)}s` : "用时未知";
+  const name = "自动补账结局（静默停摆）";
+
+  if (parseError !== null) {
+    add(name, "warn", `状态文件不是合法 JSON（${stateFile}）：${parseError} —— 补账每轮都重写它，读不出来说明写盘中断或磁盘有问题`);
+  } else if (typeof state?.error === "string" && state.error.length > 0) {
+    add(name, "warn", `最近一轮**抛错**（${ago(ageMin)}）：${state.error.slice(0, 160)} —— 这一轮一次都没补成`);
+  } else if (!fileExists) {
+    add(
+      name,
+      due > 0 && !disabledByPatch ? "warn" : "ok",
+      due > 0 && !disabledByPatch
+        ? `**还没有跑过**（没有 ${stateFile}），而现算有 **${due}** 个会话欠账 ⇒ 本版可能需要重启（引擎启动才布防并写这个文件），或自动补账被关掉了`
+        : `**还没有跑过**（没有 ${stateFile}）· 现算欠账 ${due} 个${disabledByPatch ? " · 自动补账已在设置里关闭（停更属正常）" : ""} —— 没有欠账可补，属正常`,
+    );
+  } else if (ageMin !== null && ageMin > 90 && due > 0) {
+    add(
+      name,
+      disabledByPatch ? "ok" : "warn",
+      disabledByPatch
+        ? `状态文件 **${ageMin} 分钟没更新**，但自动补账已在设置里关闭（所以停更属正常）· 欠账 ${due} 个`
+        : `状态文件 **${ageMin} 分钟没更新**（默认 30 分钟一轮）而欠账 **${due}** 个 ⇒ **自动补账可能停了**：` +
+            `看宿主进程是否还活着、定时器是否被卸载` +
+            (Number.isFinite(Number(state?.firstDelayMs)) ? `（重启后 ${Math.round(Number(state.firstDelayMs) / 1000)}s 才跑第一轮，别太早下结论）` : ""),
+    );
+  } else if (results.length === 0 && state?.armed === true) {
+    // 只写了「已布防」、还没跑过第一轮 —— 用首轮延迟判「还没到点」还是「根本没跑」
+    const expectBy = (Number(state?.firstDelayMs) || 0) + (Number(state?.everyMs) || 0);
+    const late = ageMin !== null && ageMin * 60_000 > expectBy;
+    add(
+      name,
+      late ? "warn" : "ok",
+      `已布防（${ago(ageMin)}）但**还没跑过第一轮**（首轮 +${Math.round(Number(state?.firstDelayMs ?? 0) / 1000)}s）` +
+        (late ? " —— 已经超过「首轮 + 一轮」的时间，说明定时器没跑起来" : " —— 还没到点，属正常"),
+    );
+  } else if (results.length > 0 && doneCount === 0) {
+    // ① 「跑完了」但一个都没补成：这是最像健康的一种停摆
+    const reasons = [...new Set(results.map((r) => String(r?.stopped ?? "(null)")))];
+    const firstError = String(results.find((r) => typeof r?.error === "string" && r.error.length > 0)?.error ?? "").slice(0, 160);
+    add(
+      name,
+      "warn",
+      `最近一轮 ${secs} · 挑中 ${picked} 个 · 折了 ${foldedSum} 段 · **${results.length} 个结局全是 ${reasons.join("/")}（没有一个 done）**` +
+        (firstError !== "" ? ` · 首个错误：${firstError}` : "") +
+        " ⇒ 补账在空转：每轮都「跑完了」，却一个会话都没补进去",
+    );
+  } else {
+    add(
+      name,
+      "ok",
+      `最近一轮 ${ago(ageMin)} · ${secs} · 挑中 ${picked} 个 · 折了 ${foldedSum} 段（${doneCount}/${results.length} 个 done）· 欠账 ${due} 个`,
+    );
+  }
+}
+
+mark('C516 归档后还剩多少没折');
+/* ★ C516：**"归档了但没折完"要能被看见**。
+   真机（2026-11-04）：a09a4535 跑到 5,862 事件，最后一次折叠区间只到 1,874，尾巴 3,988 ——
+   而它已经归档（closeout 有记录）。这类会话以前只能靠人临时写脚本才看得见。
+   判据只认 foldMarks（`lastFoldSeq` 记的是"折时的会话 seq"，不是"折到哪"，别拿它算尾巴）。 */
+{
+  const root4 = nodePath.join(home, "chess-context", "sessions");
+  const bigTail = [];
+  if (nodeFs.existsSync(root4)) {
+    for (const entry of nodeFs.readdirSync(root4, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(root4, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      const marks = (Array.isArray(g?.foldMarks) ? g.foldMarks : []).filter((m) => Number.isFinite(m?.seqEnd));
+      const lastEnd = marks.length > 0 ? Math.max(...marks.map((m) => Number(m.seqEnd))) : 0;
+      const closed = g?.closeout !== undefined && g?.closeout !== null;
+      /* ★ C604：**老 closeout 没有 `eventsSinceLastFold` 时，不许拿 fold 折到哪当尾巴。**
+         旧代码写的是 `Number(eventsSinceLastFold ?? Math.max(0, lastEnd))` —— 把
+         「上次 fold 的 seqEnd（一个**位置**）」当成「还剩多少（一个**差值**）」。
+         真机（2026-11-05 01:38）：2 条 closeout 缺该字段，lastEnd 分别是 175 / 3002，
+         于是凭空造出 175 和 3002 的尾巴，后者还进了前五名（"归档时还有 3002 事件未折"是假的
+         —— 它的 `offlineCovered.end` 已经是 1761，真实尾巴接近 0）。
+         现在：缺字段就用「图上最大事件序号 − lastEnd」现算；连节点 seq 都拿不到 ⇒ 记 null
+         （**未采集**，不许用编造的数进榜）。 */
+      const tailRaw = g?.closeout?.eventsSinceLastFold;
+      const tail = Number.isFinite(Number(tailRaw))
+        ? Math.max(0, Number(tailRaw))
+        : (() => {
+            let maxEventSeq = 0;
+            for (const node of Object.values(g?.nodes ?? {})) {
+              const seq = Number(node?.seq);
+              if (Number.isFinite(seq) && seq > maxEventSeq) maxEventSeq = seq;
+            }
+            return maxEventSeq > 0 ? Math.max(0, maxEventSeq - lastEnd) : null;
+          })();
+      const maxSeq = tail === null ? lastEnd : lastEnd + tail;
+      if (!closed) continue;
+      if (tail !== null && tail >= 1000) {
+        /* ★ C649：**这条榜是「归档那一刻」的快照，不是现状**。
+           真机（2026-11-05）：榜单 71 个，而 `debtOfGraph` 说现在只有 1 个还欠（C649 修掉「小缺口吃尾巴」
+           之后变成 40 个）—— 两个数本来都没错，
+           但它们回答的不是一个问题（快照 vs 现状），而旧文案写成「这些是已经归档的…只能补账」，
+           读起来像 71 个都待补。这里把**现在**那一半一起算出来，两边并排。
+           另外单列「补不了」：图里 0 个节点（算不出折叠区间）、会话日志已不在 —— 这两种永远补不到，
+           混在"待补"里会让人以为补账能追平。 */
+        const debt = (() => {
+          try {
+            return debtOfGraph(g);
+          } catch {
+            return null;
+          }
+        })();
+        bigTail.push({
+          id: entry.name.replace(/^session-/, "").slice(0, 8),
+          dir: entry.name,
+          tail,
+          maxSeq,
+          folds: marks.length,
+          nodes: Object.keys(g?.nodes ?? {}).length,
+          nowTail: Number(debt?.tail) || 0,
+          gap: Number(debt?.gapEvents) || 0,
+          closedOut: debt?.closedOut === true,
+          due: debt?.due === true,
+        });
+      }
+    }
+  }
+  bigTail.sort((a, b) => b.tail - a.tail);
+  const total = bigTail.reduce((sum, x) => sum + x.tail, 0);
+  // 「现在」这一半：只对榜单里这几十个算（全库算一遍是白花钱的 IO）
+  const stillDue = bigTail.filter((x) => x.due);
+  const stillDueTotal = stillDue.reduce((sum, x) => sum + x.nowTail + x.gap, 0);
+  const doneNow = bigTail.filter((x) => x.nodes > 0 && !x.due && x.nowTail < 40 && x.gap < 40);
+  // 补不了：图上 0 节点（离线补折算不出区间）或会话日志已不在（读不到事件）
+  /* 两边的目录名**不统一**：`<home>/chess-context/sessions/` 里 92 个带 `session-` 前缀、480 个不带，
+     而 `<home>/sessions/<ws>/<id>/` 一律不带 —— 直接 `Set.has` 会把 92 个全判成"日志已不在"。 */
+  const logNames = (() => {
+    try {
+      return new Set(listSessionLogs().map((x) => String(x.session ?? "").replace(/^session-/, "")));
+    } catch {
+      return new Set();
+    }
+  })();
+  const hasLogRoot = nodeFs.existsSync(sessionsRoot);
+  const cannotFix = bigTail.filter(
+    (x) => x.nodes === 0 || (hasLogRoot && !logNames.has(String(x.dir).replace(/^session-/, ""))),
+  );
+  const settledBig = bigTail.filter((x) => x.nodes > 0 && !x.due && x.closedOut && (x.nowTail >= 40 || x.gap >= 40));
+  add(
+    "归档后剩余的未折尾巴",
+    bigTail.length === 0 ? "ok" : "warn",
+    bigTail.length === 0
+      ? "没有「归档了但还剩一大截没折」的会话"
+      : `**归档那一刻**有 ${bigTail.length} 个会话还剩 ≥1000 事件未折（合计 ${total.toLocaleString("en-US")}）：` +
+          bigTail.slice(0, 5).map((x) => `${x.id}(${x.tail})`).join(" · ") +
+          (bigTail.length > 5 ? " …" : "") +
+          " · 这是 `closeout.eventsSinceLastFold` 的**快照**（写完不再变），**不是现在**；" +
+          `按 debtOfGraph 现算，其中仍欠 **${stillDue.length}** 个（合计 ${stillDueTotal.toLocaleString("en-US")}，会进补账队列）· ` +
+          `已折完 ${doneNow.length} 个 · ` +
+          `closeout 已判结清但尾巴仍 ≥40：${settledBig.length} 个（合计 ${settledBig.reduce((sum, x) => sum + x.nowTail, 0).toLocaleString("en-US")}，老记录语义，不在欠账里）· ` +
+          `**补不了 ${cannotFix.length} 个**（${cannotFix.filter((x) => x.nodes === 0).length} 个图里没有节点、${cannotFix.filter((x) => x.nodes > 0).length} 个日志已不在）` +
+          " ⇒ 仍欠的只能补账（面板「补账」或自动补账，收尾不会再跑）；已判结清/补不了的不在队列里，别按它们等补账追平",
+  );
+}
+
+mark('C348 思考模式');
+/* ★ C401：**仪器到底装上了没有**。C398/C400 是"把字段写进 foldMark"的修复，
+   但一个字段"存在"和"有值"是两回事（C317–C321 连错五轮都在这上面）。
+   这里直接把最近 10 条 foldMark 的三个新字段数出来。
+   ★ C608：**分母先修**（2026-11-05 03:1x 真机打脸）。旧写法把"写入点根本不写这些字段"的 fold
+   也算进分母 ⇒ 窗口里只要全是 `archive-offline` 离线补折（`src/rooms/offline-fold.mjs:808`
+   只写 `route.model` + `truncated`），就必然报「三个都是 0 · 仪器未生效」。真机上那 10 条正是
+   收尾补账连续写下的离线折叠，而同一批数据里 `pressure` 的 83 条**三个字段全有**
+   （`node scripts/instrument-audit.mjs` 逐条可验）—— 结论从"要重启"翻成"判据错"。
+   现在按**写入点**算每个字段自己的分母，模型名按 C604 认 `usage.model || route.model`。 */
+{
+  const recent = [];
+  if (nodeFs.existsSync(nodePath.join(home, "chess-context", "sessions"))) {
+    const graphRoot3 = nodePath.join(home, "chess-context", "sessions");
+    for (const entry of nodeFs.readdirSync(graphRoot3, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot3, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) recent.push(mark);
+    }
+  }
+  recent.sort((a, b) => Number(b?.at ?? 0) - Number(a?.at ?? 0));
+  const evidence = summarizeFoldEvidence(recent, { limit: 10 });
+  const evStats = evidence.stats;
+  if (evStats.window === 0) {
+    add("折叠证据字段（C398/C400）", "warn", "未采集（还没有 foldMark）");
+  } else if (evStats.expected === 0) {
+    // 窗口里一条"该有"的都没有 ⇒ 那个 0 是**分母**造成的，不是仪器坏了。
+    // 用跨窗口的最近一条该有的 fold 兜底，把"仪器到底活没活"回答掉。
+    const latest = evidence.latestExpected;
+    const legacy = evStats.byKind?.legacy ?? 0;
+    if (latest === null) {
+      add(
+        "折叠证据字段（C398/C400）",
+        "warn",
+        `最近 ${evStats.window} 条 foldMark 全是离线补折/分段折（写入点本来不带这三字段）` +
+          (legacy > 0 ? `，另有 ${legacy} 条是 C398 之前的旧记录（那时写入点还没有这些字段）` : "") +
+          " —— 还没有任何模型路径的折叠可验",
+      );
+    } else {
+      const v = latest.values;
+      const modelText = latest.present.model ? (v.usageModel ?? v.routeModel) : "缺";
+      add(
+        "折叠证据字段（C398/C400）",
+        latest.ok ? "ok" : "warn",
+        `最近 ${evStats.window} 条都是离线补折/分段折（写入点本来不带这三字段，**已排除出分母**）；` +
+          `最近一条该有的 fold：${latest.atIso}（${latest.trigger}）模型名 ${modelText} · ` +
+          `finishReason ${latest.present.finish ? v.finishReason : "缺"} · ` +
+          `measuredBefore ${latest.present.measured ? v.measuredBefore : "缺"}` +
+          (latest.ok ? " ⇒ 仪器已生效" : " ⇒ **该有却没写**"),
+      );
+    }
+  } else {
+    const f = evStats.perField;
+    const head =
+      `最近 ${evStats.window} 条 foldMark 里 **${evStats.expected}** 条该有这些字段（模型/规则/手动路径），` +
+      `另有 ${evStats.notApplicable} 条本来不带（离线补折/分段/C398 前）：` +
+      `usage.model ${f.model.usage} · route.model ${f.model.route} · ` +
+      `finishReason ${f.finish.have}/${f.finish.expect} · measuredBefore ${f.measured.have}/${f.measured.expect}` +
+      `（模型名合计 ${f.model.have}/${f.model.expect} —— 两个落点都认，C604）`;
+    const broken = evidence.rows.filter((r) => r.needsEvidence && r.missing.length > 0);
+    if (evStats.missing === 0) {
+      add("折叠证据字段（C398/C400）", "ok", `${head} ⇒ 仪器已生效`);
+    } else {
+      const which = [...new Set(broken.flatMap((r) => r.missing))].join("/");
+      add(
+        "折叠证据字段（C398/C400）",
+        "warn",
+        `${head} ⇒ **该有却缺 ${evStats.missing} 条**：${which}` +
+          (evStats.allExpectedMissing
+            ? "（窗口里该有的 fold 一个字段都没写 —— 仪器未生效：C398/C400 未装上，或运行实例是旧构建）"
+            : ""),
+      );
+    }
+  }
+}
+
+mark('C401 仪器');
+/* ★ C347：这条成本是按**哪个模型**的价算的？真机教训（C345/C346）：
+   我们一度一律按 flash 计价，跑 pro 会低报 4 倍多；而 C346 之前记下的 foldMark 连 model 都没有。
+   所以这里要把「有多少条 fold 没有模型名」说出来 —— 否则成本卡看着精确，其实是按下限算的。
+   ★ C604：**模型名有两个落点，旧判据只读了一个。**
+   真机（2026-11-05 01:38）核账：180 条「没有 model」的 fold 里，**180 条都有 `route.model`**
+   （在线路径写 `usage.model`，`archive-offline` 离线补折路径写 `route.model` —— 例如
+   `magpie/group/deepseek-v4.1-flash1017` / `magpie/group/kimi-k3.1-pro`）。
+   旧判据只看 `usage.model` ⇒ 把「磁盘上明明记着、只是换了字段」的 180 条全算成
+   「没有模型名，按 flash 估价」—— 那是**凭空给自己造了下限**，而且归因也写错了
+   （detail 断言的「C346 之前记的」不成立：最近一条就在 1 分钟前）。
+   现在：`usage.model` 优先，缺了退回 `route.model`（与 C547「两种 usage 形状都要算」同一个纪律）；
+   两个都没有才算真的没有模型名。 */
+{
+  const withUsage = [];
+  // ★ 注意：这里必须显式拼 `chess-context/sessions` —— 模块顶层还有个同名的
+  //   `sessionsRoot`（= home/sessions，宿主的会话目录），作用域不同但名字一样，
+  //   写错就会静默扫到空目录（本块第一版就是这么错的：报"没有任何 folded usage"）。
+  const graphRoot = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(graphRoot)) {
+    for (const entry of nodeFs.readdirSync(graphRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const graphFile = nodePath.join(graphRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(graphFile)) continue;
+      let g = null;
+      try {
+        g = loadGraphCached(graphFile).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        // ★ C604：连 `route` 一起带上 —— 模型名的第二个落点（离线补折写的是这里）
+        if (mark?.usage && typeof mark.usage === "object") withUsage.push({ usage: mark.usage, route: mark?.route ?? null });
+      }
+    }
+  }
+  if (withUsage.length === 0) {
+    add("成本用的模型（口径）", "warn", "未采集（没有任何 folded usage）");
+  } else {
+    const counts = new Map();
+    let missing = 0;
+    let fromRoute = 0;
+    for (const { usage, route } of withUsage) {
+      const own = typeof usage?.model === "string" && usage.model !== "" ? usage.model : null;
+      const viaRoute = typeof route?.model === "string" && route.model !== "" ? route.model : null;
+      const raw = own ?? viaRoute;
+      if (raw === null) {
+        missing += 1;
+        continue;
+      }
+      if (own === null && viaRoute !== null) fromRoute += 1;
+      const key = raw.toLowerCase().includes("pro") ? "v4-pro" : raw.toLowerCase().includes("flash") ? "flash" : raw;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const dist = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ");
+    add(
+      "成本用的模型（口径）",
+      missing > 0 ? "warn" : "ok",
+      `有 usage 的 fold ${withUsage.length} 条 · ${dist === "" ? "全部没有模型名" : dist}` +
+        (fromRoute > 0 ? `（其中 ${fromRoute} 条取自 \`route.model\` —— 离线补折不写 \`usage.model\`）` : "") +
+        (missing > 0
+          ? ` · **${missing} 条没有 model**（usage 与 route 都没有）⇒ 这些按 **flash** 估价，跑 pro 的话是**下限**`
+          : " · 都能按实际模型计价"),
+    );
+  }
+}
+
+mark('C347 成本模型');
+/* ★ 2026-11-01（C20）：fold 的**成本效率** —— 摘要请求读了多少 token，才换回多少遮蔽 token。
+   live 实测 input/shadowed = 1.43–1.63：**摘要请求读的是整个 surface，不是只读被折叠段**。
+   比值 ≥2 说明「读两倍才压一倍」—— 触发点太晚、或增量范围切得太碎。纯观测，不改行为。 */
+{
+  const rows = recentFoldMarks
+    .map((m) => foldCostMetrics({ inputTokens: m?.usage?.inputTokens, shadowedTokens: m?.shadowedTokens, summaryTokens: m?.usage?.outputTokens }))
+    .filter(Boolean);
+  if (rows.length === 0) {
+    add("fold 成本口径（遮蔽占读入）", "warn", "未采集（老 foldMark 没有 usage/shadowedTokens）");
+  } else {
+    const shares = rows.map((r) => r.share);
+    const ratios = rows.map((r) => r.ratio);
+    const rois = rows.map((r) => r.roi);
+    const minShare = Math.min(...shares);
+    // ★ C551：**判据要用中位数，不能用最小值**。真机（2026-11-06）：遮蔽占读入 中位 **63%**，
+    //   121 次里只有 **1 次**不足 30% —— 而旧判据拿 `Math.min` 一算就告警，
+    //   还给出"考虑提高增长闸"的建议。**一个离群样本不该驱动调参。**
+    const medianShare = (() => {
+      const sorted = [...shares].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    })();
+    add(
+      "fold 成本口径（遮蔽占读入）",
+      medianShare < 0.3 ? "warn" : "ok",
+      `遮蔽占读入 中位 ${(medianShare * 100).toFixed(0)}%（区间 ${(minShare * 100).toFixed(0)}–${(Math.max(...shares) * 100).toFixed(0)}%）` +
+        `（${rows.length} 次 fold；input/shadowed ${Math.min(...ratios).toFixed(2)}–${Math.max(...ratios).toFixed(2)} 含 host 工具/system 固定开销，不单独判错）` +
+        ` · 每读 1 token 换回 ${Math.min(...rois).toFixed(2)}–${Math.max(...rois).toFixed(2)} token 永久缩减` +
+        // ★ C236：折叠调用的**缓存命中率**（与每步注入的 97% 是两个世界：折叠每次都是新区间）。
+        //   实测 33 次 fold：输入 7.06 M、其中缓存读仅 241 k = 3.4% ⇒ 折叠才是可数的成本（≈$0.032/次）。
+        (() => {
+          // ★ C547：**两种 usage 形状都要算**（宿主在线 = camelCase；离线 = provider 原始字段）。
+          const normalized = recentFoldMarks.map((m) => normalizeUsage(m?.usage)).filter((u) => u.miss !== null);
+          const withCache = normalized;
+          if (withCache.length === 0) return "";
+          // ★ C361：真机 usage 的 `inputTokens` 是**未命中**部分（total = miss + hit + out 自证），
+          //   所以命中率分母要用 miss + hit；拿 inputTokens 当分母会算出 >100% 的荒谬值。
+          const miss = withCache.reduce((n, u) => n + u.miss, 0);
+          const cache = withCache.reduce((n, u) => n + (u.hit ?? 0), 0);
+          const denom = miss + cache;
+          if (denom <= 0) return "";
+          // ★ C548：**按在线/离线拆开报**，并说明"为什么就是这么低"。
+          //   真机（2026-11-06）：在线 121 次命中 7%、离线 19 次命中 10% —— 两条路都低，
+          //   因为**每次折叠压的都是新区间**（内容从没见过），能命中的只有稳定的头部（≈2048 tok）。
+          const byKind = (offline) => {
+            const rows = recentFoldMarks.filter((m) => (m?.offline === true) === offline).map((m) => normalizeUsage(m?.usage)).filter((u) => u.miss !== null);
+            const d0 = rows.reduce((n, u) => n + u.miss + (u.hit ?? 0), 0);
+            return d0 <= 0 ? null : { pct: Math.round((rows.reduce((n, u) => n + (u.hit ?? 0), 0) / d0) * 100), n: rows.length };
+          };
+          const off = byKind(true);
+          const on = byKind(false);
+          const split = off === null || on === null ? "" : `（在线 ${on.pct}% / 离线 ${off.pct}%）`;
+          return ` · fold 缓存命中 ${Math.round((cache / denom) * 100)}%${split}（${withCache.length} 次；分母 = 未命中 + 命中）—— 每次折叠压的都是**新区间**，能命中的只有稳定头部（≈2048 tok），低是结构性的`;
+        })() +
+        // ★ C237：**我们自己的指令**占 fold 输入多少（facts + 模板）。实测 1.7% ⇒
+        //   「input/shadowed = 1.4」不是我们造成的，以后别再猜。
+        (() => {
+          const known = recentFoldMarks.filter((m) => Number.isFinite(m?.usage?.instructionTokens) && Number.isFinite(m?.usage?.inputTokens) && m.usage.inputTokens > 0);
+          if (known.length === 0) return "";
+          const share = known.reduce((n, m) => n + m.usage.instructionTokens / m.usage.inputTokens, 0) / known.length;
+          return ` · 我们的指令占输入 ${(share * 100).toFixed(1)}%（${known.length} 次；其余是宿主送进来的消息 —— input/shadowed 的差额不归我们）`;
+        })() +
+        (medianShare < 0.3
+          ? " —— 折得太碎/太早：**中位数**遮蔽段占读入不足 30%，考虑提高增长闸"
+          : " —— 性价比正常（判据是中位数，不是最低值：个别样本低不影响结论）"),
+    );
+  }
+}
+
+/** ★ T27：这条折痕的正文能不能复判 —— 判据只有一份（`summaryTextFor`，与三个审计器同源）。 */
+function bodyOf(mark) {
+  const graph = graphCache.get(nodePath.join(chessRoot, String(mark.session), "graph.json"))?.graph ?? null;
+  return summaryTextFor(graph, mark).text !== null;
+}
+
+mark('C20 成本效率');
 /* ★ P2-2（task-192）：最近 5 次 fold 的 route / fallback / ms / usage。
    旧图的 foldMark 没有这些字段 ⇒ 明确写「—」（不许用 0/undefined 冒充数据）。
    tier-2 的合并记录不是 fold（没有 route/usage），也按「—」显示。 */
@@ -329,22 +1676,475 @@ add(
       const when = new Date(m.at).toISOString();
       const route = m.route ? `${fmt(m.route.provider)}/${fmt(m.route.model)}` : "—";
       const usage = m.usage ? `in ${fmt(m.usage.inputTokens)} / out ${fmt(m.usage.outputTokens)}` : "—";
+      // ★ 2026-11-01：摘要字符数（老 foldMark 没有 ⇒ 显示「—」）。超 3000 字符标「!」——
+      //   指令预算约 920 字符（40/死路 + 600），模型偶尔会不遵守，长了要能看见。
+      const charsRaw = m.summaryChars;
+      const chars = charsRaw === null || charsRaw === undefined ? "—" : `${charsRaw}${charsRaw > 3000 ? "!" : ""}`;
+      // ★ T27：正文在不在（与「摘要 N 字符」是两个问题）—— 老折痕只有 summaryChars ⇒ 明确写「无」。
+      const body = bodyOf(m) ? "有" : `无（生产者早于 ${SUMMARY_TEXT_SINCE}）`;
       const shadow = fmt(m.shadowedTokens);
       const ms = fmt(m.ms);
       const fb = fmt(m.fallback);
       const kind = m.tier2 === true ? "tier-2 " : "";
-      return `${when} ${kind}#${fmt(m.foldCount)} 遮蔽 ${shadow} tok · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
+      // 2026-11-01（C12）：为什么压也要看得见 —— pressure / context-overflow（已溢出，被迫自救）/ tier2
+      const trigger = fmt(m.trigger);
+      // ★ 2026-11-02（C24）：可寻址闭包 —— 这一次 fold 覆盖了图里多少节点/边（老 foldMark 无该字段 ⇒ 不显示）。
+      const closure = m.closure && typeof m.closure === "object" ? ` · closure ${fmt(m.closure.nodes)}n/${fmt(m.closure.edges)}e` : "";
+      return `${when} ${kind}#${fmt(m.foldCount)} 触发 ${trigger}${closure} · 遮蔽 ${shadow} tok · 摘要 ${chars} 字符 · 正文 ${body} · 路由 ${route} · fallback ${fb} · ${ms} ms · ${usage}（${String(m.session).slice(0, 24)}）`;
     });
     add("最近 5 次 fold（route/fallback/ms/usage）", "ok", lines.join("\n"));
   }
 }
+mark('P2-2 最近5次');
+/* ★ C196：fold 新鲜度 —— 回答「什么时候会再 fold」。只展示，不判断。 */
+{
+  const top = [...foldGrowth].sort((a, b) => b.growth - a.growth).slice(0, 3);
+  if (top.length === 0) {
+    add("fold 新鲜度（距上次 fold 的事件数）", "warn", "没有可用的 fold 记录（或都没有 seqEnd）");
+  } else {
+    const text = top
+      .map((x) => `${String(x.session).slice(0, 18)}: +${x.growth} 事件（${x.folds} 次 fold，最近 ${new Date(x.at).toISOString()}）`)
+      .join(" · ");
+    add("fold 新鲜度（距上次 fold 的事件数）", "ok", `${text}（只是观测：真正触发时机由窗口阈值与 growthFloor 共同决定）`);
+  }
+}
+
+mark('C196 新鲜度');
+/* ★ C216：归档收尾 —— 回答「会话被归档时，最后那一段到底压了没有」。
+   判据（真机 1.17.5 的失败样本）：已归档 + 有棋谱 + 一条 closeout 都没有 ⇒ 归档信号没接上。
+   这条是 C210 那次真机验证得出的：它挂在 `session/disposed` 上，而 GUI 归档根本不发这个事件。 */
+{
+  const withCloseout = closeouts.filter((x) => x.closeout !== undefined);
+  const withArchiveFold = closeouts.filter((x) => x.archiveFold !== undefined);
+  const recent = withCloseout
+    .sort((a, b) => Number(b.closeout?.at ?? 0) - Number(a.closeout?.at ?? 0))
+    .slice(0, 3)
+    .map(
+      (x) =>
+        `${String(x.session).slice(0, 18)}: 尾巴 ${x.closeout.eventsSinceLastFold} 事件 · ${x.closeout.source ?? "?"} · ` +
+        // ★ C391：**不要把「没有 archive foldMark」当成异常**。真机实测（2026-11-03）：
+        //   归档时 `closeout.source="archive"` **都**会记下，但折叠跑不了 —— 归档会话没有 agent，
+        //   宿主的压缩只对 idle agent 生效 ⇒ 正确的后续动作是**补账**（cancel archive → resume → 折 → 再归档）。
+        `${Number(x.closeout?.chunkedFolded) > 0 ? `分段折了 ${x.closeout.chunkedFolded} 段` : x.archiveFold ? "已折" : "待补账"}`,
+    )
+    .join(" · ");
+  // ★ C379：把「补账该怎么做」指到一条命令（金额 / 点击次数 / 超时风险都在那里算）。
+  //   doctor 不自己重算（那会让健康检查变慢且重复），但必须**可发现**。
+  add(
+    "补账规模（离线）",
+    "ok",
+    `跑 \`node scripts/backfill-plan.mjs\` 看完整口径：欠账个数 / token / 冷缓存估价 / **点击次数** / **哪几个会超单会话超时**（C368）` +
+      `；要一次折完大尾巴，可按它给的建议调 \`closeoutMaxFoldTokens\`（C343）`,
+  );
+  // ★ C466：**历史欠账不该盖住当前状态**。24 个老会话没有 closeout 是永久事实，
+  //   但它不该让"最近这次归档折了没有"看不见 —— 所以两种分支都带上同一段结局摘要。
+  /**
+   * ★ C488：**把 closeout 里的结局翻译成人话**（真机 2026-11-03 新字段验证后加的）。
+   *
+   * 归档收尾最常见的两种"没折成"其实都不需要人动手：
+   *   · `no-foldable-span` —— 归档那一刻会话已不可折叠（surface 没了）；账已记，**重开该会话时会补**；
+   *   · `chunked-incomplete` —— 分段折了一半（多半撞了 90s 预算），可把 closeoutMaxFoldTokens 调小。
+   * 不写清楚，用户只会看到"归档了但没折"，然后反复归档来试。
+   */
+  const closeoutNoteHint = (note) => {
+    const text = String(note ?? "");
+    if (text.includes("no-foldable-span")) return "（会话归档时已不可折叠 ⇒ 账已记，**重开该会话时会补**）";
+    if (text.includes("chunked-incomplete")) return "（分段没折完 ⇒ 多半撞了 closeoutTimeoutMs，可调小 closeoutMaxFoldTokens）";
+    if (text.includes("below-min-tokens")) return "（尾巴太短，按设计不折）";
+    return "";
+  };
+
+  const outcomeSummary = (() => {
+    const parts = [];
+    const bySourceNow = {};
+    for (const x of withCloseout) {
+      const key = typeof x.closeout?.source === "string" && x.closeout.source !== "" ? x.closeout.source : "unknown";
+      bySourceNow[key] = (bySourceNow[key] ?? 0) + 1;
+    }
+    const src = Object.entries(bySourceNow)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ");
+    if (src !== "") parts.push(`来源 ${src}`);
+    const attempted = withCloseout.filter((x) => x.closeout?.foldAttempted === true).length;
+    if (attempted > 0) parts.push(`${attempted} 次有折叠结局记录`);
+    // ★ C488：把最近一条有 note 的折叠的处置建议带出来
+    // ★ C491：离线压缩**没覆盖到的那一段**要报出来 —— 否则"折了"就等于"全压过了"
+    const withGap = withCloseout.filter((x) => Number(x?.closeout?.offlineUncoveredHead?.events) > 0);
+    if (withGap.length > 0) {
+      const worst = withGap
+        .map((x) => ({ x, n: Number(x.closeout.offlineUncoveredHead.events) || 0 }))
+        .sort((a, b) => b.n - a.n)[0];
+      // ★ C543：这句话原来断言「缺口还没进欠账、要再做分段离线」—— **已经过期**。
+      //   C519/C520 之后，`closeout.offlineUncoveredHead` 本身就是欠账（`debtOfGraph.gap`），
+      //   `backfill-plan` 里能看到它们（真机 f46d6330：tail 0 / 157k tok / 2 段）。
+      parts.push(
+        `**离线压缩还有缺口**：${withGap.length} 个会话的前段没压（最大 ${worst.n} 事件，${sessionLabel(worst.x.sessionId, wsTitles).label}）` +
+          `—— 这些**已经进欠账**（gap），补账会从缺口起点继续（C519/C520/C522），不用另外安排`,
+      );
+    }
+    const withNote = withCloseout
+      .filter((x) => typeof x.closeout?.foldNote === "string" && x.closeout.foldNote !== "")
+      .sort((a, b) => (Number(b.closeout.at) || 0) - (Number(a.closeout.at) || 0));
+    if (withNote.length > 0) {
+      const latest = withNote[0];
+      parts.push(`最近结局 \`${latest.closeout.foldNote}\`${closeoutNoteHint(latest.closeout.foldNote)}`);
+    }
+    const failed = withCloseout.filter((x) => typeof x.closeout?.foldError === "string" && x.closeout.foldError !== "");
+    if (failed.length > 0) {
+      parts.push(
+        `**${failed.length} 次折叠失败**：${failed
+          .slice(0, 2)
+          .map((x) => String(x.closeout.foldError).slice(0, 50))
+          .join(" | ")}`,
+      );
+    }
+    return parts.length === 0 ? "" : `（最近这批：${parts.join(" · ")}）`;
+  })();
+  if (missingCloseout.length > 0) {
+    add(
+      "归档收尾（closeout）",
+      "warn",
+      `${missingCloseout.length} 个会话已归档、留下棋谱，却一条 closeout 都没有（${missingCloseout
+        .slice(0, 3)
+        .map((x) => sessionLabel(x, wsTitles).label)
+        .join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
+        ` —— 两条来路：① 1.17.6 之前收尾挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）；` +
+        `② 这些是**启动前就已归档**的老会话（历史归档不做收尾，C328）。` +
+        `**两者都会在补账时自己补上 closeout**（真机已验证：f46d6330 补账后出现 source=archive-offline）—— ` +
+        `所以这一条是"待办进度"而不是"坏掉了"` +
+        `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}` +
+        outcomeSummary,
+    );
+  } else if (withCloseout.length === 0) {
+    add("归档收尾（closeout）", "warn", "未采集（还没有会话在归档时被收尾过）");
+  } else {
+    // ★ C266：**按来源分桶**。重启后最该看的一句话是：closeout 是不是由 `archive`（新挂的 domain/changed）驱动的。
+    //   若仍然只有 `disposed`，说明 GUI 归档那条路还没接管（C216 未生效）；`backfill` 则说明是补账补的。
+    const bySource = {};
+    for (const x of withCloseout) {
+      const key = typeof x.closeout?.source === "string" && x.closeout.source !== "" ? x.closeout.source : "unknown";
+      bySource[key] = (bySource[key] ?? 0) + 1;
+    }
+    // ★ C292：C289 之后「超大尾巴」改走**分段折叠**（逐段 compactRegion）——
+    //   那条路记的是 `ledger-budget.externalFolds`，**不进 graph.foldMarks**。
+    //   所以只按 `trigger==="archive"` 数 foldMark 会漏掉分段折的那些，把"已经折过"报成"未补折"。
+    //   这里把外部折叠次数一并说出来（它包含分段收尾），让判读有据。
+    const externalFolds = (() => {
+      // 直接读账本文件（doctor 其它地方也是这么读的）：分段折叠记在 `externalFolds` 上。
+      try {
+        const file = nodePath.join(home, "chess-context", "ledger-budget.json");
+        if (!nodeFs.existsSync(file)) return 0;
+        const parsed = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+        return Number.isFinite(Number(parsed?.externalFolds)) ? Number(parsed.externalFolds) : 0;
+      } catch {
+        return 0;
+      }
+    })();
+    // ★ C298：分段折完的会话会在 `closeout.chunkedFolded` 上留数（引擎回写的）；单列出来，
+    //   否则"记了 closeout 却没有 archive fold"会一直被读成"没折过"。
+    const chunkedSessions = closeouts.filter((x) => Number(x?.closeout?.chunkedFolded) > 0).length;
+    // ★ C466：**折失败的必须点出来**。真机两次归档：closeout 记了、foldMarks 是 0、日志里只有
+    //   一条 `compaction/start` 没有 `end`，另一次是上游 400 —— 以前这些在 doctor 里完全看不见。
+    const foldFailed = closeouts.filter((x) => typeof x?.closeout?.foldError === "string" && x.closeout.foldError !== "");
+    const foldFailedText =
+      foldFailed.length > 0
+        ? ` · **${foldFailed.length} 个收尾折叠失败**：${foldFailed
+            .slice(0, 2)
+            .map((x) => `${x.closeout.source ?? "?"}:${String(x.closeout.foldError).slice(0, 60)}`)
+            .join(" | ")}`
+        : "";
+    const chunkedText = chunkedSessions > 0 ? ` · 其中 ${chunkedSessions} 个是**分段折完的**（closeout.chunkedFolded > 0）` : "";
+    const externalText = externalFolds > 0 ? ` · 另有 ${externalFolds} 次外部/分段折叠（不入 foldMarks，见 C289/C292）` : "";
+    const sourceText = ` · 来源 ${Object.entries(bySource)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join(" / ")}`;
+    add(
+      "归档收尾（closeout）",
+      // ★ C298：分段折完的会话也算"折过了"（它们不进 foldMarks，只留 closeout.chunkedFolded）
+      foldFailed.length > 0 ? "warn" : withArchiveFold.length > 0 || chunkedSessions > 0 ? "ok" : "warn",
+      `${withCloseout.length} 个会话记了 closeout，其中 ${withArchiveFold.length} 个真的补了 archive fold${chunkedText}${externalText}${foldFailedText}${sourceText} —— ${recent}`,
+    );
+  }
+}
+
+mark('C216 归档收尾');
+/* ★ 2026-11-01（C12）：fold 触发原因分布 —— `context-overflow` 出现 = 已经被迫自救，
+   说明压缩没跟上上下文增长（阈值/增长门控太晚）。这是压缩健康里最该早发现的一条。
+   ★ C604：**判级从「全历史累计」改成「每个会话最近一次 fold 的触发原因」。**
+   旧判据 `overflow > 0` 是**恒真**的：历史上只要有过一次自救，这条线就永久打红 ——
+   而溢出自救是一次性事件，折叠成功即解除。真机（2026-11-05 01:38）：全历史 2 次
+   context-overflow（11-03T06:19 / 11-04T01:36），这两个会话**之后都又 fold 过**
+   （226dbf4f 后续 19 次、d62a520c 后续 1 次，最近一次分别是 archive-offline / pressure）——
+   也就是说"压缩没跟上增长"这个结论**现在已经不成立**，但旧判据仍让它亮着。
+   与 C551（"一个离群样本不该驱动调参"）/ C552（"那条旧记录会把这条线永久打红"）同族。
+   现在：只有「该会话最近一次 fold 仍是 context-overflow」（= 自救之后没恢复）才 warn；
+   历史累计次数仍然写进 detail（不隐藏，只是不再驱动判级）。 */
+{
+  const withTrigger = recentFoldMarks.filter((m) => typeof m?.trigger === "string" && typeof m.at === "number");
+  if (withTrigger.length === 0) {
+    add("fold 触发原因", "warn", "未采集（老 foldMark 没有 trigger 字段 —— 旧版本或还没 fold 过）");
+  } else {
+    const counts = new Map();
+    for (const m of withTrigger) counts.set(m.trigger, (counts.get(m.trigger) ?? 0) + 1);
+    const overflow = counts.get("context-overflow") ?? 0;
+    // 每个会话取 at 最大的那条 —— 「它现在停在哪」而不是「它曾经经过哪」。
+    const latestBySession = new Map();
+    for (const m of withTrigger) {
+      const key = String(m.session ?? "");
+      const prev = latestBySession.get(key);
+      if (prev === undefined || Number(m.at) > Number(prev.at)) latestBySession.set(key, m);
+    }
+    const stuck = [...latestBySession.values()].filter((m) => m.trigger === "context-overflow");
+    const dist = [...counts.entries()].map(([k, v]) => `${k}=${v}`).join(" / ");
+    add(
+      "fold 触发原因",
+      stuck.length > 0 ? "warn" : "ok",
+      dist +
+        (stuck.length > 0
+          ? ` —— 其中 ${stuck.length} 个会话**最近一次 fold 仍是「上下文已溢出后被迫自救」**（${stuck
+              .slice(0, 3)
+              .map((m) => String(m.session).slice(0, 16))
+              .join(" / ")}）⇒ 压缩没跟上增长`
+          : "") +
+        (stuck.length === 0 && overflow > 0
+          ? ` · 历史累计 ${overflow} 次溢出自救，**这些会话之后都又 fold 过**（已恢复，仅计数）`
+          : ""),
+    );
+  }
+}
+
+mark('C12 触发原因');
+/* ★ 2026-11-01（保真度 L1，`src/rooms/fold-quality.mjs`）：最近 fold 的「约束/失败边有没有留住」。
+   判据（`docs/压缩的重注入契约.md` §6 第 6b 行）：
+     · constraintRecall **必须 = 1** —— 丢一条约束 = 任务变了 ⇒ error；
+     · failureRecall < 1 ⇒ warn（丢一条失败边 = 下一个模型必然重踩；也可能是模型没按模板写 edge id）；
+     · compressionRatio 只记趋势，不设阈值。
+   老 foldMark 没有 quality 字段 ⇒ 明确写「未采集」，不许报 ok。 */
+{
+  const withQuality = recentFoldMarks
+    .filter((m) => m?.quality && typeof m.quality === "object" && typeof m.at === "number")
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 10);
+  if (withQuality.length === 0) {
+    add("压缩保真度（最近 fold）", "warn", "未采集（foldMark 还没有 quality —— 旧版本或还没 fold 过）");
+  } else {
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 1);
+    const cMin = Math.min(...withQuality.map((m) => num(m.quality.constraintRecall)));
+    const fMin = Math.min(...withQuality.map((m) => num(m.quality.failureRecall)));
+    // ★ C552：**判级不能只看最小值**（C551 的同一类错）。最近 10 次里只要有**一次**召回不满，
+    //   `cMin < 1` 就恒真 —— 那条旧记录（可能是修好之前跑的）会把这条线永久打红。
+    //   现在：**中位数**判级（系统性丢才算 error），并单独报"几次不满"（偶发用 warn）。
+    const medianOf = (arr) => {
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length === 0 ? 1 : sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+    const cAll = withQuality.map((m) => num(m.quality.constraintRecall));
+    const fAll = withQuality.map((m) => num(m.quality.failureRecall));
+    const cMed = medianOf(cAll);
+    const fMed = medianOf(fAll);
+    const cBelow = cAll.filter((x) => x < 1).length;
+    const fBelow = fAll.filter((x) => x < 1).length;
+    const ratios = withQuality.map((m) => m.quality.compressionRatio).filter((x) => Number.isFinite(x));
+    // C30：有几次 fold 的区间早于本图（重启续跑的历史没有节点可回查）—— 只在 >0 时写进 detail。
+    const preGraph = withQuality.filter((m) => m.closure?.preGraph === true).length;
+    const addressText = preGraph > 0 ? ` · ${preGraph} 次覆盖图外历史（无节点可回查）` : "";
+    const ratioText = ratios.length > 0 ? ` · compressionRatio ${Math.min(...ratios)}–${Math.max(...ratios)}` : "";
+    const latest = withQuality[0].quality;
+    // C38：逐会话的真空样本不再告警，但**全部**样本都是真空 = 保真度其实从未被检验 ⇒ 这里兜底。
+    const vacuumCount = withQuality.filter(
+      (m) => !(Number(m.quality.expectedConstraints) > 0) && !(Number(m.quality.expectedFailures) > 0),
+    ).length;
+    const allVacuum = vacuumCount === withQuality.length;
+    // ★ T27：已知存量（老折痕的正文永远补不回来）—— 判据同源，N 与 summary-persistence-audit 的 `unreadable` 同一个数。
+    const unreadableMarks = recentFoldMarks.filter((m) => !bodyOf(m)).length;
+    add(
+      "压缩保真度（最近 fold）",
+      // ★ C552：系统性丢（中位 <1）才 error；偶发（个别次不满）warn
+      cMed < 1 ? "error" : cBelow > 0 || fBelow > 0 ? "warn" : allVacuum ? "warn" : "ok",
+      `constraintRecall 中位=${cMed}（最低 ${cMin}，${cBelow}/${cAll.length} 次不满）· ` +
+        `failureRecall 中位=${fMed}（最低 ${fMin}，${fBelow}/${fAll.length} 次不满）${ratioText}` +
+        `（${withQuality.length} 次 fold 有样本；最近一次：期望约束 ${latest.expectedConstraints ?? "?"} / 期望失败边 ${latest.expectedFailures ?? "?"}` +
+        `${latest.modelConstraintRecall === null || latest.modelConstraintRecall === undefined ? "" : ` / 模型自身约束召回 ${latest.modelConstraintRecall}`}）${addressText}` +
+        ` · 历史不可复判 ${unreadableMarks} 条（生产者早于 ${SUMMARY_TEXT_SINCE}，正文当时就没落盘）—— 不是缺陷，新折痕起为 0` +
+        // ★ T29：这句以前是**假承诺** —— C642 只让离线补折落正文，pressure / 手动 `/compact` 那条
+        //   一直没落，而这里天天说「新折痕起为 0」。现在三条写回点都落（engine 的 `compactIfNeeded`
+        //   / `recordFoldMark` + rooms 的 `applyOfflineFoldToGraph`），**只有 tier2 例外**；而 tier2
+        //   不是「没有正文」—— 它的正文是把两段已落盘的摘要重新合并（见 engine C206 的注释），
+        //   再存一份就是复制（硬约束：同一份正文在图里只许出现一次）。文案不许再把它写成「没有」。
+        `（tier2 除外，它的正文是两段已落摘要的合并，不重复写）` +
+        (allVacuum ? ` —— 全部 ${withQuality.length} 次样本都是真空（折叠区间内没有约束/失败边可丢），保真度实际未被检验` : ""),
+    );
+    // 点名缺失项（最多各 5 条），让人能直接去查是哪条约束/哪条失败边被丢了
+    const missingC = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingConstraints) ? m.quality.missingConstraints : [])))].slice(0, 5);
+    const missingF = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.missingFailures) ? m.quality.missingFailures : [])))].slice(0, 5);
+    if (missingC.length > 0) add("压缩保真度 · 丢失的约束", "error", missingC.join(" | "));
+    if (missingF.length > 0) add("压缩保真度 · 丢失的失败边", "warn", missingF.join(", "));
+    // ★ 2026-11-01：幻觉探针（`findUnknownIds`）—— 摘要提到但图里没有的 id。
+    //   只在真出现时显示一行（正常会话零成本）；非空意味着模型的摘要编造了边/节点编号。
+    const unknownIds = [...new Set(withQuality.flatMap((m) => (Array.isArray(m.quality.unknownIds) ? m.quality.unknownIds : [])))].slice(0, 10);
+    // ★ C104：还有一类探针沉默的错引用 —— 图里有、但不在本次折叠区间内。
+    // ★ C206：tier-2 合并的摘要是**规则重建**的（它要把被合并两段的约束/死路/路径都带上），
+    //   天然会引用「合并区间之外」的节点与边 —— 那不是幻觉，是合并语义。所以只对**常规 fold** 判越界。
+    const outOfRangeSource = withQuality.filter((m) => m.tier2 !== true);
+    // ★ C212：只把「引用了**更晚**的实体」算问题（折叠时那段还不存在 ⇒ 编造/错引）。
+    //   「引用更早的实体」是回溯历史 kifu，合法（旧版混在一起 ⇒ 把正常回溯也报成越界）。
+    const outOfRangeIds = [
+      ...new Set(outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeIds) ? m.quality.outOfRangeIds : []))),
+    ].slice(0, 8);
+    const laterIdsRaw = [
+      ...new Set(
+        outOfRangeSource.flatMap((m) => (Array.isArray(m.quality.outOfRangeLater) ? m.quality.outOfRangeLater : [])),
+      ),
+    ];
+    // ★ C545：**把"硬事实里的 id"从历史记录里也滤掉**。C539 给新折叠加了白名单，但**老记录**
+    //   （09:08 之前那批离线折叠）里存着 13–18 条这些 id —— doctor 一读就以为"摘要引用了更晚实体"。
+    //   这些 id 是「已探明死路 / 已验证事实」整段带进来的，本来就跨整个会话。
+    const factsEdgeIds = new Set();
+    for (const g of graphCache.values()) {
+      for (const edge of Object.values(g?.graph?.edges ?? {})) {
+        if (edge?.result === "failure" || edge?.result === "success") factsEdgeIds.add(String(edge.id));
+      }
+    }
+    const laterIds = laterIdsRaw.filter((id) => !factsEdgeIds.has(String(id))).slice(0, 8);
+    if (unknownIds.length > 0) {
+      add(
+        "压缩摘要的未知 id（幻觉探针）",
+        "warn",
+        // ★ C241：别一口咬定是"模型编造"。实测这 4 个 id（n583/n1000/n1600/n2202）**在本会话图里都真实存在**，
+        //   它们是摘要从**上下文里的旧编号**（跨会话的 compacted checkpoint 文本）抄来的 —— 属于"编号不属于本图"，
+        //   不是纯粹的幻觉。两种成因都写出来，免得下一个人照着"幻觉"去查模型。
+        `摘要提到但图里没有：${unknownIds.join(", ")}（可能是模型编造，也可能是从上下文里抄来的旧编号 —— 两者都值得看一眼）`,
+      );
+    }
+    if (laterIds.length > 0) {
+      add("压缩摘要的越界 id（C104/C212）", "warn", `摘要引用了**更晚**的实体（折叠时还不存在）：${laterIds.join(", ")}`);
+    } else if (outOfRangeIds.length > 0) {
+      // ★ C280：旧版读 `outOfRangeLater`（那时根本没这个字段）⇒ 永远读到空 ⇒ 一律断言
+      //   「全部是引用更早的，正常」。那是**仪器在撒谎**：真正引用更晚的问题永远看不见。
+      //   现在先确认「有没有采集过方向信息」，再决定敢不敢下"正常"这个结论。
+      const directionKnown = outOfRangeSource.some((m) => Array.isArray(m.quality.outOfRangeLater) || Array.isArray(m.quality.outOfRangeEarlier));
+      if (directionKnown) {
+        // 只有「更早」的引用 ⇒ 回溯历史 kifu，正常，不再占一行警告
+        add("压缩摘要的越界 id（C104/C212）", "ok", `越界 ${outOfRangeIds.length} 个，全部是引用更早的实体（回溯历史 kifu）—— 正常`);
+      } else {
+        add(
+          "压缩摘要的越界 id（C104/C212）",
+          "warn",
+          `越界 ${outOfRangeIds.length} 个，但**没有采集方向**（C280 之前的 fold 只存了合并数组）—— ` +
+            "无法区分「回溯更早（正常）」与「引用更晚（编造）」；升级后新的 fold 会自动带上方向",
+        );
+      }
+    }
+  }
+}
+  // ★ 2026-11-01（调研候选 #1）：压缩无效（thrashing）—— 与有没有 fold 记录无关，单独一行。
+  add(
+    "压缩无效（thrashing）",
+    thrashGraphs === 0 ? "ok" : "warn",
+    thrashGraphs === 0
+      ? "没有会话出现「连续两次 fold 间隔 < 30 事件」"
+      : `${thrashGraphs} 个会话出现压缩未回收足够空间（最深连续 ${maxThrash} 次）—— 热清单里会有 ⚠ 提示`,
+  );
 add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Date(newestFlush).toISOString() : "没有任何棋谱");
 
+mark('保真度 L1');
+/* ★ C604：**「最近 N 次 fold」这个窗口只许定义一次**。
+   悬空 / 边界完整性 / 保真度是同一条合同（docs/压缩的重注入契约.md §6）的三张脸，
+   但之前各写各的：边界完整性 `.slice(0, 10)`、保真度 `.slice(0, 10)`、
+   悬空却是**全历史求和** —— 于是同一次 fold 在一条线上是绿的、在另一条线上永久红。
+   窗口抽到一处，以后再加兄弟项也不会长出第三套口径。 */
+const RECENT_FOLD_WINDOW = 10;
+const recentFoldWindow = (marks) =>
+  [...marks]
+    .filter((m) => m !== null && typeof m === "object")
+    .sort((a, b) => (Number(b?.at) || 0) - (Number(a?.at) || 0))
+    .slice(0, RECENT_FOLD_WINDOW);
+
+/* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ──
+   ★ C604：**判级窗口改成「最近 10 次 fold」，与同族「fold 边界完整性」对齐**。
+   旧判据把**全历史**的 liveUnsettled 求和：真机（2026-11-05 01:38）有一条
+   2026-11-03T06:57 的 `liveUnsettled=1`（session-c0a5847a 的第 10 次 fold），
+   而它之后 20 多次 fold 全是 0 —— 这条警告却永远清不掉。
+   悬空边是一次性事件：那一次 fold 之后要么被后续结算，要么就是一个已经过去的事实，
+   **不可能被"再跑一次 doctor"修好**，所以「恒真」的判据只是噪音。
+   现在：最近 10 次判级（有悬空 = 真的还在切在动作中间），更早的作为**存量**报出来（不隐藏）。
+   `fromBroken`（from 节点已不存在 = 图坏了）仍然按**全历史**判 error —— 坏边不会自愈。 */
+{
+  const marks = recentFoldMarks.filter((m) => m?.dangling && typeof m.dangling.liveUnsettled === "number");
+  if (marks.length === 0) {
+    // ★ C64（专员审计 P2）：与本文件自己的纪律保持一致 ——「未采集」不能报 ok。
+    add("fold 悬空（dangling）", "warn", "未采集（foldMark 还没有 dangling —— 旧版本）");
+  } else {
+    const sum = (list, key) => list.reduce((acc, m) => acc + (m.dangling[key] ?? 0), 0);
+    const recent = recentFoldWindow(marks);
+    const live = sum(recent, "liveUnsettled");
+    const broken = sum(marks, "fromBroken");
+    const residue = sum(marks, "residue");
+    const candidates = sum(marks, "candidates");
+    const historicalLive = sum(marks, "liveUnsettled") - live;
+    // 存量（更早的 fold 里的悬空边）单独一句话 —— 它不改变判级，但不许被吞掉。
+    const stockText = historicalLive > 0 ? ` · 另有 ${historicalLive} 条历史悬空（更早的 fold，已不可能再结算，仅计数）` : "";
+    add(
+      "fold 悬空（dangling）",
+      broken > 0 ? "error" : live > 0 ? "warn" : "ok",
+      broken > 0
+        // ★ C276：只说"需要 migrate"等于没说 —— 用户不知道命令叫什么、也不知道可以先 dry-run。
+        ? `${broken} 条边的 from 节点已不存在（图坏了，全历史）：` +
+          "先 `dsh-gokifu-compact migrate-dangling` 看清单（dry-run），确认后加 `--apply`（会自动备份）" +
+          stockText
+        : live > 0
+          ? `最近 ${recent.length} 次 fold 里还有 ${live} 条边未结算（可能切在动作中间）—— 结合「fold 边界完整性」看${stockText}`
+          : `最近 ${recent.length} 次 fold 都结算干净（liveUnsettled 0 / fromBroken 0）· 全历史 residue ${residue} / candidates ${candidates}${stockText}`,
+    );
+  }
+}
+
+mark('4.8 悬空');
+/* ── 4.9 fold 边界完整性（C31）：切点落在工具调用中间 = 摘要引用区间外结果，判 error ── */
+{
+  const withBoundary = recentFoldWindow(recentFoldMarks.filter((m) => m?.boundary && typeof m.boundary.openAtEnd === "number"));
+  if (withBoundary.length === 0) {
+    add("fold 边界完整性", "warn", "未采集（foldMark 还没有 boundary —— 旧版本或还没 fold 过）");
+  } else {
+    const open = withBoundary.reduce((sum, m) => sum + (m.boundary.openAtEnd ?? 0), 0);
+    add(
+      "fold 边界完整性",
+      open > 0 ? "error" : "ok",
+      open > 0
+        ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
+        : `${withBoundary.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
+    );
+  }
+}
+
+mark('4.9 边界');
+/* ★ C220：上下文缓存命中 —— 本机 96% 的输入 token 走缓存（DeepSeek disk cache）。
+   这条是**成本侧的唯一真相**：真正贵的是「没命中的那部分」，而不是我们注入了多少。 */
+{
+  const c = summarizeCacheUsage(cacheUsage);
+  if (c.calls === 0) {
+    add("上下文缓存命中（缓存读 / 计费输入）", "warn", "未采集（窗口内的会话日志里没有带 usage 的调用）");
+  } else {
+    const pct = (v) => (v === null ? "—" : Math.round(v * 100) + "%");
+    add(
+      "上下文缓存命中（缓存读 / 计费输入）",
+      c.ratioMedian !== null && c.ratioMedian < 0.5 ? "warn" : "ok",
+      `${c.calls} 次调用 · 缓存读 ${c.cacheTokens} tok / 计费输入 ${c.inputTokens} tok（占比 ${pct(c.savedShare)}）· 单次命中率中位 ${pct(c.ratioMedian)}（最低 ${pct(c.ratioMin)}）· 缓存断点 ${c.breaks} 次（较上一次骤降 >30pp）` +
+        // ★ C284：官方原文——缓存是"尽力而为，不保证 100% 命中"，构建耗时秒级、闲置几小时到几天自动清空。
+        //   说清楚这几句，才不会有人去追 100%（那是达不到的），也不会把秒级构建当成"接口慢"。
+        " · 官方口径：尽力而为、不保证 100%；构建耗时秒级；闲置几小时到几天自动清空",
+    );
+  }
+}
+
+mark('C220 缓存命中');
 /* ── 5. 热清单预算（fallback 仪表盘，P7 / task-58） ──
    engine 每次 renderLedger 后会把 {none, over-budget, impossible, maxOverBudgetBy} 落到
    `<DSH_HOME>/chess-context/ledger-budget.json`。没有这个文件 = 从未采集（旧版本或还没跑过）
    —— 必须明确写「未采集」，不能假装健康。 */
-{
   const budgetFile = nodePath.join(home, "chess-context", "ledger-budget.json");
   let stats = null;
   let parseError = "";
@@ -365,26 +2165,430 @@ add("最近一次落盘", newestFlush > 0 ? "ok" : "warn", newestFlush ? new Dat
     const impossible = Number(stats.impossible ?? 0);
     const maxOver = Number(stats.maxOverBudgetBy ?? 0);
     const total = none + over + impossible;
+    // ★ 2026-11-01（调研候选 #2）：出处覆盖率下限。旧版 ledger-budget.json 没有该字段 ⇒ 写「未采集」，
+    //   不许报 0（那会把「没采集」误报成「出处全丢了」）。
+    // ★ P2-1/P3-1（独立验证 2026-11-01）：「未采集」不能报 **ok**（那等于说"出处都齐"）；
+    //   有字段但 min<1（即便 provenanceLow 缺失/为 0，跨版本混写才会出现）也必须 warn。
+    const provMin = stats.provenanceMin;
+    const provLow = Number(stats.provenanceLow ?? 0);
+    const provMissing = provMin === undefined || provMin === null;
+    const provDropped = !provMissing && Number(provMin) < 1;
+    const provText = provMissing
+      ? " · provenanceMin=未采集"
+      : ` · provenanceMin=${provMin}${provLow > 0 ? `（<1 共 ${provLow} 次）` : ""}`;
+    // ★ C195：注入**命中率** —— 光看「渲染了多少次」看不出「模型实际看到几次清单」。
+    //   skipReasons 记的是每次被跳过的原因；命中率 = (samples - 跳过总数) / samples。
+    const hasSkipStats = stats.skipReasons !== undefined && stats.skipReasons !== null;
+    const skipTotal = Object.values(stats.skipReasons ?? {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
+    const samples = Number(stats.samples ?? 0);
+    const injected = samples > 0 ? Math.max(0, samples - skipTotal) : 0;
+    const hitRate = samples > 0 ? injected / samples : null;
+    const hitText =
+      !hasSkipStats || hitRate === null
+        ? " · 清单写入=未采集（旧版本没有 skipReasons）"
+        // ★ C257：写入率极低时**给出旋钮**（C248/C251 加的两个引擎配置）。
+        //   只陈述"有这两个开关"，不写"建议你调" —— 要不要更实时是用户自己的判断。
+        : ` · 清单写入 ${injected}/${samples}（${Math.round(hitRate * 100)}%；清单在 surface 上常驻，低占比=少重复写，不是看不见）` +
+          (hitRate < 0.05 ? ` · 想更实时可调 hotLedgerMinEvents / hotLedgerMinFailureDelta（见 docs/配置总表.md）` : "") +
+          // ★ C344：官方缓存口径（kv_cache）：缓存按**前缀单元**命中，且"请求边界"是最主要的持久化点。
+          //   清单内容没变就不重写（same-digest）不只是省 token —— 它还**保住了那一处前缀单元的稳定性**。
+          //   这里只在真的发生过 same-digest 跳过时补一句，不给每次运行加噪音。
+          (Number(stats.skipReasons?.["identical"]) > 0
+            ? ` · 其中「清单内容没变」跳过 ${stats.skipReasons["identical"]} 次（清单没变就不重写：省 token，也保住前缀缓存单元——见 docs/knowledge/上下文缓存-单元语义-deepseek.md）`
+            : "");
+    // ★ C604：**over-budget 的判级要按「还有没有更省的形式」，不是「发生过几次」。**
+    //   本文件自己的口径早就写明这三种都是**设计内**：
+    //     · C244：落在 L5 = 已是最省一份（budgetMax 已经给到能塞下的最小形态）；
+    //     · C49：已列全失败边仍超（budgetIrreducible）—— 再省只能删失败记忆，那是合同红线；
+    //     · C44：约束+根目标下限本身就超预算（budgetFloorOver）—— 不可裁。
+    //   旧判据 `over > 0` 把它们全算成告警 ⇒ 一台长期跑满的机器**永远红**（恒真）。
+    //   真机（2026-11-05 01:38）：over-budget=16，其中 L5=15、budgetIrreducible=1 ⇒ 16/16 设计内，
+    //   却报 `!`。现在：设计内样本数 = min(over, L5 + budgetFloorOver + budgetIrreducible)，
+    //   剩下的才是「明明有更省的形式却仍超预算」= 可能是渲染 bug，只有它才判 warn。
+    const l5 = Number(stats.overByLevel?.L5 ?? 0);
+    const designInternal = Math.min(
+      over,
+      Math.max(0, l5) + Math.max(0, Number(stats.budgetFloorOver ?? 0)) + Math.max(0, Number(stats.budgetIrreducible ?? 0)),
+    );
+    const actionableOver = Math.max(0, over - designInternal);
     add(
       "热清单预算（fallback）",
-      impossible > 0 ? "error" : over > 0 ? "warn" : "ok",
-      `none=${none} / over-budget=${over} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}` +
+      impossible > 0 ? "error" : actionableOver > 0 || provLow > 0 || provMissing || provDropped ? "warn" : "ok",
+      `none=${none} / over-budget=${over}${over > 0 ? `（其中设计内 ${designInternal}、还有更省形式却仍超 ${actionableOver}）` : ""} / impossible=${impossible} · 最大 overBudgetBy=${maxOver}${provText}${hitText}` +
+        (Number(stats.budgetFloorOver) > 0
+          ? ` · 其中 ${stats.budgetFloorOver} 次是「约束+根目标下限」即超预算（不可裁，设计内 —— 见 C41）`
+          : "") +
+        (Number(stats.renderErrors) > 0 ? ` · **注入渲染失败 ${stats.renderErrors} 次**（本轮注入被跳过，查日志）` : "") +
+        (stats.skipReasons && Object.keys(stats.skipReasons).length > 0
+          ? ` · 跳过分布 ${Object.entries(stats.skipReasons)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(" / ")}`
+          : "") +
+        // ★ C245：超预算的**成因**（约束/根目标不可裁 vs 可压缩内容占大头）
+        (stats.overByCause && typeof stats.overByCause === "object" && Object.keys(stats.overByCause).length > 0
+          ? ` · 成因 ${Object.entries(stats.overByCause)
+              .sort((a, b) => Number(b[1]) - Number(a[1]))
+              .map(([k, n]) => (k === "constraints" ? `约束占大头=${n}` : `内容占大头=${n}`))
+              .join(" / ")}`
+          : "") +
+        // ★ C244：over-budget 的**档位分布** —— 落在 L5 说明已是最省一份（设计内），落在 L0–L3 说明还有空间。
+        (stats.overByLevel && typeof stats.overByLevel === "object" && Object.keys(stats.overByLevel).length > 0
+          ? ` · 超预算档位 ${Object.entries(stats.overByLevel)
+              .sort((a, b) => Number(b[1]) - Number(a[1]))
+              .map(([lv, n]) => `${lv}=${n}`)
+              .join(" / ")}`
+          : "") +
+        (Number(stats.minimalRenders) > 0 ? ` · 最小清单（无失败边）${stats.minimalRenders} 次` : "") +
+        (Number(stats.traceDropped) > 0 ? ` · TRACE 为预算降级 ${stats.traceDropped} 次` : "") +
+        (Number(stats.budgetIrreducible) > 0
+          ? ` · ${stats.budgetIrreducible} 次已列全失败边仍超（再省只能丢失败记忆 —— 设计内，见 C49）`
+          : "") +
+        (stats.overBySession && typeof stats.overBySession === "object" && Object.keys(stats.overBySession).length > 0
+          ? ` · 主要来源：${Object.entries(stats.overBySession)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 2)
+              .map(([sid, n]) => `${sid.slice(0, 16)}… ${n} 次`)
+              .join(" / ")}`
+          : "") +
         `（共 ${total} 次渲染${total === 0 ? "；样本为空" : ""}${stats.updatedAt ? `，更新于 ${new Date(stats.updatedAt).toISOString()}` : ""}）`,
+    );
+    // ★ 2026-11-01：分项占用（平均）—— 回答「这几次渲染的钱花在哪一段」。
+    //   没有这个消费者，sections 就是个只算不用的指标（第 2 轮的教训）。
+    {
+      const avg = stats.sectionsAvg;
+      const samples = Number(stats.samples ?? 0);
+      const totalChars = avg && typeof avg === "object" ? Number(avg.total ?? 0) : 0;
+      if (totalChars > 0 && samples > 0) {
+        const pct = (key) => Math.round((100 * Number(avg[key] ?? 0)) / totalChars);
+        add(
+          "热清单分项占用（平均）",
+          "ok",
+          `根目标 ${pct("root")}% · 约束 ${pct("constraints")}% · 失败边 ${pct("failures")}% · ` +
+            `未验证 ${pct("unverified")}% · OPTIONS ${pct("options")}% · 路径 ${pct("path")}% · 其它 ${pct("other")}%` +
+            `（共 ${samples} 次渲染，合计 ${Math.round(totalChars)} 字符）`,
+        );
+      }
+    }
+  }
+
+mark('5 热清单预算');
+/* ★ C198：宿主直接调用 compactRegion 的折叠（我们的 compactIfNeeded 之外）—— 以前完全不留账。 */
+{
+  const ext = stats && typeof stats === "object" ? Number(stats.externalFolds ?? 0) : 0;
+  const last = stats && typeof stats === "object" && stats.lastExternalFold && typeof stats.lastExternalFold === "object" ? stats.lastExternalFold : null;
+  if (stats === null || stats === undefined) {
+    add("外部折叠（宿主直调 compactRegion）", "warn", "未采集（没有 ledger-budget.json）");
+  } else if (ext === 0) {
+    add("外部折叠（宿主直调 compactRegion）", "ok", "0 次（本次实例内没有宿主直调的折叠，或尚未发生）—— 该字段 C198 起才写");
+  } else {
+    const q = last?.quality ? `q=${last.quality.constraintRecall}/${last.quality.failureRecall}` : "q=—";
+    const b = last?.boundary ? `openAtEnd=${last.boundary.openAtEnd}` : "openAtEnd=—";
+    add(
+      "外部折叠（宿主直调 compactRegion）",
+      "ok",
+      `${ext} 次 · 最近 ${last ? `${last.seqStart}-${last.seqEnd} ${q} ${b} ${new Date(last.at).toISOString()}` : "—"}（这些折叠以前完全不留账，证据里看不到）`,
     );
   }
 }
 
-/* ── 输出 ── */
+mark('C198 外部折叠');
+/* ★ C219：热清单**注入动作** —— 缓存友好性。
+   append = 只在末尾追加（前缀不动，DeepSeek 的 disk cache 还能命中）；
+   replace = 改写 surface 中间那条（从那里起前缀失配，缓存作废）。
+   这条以前完全看不到：我们只在文档里说"尽量少写"，没有数字。 */
+{
+  const actions = stats && typeof stats === "object" && stats.injectActions && typeof stats.injectActions === "object" ? stats.injectActions : null;
+  const append = Number(actions?.append) || 0;
+  const replace = Number(actions?.replace) || 0;
+  if (actions === null || append + replace === 0) {
+    add("热清单注入动作（缓存友好性）", "warn", "未采集（ledger-budget.json 里还没有 injectActions —— C219 起才写；重启后自然出现）");
+  } else {
+    const total = append + replace;
+    const pct = Math.round((replace / total) * 100);
+    // ★ C460：**别再用"中间那条"这种想当然的说法判死 replace**。真正决定代价的是
+    //   「清单后面还有几条消息」：0 条 ⇒ 只作废它自己；越多越贵。这个直方图 C460 起才采集。
+    const tails = stats && typeof stats === "object" && stats.injectTail && typeof stats.injectTail === "object" ? stats.injectTail : null;
+    const tailText =
+      tails === null
+        ? "（清单后面还有几条消息：未采集 —— C460 起才写，重启后自然出现）"
+        : `清单后面还有几条消息：0 条 ${Number(tails["0"]) || 0} 次 / 1 条 ${Number(tails["1"]) || 0} / 2 条 ${Number(tails["2"]) || 0} / 3+ 条 ${Number(tails["3+"]) || 0}`;
+    const tailZero = tails === null ? null : Number(tails["0"]) || 0;
+    // 只有"多数替换后面确实还压着消息"时才算缓存风险；否则占比高也不该报警
+    const risky = tails === null ? pct >= 90 : tailZero * 2 < replace;
+    add(
+      "热清单注入动作（缓存友好性）",
+      risky ? "warn" : "ok",
+      `append ${append} / replace ${replace}（replace 占 ${pct}%）· ${tailText}` +
+        (tails === null
+          ? " ⇒ 代价取决于替换点后面还有几条消息，C460 起才有数（别按占比下结论）"
+          : risky
+            ? " ⇒ 替换点后面压着消息：按官方口径，**改写点之后的前缀失配**（缓存命中要求完整匹配前缀单元）。" +
+              "这不是 bug —— 替换是一次性代价、追加是每回合代价；afterTail 明显变大时才值得回头看"
+            : " ⇒ 多数替换后面没有消息，缓存代价很小（replace 占比高本身不是问题）"),
+    );
+  }
+}
+
+mark('C219 注入动作');
+/* ★ C197：token 压力快照 —— 回答「为什么还不 fold」：是没到阈值，还是根本没被调用。 */
+{
+  const pressure = stats && typeof stats === "object" && stats.pressure && typeof stats.pressure === "object" ? stats.pressure : null;
+  if (pressure === null) {
+    add("fold 压力（token / 阈值）", "warn", "未采集（`ledger-budget.json` 里还没有 `pressure` —— 该字段 C197 起才写）");
+  } else {
+    const tokens = Number(pressure.tokens) || 0;
+    const threshold = Number(pressure.threshold) || 0;
+    const pct = threshold > 0 ? Math.round((tokens / threshold) * 100) : 0;
+    const ago = Number.isFinite(pressure.at) ? Math.max(0, Math.round((Date.now() - pressure.at) / 1000)) : null;
+    add(
+      "fold 压力（token / 阈值）",
+      "ok",
+      `${tokens.toLocaleString()} / ${threshold.toLocaleString()}（${pct}%）· 距阈值还差 ${(Number(pressure.remaining) || 0).toLocaleString()} · 触发=${pressure.trigger ?? "—"}` +
+        (ago === null ? "" : ` · ${ago}s 前更新`),
+    );
+  }
+}
+/* ★ C304：折叠的**输出效率** —— 输出 token 里有多少不是摘要本身。
+   官方文档（thinking_mode）：思考的想法走 `reasoning_content`，与 `content` 同级返回；
+   开了 thinking 就会按输出价（$0.6/M）多生成一坨我们根本不用的推理。
+   本机实测（40 次带 usage 的 fold）：outputTokens / 摘要估算 token 中位 **2 倍**，9 次超 3 倍、最大 **12 倍**。
+   只报事实，不自动改配置（关不关 thinking 是用户的选择）。 */
+{
+  const samples = [];
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        // ★ C183：脚本侧读图必须走 loadSessionGraph（会重放 delta），不许裸 fromJSON
+        g = loadGraphCached(file).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        const out = Number(mark?.usage?.outputTokens);
+        const denom = summaryTokenDenominator(mark);
+        if (!Number.isFinite(out) || out <= 0 || denom === null) continue;
+        samples.push(out / denom);
+      }
+    }
+  }
+  if (samples.length === 0) {
+    add("fold 输出效率（输出 token / 摘要本身）", "warn", "未采集（没有同时带 usage.outputTokens 与 summaryChars 的 fold）");
+  } else {
+    const sorted = [...samples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const heavy = samples.filter((x) => x > 3).length;
+    add(
+      "fold 输出效率（输出 token / 摘要本身）",
+      heavy > samples.length / 2 ? "warn" : "ok",
+      `${samples.length} 次 fold：中位 **${median.toFixed(1)}×**、最大 ${sorted.at(-1).toFixed(1)}×；` +
+        `${heavy} 次超过 3× —— 输出账单里有一部分不是摘要（多半是 thinking 的 reasoning_content，按输出价计费）`,
+    );
+  }
+}
+
+/* ★ C332：面板路由的心跳。真机教训（2026-11-02）：插件实例被热重载/卸载后，
+   `/gokifu/api` 变成 GET 404 / POST 405，而 doctor、全量测试、门禁**全是绿的** ——
+   面板静默死掉几十分钟没人发现。UI 侧在注册时写心跳、卸载时标 closed，这里只读文件、不探网。 */
+{
+  // ★ C604（2026-11-05 真机）：心跳可能是**已退出进程**写的 —— `ui-route.json` 写着 pid 22508 /
+  //   端口 64535，而 22508 早已退出、64535 无人监听。旧实现只 `JSON.parse` 就把里面的 `state`
+  //   当「面板现在的状态」⇒ 把「写心跳的进程死了」读成「面板**被卸载、重启才能恢复**」，
+  //   **这就是今晚误判的源头**。现在先验写心跳的 pid：过期心跳只陈述「这份文件答不了面板现状」。
+  const read = readUiRouteHeartbeat({ dir: nodePath.join(home, "chess-context") });
+  if (read.state === "missing") {
+    add("面板路由心跳", "warn", "未采集（没有 ui-route.json —— C332 之前启动的实例不会写；重启后才有）");
+  } else {
+    let hb = read.state === "fresh" ? read.heartbeat : null;
+    if (read.state === "stale") {
+      // 死进程写的心跳：state/port 都是旧值 —— 只许说「答不了面板现状」，**不许**断言被卸载/需要重启
+      add(
+        "面板路由心跳",
+        "warn",
+        `**心跳过期**：ui-route.json 由 pid ${read.pid ?? "?"} 写成、该进程已退出 —— ` +
+          `面板现在是什么状态，这份文件答不了（旧值 state=${read.routeState ?? "?"} · port=${read.port ?? "?"} 不作数）`,
+      );
+    } else if (read.state === "invalid" || read.state === "unverifiable") {
+      add(
+        "面板路由心跳",
+        "warn",
+        read.state === "invalid" ? "心跳文件解析失败（内容不是 JSON）" : `心跳无法校验（${read.reason}）—— 端口/state 都不能当现值`,
+      );
+    } else if (hb === null || typeof hb !== "object") {
+      add("面板路由心跳", "warn", "心跳文件解析失败（内容不是 JSON）");
+    } else {
+      const at = Number.isFinite(hb.at) ? new Date(hb.at).toISOString() : "?";
+      const minutes = Number.isFinite(hb.at) ? Math.round((Date.now() - hb.at) / 60000) : null;
+      // ★ C397：心跳被「无 web 服务的进程」覆盖。真机（2026-11-03）：pid 14088 把服务中的 56319
+      //   写成了 `port:null / version:"unknown"` ⇒ 所有"读心跳取端口/buildId"的工具全部失效。
+      //   这里直接把这个形状点名（旧代码仍会覆盖；C396 修复需重启生效）。
+      if (hb.state === "open" && (hb.port === null || hb.port === undefined) && (hb.version === "unknown" || hb.version === null)) {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 心跳来自**没有 web 服务的进程**（pid ${hb.pid ?? "?"}，port=null，version=unknown）—— ` +
+            `它覆盖了真正在服务的那份心跳 ⇒ 端口/buildId 不可用。C396 修复需**重启**才生效`,
+        );
+      } else if (hb.state === "failed") {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 面板路由**注册失败**（${at}，pid ${hb.pid ?? "?"}）：${hb.error ?? "无错误信息"} ⇒ 面板不可用，需查看宿主日志`,
+        );
+      } else if (hb.state === "closed") {
+        add(
+          "面板路由心跳",
+          "warn",
+          `⚠ 面板在 ${at} **被卸载**（热重载或退出）—— \`/gokifu/api\` 现在大概率不可达，**重启才能恢复**`,
+        );
+      } else {
+        // ★ C333：带上 buildId 与磁盘比 —— 多进程环境下这是唯一能说清"面板跑的是哪一版"的证据
+        let diskBuild = null;
+        try {
+          diskBuild = repoBuildId();
+        } catch {
+          diskBuild = null;
+        }
+        const hbBuild = typeof hb.buildId === "string" ? hb.buildId : null;
+        // ★ C334：注册进"没有 web 服务"的进程 ⇒ 面板不可达（真机见过）
+        const noWeb = hb.hasWebServer === false;
+        const stale = hbBuild !== null && diskBuild !== null && hbBuild !== diskBuild;
+        add(
+          "面板路由心跳",
+          stale || noWeb ? "warn" : "ok",
+          `面板路由已注册（${at}${minutes === null ? "" : `，${minutes} 分钟前`}，pid ${hb.pid ?? "?"}，端口 ${hb.port ?? "?"}）` +
+            (noWeb
+              ? ` —— ⚠ 该实例**没有 web 服务**（插件被加载进了非 UI 进程）⇒ 面板访问不到，重启恢复`
+              : stale
+                ? ` —— 但**面板跑的是旧构建**（面板 ${String(hbBuild).slice(0, 12)} ≠ 磁盘 ${String(diskBuild).slice(0, 12)}）⇒ 重启恢复`
+                : hbBuild === null
+                  ? " · 该心跳没带 buildId（C333 之前的实例）"
+                  : " · 与磁盘构建一致"),
+        );
+      }
+    }
+  }
+}
+
+/* ★ C317：摘要被截断（finish_reason="length"）—— 官方文档说这时**内容可能被截断**，
+   而被截断的摘要在 foldMark 里与完整的几乎一样（只是 summaryChars 短些）。
+   ★ C611：**离线补折不写 `finishReason`**（上游 finish 在写入点取不到，见 ui.mjs C609）——
+   截断证据落在 `truncated` 字段。只读 `finishReason` 会让离线标记（真机 283/462 条）一律报「未采集」。
+   这里与 `ui.mjs` 同一套「或」逻辑，且**三态分开**：
+     · `finishReason` 是截断类（max-tokens / max_tokens / length）**或** `truncated === true` ⇒ 截断；
+     · 明确没截断（`truncated === false` 或 finish 是 stop 类）⇒ 不算截断；
+     · 两者都没有（旧记录 / 该写入点没采集）⇒ **不知道**，单独计数 —— 不许并进「没截断」。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let total = 0;
+  let known = 0;
+  let truncated = 0;
+  let fromTruncated = 0;
+  let unknown = 0;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        g = loadGraphCached(file).graph;
+      } catch {
+        continue;
+      }
+      for (const mark of Array.isArray(g?.foldMarks) ? g.foldMarks : []) {
+        total += 1;
+        const reason = mark?.finishReason;
+        // ★ C320：三种拼法（max-tokens / max_tokens / length）归一化后统一判 —— 别再来回猜口径
+        if (isTruncatedFinish(reason) || mark?.truncated === true) {
+          truncated += 1;
+          known += 1;
+          if (mark?.truncated === true) fromTruncated += 1;
+        } else if (typeof reason === "string" || mark?.truncated === false) {
+          known += 1; // 有证据的「没截断」：上游说 stop，或我们的判定说写完了 —— 不是「不知道」
+        } else {
+          unknown += 1;
+        }
+      }
+    }
+  }
+  if (total === 0) {
+    add("摘要截断（stopReason=max_tokens）", "warn", "未采集（没有 foldMark）");
+  } else if (known === 0) {
+    add(
+      "摘要截断（stopReason=max_tokens）",
+      "warn",
+      `未采集（${total} 条 foldMark 既没有 stopReason 也没有 truncated —— 不知道有没有被截断；C317/C318 之前的不记录）`,
+    );
+  } else {
+    add(
+      "摘要截断（finish_reason=length）",
+      truncated > 0 ? "warn" : "ok",
+      `${known} 条有截断证据的 fold 里 **${truncated}** 条被截断` +
+        (fromTruncated > 0 ? `（其中 **${fromTruncated}** 条来自 \`truncated\`：离线补折拿不到上游 finish）` : "") +
+        `（终止原因=max-tokens ⇒ 内容可能被截断，摘要可能丢了约束/死路）` +
+        (unknown > 0 ? ` · 另有 ${unknown} 条不知道（两个字段都没有）` : ""),
+    );
+  }
+}
+
+/* ★ C314：热清单渲染的**实测耗时**（取最大的那个会话）。
+   为什么值得报：C313 证明慢在拼字符串（95%），而不是查图 —— 既然改不动，
+   那就**把它变成早期预警**：一旦最大会话的渲染超过阈值，这里就会变色，
+   不必等到"用户觉得卡"才发现。 */
+{
+  const sessionsRoot = nodePath.join(home, "chess-context", "sessions");
+  let biggest = null;
+  if (nodeFs.existsSync(sessionsRoot)) {
+    for (const entry of nodeFs.readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = nodePath.join(sessionsRoot, entry.name, "graph.json");
+      if (!nodeFs.existsSync(file)) continue;
+      let g;
+      try {
+        g = loadGraphCached(file).graph;
+      } catch {
+        continue;
+      }
+      const nodes = Object.keys(g?.nodes ?? {}).length;
+      if (biggest === null || nodes > biggest.nodes) biggest = { nodes, g, name: entry.name };
+    }
+  }
+  if (biggest === null) {
+    add("热清单渲染耗时（最大会话）", "warn", "未采集（没有可读的会话图）");
+  } else {
+    const ms = Math.round(measureLedgerTimings(biggest.g, { reps: 3 }).total * 10) / 10;
+    const level = ms >= 100 ? "warn" : "ok";
+    add(
+      "热清单渲染耗时（最大会话）",
+      level,
+      `${biggest.name.slice(0, 18)}（${biggest.nodes} 节点）单次 **${ms} ms**` +
+        ` —— 每步注入都付这个钱；C313 实测慢在拼字符串（查图只占 5%），` +
+        (ms >= 100 ? "已经到该管的时候了（见 K-16）" : "当前还不值得优化（K-16 的触发线是 100 ms）"),
+    );
+  }
+}
+
+/* ── 输出（仅直接执行；import 纯函数时不得污染调用方的 stdout / exitCode） ── */
 const bad = checks.filter((c) => c.status === "error").length;
 const warn = checks.filter((c) => c.status === "warn").length;
-if (asJson) {
-  console.log(JSON.stringify({ checks, bad, warn }, null, 1));
-} else {
-  console.log("== dsh-gokifu-compact doctor ==");
-  for (const c of checks) {
-    const mark = c.status === "ok" ? "✓" : c.status === "warn" ? "!" : "✗";
-    console.log(`  ${mark} ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);
+const isDirectRun = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  if (asJson) {
+    console.log(JSON.stringify({ checks, bad, warn }, null, 1));
+  } else {
+    console.log("== dsh-gokifu-compact doctor ==");
+    for (const c of checks) {
+      const mark = c.status === "ok" ? "✓" : c.status === "warn" ? "!" : "✗";
+      console.log(`  ${mark} ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);
+    }
+    console.log(`\n${bad === 0 ? "✅" : "❌"} 错误 ${bad} / 警告 ${warn}`);
   }
-  console.log(`\n${bad === 0 ? "✅" : "❌"} 错误 ${bad} / 警告 ${warn}`);
+  process.exitCode = bad > 0 ? 1 : 0;
 }
-process.exitCode = bad > 0 ? 1 : 0;

@@ -1,0 +1,27 @@
+{
+ "none": 0,
+ "over-budget": 0,
+ "impossible": 0,
+ "未采集": 0,
+ "maxOverBudgetBy": 0,
+ "provenanceMin": 1,
+ "provenanceLow": 0,
+ "updatedAt": 0,
+ "samples": 0,
+ "injectActions": {},
+ "pressureForMark": {
+  "tokens": 300000,
+  "threshold": 90000,
+  "window": 200000,
+  "trigger": "disposed",
+  "at": 1793711977235
+ },
+ "pressure": {
+  "session": "sess-c500",
+  "tokens": 300000,
+  "threshold": 90000,
+  "remaining": 0,
+  "trigger": "disposed",
+  "at": 1793711977235
+ }
+}

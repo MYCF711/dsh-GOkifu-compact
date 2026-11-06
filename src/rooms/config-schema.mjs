@@ -56,12 +56,17 @@ export const SCHEMA = Object.freeze([
   { key: "summarizationProvider", type: "string", default: "", where: "preset", label: "摘要 provider", desc: "摘要模型 provider；留空=跟随最近一次路由" },
   { key: "summarizationModel", type: "string", default: "", where: "preset", label: "摘要 model", desc: "摘要模型 model；留空=跟随最近一次路由" },
   { key: "maxTokens", type: "number", default: 8192, where: "preset", range: [256, 65536], label: "摘要输出上限（tokens）", desc: "摘要输出上限（注意：不在 preset 模板里，今天的 engineBlock 不含它）" },
-  { key: "compactionRetries", type: "number", default: 1, where: "engine", desc: "" },
-  { key: "maxOverflowRetries", type: "number", default: 1, where: "engine", desc: "" },
-  { key: "modelPolicies", type: "array", default: [], where: "engine", desc: "" },
+  { key: "compactionRetries", type: "number", default: 1, where: "engine", label: "压缩重试次数", desc: "**由宿主消费**（`dsh-compaction` 读它决定 compact 重试几次）；本插件不读，写进 preset 的 config: 块后由宿主生效" },
+  { key: "maxOverflowRetries", type: "number", default: 1, where: "engine", label: "溢出重试次数", desc: "**由宿主消费**（`dsh-compaction` 的溢出重试）；本插件不读" },
+  { key: "modelPolicies", type: "array", default: [], where: "engine", label: "模型策略表", desc: "**由宿主消费**（按模型覆盖压缩策略）；本插件不读。留空 = 用宿主默认" },
   { key: "auto", type: "boolean", default: true, where: "preset", label: "自动压缩", desc: "自动压缩（between-step 压力触发）" },
 
   // —— 棋谱扩展 ——
+  // ★ C524：**自动补账**。用户不想每次手动点「补账」—— 归档会话的尾巴默认就该自己清掉。
+  //   间隔与批量刻意**不开放配置**（30 分钟 / 每轮 1 个），要调就用环境变量：
+  //   `DSH_GOKIFU_AUTO_BACKFILL_MIN` / `DSH_GOKIFU_AUTO_BACKFILL_MAX` —— 少一个配置项，
+  //   就少一处 golden 与文档漂移（这是吃过教训的：每个新键要同步 6 个 golden）。
+  { key: "autoBackfill", type: "boolean", default: true, where: "preset", label: "自动补账", desc: "后台每 30 分钟自动补一个归档会话的尾巴（离线补折：读日志 + 默认模型）；关掉就只手动补" },
   { key: "summaryMode", type: "enum", values: ["hybrid", "rules", "llm"], default: "hybrid", where: "preset", label: "摘要方式", desc: "hybrid=规则事实+模型润色；rules=零模型调用；llm=完全交给模型" },
   {
     key: "growthFloorTokens",
@@ -75,6 +80,12 @@ export const SCHEMA = Object.freeze([
   { key: "minFoldTokens", type: "number", default: 8000, where: "preset", range: [0, 1000000], label: "最小 fold 量（tokens）", desc: "被遮蔽内容少于这么多 token 就不 fold（摘要本身要花钱）" },
   { key: "hotLedger", type: "boolean", default: true, where: "preset", label: "热清单", desc: "每轮注入失败清单（热上下文）" },
   { key: "hotLedgerMaxTokens", type: "number", default: 500, where: "preset", range: [0, 20000], label: "热清单预算（tokens）", desc: "失败清单的 token 上限" },
+  // ★ C248：注入节流原来写死 40 个事件（`INJECT_MIN_EVENTS`），用户改不了。
+  //   实测 2654 次渲染里只有 21 次真的写了清单（0.8%），其中 2514 次是 `throttled-failures` ——
+  //   「失败边没多 5 条就不刷新」意味着**位置变了也不刷新**。这是缓存与新鲜度的取舍，
+  //   所以把它**交给用户调**（越小越新、越费缓存），默认仍是 40（与旧行为逐字节一致）。
+  { key: "hotLedgerMinEvents", type: "number", default: 40, where: "engine", range: [1, 500], label: "清单刷新间隔（事件）", desc: "两次注入至少隔多少事件；越小位置越新，但改写清单会让前缀缓存失效" },
+  { key: "hotLedgerMinFailureDelta", type: "number", default: 5, where: "engine", range: [0, 50], label: "清单刷新失败增量", desc: "失败边比上次多这么多条才刷新清单；设 0 = 只按事件间隔节流（位置更实时，但改写清单会让前缀缓存失效）" },
   {
     key: "hotLedgerMarkers",
     type: "enum",
@@ -94,6 +105,10 @@ export const SCHEMA = Object.freeze([
   { key: "hotLedgerReplace", type: "boolean", default: true, where: "preset", label: "就地替换旧清单", desc: "热清单就地替换 surface 上的旧节点（surface 永远只有一条）；false=退回追加（长会话会累积）" },
   { key: "transposition", type: "boolean", default: true, where: "preset", label: "置换检测", desc: "置换检测：同一状态再次到达时不新建节点" },
   { key: "tier2After", type: "number", default: 8, where: "preset", range: [0, 100], label: "checkpoint 合并阈值", desc: "checkpoint 超过这么多时合并最老的两段（tier-2）" },
+  { key: "closeoutFold", type: "boolean", default: true, where: "preset", label: "归档收尾折叠", desc: "会话被归档（session/disposed）时补一次折叠，避免 kifu 留有未压缩的尾巴（C210）" },
+  { key: "closeoutMinEvents", type: "number", default: 40, where: "preset", range: [1, 10000], label: "归档收尾最小事件数", desc: "距上次 fold 至少这么多事件才补折叠（太少不值得花一次模型调用）" },
+  { key: "closeoutTimeoutMs", type: "number", default: 90000, where: "preset", range: [1000, 600000], label: "归档收尾超时(ms)", desc: "收尾折叠的硬超时；超时只记日志，归档继续（C210）" },
+  { key: "closeoutMaxFoldTokens", type: "number", default: 150000, where: "preset", range: [20000, 800000], label: "收尾单段上限(tokens)", desc: "分段收尾每段的输入上限；宿主窗口大时调大能减少补账轮次，太大则会被 provider 拒（C316）" },
   { key: "graphDir", type: "string", default: "", where: "engine", desc: "棋谱落盘目录；留空 = <DSH_HOME>/chess-context" },
   { key: "worldHashMaxFiles", type: "number", default: 200, where: "engine", desc: "世界状态哈希最多 stat 多少个文件" },
 ]);
@@ -109,6 +124,7 @@ export const PRESET_KEYS = Object.freeze([
   "retainRatio",
   "growthFloorTokens",
   "minFoldTokens",
+  "autoBackfill",
   "summaryMode",
   "maxTokens",
   "summarizationProvider",
@@ -119,6 +135,10 @@ export const PRESET_KEYS = Object.freeze([
   "hotLedgerReplace",
   "transposition",
   "tier2After",
+  "closeoutFold",
+  "closeoutMinEvents",
+  "closeoutTimeoutMs",
+  "closeoutMaxFoldTokens",
 ]);
 
 /** 透传给官方基类的 11 个同名键。 */
@@ -157,14 +177,23 @@ const LABEL_ORDER = Object.freeze([
   "retainRatio",
   "growthFloorTokens",
   "minFoldTokens",
+  "autoBackfill",
   "summaryMode",
   "maxTokens",
   "hotLedger",
   "hotLedgerMaxTokens",
+  // ★ C252：**这里只放 preset 可编辑键**（= PRESET_KEYS）。引擎作用域的
+  //   `hotLedgerMinEvents` / `hotLedgerMinFailureDelta` 曾经被顺手塞进来一条，
+  //   于是 UI 的 label 表里有它、`configDefaults()` 里却没有 ⇒ 面板可能出现"有标签没值"的残项。
+  //   两个引擎键都能写在 preset 的 `config:` 块里，但**不在这张 UI 表里**。
   "hotLedgerReplace",
   "hotLedgerMarkers",
   "transposition",
   "tier2After",
+  "closeoutFold",
+  "closeoutMinEvents",
+  "closeoutTimeoutMs",
+  "closeoutMaxFoldTokens",
   "summarizationProvider",
   "summarizationModel",
 ]);
@@ -216,13 +245,21 @@ export function resolveConfig(raw = {}) {
     maxTokens: num(c.maxTokens, describe("maxTokens").default),
     growthFloorTokens: num(c.growthFloorTokens, describe("growthFloorTokens").default),
     minFoldTokens: num(c.minFoldTokens, describe("minFoldTokens").default),
+    // ★ C524：默认开（只有显式 false 才关）
+    autoBackfill: c.autoBackfill !== false,
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
+    // ★ C248：注入节流间隔（默认 40 = 旧行为）
+    hotLedgerMinEvents: num(c.hotLedgerMinEvents, describe("hotLedgerMinEvents").default),
+    hotLedgerMinFailureDelta: num(c.hotLedgerMinFailureDelta, describe("hotLedgerMinFailureDelta").default),
     hotLedgerMarkers: describe("hotLedgerMarkers").values.includes(c.hotLedgerMarkers) ? c.hotLedgerMarkers : describe("hotLedgerMarkers").default,
     hotLedgerTraceRoot: str(c.hotLedgerTraceRoot, describe("hotLedgerTraceRoot").default),
     hotLedgerReplace: c.hotLedgerReplace !== false,
     transposition: c.transposition !== false,
     tier2After: num(c.tier2After, describe("tier2After").default),
+    closeoutFold: c.closeoutFold !== false,
+    closeoutMinEvents: num(c.closeoutMinEvents, describe("closeoutMinEvents").default),
+    closeoutTimeoutMs: num(c.closeoutTimeoutMs, describe("closeoutTimeoutMs").default),
     graphDir: str(c.graphDir, describe("graphDir").default),
     worldHashMaxFiles: num(c.worldHashMaxFiles, describe("worldHashMaxFiles").default),
   };

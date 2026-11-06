@@ -1,5 +1,5 @@
 import { createGraph, failureEdges } from "../src/rooms/kifu-model.mjs";
-import { observeEvent } from "../src/rooms/keeper.mjs";
+import { observeEvent, actionSignature, taskPivotScore } from "../src/rooms/keeper.mjs";
 
 function freshState() {
   return {
@@ -129,4 +129,54 @@ export const tests = {
     if (again.changed) throw new Error("重复结果不该再改图");
     if (failureEdges(g).length !== before) throw new Error("失败边数变了");
   },
+};
+
+/* ───── C446：动作指纹（循环判据的键）───── */
+
+tests["C446 动作指纹：键序无关、参数一变就变、同一命令重复跑必相同"] = (t) => {
+  const a = actionSignature("bash", { command: "ls -la", description: "看看" });
+  const b = actionSignature("bash", { description: "看看", command: "ls -la" }); // 键序不同
+  t.eq(a, b, "同样的参数换个键序必须同指纹（否则每次写图的顺序不同就会误判成不同动作）");
+  const c = actionSignature("bash", { command: "ls -la src", description: "看看" });
+  t.eq(a === c, false, "参数不同 ⇒ 指纹必须不同");
+  t.eq(a === actionSignature("edit", { command: "ls -la", description: "看看" }), false, "工具名不同 ⇒ 指纹必须不同");
+  // 真机那个误判形状：同一文件的两次不同编辑
+  const e1 = actionSignature("edit", { file_path: "D:/a/b.md", old_string: "x", new_string: "y" });
+  const e2 = actionSignature("edit", { file_path: "D:/a/b.md", old_string: "y", new_string: "z" });
+  t.eq(e1 === e2, false, "同一文件的不同编辑必须区分（这是 C444 的误判来源）");
+  // 落到边上
+  const g = createGraph({ sessionId: "k8" });
+  const st = freshState();
+  observeEvent(g, ev("user/message", 1, userMsg("x")), st);
+  observeEvent(g, ev("assistant/message", 2, { message: assistantWithCall("c1", "bash", { command: "npm test" }) }), st);
+  const edge = Object.values(g.edges)[0];
+  t.eq(typeof edge.sig, "string", "新边的 sig 必须落盘（否则循环判据永远只能看 action）");
+  t.eq(edge.sig.length >= 8, true, "指纹不能是空串");
+};
+
+/* ───── C461：任务切换（与根目标几乎无词重叠）───── */
+
+tests["C461 taskPivotScore：换任务是「低重叠 + 有实质内容」，短句与同题追问都不算"] = (t) => {
+  const prior = { rootText: "修复 dsh-GOkifu-compact 的压缩成本估算", constraints: ["不许重启 DSH"] };
+  t.eq(taskPivotScore("继续", prior).reason, "too-short", "「继续」不构成切换");
+  t.eq(taskPivotScore("把散点图换成折线图并加注释", prior).pivot, true, "完全另一件事 ⇒ 判切换");
+  t.eq(taskPivotScore("压缩成本估算里的峰谷价要按折叠时刻算", prior).pivot, false, "同题追问不算切换");
+  // 有约束词出现 ⇒ 明显同题
+  const withConstraint = taskPivotScore("这个改动不许重启 DSH，先写脚本", prior);
+  t.eq(withConstraint.pivot, false, "提到原约束的肯定是同一件事");
+  // 空输入不崩
+  t.eq(taskPivotScore("", prior).pivot, false, "空文本");
+  t.eq(taskPivotScore("hello world 这是一个新话题", { rootText: "" }).reason, "no-tokens", "没有先前目标可比 ⇒ 不判");
+};
+
+tests["C461 落账：换任务时在 user 节点上打 pivot 印记，并累加 g.pivots"] = (t) => {
+  const g = createGraph({ sessionId: "c461" });
+  const st = freshState();
+  observeEvent(g, ev("user/message", 1, userMsg("修复压缩成本估算里的峰谷价")), st);
+  t.eq(g.pivots === undefined || g.pivots === 0, true, "第一条（根目标）不可能是切换");
+  observeEvent(g, ev("user/message", 3, userMsg("把散点图换成折线图并加注释")), st);
+  t.eq(g.pivots, 1, "换任务要计数");
+  const pivotNodes = Object.values(g.nodes).filter((n) => n.pivot === true);
+  t.eq(pivotNodes.length, 1, "只标记换任务那一条");
+  t.eq(pivotNodes[0].text.includes("折线图"), true, "标的是新任务那条");
 };

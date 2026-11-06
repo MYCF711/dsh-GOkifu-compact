@@ -9,7 +9,7 @@
  * 旧路径 src/keeper.mjs 与 src/extract.mjs 都保留一行门面，全部旧 import 仍可用。
  */
 
-import { addUserNode, addEdge, addAgentNode, settleEdge, extractConstraints, norm } from "./kifu-model.mjs";
+import { addUserNode, addEdge, addAgentNode, settleEdge, extractConstraints, norm, sha } from "./kifu-model.mjs";
 import { classify } from "./verify.mjs";
 
 /**
@@ -71,6 +71,68 @@ export function actionSummary(tool, args) {
   }
   const body = parts.join(" ").slice(0, 200);
   return body ? `${name}(${body})` : name;
+}
+
+/** 键序无关的稳定 JSON —— 递归排序对象键（同样的参数永远同样的串，否则指纹不成立）。 */
+function stableJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`).join(",")}}`;
+}
+
+/**
+ * ★ C461：这条用户消息是不是**换了件事**（任务切换）。
+ *
+ * 由来（外部资料，Claude Code 最佳实践逐字）："**Every request sends the whole conversation**, so a session
+ * that's collected three unrelated tasks re-reads all three on every turn of the fourth." 官方给的解法是
+ * 人与人之间的切换靠 `/clear`。我们没有 `/clear` 的等价物，但至少可以**发现**这件事已经发生 ——
+ * 否则"旧任务的历史每轮都在付费"永远没人知道。
+ *
+ * 判据刻意保守（宁可漏报，不要天天喊"你要换会话了"）：
+ *   · 与「根目标 + 约束」的词重叠极低（CJK 用双字组、ASCII 用整词）；
+ *   · 且新消息本身有实质内容（太短的不判：`继续`、`好` 这类不构成切换）。
+ *
+ * @param {string} text 新的用户消息
+ * @param {{rootText?:string, constraints?:string[]}} prior 之前的目标与约束
+ * @param {{maxOverlap?:number, minChars?:number}} [options]
+ * @returns {{pivot:boolean, overlap:number, reason:string}}
+ */
+export function taskPivotScore(text, { rootText = "", constraints = [] } = {}, { maxOverlap = 0.06, minChars = 8 } = {}) {
+  const body = String(text ?? "").trim();
+  if (body.length < minChars) return { pivot: false, overlap: 0, reason: "too-short" };
+  const grams = (input) => {
+    const out = new Set();
+    const s = String(input ?? "");
+    // ASCII 整词
+    for (const m of s.matchAll(/[A-Za-z][A-Za-z0-9_.-]{2,}/g)) out.add(`w:${m[0].toLowerCase()}`);
+    // CJK 双字组（去标点/空白）
+    const cjk = s.replace(/[^\u4e00-\u9fa5]/g, "");
+    for (let i = 0; i + 1 < cjk.length; i += 1) out.add(`c:${cjk.slice(i, i + 2)}`);
+    return out;
+  };
+  const priorText = `${rootText} ${(Array.isArray(constraints) ? constraints : []).join(" ")}`;
+  const prior = grams(priorText);
+  const now = grams(body);
+  if (prior.size === 0 || now.size === 0) return { pivot: false, overlap: 0, reason: "no-tokens" };
+  let hit = 0;
+  for (const g of now) if (prior.has(g)) hit += 1;
+  const overlap = hit / now.size;
+  return { pivot: overlap <= maxOverlap, overlap, reason: overlap <= maxOverlap ? "low-overlap" : "related" };
+}
+
+/**
+ * ★ C446：动作**指纹**（工具名 + 完整参数，键序无关）。给「循环判据」用，不给人看。
+ *
+ * 为什么不能只看 `actionSummary`：它只取 2 个关键参数，于是
+ * `edit(file_path=D:/a/b.md)` 对**同一文件的每次不同编辑**都逐字相同。
+ * 真机实测（36 个会话）：3 个会话出现连续 **5–6 次** `edit(...)`，`result` 全是 `success`
+ * —— 那是真的在改代码，不是循环。用 action 当判据会把它们误判成思考死循环并强行折叠。
+ *
+ * 指纹把**参数全文**算进去：同一个命令重复跑 ⇒ 指纹相同；同一个文件的不同编辑 ⇒ 指纹不同。
+ */
+export function actionSignature(tool, args) {
+  return sha(`${String(tool ?? "?")}\u0000${stableJson(args ?? {})}`).slice(0, 16);
 }
 
 /**
@@ -137,15 +199,115 @@ export function isOwnMessage(message) {
   return message?.source?.kind === OWN_SOURCE_KIND;
 }
 
-/** 这条 user 消息是人打的字，还是系统/插件注入的上下文。 */
+/** 机器产物必须占正文（去空白后）的多少，才算「假人话」—— 低于这个比例一律算人话。 */
+const MACHINE_SHARE = 0.9;
+
+/** **强**机器行：只在命令回执 / 堆栈里出现的精确形状（人不会拿它开头）。 */
+const MACHINE_STRONG_LINE =
+  /^(?:\s+at\s+\S|\s+File "\S+", line \d+|\[[A-Z][A-Z0-9_]*\]|(?:npm|pnpm|yarn) (?:ERR!|error)|[✓✗✔✖]|Traceback \(most recent call last\)|panic: |HTTP\/\d(?:\.\d)? \d{3}\b)/;
+
+/** **弱**机器行：可以和真人话混排（错误行 / 缩进续行 / 空行）—— 只用来凑覆盖率，不能单独定案。 */
+const MACHINE_WEAK_LINE = /^(?:[{\[]|\s*$|\s+\S|[A-Za-z][\w-]*: |This error happened while )/;
+
+/** 从 `from` 开始取一个完整 JSON 值的结束下标（尊重字符串转义）；未闭合返回 -1。 */
+function jsonValueEnd(text, from) {
+  let depth = 0;
+  let inString = false;
+  for (let i = from; i < text.length; i += 1) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i += 1;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{" || c === "[") depth += 1;
+    else if (c === "}" || c === "]") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/** OpenAI 兼容形状的信封：`error` / `choices` / `chatcmpl-` 开头的 id / `object: "chat.completion*"`。 */
+function isOpenAiEnvelope(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value.error !== undefined && value.error !== null) return true;
+  if (Array.isArray(value.choices)) return true;
+  if (typeof value.id === "string" && value.id.startsWith("chatcmpl")) return true;
+  return value.object === "chat.completion" || value.object === "chat.completion.chunk";
+}
+
+/** 正文里机器产物占多少（0–1）；开头不是可识别的机器形状 ⇒ 0（= 人话）。 */
+function machineOutputShare(body) {
+  // ① JSON 文档序列：首个必须是 OpenAI 信封（后面可能还粘着请求体 / 响应体，残渣只算人话）
+  if (body[0] === "{" || body[0] === "[") {
+    let at = 0;
+    let inside = 0;
+    let docs = 0;
+    let first;
+    let parsed = true;
+    while (at < body.length) {
+      if (body[at] !== "{" && body[at] !== "[") {
+        at += 1;
+        continue;
+      }
+      const end = jsonValueEnd(body, at);
+      const stop = end < 0 ? body.length : end; // 尾部被截断的文档整段算机器（真机 seq 1179 就是截断的）
+      if (docs === 0) {
+        try {
+          first = JSON.parse(body.slice(at, stop));
+        } catch {
+          parsed = false;
+          break;
+        }
+      }
+      inside += stop - at;
+      docs += 1;
+      at = stop;
+      if (end < 0) break;
+    }
+    if (parsed && docs > 0 && isOpenAiEnvelope(first)) return inside / body.length;
+  }
+  // ② 命令回执 / 堆栈 / HTTP 响应：首行必须是强机器行，或「弱错误行 + 至少一条强机器行」
+  const lines = body.split("\n");
+  const first = lines.find((line) => line.trim() !== "") ?? "";
+  const corroborated = MACHINE_WEAK_LINE.test(first) && lines.some((line) => MACHINE_STRONG_LINE.test(line));
+  if (!MACHINE_STRONG_LINE.test(first) && !corroborated) return 0;
+  let inside = 0;
+  for (const line of lines) if (MACHINE_STRONG_LINE.test(line) || MACHINE_WEAK_LINE.test(line)) inside += line.length;
+  return inside / body.length;
+}
+
+/**
+ * 这条 user 消息是人打的字，还是系统/插件注入的上下文。
+ *
+ * ★ T38（2026-11-05）：`source.kind` 只说明「宿主把这条归到 user 轮」，**不说明它是人打的字**。
+ *   真机反例（session-f7f835b1 seq 1179）：一条 **251,157 字符**的 LLM 错误 JSON
+ *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘上的请求体）宿主标的 `kind: "user"`，
+ *   于是 `extractConstraints` 从里面抽出 40 条「约束」灌进事实块 —— 整块 36% 是系统提示词。
+ *
+ *   判据是**闭集** + **锚在开头** + **绝对主体**，三条缺一不可：
+ *     ① 闭集 —— 只认上面几种精确形状（OpenAI 信封 / 堆栈 / HTTP 状态行 / 命令回执），不猜语义；
+ *     ② 锚在开头 —— 形状必须从正文第一个非空字符开始；用户正文里**引用**报错不算
+ *        （贴一段日志再问「这是什么」是最常见的真实输入）；
+ *     ③ 绝对主体 —— 机器产物必须占字符 ≥ `MACHINE_SHARE`，否则算人话。
+ *   **保守优先：判不准就算人话。** 误判成机器会丢掉真实用户输入（不可恢复），
+ *   留噪声只是多花 token。
+ */
 export function isHumanMessage(message) {
   const kind = message?.source?.kind;
   if (kind === undefined || kind === null) {
     // 没有 source 的旧格式：保守当成注入，不建约束锚
     return false;
   }
-  return HUMAN_SOURCES.has(String(kind));
+  if (!HUMAN_SOURCES.has(String(kind))) return false;
+  const body = messageText(message).replace(/\r\n/g, "\n").trim();
+  if (body === "") return true;
+  return machineOutputShare(body) < MACHINE_SHARE;
 }
+
 
 /** 注入来源的分类（只用于统计/调试，不进图）。 */
 export function injectionKind(message) {
@@ -173,6 +335,22 @@ export function observeEvent(g, event, state) {
       const text = messageText(message);
       if (!text.trim()) return { changed: false };
       const id = addUserNode(g, { seq: event.seq, turn: event.data?.turn ?? null, text, constraints: extractConstraints(text) });
+      // ★ C461：换任务的那一条要留痕 —— 之后每轮请求都在为旧任务的历史付费（Claude Code 的解法是 /clear）
+      try {
+        const roots = (g.rootUserNodeIds ?? []).map((rid) => g.nodes?.[rid]).filter(Boolean);
+        const prior = {
+          rootText: roots.map((n) => n.text ?? "").join(" "),
+          constraints: roots.flatMap((n) => (Array.isArray(n.constraints) ? n.constraints : [])),
+        };
+        const verdict = taskPivotScore(text, prior);
+        if (verdict.pivot) {
+          g.nodes[id].pivot = true;
+          g.pivots = (Number.isFinite(g.pivots) ? g.pivots : 0) + 1;
+          g.pivotAt = event.seq;
+        }
+      } catch {
+        /* 打标失败不影响落账 */
+      }
       state.lastUserNodeId = id;
       // 用户的新消息开启一条新的主路径：把当前 agent 节点挂到最近的 user 节点下
       state.lastNodeId = id;
@@ -194,6 +372,8 @@ export function observeEvent(g, event, state) {
           from: state.lastNodeId ?? null,
           intent,
           action: actionSummary(block.name, args),
+          // ★ C446：指纹给循环判据用 —— 同一命令重复跑才算循环，同一文件的不同编辑不算
+          sig: actionSignature(block.name, args),
           evidence: { start: event.seq, end: event.seq },
         });
         state.pendingEdges.set(block.id ?? edgeId, edgeId);

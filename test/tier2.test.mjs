@@ -103,6 +103,10 @@ tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最
   const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 8 });
   const cps = pushCheckpoints(session, 8);
   pushPlain(session, 3);
+  // 真实流程里 compactRegion 会调 summarize；本文件的 compactRegion 是桩 ⇒ 先手动调一次，
+  // 让 summarize 留下的 pending 摘要文本有值 —— 否则 C11 的「tier-2 记 quality」在这条路径上没东西可算
+  // （与 P2-2-1 处理同一限制的方式一致）。
+  await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
   const before = [...session.surface.nodes];
   const result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
   if (!result) throw new Error("tier-2 应当触发并返回合并结果");
@@ -130,6 +134,18 @@ tests["T2-1 tier2After=8：第 8 个 checkpoint 触发合并一次，range = 最
   // tier-2 走的是自己的记账路径 ⇒ 不走常规 fold 的 foldCount/普通 foldMark
   if (g.foldCount !== 0) throw new Error(`tier-2 不该增加 foldCount，实际 ${g.foldCount}`);
   if ((g.foldMarks ?? []).length !== 1) throw new Error(`foldMarks 应只有那条 tier2，实际 ${(g.foldMarks ?? []).length}`);
+  // ★ 2026-11-01（C11）：tier-2 也是压缩生命周期的一部分 ⇒ 必须记保真度（此前只有常规 fold 有）。
+  if (!marks[0].quality || typeof marks[0].quality !== "object") {
+    throw new Error(`tier-2 foldMark 必须带 quality（压缩生命周期全覆盖），实际 ${JSON.stringify(marks[0])}`);
+  }
+  if (!(typeof marks[0].quality.constraintRecall === "number")) {
+    throw new Error(`tier-2 quality 必须带 constraintRecall，实际 ${JSON.stringify(marks[0].quality)}`);
+  }
+  if (!(marks[0].summaryChars > 0)) throw new Error(`tier-2 也要记摘要字符数，实际 ${marks[0].summaryChars}`);
+  // ★ 2026-11-01（C12）：tier-2 的触发原因要能与常规 fold / 溢出自救区分
+  if (marks[0].trigger !== "tier2") throw new Error(`tier-2 foldMark.trigger 必须是 tier2，实际 ${JSON.stringify(marks[0].trigger)}`);
+  // ★ 2026-11-02（C24）：tier-2 合并同样记可寻址闭包
+  if (!marks[0].closure || typeof marks[0].closure.nodes !== "number") throw new Error(`tier-2 foldMark 必须带 closure，实际 ${JSON.stringify(marks[0].closure)}`);
 };
 
 tests["T2-2 不足阈值不触发：7 个 checkpoint（tier2After=8）一次都不合并"] = async () => {
@@ -258,4 +274,124 @@ tests["T2-6 A 方案收口：不递归、tier2After=0 不收、checkpoint 数量
   for (const seq of cps0) if (!session0.surface.nodes.includes(seq)) throw new Error(`tier2After=0 时 checkpoint ${seq} 不该被合并`);
 };
 
+tests["C136 tier-2 合并失败：必须清掉 summarize 留下的 pending 摘要（否则下一次 fold 会吃掉别人的摘要）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c136-tier2-fail");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c136" });
+  pushCheckpoints(session, 2);
+  pushPlain(session, 6);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
 
+  // 真实顺序：tier-2 内部的 summarize 先留下 pending 摘要，随后 compactRegion 抛错。
+  // 所以必须在**那一次调用内部**写入 pending 字段（否则会被前面的常规 fold 消费掉，测成空转）。
+  const original = engine.compactRegion.bind(engine);
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) {
+      engine._lastSummaryText = "STALE-SUMMARY-FROM-FAILED-TIER2";
+      engine._lastSummaryChars = engine._lastSummaryText.length;
+      engine._lastSummaryModelText = engine._lastSummaryText;
+      throw new Error("injected-tier2-boom");
+    }
+    return original(start, end, agent, signal);
+  };
+  let result;
+  try {
+    result = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+  } finally {
+    engine.compactRegion = original;
+  }
+
+  // tier-2 失败必须「不影响主流程」：不抛错（或抛了也要能继续）
+  if (result !== null && result !== undefined && typeof result !== "object") throw new Error(`返回值形态异常：${JSON.stringify(result)}`);
+  // 关键：pending 摘要必须被清掉，不许留给下一次 fold
+  if (engine._lastSummaryText !== undefined) throw new Error(`tier-2 失败后 _lastSummaryText 必须清空，实际 ${JSON.stringify(engine._lastSummaryText)}`);
+  if (engine._lastSummaryChars !== undefined) throw new Error(`tier-2 失败后 _lastSummaryChars 必须清空，实际 ${JSON.stringify(engine._lastSummaryChars)}`);
+  if (engine._lastSummaryModelText !== undefined) throw new Error(`tier-2 失败后 _lastSummaryModelText 必须清空，实际 ${JSON.stringify(engine._lastSummaryModelText)}`);
+  // 防重入与活动区间也必须复原
+  if ((engine._tier2InFlight ?? false) !== false) throw new Error("_tier2InFlight 必须复原为 false");
+  if (engine._chessActiveRange !== null && engine._chessActiveRange !== undefined) throw new Error(`_chessActiveRange 必须清空，实际 ${JSON.stringify(engine._chessActiveRange)}`);
+};
+
+tests["C178 tier-2 合并失败也必须退避（否则每个事件都再跑一次 compactRegion）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c178-tier2-backoff");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c178" });
+  pushCheckpoints(session, 2);
+  pushPlain(session, 6);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const original = engine.compactRegion.bind(engine);
+  let tier2Attempts = 0;
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) {
+      tier2Attempts += 1;
+      throw new Error("injected-tier2-boom");
+    }
+    return original(start, end, agent, signal);
+  };
+  try {
+    // ① 第一次：应真的尝试并失败（不影响主流程）
+    const first = await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (first === undefined) throw new Error("首次必须返回非 undefined");
+    if (tier2Attempts !== 1) throw new Error(`首次应尝试 tier-2 1 次，实际 ${tier2Attempts}`);
+
+    // ② 窗口内再来一次：tier-2 不许再尝试（主 fold 照常可跑）
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (tier2Attempts !== 1) throw new Error(`退避窗口内不许再尝试 tier-2（应仍为 1，实际 ${tier2Attempts}）`);
+
+    // ③ 推进事件越过窗口：允许再试
+    for (let i = 0; i < 60; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "推进" }] });
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (tier2Attempts !== 2) throw new Error(`越过窗口后应再试 tier-2（期望 2，实际 ${tier2Attempts}）`);
+  } finally {
+    engine.compactRegion = original;
+  }
+};
+
+tests["C187 surface 顺序不等于 seq 顺序时，tier-2 合并区间必须仍是 start<end（live 抓到 seqStart>seqEnd）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c187-tier2-order");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, tier2After: 2 });
+  const session = makeSession({ id: "sess-c187" });
+  // 制造「surface 顺序 ≠ seq 顺序」：两条 checkpoint 都建好，然后把 surface 顺序倒过来
+  // （真实成因：fold/replace 之后 surface 顺序不保证按 seq 递增 —— live 就是这么出现的）
+  // 注意：seq 由 append 内部分配，必须用它返回的 event.seq
+  const older = session.append("user/message", { source: { kind: "compaction-checkpoint" }, content: [{ type: "text", text: "更老的 checkpoint" }] }).seq;
+  const newer = session.append("user/message", { source: { kind: "compaction-checkpoint" }, content: [{ type: "text", text: "较新的 checkpoint" }] }).seq;
+  // 倒序：较新的排在前面
+  const idxOlder = session.surface.nodes.indexOf(older);
+  const idxNewer = session.surface.nodes.indexOf(newer);
+  session.surface.nodes[idxOlder] = newer;
+  session.surface.nodes[idxNewer] = older;
+  pushPlain(session, 4);
+  if (newer <= older) throw new Error(`夹具前提不成立：newer=${newer} older=${older}`);
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+
+  const ranges = [];
+  const original = engine.compactRegion.bind(engine);
+  engine.compactRegion = async (start, end, agent, signal) => {
+    if (engine._chessActiveRange?.tier2) ranges.push({ start, end });
+    return original(start, end, agent, signal);
+  };
+  try {
+    await engine.compactIfNeeded({ session, options: {} }, "pressure", undefined);
+    if (ranges.length === 0) throw new Error("tier-2 应该被触发并记录区间");
+    const { start, end } = ranges[0];
+    if (!(start < end)) throw new Error(`tier-2 区间必须是 start<end，实际 ${start}–${end}（surface 顺序 ${newer} 在前、${older} 在后）`);
+    if (start !== older || end !== newer) throw new Error(`应合并最老两条：期望 ${older}–${newer}，实际 ${start}–${end}`);
+  } finally {
+    engine.compactRegion = original;
+  }
+
+  // 落盘的 foldMark 也必须有序（doctor「棋谱结构自洽」就是查这个）
+  const graph = engine.loadGraphForTest?.(session) ?? null;
+  const marks = (graph?.foldMarks ?? []).filter((m) => m.tier2);
+  for (const m of marks) {
+    if (!(m.seqStart <= m.seqEnd)) throw new Error(`foldMark 区间反了：${m.seqStart}–${m.seqEnd}`);
+  }
+};

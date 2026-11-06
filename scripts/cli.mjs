@@ -31,6 +31,16 @@ if (command === "install" || command === "revert") {
   } catch (error) {
     process.exitCode = typeof error?.status === "number" ? error.status : 1;
   }
+} else if (command === "config") {
+  // ★ C250：把「配置总表」也做成子命令 —— 装好包的用户手上没有仓库，
+  //   但 `docs/配置总表.md` 是随包发的（files 含 docs/），只是他们不知道有这一页。
+  //   直接 `npx dsh-gokifu-compact config` 就能打印，`--write` 写回包内的 docs/ 副本。
+  const table = nodePath.join(HERE, "config-table.mjs");
+  try {
+    execFileSync(process.execPath, [table, ...argv.slice(1)], { stdio: "inherit" });
+  } catch (error) {
+    process.exitCode = typeof error?.status === "number" ? error.status : 1;
+  }
 } else if (command === "migrate-dangling") {
   const migrate = nodePath.join(HERE, "migrate-dangling.mjs");
   try {
@@ -48,6 +58,8 @@ if (command === "install" || command === "revert") {
       还原上一次的 preset 备份
   dsh-gokifu-compact doctor
       体检：安装 / 摘要模型 / 压缩成败 / 棋谱 / 树新鲜度
+  dsh-gokifu-compact config [--write]
+      打印「配置总表」（从 schema 生成；--write 写回 docs/配置总表.md）
   dsh-gokifu-compact migrate-dangling [--apply] [--verify --backup=<dir>]
       P6-C 悬空边 sidecar 归档（默认 dry-run；apply 需停插件窗口）
 

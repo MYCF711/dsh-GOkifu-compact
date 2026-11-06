@@ -1,0 +1,4 @@
+- id: agent-default-model # test
+  config:
+    provider: magpie
+    model: test-model

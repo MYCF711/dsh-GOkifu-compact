@@ -36,7 +36,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
-import { fromJSON, toJSON, graphHealth } from "../src/rooms/kifu-model.mjs";
+import { applyDelta, decodeDeltaFrames, fromJSON, sha, toJSON, graphHealth } from "../src/rooms/kifu-model.mjs";
 import { renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
 import { checkGraphs, checkGraphsWithExemptions, parseArgs, usageText } from "./graph-invariants.mjs";
 import { graphFingerprint, parseExemptions, todayIso } from "./graph-exemptions.mjs";
@@ -161,6 +161,25 @@ for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
     rows.push(row);
     continue;
   }
+
+  // ★ C182：必须**重放 delta** —— 运行时 `kifu-persist.load()` 就是这么干的。
+  //   只读基线会把「节点只在 delta 里」的会话判成 degenerate（实测 live 有 2 个这样的假警报：
+  //   基线节点 0 / 边 1，重放后节点 1）。指纹仍取**原始** JSON（不算派生修复）。
+  {
+    const deltaFile = `${file}.delta.jsonl`;
+    if (nodeFs.existsSync(deltaFile)) {
+      try {
+        const { frames } = decodeDeltaFrames(nodeFs.readFileSync(deltaFile, "utf8"), sha(raw).slice(0, 16));
+        for (const frame of frames) applyDelta(g, frame);
+      } catch {
+        row.warnings.push("delta 无法回放（按基线判）");
+      }
+    }
+  }
+  // 计数改用**重放后**的图（否则 agent 数 / stateIndex 数也会偏低）
+  row.agents = agentsOf(g).length;
+  row.objectWorldHashBefore = agentsOf(g).filter((n) => typeof n.worldHash === "object" && n.worldHash !== null).length;
+  row.stateIndexBefore = Object.keys(g.stateIndex ?? {}).length;
 
   loaded.push({ session: entry.name, sessionId: String(g.sessionId ?? ""), graph: g });
   // 指纹取**原始** JSON（fromJSON 之后的派生修复不算图内容变了，见 graph-exemptions.mjs）

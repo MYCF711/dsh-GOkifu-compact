@@ -20,7 +20,7 @@
  *   ⑥ 运行期证据：<DSH_HOME>/chess-context/sessions 下有 graph.json（说明 keeper 真跑过）
  *
  * ⚠ ② 的历史坑：旧版只判 `Boolean(pkg.dependencies[PKG])` —— 字符串在就算过。
- *   profile 里写的是 `link:D:/workspace/projects/dsh-gokifu-compact`（该目录不存在），
+ *   profile 里写的是 `link:<WORKSPACE>/projects/dsh-gokifu-compact`（该目录不存在），
  *   于是「目标不存在」也报 ✓。判定必须落到**解析后的真实目标**，见 scripts/link-path.mjs。
  *
  * 用法：node test/verify-install.mjs [--profile desktop] [--preset personal-assistant]
@@ -38,6 +38,7 @@ import { inspectProfileInstall, samePath } from "../scripts/link-path.mjs";
 //   的 F1/F2 夹具（makeInstalledCopy）本来就会复制 scripts/install.mjs 进「已装包」副本，
 //   所以经 junction 执行本文件时这条相对 import 也能解析 —— 不需要第三份内联实现。
 import { presetsWithCompaction } from "../scripts/install.mjs";
+import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 
 export const PKG = "dsh-gokifu-compact";
 export const DEFAULT_DSH_HOME = "D:\\DeepSeek Harness\\home";
@@ -389,6 +390,34 @@ export function verifyInstall(options = {}) {
       addPreset(name, false, why);
     }
   }
+
+  /* ⑦ 用户层 patch 是否遮蔽引擎 / 机器级层是否已登记（2026-11-02 实机事故；1.17.1 自动登记）
+     遮蔽 + home 层已有 engine ⇒ 视为通过（等下次启动）；遮蔽 + 没有 ⇒ 记 warn（非失败），
+     因为插件会在退出时自动写 home 层，用户不需要命令。 */
+  {
+    const userPatch = nodePath.join(PROFILE_DIR, "cordis.patch.yml");
+    let shadowed = [];
+    let homeHasEngine = false;
+    try {
+      const text = nodeFs.existsSync(userPatch) ? nodeFs.readFileSync(userPatch, "utf8") : "";
+      shadowed = findShadowedUserPresets(text);
+      const homePatch = nodePath.join(DSH_HOME, "cordis.patch.yml");
+      homeHasEngine = nodeFs.existsSync(homePatch) && nodeFs.readFileSync(homePatch, "utf8").includes("dsh-gokifu-compact/engine");
+    } catch {
+      /* 读不出按未采集处理 */
+    }
+    add(
+      "用户层 patch 不遮蔽压缩引擎",
+      shadowed.length === 0 || homeHasEngine,
+      shadowed.length === 0
+        ? "用户层没有把 preset 写回 compaction-basic"
+        : homeHasEngine
+          ? `${shadowed.join(", ")} 已被机器级层接管（重启后生效）`
+          : `${shadowed.join(", ")} 写回了 compaction-basic；插件退出时会自动登记到 home/cordis.patch.yml，下次启动生效`,
+      shadowed.length > 0 && !homeHasEngine ? "warn" : undefined,
+    );
+  }
+
 
   /* ⑥ 运行期证据 */
   const graphRoot = nodePath.join(DSH_HOME, "chess-context", "sessions");

@@ -25,19 +25,20 @@ const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, r
 
 /* ───────────────────────── golden（A2-4 之前的实测输出） ───────────────────────── */
 
-const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "graphDir", "worldHashMaxFiles"];
+// ★ C248：有意新增 `hotLedgerMinEvents`（注入节流间隔可配，默认 40 = 旧行为）—— 以下 golden 一并更新。
+const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles"];
 
-const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "transposition", "tier2After"];
+const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "autoBackfill", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens"];
 
 const GOLDEN_BASE_KEYS = ["thresholdRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto"];
 
-const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, transposition: true, tier2After: 8 };
+const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 };
 
-const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
+const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", autoBackfill: "自动补账", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", closeoutMaxFoldTokens: "收尾单段上限(tokens)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
 
-const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, graphDir: "", worldHashMaxFiles: 200 };
+const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200 };
 
-const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, transposition: true, tier2After: 8 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", transposition: "default", tier2After: "default" }, unconfiguredKeys: ["firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
+const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
 
 const RANGES = { thresholdRatio: [0.05, 0.95], firstFoldRatio: [0, 0.95], headroomTokens: [0, 512000], retainRatio: [0, 0.9], growthFloorTokens: [0, 1000000], minFoldTokens: [0, 1000000], maxTokens: [256, 65536], hotLedgerMaxTokens: [0, 20000], tier2After: [0, 100] };
 const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["semantic", "terse", "off"] };
@@ -45,8 +46,8 @@ const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["sem
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "SCHEMA：24 行、键集合与顺序逐键一致"(t) {
-    t.eq(SCHEMA.length, 24, "SCHEMA 行数");
+  "SCHEMA：30 行、键集合与顺序逐键一致"(t) {
+    t.eq(SCHEMA.length, 31, "SCHEMA 行数（C524 新增 autoBackfill）");
     t.eq(SCHEMA.map((e) => e.key), GOLDEN_KEYS, "键与顺序");
   },
 
@@ -68,19 +69,19 @@ export const tests = {
     t.eq(describe("no-such-key"), null, "未知键返回 null");
   },
 
-  "PRESET_KEYS 17 / BASE_KEYS 11：顺序与集合"(t) {
+  "PRESET_KEYS 21 / BASE_KEYS 11：顺序与集合"(t) {
     t.eq([...PRESET_KEYS], GOLDEN_PRESET_KEYS, "PRESET_KEYS 顺序");
     t.eq([...BASE_KEYS], GOLDEN_BASE_KEYS, "BASE_KEYS 顺序");
     const derived = SCHEMA.filter((e) => e.where === "preset").map((e) => e.key).sort();
     t.eq([...PRESET_KEYS].sort(), derived, "PRESET_KEYS 与 SCHEMA 的 preset 集一致");
   },
 
-  "configDefaults：17 键逐键等于 A2-4 之前的 DEFAULTS（+firstFoldRatio）"(t) {
+  "configDefaults：18 键逐键等于 DEFAULTS（C316 +closeoutMaxFoldTokens）"(t) {
     t.eq(configDefaults(), GOLDEN_DEFAULTS, "golden");
     t.eq(Object.keys(configDefaults()), Object.keys(GOLDEN_DEFAULTS), "键序也必须一致（JSON.stringify 会被比对）");
   },
 
-  "fieldLabels：17 键逐键等于 A2-4 之前的 FIELD_LABELS（+firstFoldRatio）"(t) {
+  "fieldLabels：18 键逐键等于 FIELD_LABELS（C316 +closeoutMaxFoldTokens）"(t) {
     t.eq(fieldLabels(), GOLDEN_LABELS, "golden");
     t.eq(Object.keys(fieldLabels()), Object.keys(GOLDEN_LABELS), "键序");
   },
@@ -152,7 +153,7 @@ export const tests = {
     t.includes(ui, "return describeConfigFromSchema(presetConfig);", "describeConfig 必须委托");
   },
 
-  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，16 行（S8 加 firstFoldRatio）"(t) {
+  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，17 行（C316 加 closeoutMaxFoldTokens）"(t) {
     return import(PRESET_FORMAT).then((pf) => {
       const lines = pf.engineBlock();
       const keys = [];
@@ -172,8 +173,38 @@ export const tests = {
       t.eq(values.summaryMode, describe("summaryMode").default, "summaryMode 写裸值");
       t.eq(values.summarizationProvider, "''", "空串写成 ''");
       t.eq(values.tier2After, String(describe("tier2After").default), "tier2After 值");
-      t.eq(lines.length, 22, "engineBlock 总行数（3 注释 + id + name + config + 16 键）");
+      t.eq(lines.length, 27, "engineBlock 总行数（C524 加了 autoBackfill）");
       return undefined;
     });
   },
+};
+tests["C252 UI 的 label 表必须是「可编辑键」的子集（有标签没值 = 面板残项）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href);
+  const labels = Object.keys(mod.fieldLabels());
+  const editable = Object.keys(mod.configDefaults());
+  for (const key of labels) {
+    t.eq(editable.includes(key), true, `fieldLabels 里的 ${key} 不在 configDefaults（面板会出现"有标签没值"）`);
+  }
+  // 反向不要求相等：有的键可编辑但刻意不给中文名（目前没有，但留口子）
+  t.eq(labels.length > 0, true, "label 表不许空");
+  // 引擎作用域的两个节流键**不该**出现在 UI 标签表里（它们写在 preset 的 config: 块里生效）
+  for (const engineKey of ["hotLedgerMinEvents", "hotLedgerMinFailureDelta"]) {
+    t.eq(labels.includes(engineKey), false, `${engineKey} 是引擎作用域，不该进 UI 标签表`);
+    t.eq(
+      mod.SCHEMA.some((f) => f.key === engineKey),
+      true,
+      `${engineKey} 必须仍在 SCHEMA 里（用户要能写进 preset 的 config: 块）`,
+    );
+  }
+};
+
+tests["C253 宿主消费的三个键不许被当成死配置删掉（本插件不读 ≠ 没用）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href);
+  // 这三个键由宿主 `dsh-compaction` 读取（asar 实测：compactionRetries / maxOverflowRetries 都在读），
+  // 本插件引擎不读它们 —— 所以"没人用就删掉"会**静默改变宿主的重试行为**。
+  for (const key of ["compactionRetries", "maxOverflowRetries", "modelPolicies"]) {
+    const field = mod.SCHEMA.find((f) => f.key === key);
+    t.eq(!!field, true, `${key} 必须仍在 SCHEMA 里（宿主消费）`);
+    t.includes(String(field.desc), "宿主", `${key} 的说明必须写明「由宿主消费」，否则下一个人会以为它是死键`);
+  }
 };

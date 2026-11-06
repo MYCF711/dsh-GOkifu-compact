@@ -17,7 +17,7 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass } from "./kifu-model.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass, evidenceEndSeq, evidenceStartSeq } from "./kifu-model.mjs";
 import { weakKindOf } from "./verify.mjs";
 
 /* ───────────────── P6-A：悬空边（to=null）的分类与排除 ───────────────── */
@@ -40,7 +40,9 @@ import { weakKindOf } from "./verify.mjs";
  * ★ P6C-1（2026-10-30）：**超过 10 分钟的 untested 不再是 residue，而是 candidate。**
  *   旧判据把它当「死边」整条丢掉 —— 但模型崩溃/中断留下的未结算边恰恰是「下一步还能接着做」
  *   的信息，丢掉等于把线索一起丢了。现在它进热清单的 OPTIONS 区段（标 `[stale Xm]`），
- *   明确写成「not yet landed — you may continue or abandon」，不混进 UNVERIFIED（那是「跑了但没验证」）。
+ *   明确写成「not yet landed」，不混进 UNVERIFIED（那是「跑了但没验证」）。
+ *   ★ 边界（2026-11-01）：旧文案还带「you may continue or abandon」—— 那是**行动许可**（指导模型
+ *   怎么做），属于 AGENTS/persona；压缩只陈述「有哪些未落地的选项」（见 docs/压缩的职责边界.md）。
  *
  * 为什么 residue 只留「已结算」：结算过（success/failure/unverified）的边必须有终点，
  * 无终点只可能是 1.9.1 rewash 留下的历史残留（数据事实 5,564/5,567）。
@@ -204,6 +206,27 @@ function clip(text, n) {
 }
 
 /**
+ * 中段省略截断：保留首部 + 尾部，丢掉中段。
+ *
+ * 为什么（2026-11-01，来自 docs/research/03-human-memory.md 建议 C）：
+ *   失败原因是模型「避免重犯」的唯一判据，而关键 token 常常**不在开头**：
+ *     `ERROR: EACCES: permission denied, open '/x/y/z.txt'` —— 开头是错误类，末尾才是**路径**；
+ *     `bash(command=cd /a && node test.mjs 2>&1 | tail -3)` —— 开头是命令名，末尾才是**目标**。
+ *   旧版 `clip` 是纯首部截断，预算紧的档位（reasonLen=25）会把路径整段切掉，
+ *   模型看到「EACCES: permissio…」却不知道是哪个文件 —— 这条失败边就失去了判别价值。
+ *   首尾各留一部分：代价是中间少几个字，收益是「错在哪 + 对什么操作」都还在。
+ */
+function clipMiddle(text, n) {
+  const t = norm(text);
+  if (t.length <= n) return t;
+  if (n <= 2) return t.slice(0, n);
+  const head = Math.max(1, Math.ceil((n - 1) * 0.55));
+  const tail = Math.max(1, n - 1 - head);
+  if (head + tail + 1 > n) return `${t.slice(0, Math.max(0, n - 1))}…`;
+  return `${t.slice(0, head)}…${t.slice(-tail)}`;
+}
+
+/**
  * ★ P6a（2026-10-30）：把 `treeDir` 变成**相对** TRACE 路径（默认挂在 `sessions/` 下）。
  *
  * 为什么：生产口径实测 94/133 个会话带 TRACE 行，绝对路径平均 137.7 字符 ——
@@ -299,16 +322,20 @@ function seqSpan(edge) {
  *
  * 键是标记前缀（`redundant:e1+2` 的键是 `redundant`）。
  */
+// ★ C45：图例只陈述**事实**，不写行动建议。旧版带 "retry when …" / "take it" —— 那是
+//   「该不该再试 / 该不该走这条路」的指导，属于 AGENTS/persona，不属于压缩（见 docs/压缩的职责边界.md）。
+//   标记本身已经说了「为什么这条路不通」；要不要再试是模型自己的判断。
 const MARKER_LEGEND = {
-  dead: "a working path avoids it — retry only if retry-if breaks",
-  "blocked:permission": "needs a permission this environment lacks — retry when it changes",
-  "blocked:missing-resource": "absent — retry when it appears, or create it",
-  "blocked:timeout": "no answer in time — retry when it recovers",
-  "blocked:unreachable": "connection refused — retry when it is up",
-  blocked: "not available right now — retry when that changes",
+  // C64：只陈述事实 —— 标签里的 retry-if:eN 指「那条绕开它的工作边」，不写「何时可再试」
+  dead: "a working path avoids it; the tag names that edge",
+  "blocked:permission": "the environment lacks a required permission",
+  "blocked:missing-resource": "the required resource is absent",
+  "blocked:timeout": "no answer within the time limit",
+  "blocked:unreachable": "connection refused",
+  blocked: "not available in this environment",
   failed: "retryability unknown",
-  redundant: "working edge <edge> reaches the SAME position — take it",
-  longer: "working edge <edge> reaches it in fewer steps — take it",
+  redundant: "a working edge <edge> reaches the SAME position",
+  longer: "a working edge <edge> reaches it in fewer steps",
   novel: "reached positions no working path covers — new information",
 };
 
@@ -354,20 +381,118 @@ export function failureTags(edge, tewari = null, mode = "semantic") {
   return tags;
 }
 
+/** 单行化：把换行/连续空白压成单个空格（失败边必须是物理上一行，见 renderFailureLine 注释）。 */
+function oneLine(text) {
+  return norm(text).replace(/\s+/g, " ").trim();
+}
+
 /** 一条失败边的单行渲染。level 控制长度：0=最详细，3=最省。 */
-export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic") {
+/**
+ * 一条失败边后来被**同一 action 的成功边**解决了吗（图结构事实，不是判断）。
+ *
+ * 为什么重要（C17，来自 05 §7.2「因果配对是唯一无法重建的东西」）：失败边是永久记忆，
+ * 但「同一个命令后来跑通了」这个事实只存在于历史里 —— 不标出来，模型会以为那条路仍然堵着。
+ * 这里只陈述「后来 e34 成功了」，不写「你应该去试」。
+ */
+export function laterSuccessOf(edge, successEdges = []) {
+  const action = edge?.action;
+  if (!action) return null;
+  const endOf = (e) => evidenceEndSeq(e, -Infinity);
+  const failEnd = endOf(edge);
+  if (!Number.isFinite(failEnd)) return null;
+  let best = null;
+  for (const candidate of successEdges) {
+    if (candidate?.result !== "success" || candidate.action !== action) continue;
+    const end = endOf(candidate);
+    if (!(end > failEnd)) continue;
+    if (best === null || end < endOf(best)) best = candidate;
+  }
+  return best;
+}
+
+/**
+ * ★ C448：热清单里「当前目标」到底能取到什么 —— 纯函数，便于单测。
+ *
+ * 由来（真机实测）：`CURRENT GOAL` 这行**几乎从不出现**。查下来不是渲染写错，是**没有原料**：
+ * 一个 35.7 MB 会话里 3,369 条 assistant 消息有 **93.3% 没有 `text` 块**（3,142 条），
+ * 而 `goal` 只从 assistant 文本抽 ⇒ 19,375 个 agent 节点里只有 62 个（0.3%）有 goal。
+ *
+ * 所以补一个**一定存在**的兜底：最近一条 **user 原话**（多轮会话里 78% 有，长度中位 21 字）。
+ * 只在两个条件下用，避免把噪声伪装成目标：
+ *   · agent 节点自己没有 goal；
+ *   · 最近一条 user **不是根节点**（是根的话它就等于已经渲染过的 ROOT USER，重复一遍是纯浪费）。
+ *
+ * 成本实测（37 个真机会话）：整库热清单 tokens 15803 → 16134（**+2.1%**，约 +9 tok/会话）。
+ *
+ * @returns {{text: string, source: "agent-goal"|"latest-user"}|null}
+ */
+/**
+ * ★ C449：这条 user 原话**值不值得复诵**。
+ *
+ * 真机数据（29 个多轮会话，最新 user 消息长度**中位 12 字**）里最短的一批是：
+ * `继续`×3、`go`、`修一下`、`都是0`、`我重启好了`×2 …
+ * 把「继续」渲染成 `CURRENT GOAL: 继续` 不但没信息，还会让模型以为**当前目标就是"继续"**。
+ *
+ * 判据只拦**纯接续/确认词**（外加 ≤2 字的碎片），不做语义猜测：
+ * 命中的东西模型本来也不需要被告知（它就在最后一条消息里）。
+ */
+const CONTINUATION_ONLY_RE = /^(?:继续|接着|再继续|继续吧|往下|go|continue|ok|okay|好|好的|行|嗯|可以|开始|请继续|继续推进)[\s。.!！?？~～]*$/i;
+
+export function isInformativeAsk(text) {
+  const t = String(text ?? "").trim();
+  if (t.length === 0) return false;
+  if (t.length <= 2) return false;
+  return !CONTINUATION_ONLY_RE.test(t);
+}
+
+export function currentGoalOf(g, latestAgent) {
+  const goal = typeof latestAgent?.goal === "string" ? latestAgent.goal.trim() : "";
+  if (goal !== "") return { text: goal, source: "agent-goal" };
+  const users = (g?.order ?? [])
+    .map((id) => g.nodes?.[id])
+    .filter((n) => n !== undefined && n !== null && n.kind === "user" && typeof n.text === "string" && n.text.trim() !== "");
+  if (users.length === 0) return null;
+  const last = users[users.length - 1];
+  const rootIds = Array.isArray(g?.rootUserNodeIds) ? g.rootUserNodeIds : [];
+  // 只有一条 user / 最新那条就是根 ⇒ 与 ROOT 重复，不给
+  if (rootIds.includes(last.id) || users.length === 1) return null;
+  // ★ C449：**只复诵"最新那条且它本身有信息量"**。
+  //   为什么不去更早的消息里找一条有信息量的：那条多半**已经做完了**，
+  //   把一个完成的旧任务写成 CURRENT GOAL，比不写更糟（会把模型拽回去重做）。
+  const text = last.text.trim();
+  if (!isInformativeAsk(text)) return null;
+  return { text, source: "latest-user" };
+}
+
+export function renderFailureLine(edge, level = 0, tewari = null, mode = "semantic", resolvedBy = null, retried = 1) {
   const intentLen = [70, 50, 34, 22][Math.min(level, 3)];
   // ★ 2026-10-29：原因（报错原文）**任何级别都保留**，只是越来越短。
   //   旧版 level ≥3 直接把 `→ 原因` 整段砍掉 ⇒ 全库实测 133 条可见失败边里只有 25 条带原因，
-  //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」。而原因正是它避免重犯的判据。
+  //   模型看到「我试过 X、它 blocked」却看不到「报错是什么」，而原因正是它避免重犯的判据。
   //   现在最省的一档也留 25 字（"Error: EACCES: permissio…" 足够认出是什么错）。
   const reasonLen = [90, 60, 36, 25][Math.min(level, 3)];
-  const intent = clip(edge.intent || edge.action || "(未记录意图)", intentLen);
-  const reason = clip(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)", reasonLen);
+  // ★ 2026-11-01：intent / reason 都改用「中段省略」——命令与路径常在尾部，纯首部截断会丢掉它们。
+  // ★ 2026-11-01（handoff-check 在 live 语料上抓到）：**失败边必须是物理上一行**。
+  //   多行 errorSnippet（如 `----\n0\n[exit code: 1]`）会把 `(seq …)` 挤到后续几行，
+  //   模型读到的是「一条边拆成四行」，出处覆盖率指标也会误判成「渲染器在砍 seq」。
+  //   这里把换行/连续空白一律压成单个空格 —— 只影响排版，不丢任何字符内容。
+  const intent = clipMiddle(oneLine(edge.intent || edge.action || "(未记录意图)"), intentLen);
+  const reason = clipMiddle(oneLine(edge.errorSnippet || edge.verify?.summary || edge.action || "(未记录原因)"), reasonLen);
   const seq = seqSpan(edge);
   const tags = failureTags(edge, tewari, mode);
   const tag = tags.length > 0 ? ` [${tags.join(" ")}]` : "";
-  return `- ${edge.id} "${intent}" → ${reason}${seq && level <= 1 ? ` (seq ${seq})` : ""}${tag}`;
+  // ★ 2026-11-01（docs/research/03-human-memory.md 建议 A）：出处（seq）任何档位都不砍。
+  //   越紧的档位越需要判断「这条边是什么时候发生的」；只留 edge id 时模型知道「e12 失败过」，
+  //   却无法把它和当前进度对齐。
+  //   ★ 2026-11-01 二次修正（bench 实测）：全档位用 `(seq a-b)` 让 2000 边夹具从 351 涨到 453 tok（+29%）。
+  //   预算紧的档位改用**短格式** `(sa-b)` —— 出处（数字）一个都没少，只省掉 3 个字符/边。
+  const seqTag = seq ? ` (${level <= 1 ? "seq " : "s"}${seq})` : "";
+  // ★ C17：后来被同一 action 的成功边解决 —— 只给边 id（可回查），不写行动建议。
+  // ★ C18（调研候选 #15 的后半）：同一个 action 失败过 k 次（k≥2）⇒ 标 `↻k`。
+  //   这是**计数事实**（同一命令被反复尝试），暗示在原地重试；不写「别重试」（那是 AGENTS 的事）。
+  const retry = Number.isFinite(retried) && retried >= 2 ? ` ↻${retried}` : "";
+  const later = resolvedBy ? ` ↑later-ok:${resolvedBy.id}` : "";
+  return `- ${edge.id} "${intent}" → ${reason}${seqTag}${retry}${later}${tag}`;
 }
 
 /**
@@ -452,6 +577,36 @@ function pathDigestLine(ids) {
  *     仍不行 ⇒ CURRENT PATH 退化成 `# path:` 摘要行，**当前位置永远在**。
  *  4. 预算为负（连标题都放不下）时也要给出一行 `# path: <当前位置>` —— 路径行不是可选项。
  */
+/**
+ * ★ C562：**二分找「装得下的最大 keep」**。
+ *
+ * 旧写法从 `len-1` 逐 1 递减去找 —— 对 846 个节点的路径就是 ~840 次 `foldIds`（每次还要拼 840 个标签），
+ * 实测单次渲染 **39.4% 的采样**花在这里（profile 头号热点 `foldIds`）。
+ * 行长度对 `keep` 单调（keep 越小行越短）⇒ 二分与线性扫描**答案完全一致**，次数从 ~840 降到 ~10。
+ *
+ * @param {number} high 起始 keep（含）
+ * @param {number} low 下界 keep（含）
+ * @param {(keep:number)=>string} makeLine
+ * @param {(line:string)=>boolean} fits
+ * @returns {string|null} 第一个装得下的行（没有就 null）
+ */
+function firstFittingLine(high, low, makeLine, fits) {
+  let lo = low;
+  let hi = high;
+  let best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const line = makeLine(mid);
+    if (fits(line)) {
+      best = line;
+      lo = mid + 1; // 装得下 ⇒ 试更大的 keep（更保信息）
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
 function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { allowMerge = true } = {}) {
   const curBody = pathBody(currentLine, "CURRENT PATH");
   const workBody = pathBody(workingLine, "WORKING");
@@ -484,29 +639,47 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
     //   `TypeError: Cannot read properties of null (reading 'length')`（实测崩在原 line 244，
     //   全量测试 C17-11/12/13 三红、runner 只打印到崩溃点）。这个形态必须自己折 WORKING。
     //   语义不变：WORKING 的尾节点就是当前位置；头 1 + 尾 1 起步，`… +N` 只在真省得下时出现。
-    for (let keep = work.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `WORKING: ${foldIds(work, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}`;
-      shapes.push({ currentLine: null, workingLine: line });
-      if (line.length <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        work.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `WORKING: ${foldIds(work, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}`;
+        },
+        (l) => l.length <= budget,
+      );
+      if (line !== null) return { currentLine: null, workingLine: line };
     }
     const workShortest = `WORKING: ${foldIds(work, (x) => x, 1, 1)}`;
     shapes.push({ currentLine: null, workingLine: workShortest });
     if (workShortest.length <= budget) return shapes.at(-1);
   } else if (work === null) {
     // 只有 CURRENT PATH：折中段
-    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
-      shapes.push({ currentLine: line, workingLine: null });
-      if (line.length <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        curIds.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+        },
+        (l) => l.length <= budget,
+      );
+      if (line !== null) return { currentLine: line, workingLine: null };
     }
   } else {
-    for (let keep = curIds.length - 1; keep >= KEEP_HEAD + KEEP_TAIL + 1; keep -= 1) {
-      const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
-      const line = `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
-      shapes.push({ currentLine: line, workingLine: workFull });
-      if (line.length + (workFull?.length ?? 0) <= budget) return shapes.at(-1);
+    {
+      const line = firstFittingLine(
+        curIds.length - 1,
+        KEEP_HEAD + KEEP_TAIL + 1,
+        (keep) => {
+          const tailK = Math.max(KEEP_TAIL, Math.round((keep * KEEP_TAIL) / (KEEP_HEAD + KEEP_TAIL)));
+          return `CURRENT PATH: ${foldIds(curIds, (x) => x, Math.max(KEEP_HEAD, keep - tailK), tailK)}${tag}`;
+        },
+        (l) => l.length + (workFull?.length ?? 0) <= budget,
+      );
+      if (line !== null) return { currentLine: line, workingLine: workFull };
     }
     // ★ C-17 rev6：`head` 形态的正解是「两条都折、都保留可读头尾」，而不是直接退到 `# path:` 摘要
     //   （摘要是 L4/L5 `n1` 形态的兜底）。上方循环只把 WORKING 当整条配对，长 WORKING 会让每次配对都
@@ -541,6 +714,125 @@ function fitPaths(currentLine, workingLine, budget, shape, workingTag = "", { al
  * @param {{maxTokens?:number, tailFailures?:number, markers?:'semantic'|'terse'|'off'}} [options]
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number}}
  */
+/**
+ * 出处覆盖率：**失败边行**里带 `(seq …)` 的比例。
+ *
+ * 为什么要有（2026-11-01，`docs/research/03-human-memory.md` 建议 I）：
+ *   「来源监控」是我们刻意保留的能力，但它很容易在追 token 预算时被悄悄优化掉
+ *   （`seq && level <= 1` 就是一次真实的回退）。有了这个数字，任何"为省 10 字符砍掉出处"
+ *   的改动都会在测试里立刻显形；它也是 bench 的对照指标。
+ *
+ * ★ 2026-11-01 口径修正（`scripts/handoff-check.mjs` 在 live 语料上抓到两次）：
+ *   ① 旧定义把**所有** `- e<id>` 行算进分母，OPTIONS / UNVERIFIED（本来就不带 seq）被当成
+ *      「缺出处的失败边」⇒ 真实会话覆盖率恒 <1（0.22 / 0.43 / 0.80）。现在只统计**失败边行**
+ *      （特征：带 `→`）。
+ *   ② 真实语料里还有一类**数据缺口**：老图的失败边没有 `evidence`，渲染器再正确也印不出 seq
+ *      （实测某会话 7 条失败边里 4 条无 evidence）。这不该算「渲染回退」，否则指标永远红。
+ *      ⇒ 传入 `edgesById` 时按**结构化口径**算：只对「本来就有 evidence」的边要求 seq；
+ *      没有 evidence 的边单独计数到 `evidenceMissing`（数据缺口，另一件事）。
+ *
+ * 只统计失败边行（汇总行、注释行、OPTIONS/UNVERIFIED 行不算），没有失败边行时返回 1。
+ *
+ * @param {string} text 渲染后的热清单
+ * @param {Map<string, object>|Record<string, object>|null} [edgesById] 不传则退回纯文本口径（要求每行都有 seq）
+ */
+export function provenanceCoverageOf(text, edgesById = null) {
+  const edgeLines = String(text ?? "")
+    .split("\n")
+    .filter((line) => /^- [a-z]\d+ /.test(line) && line.includes(" → "));
+  if (edgeLines.length === 0) return 1;
+  // ★ 2026-11-01 二次修正：出处有两种写法 —— L0/L1 用 `(seq a-b)`（可读），L2+ 用 `(sa-b)`（省字符）。
+  //   只认前者会让覆盖率在降级档位掉成 0，把"省字符"误判成"丢出处"。
+  const SEQ_TAG_RE = /\((?:seq |s)[\d-]+\)/;
+  if (edgesById === null || edgesById === undefined) {
+    const withSeq = edgeLines.filter((line) => SEQ_TAG_RE.test(line)).length;
+    return withSeq / edgeLines.length;
+  }
+  const lookup = (id) => (typeof edgesById.get === "function" ? edgesById.get(id) : edgesById[id]);
+  let ok = 0;
+  for (const line of edgeLines) {
+    const id = /^- ([a-z]\d+) /.exec(line)?.[1] ?? "";
+    const edge = lookup(id);
+    // 图里找不到这条边 / 它本来就没有 evidence ⇒ 不要求 seq（不是渲染的锅）
+    const mustHaveSeq = edge !== undefined && edge !== null && seqSpan(edge) !== "";
+    if (!mustHaveSeq || SEQ_TAG_RE.test(line)) ok += 1;
+  }
+  return ok / edgeLines.length;
+}
+
+/**
+ * 分项占用：热清单的 token 花在哪一段上。
+ *
+ * 为什么需要（2026-11-01，做完 A/D 两项后 bench 从 351 涨到 446 才意识到）：
+ *   只知道「总量超没超预算」不够 —— 要谈「分项预算（让约束/根目标永远逐字）」，
+ *   必须先知道**现在各段各占多少**，否则抬某段下限就是在拍脑袋挪别人的钱。
+ *   它让「给约束保底」变成一道算术题：从失败边条数挪，还是从根目标尾部挪。
+ *
+ * 纯函数、零副作用；按行首归类，同段累加，未识别归 other。
+ */
+export function measureLedgerSections(text) {
+  const sizes = { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 };
+  let mode = "other";
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.startsWith("ROOT USER")) mode = "root";
+    else if (line.startsWith("CONSTRAINTS")) mode = "constraints";
+    else if (line.startsWith("LEARNED") || line.startsWith("FAILED_ATTEMPTS")) mode = "failures";
+    else if (line.startsWith("OPTIONS")) mode = "options";
+    else if (line.startsWith("UNVERIFIED")) mode = "unverified";
+    else if (line.startsWith("# path") || line.startsWith("# WORKING") || line.startsWith("CURRENT PATH")) mode = "path";
+    sizes[mode] += line.length + 1;
+  }
+  // 单位提醒：这里全是**字符数**，不是 token。要算占比请用 total 做分母，
+  // 别拿 renderLedger().tokens 去除 —— 两者单位不同（2026-11-01 实测踩过：算出 238% 的失败边占比）。
+  sizes.total = Object.values(sizes).reduce((a, b) => a + b, 0);
+  return sizes;
+}
+
+/**
+ * ★ C313：热清单渲染的**分项计时**（K-16 的前置仪器）。
+ *
+ * 为什么要有它：C312 踩过 `measureLedgerSections(text)` 的坑 —— 那是**按文本算字符数**，
+ * 不是计时。想回答"哪一段最贵"，必须真的把各段重跑一遍并计时。
+ *
+ * 做法：把 `renderLedger` 内部要做的几件大活（建索引、筛悬空、算 options、算路径）**各自重跑一次**。
+ * 这些都是幂等的纯查询，重跑不影响任何状态；数值是**近似**（真实渲染里还会叠加字符串拼接），
+ * 但足以定位"哪一段最贵"。
+ *
+ * @param {object} g
+ * @param {{reps?:number, now?:number}} [options]
+ * @returns {{total:number, parts:Record<string, number>, split:string}}
+ */
+export function measureLedgerTimings(g, { reps = 10, now = Date.now() } = {}) {
+  const once = (fn) => {
+    try {
+      fn();
+    } catch {
+      /* 某一段抛错不影响其它段 */
+    }
+  };
+  const time = (fn) => {
+    once(fn); // 预热
+    const started = process.hrtime.bigint();
+    for (let i = 0; i < reps; i += 1) once(fn);
+    return Number(process.hrtime.bigint() - started) / 1e6 / reps;
+  };
+  const parts = {
+    failureEdges: time(() => failureEdges(g)),
+    successScan: time(() => Object.values(g.edges ?? {}).filter((e) => e?.result === "success" && typeof e.action === "string" && e.action !== "")),
+    danglingStats: time(() => danglingStats(g, { now })),
+    options: time(() => Object.values(g.edges ?? {}).filter((e) => isDanglingOption(e, { graph: g, now }))),
+    paths: time(() => {
+      currentPath(g);
+      latestAgentNode(g);
+    }),
+    tewari: time(() => tewariAnalysis(g)),
+  };
+  const total = time(() => renderLedger(g, { now }));
+  const sum = Object.values(parts).reduce((a, b) => a + b, 0);
+  const split = sum > 0 ? `${((sum / total) * 100).toFixed(0)}% 可归因` : "无法归因";
+  return { total, parts, split };
+}
+
 export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
   // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
   //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
@@ -549,6 +841,31 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const allFailures = failureEdges(g);
   const failures = allFailures.filter((e) => !isDanglingResidue(e, { graph: g, now }));
   const omittedResidue = allFailures.length - failures.length;
+  // ★ 2026-11-01（出处覆盖率口径修正）：按 id 查边，区分「渲染器砍了 seq」与「源数据本来就没有 evidence」。
+  const failuresById = new Map(failures.map((e) => [e.id, e]));
+  // ★ C17：成功边索引（按 action）—— 标注「这条失败后来被同一命令跑通了」，只建一次。
+  const successEdges = Object.values(g.edges).filter((e) => e?.result === "success" && typeof e.action === "string" && e.action !== "");
+  // ★ C18：同一 action 的失败次数（只在同一段历史里计数；用来标「这条命令被反复试过 k 次」）。
+  const failureActionCounts = new Map();
+  for (const e of failures) {
+    if (typeof e?.action !== "string" || e.action === "") continue;
+    failureActionCounts.set(e.action, (failureActionCounts.get(e.action) ?? 0) + 1);
+  }
+  // 只在同 action 组里**最近的那条**上标 ↻k（每条都标会白烧 token：计数是同一个数字）。
+  const endSeqOf = (edge) => evidenceEndSeq(edge, -Infinity);
+  const latestFailureByAction = new Map();
+  for (const e of failures) {
+    if (typeof e?.action !== "string" || e.action === "") continue;
+    const prev = latestFailureByAction.get(e.action);
+    if (prev === undefined || endSeqOf(e) >= endSeqOf(prev)) latestFailureByAction.set(e.action, e);
+  }
+  const retriedTimesOf = (edge) => {
+    if (typeof edge?.action !== "string") return 1;
+    if (latestFailureByAction.get(edge.action) !== edge) return 1;
+    return failureActionCounts.get(edge.action) ?? 1;
+  };
+  /** 数据缺口：这些失败边连 evidence 都没有 ⇒ 模型无法回查（不是渲染的锅，指标里单独计）。 */
+  const evidenceMissing = failures.filter((e) => seqSpan(e) === "").length;
   const dangling = danglingStats(g, { now });
   // ★ P6-A：UNVERIFIED_CLAIMS 里的 rewash 残留（to=null 的 unverified）同样是噪声 ——
   //   它们既没有终点、也不可能再被结算（result 已写死 unverified），展示出来只会占行数。
@@ -567,7 +884,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   //   旧版放在档位循环里，2000 边时要跑 6 档 × 30 条 BFS（实测渲染 4.9 → 7.5ms）；
   //   旧旧版更糟：显示条数 >30 时一条都不算 ⇒ 大会话里手割标记全丢。
   const tewariMap = new Map();
-  for (const e of failures.slice(-30)) tewariMap.set(e.id, tewariAnalysis(g, e));
+  // ★ C561：**大图上别为 30 条边各跑一次 BFS**。真机（c0a5847a，5,885 节点 / 6,010 边）：
+  //   单次渲染 137.8ms，其中 **72.3ms 是 30 次 tewariAnalysis**（每条一次可达性 BFS）。
+  //   深会话的清单本来就大幅截断，手割标记只对**最近**几条有意义 ⇒ 大图只算 8 条。
+  const tewariCap = Object.keys(g.edges ?? {}).length > 3000 ? 8 : 30;
+  for (const e of failures.slice(-tewariCap)) tewariMap.set(e.id, tewariAnalysis(g, e));
 
   // ★ P1（2026-10-30）：置换索引，一次建好。
   //   旧写法在**每个档位**里、对**每个 path hop** 都做一次 `Object.values(g.edges).some(...)`
@@ -620,8 +941,28 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   // 「当前路径 === 工作路径」就只显示一份（旧行为，S2a 定稿：行内容打标 + 图例，省 20~40 tokens）
   const sameAsWorking =
     workingIds !== null && workingIds.length === currentIds.length && workingIds.every((id, i) => id === currentIds[i]);
-  const pathLabel = (id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}`;
-  const workingLabel = (id) => (g.nodes[id]?.kind === "user" ? "user" : id);
+  // ★ 2026-11-01（C16，调研候选 #15 的符号版）：**重访过的状态**在路径里标出来（`n41×2`）。
+  //   `transpositions` 是 mergeNodeInto 记的「同一状态被另一条路径再次到达」次数（图结构事实），
+  //   所以 ×N 只陈述「这个位置被到过 N 次」，不写「你该换条路」——行动判断仍归模型/AGENTS。
+  //   为什么值得显示：这种循环在热清单里原本完全不可见，模型只看到一长串节点，不知道自己在原地打转。
+  //   成本：只有真的重访过才有字符（正常会话 0 成本）。
+  const reentryTag = (id) => {
+    const extra = Number(g.nodes[id]?.transpositions);
+    return Number.isFinite(extra) && extra >= 1 ? `×${extra + 1}` : "";
+  };
+  // ★ C562：**标签按 id 记忆一次**。真机（c0a5847a）路径长 **846**，而标签会被 4 个档位各算一遍
+  //   ⇒ 3,400 次字符串拼接，占单次渲染 41.5% 的采样（profile 里 `foldIds` 是头号热点）。
+  //   同一 id 在同一次渲染里标签恒定，缓存后各档位复用。
+  const labelCache = new Map();
+  const memoLabel = (fn) => (id) => {
+    const hit = labelCache.get(id);
+    if (hit !== undefined && hit.kind === fn) return hit.text;
+    const text = fn(id);
+    labelCache.set(id, { kind: fn, text });
+    return text;
+  };
+  const pathLabel = memoLabel((id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}${reentryTag(id)}`);
+  const workingLabel = memoLabel((id) => (g.nodes[id]?.kind === "user" ? "user" : `${id}${reentryTag(id)}`));
   // 两条待渲染的路径行（full 形态）；L3+ 再按剩余预算折叠（见 fitPaths）
   const { currentLine, workingLine } = foldPaths(currentIds, workingIds, sameAsWorking, pathLabel, workingLabel);
   // WORKING 尾部那条边的 id：L3+ 把 WORKING 合并进 CURRENT PATH 时用它保住「哪条边算工作」
@@ -633,7 +974,11 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   // ★ S5（2026-10-31）：TRACE 行两形态。带 recent 的版本在**预算装不下时退回旧形态**，
   //   否则「加一条新信息」会把本来刚好装下的会话顶到 500 以上（真实语料实测 30→31 个超预算）。
   //   先算好两条候选行，各档按预算选（见循环末尾的 dropped 逻辑）。
-  const traceBaseLine = treeDir ? `TRACE: ${traceRelativeDir(treeDir, traceRoot)}/index.md` : null;
+  // ★ 2026-11-01（调研候选 #3）：热清单里任何「有东西被省掉了」的行都必须给出**可解析的位置**。
+  //   规则与 TRACE 行一致：treeDir 先相对化成 `sessions/<sid>`（或配置的 traceRoot），绝不泄漏绝对路径（P6a）；
+  //   treeDir 为空时退化成 `graph.json`，但仍带节点区间 —— 不许只剩一个泛称。
+  const relTree = treeDir ? traceRelativeDir(treeDir, traceRoot) : "";
+  const traceBaseLine = relTree ? `TRACE: ${relTree}/index.md` : null;
   const traceRecentSeg = traceBaseLine === null ? "" : traceRecentSegment(path);
   const traceRecentLine = traceRecentSeg === "" ? null : `${traceBaseLine} · ${traceRecentSeg}`;
 
@@ -678,17 +1023,37 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     //   否则模型会把没有润色的规则事实当成正常摘要读。旧图没有这个字段 ⇒ 不显示（向后兼容）。
     //   两个字段都认：`lastFoldMode`（规范字段）与 `lastFoldDegraded`（同时写的布尔别名）。
     if (g.lastFoldMode === "rules" || g.lastFoldDegraded === true) lines.push("⚠ 上次摘要是规则生成（无模型润色）");
+    // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
+    //   压缩无效要当一等状态显示出来。只陈述事实（连续几次、间隔多近），**不给行动指令** ——
+    //   「要不要换策略」是模型的判断，不是压缩该替它做的事。只在真的连续发生时出现，正常会话零成本。
+    if (typeof g.foldThrash === "number" && g.foldThrash >= 2) {
+      lines.push(`⚠ 上次 fold 未回收足够空间（连续 ${g.foldThrash} 次 fold 间隔 < 30 事件）`);
+    }
     // ★ C-17 rev6：L3+ 的 root 裁剪从 180 收到 168 —— 给「最小路径行」预留 12 字符。
     //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 5b38b355 HEAD=497/1490 字符）
     //   只要多一行 `# path: n185` 就 501，成为唯一一个「新增超预算」。路径信息优先于
     //   root 尾部 12 个字符（root 本来就已被 clip，且 L0–L2 逐字不变）。
-    if (root) lines.push(`ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`);
+    // C44：这两段（根目标 + 约束）**任何档位都只能 clip、不能删** —— 单独记下它们的 token 数，
+    // 用来区分「渲染超预算」与「不可裁下限本身就超预算」。
+    let unyieldingText = "";
+    if (root) {
+      const rootLine = `ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`;
+      unyieldingText += `${rootLine} `;
+      lines.push(rootLine);
+    }
     // 始终收集**所有** user 节点的约束：旧版只要 root 有约束就只看 root，
     // 后续用户消息里的约束（"不要动 prod 配置"）在热清单里消失（审查 P1-6）。
     const cons = collectConstraints(g);
     if (cons.length) {
       lines.push("CONSTRAINTS (verbatim):");
-      for (const c of cons.slice(0, 12)) lines.push(`- ${clip(c, level <= 1 ? 220 : 120)}`);
+      // ★ 2026-11-01（边界复审发现的显示 bug）：约束原文常常自带 markdown 列表符号
+      //   （用户写「- 不要动 prod 配置」），渲染时再补一个 `- ` 就变成 `- - 不要动…`。
+      //   这里只剥掉**渲染用的前缀符号**，正文一个字不改（逐字保留的口径不受影响）。
+      for (const c of cons.slice(0, 12)) {
+        const line = `- ${clip(c.replace(/^\s*[-*]\s+/, ""), level <= 1 ? 220 : 120)}`;
+        unyieldingText += `${line} `;
+        lines.push(line);
+      }
     }
     // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
     //   这样路径行的预算能扣掉它的**真实长度**。
@@ -707,11 +1072,16 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       shown = failures.slice(-10);
       omitted = failures.length - shown.length;
     }
+
     const tailLines = [];
-    // ★ P6-A：被排除的残留必须**说一句**（不能静默消失）。一行、带计数，模型知道「有东西被省了」。
-    // 残留省略不单独站一行（每行都是 token）：renderFacts 里有 DANGLING_RESIDUE 计数，热清单只求不展示。
+    if (failures.length) tailLines.push(`LEARNED (${failures.length} failed attempts):`);
+    // ★ P6-A / C227 / C654：被排除的残留必须**说一句**（不能静默消失）。一行、带计数与 graph 指针，
+    //   模型知道「有东西被省了」。计数行不能挂在 LEARNED 块里：只有 residue、非残留失败为 0 时，
+    //   历史同样必须可见，但 residue 本身不塞进 LEARNED。
+    if (omittedResidue > 0) {
+      tailLines.push(`# 另有 ${omittedResidue} 条无终点残留（rewash 历史，未展开；全文 graph.json）`);
+    }
     if (failures.length) {
-      tailLines.push(`LEARNED (${failures.length} failed attempts):`);
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
       // ★ P6a（2026-10-30）：TRACE 只给**相对路径**（`sessions/<sid>/index.md`）。
@@ -729,26 +1099,75 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   无论总数多少，最近这批边都有标记。
       // ★ P1（2026-10-30）：直接复用本函数开头算好的 tewariMap（失败边尾部 30 条，覆盖所有档位），
       //   不再每个档位重算一遍 —— 旧写法 6 个档位 × 30 条 = 180 次重复手割，是渲染耗时的主因。
-      const markerLines = markerLegendLines(shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers)));
+      // ★ C52：同类失败的无损压缩 —— 若每条失败边的标记键集合完全相同（典型：全部 blocked:permission），
+      //   标记从每行移到一行汇总（`# all 9 failures: blocked:permission`），每行省 20+ 字符，
+      //   而「它们全属同一类」这个额外事实也保住了；图例照旧解释键含义 ⇒ 语义零丢失。
+      const tagLists = shown.map((e) => failureTags(e, tewariMap.get(e.id) ?? null, markers));
+      // 只用「完整标记串」判同一类：`dead retry-if:e1` 与 `dead retry-if:e2` 不同（逐条指针不能并成一条）
+      const keySets = tagLists.map((list) => [...list].sort());
+      const uniform =
+        shown.length >= 3 &&
+        level >= 2 &&
+        keySets.every((ks) => ks.length > 0 && ks.length === keySets[0].length && ks.every((k, idx) => k === keySets[0][idx]));
+      if (uniform) tailLines.push(`# all ${shown.length} failures: ${keySets[0].join(", ")}`);
+      const markerLines = markerLegendLines(tagLists, { compact: level >= 2 });
       for (const line of markerLines) tailLines.push(line);
       if (omitted > 0) {
         tailLines.push(
-          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${treeDir ? `${treeDir}/index.md` : "index.md"} (per node: nodes/<id>.md) / by seq in the session log`,
+          `- … ${omitted} earlier dead ends omitted for budget: ${failures[0].id}..${failures[omitted - 1].id} — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} / nodes/<id>.md`,
         );
       }
-      for (const e of shown) tailLines.push(renderFailureLine(e, level, tewariMap.get(e.id) ?? null, markers));
+      // ★ C231（K-6 主体）：**已修正的失败沉底**。
+      //   依据（Lost in the Middle，TACL 2023）：中段最容易被漏读 —— 而 LEARNED 里判别价值最低的，
+      //   正是「同一条 action 后来自己跑通了」的那些边（数量见 doctor 的抗干扰度）。它们**一条都不删**
+      //   （契约要求不丢失败记忆），只是排到段末，让「还没被自己修正过」的留在最前面。
+      //   排序稳定 ⇒ 两组内部仍按原顺序（老的在前），不引入新语义。
+      const orderedShown = [...shown].sort((a, b) => (laterSuccessOf(a, successEdges) ? 1 : 0) - (laterSuccessOf(b, successEdges) ? 1 : 0));
+      for (const e of orderedShown) {
+        tailLines.push(
+          renderFailureLine(
+            e,
+            level,
+            tewariMap.get(e.id) ?? null,
+            // 同类失败：标记已在汇总行说明 ⇒ 行内不再重复（语义没丢，只换了位置）
+            uniform ? "off" : markers,
+            laterSuccessOf(e, successEdges),
+            retriedTimesOf(e),
+          ),
+        );
+      }
     }
     // ★ P6C-1：OPTIONS 区段（新鲜 + 陈旧，陈旧标 `[stale Xm]`）。只在 L0/L1 出现，
   //   与 UNVERIFIED 同档 —— 它们是「下一步要不要接着做」的决策信息，预算紧张时先让位给失败记忆。
-  if (options.length && level <= 1) {
-      tailLines.push("OPTIONS (not yet landed — you may continue or abandon):");
-      for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
+  if (options.length) {
+      // ★ 2026-11-01（调研建议 D + 提取诱发遗忘依据）：L2+ 也不再整段消失 ——
+      //   至少留「还有几个选项 + 最近一条」。只列当前路径会让模型忘记还有别的路，
+      //   而沉默本身就是一种断言（"只有这一条路"）。
+      if (level <= 1) {
+        tailLines.push("OPTIONS (not yet landed):");
+        for (const e of options.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"${staleTagOf(e, now)}`);
+      } else {
+        // ★ 2026-11-01 二次修正（bench）：去掉 latest 的 intent 摘录 —— id 足够定位，省 ~35 字符/行。
+        const latest = options[options.length - 1];
+        tailLines.push(`OPTIONS: ${options.length} not yet landed (latest ${latest.id})`);
+      }
     }
     if (open.length && level <= 1) {
-      tailLines.push("UNVERIFIED (ran, but no external signal — treat as unproven):");
+      // C46：只陈述状态（unproven），不写「把它当成未验证来对待」这类认知指令。
+      tailLines.push("UNVERIFIED (ran, but no external signal — unproven):");
       for (const e of open.slice(-6)) tailLines.push(`- ${e.id} "${clip(e.intent || e.action, 50)}"`);
+    } else if (open.length) {
+      // ★ 2026-11-01（handoff-check 在 live 语料上抓到：契约 ⑤ 在 L2+ 静默消失）：
+      //   「跑了但没验证」的声明在紧档位整段消失 = 断言「没有未验证的东西」，与 OPTIONS 同一类错误
+      //   （提取诱发遗忘）。L2+ 至少留一行计数 + 最近一条 id —— 只陈述事实，不给行动建议。
+      const latestOpen = open[open.length - 1];
+      // C56：这是计数行、不是省略行 —— 位置信息已由「docs / TRACE」约定承载，不再重复一条指针。
+      tailLines.push(`UNVERIFIED: ${open.length} unproven (latest ${latestOpen.id})`);
     }
-    if (path.length > 1) {
+    // ★ C226：**1 个节点的路径也是路径**。旧条件是 `path.length > 1` ⇒ 任何「只有当前位置、
+    //   走不出链」的图（只有一个 agent 节点 / 边还没接上）在**任何档位**都不出路径行，
+    //   而 handoff-check 的契约 ⑥ 要求「图有路径 ⇒ 清单必须有当前位置」（live 实测 2 个会话稳定 FAIL）。
+    if (path.length > 0) {
       const shape = PATH_SHAPE[Math.min(level, PATH_SHAPE.length - 1)];
       // ★ C-17（2026-10-30，第二轮修）：路径行预算必须扣掉**这一档除路径以外的全部行** ——
       //   header / root / constraints **以及已经算好的 tailLines（失败边块）**、还要 push 的
@@ -758,8 +1177,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   （verifier 复验抓到；e3820651 331→742、6f90bd1d 453→810 …）。
       //   现在 `prePathUnits` 是**精确的加权单位数**（W-A：4 单位 = 1 token，CJK 4 单位/字），
       //   `available` 才是路径行真正能用的额度。
-      const goal = latest?.goal;
-      const goalLine = goal ? `CURRENT GOAL: ${clip(goal, level <= 1 ? 240 : 120)}` : null;
+      // ★ C448：goal 常常为空（真机 0.3%）⇒ 兜底最近一条 user 原话（否则这行等于不存在）
+      const goalOf = currentGoalOf(g, latest);
+      const goalLine = goalOf === null ? null : `CURRENT GOAL: ${clip(goalOf.text, level <= 1 ? 240 : 120)}`;
       const transpositionNote = (() => {
         let transposed = 0;
         for (let i = 1; i < path.length; i += 1) {
@@ -768,7 +1188,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
           if (transpositionKeys.has(`${fromId}>${toId}`)) transposed += 1;
         }
         if (transposed === 0) return null;
-        return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里，别重复。`;
+        return `⚠ 置换：当前路径有 ${transposed} 处回到已走过的状态（共 ${path.length - 1} 跳）——那些状态上试过的做法都记在下面的死路清单里。`;
       })();
       const fixedLines = [
         ...(goalLine ? [goalLine] : []),
@@ -895,11 +1315,34 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         traceRecent = "dropped-for-budget";
       }
     }
-    attempts.push({ text, tokens, level, omittedEdges: omitted, failureCount: failures.length, shownFailures: shown.length, traceRecent });
+    attempts.push({
+      text,
+      tokens,
+      level,
+      omittedEdges: omitted,
+      failureCount: failures.length,
+      shownFailures: shown.length,
+      traceRecent,
+      // C44：不可裁下限（root+constraints）的 token 数 —— 超预算归因用
+      unyieldingTokens: estimateTokens(unyieldingText),
+    });
     // ★ C-17：L0–L3 装下就立刻返回（与旧版一致）；L4/L5 是兜底但要**比一比**再定 ——
     //   旧版 L4 只要走进来就无条件返回，即使它比 L5 更费（L4 列 20 条、L5 列 10 条）。
     //   现在两档都渲染后再选：优先「预算内 tokens 最小」，其次「tokens 最小」，最后「列得最多」。
-    if (level < 4 && tokens <= maxTokens) return { ...attempts.at(-1), fallback: "none", budgetMax: maxTokens, overBudgetBy: 0 };
+    if (level < 4 && tokens <= maxTokens) {
+      const chosen = attempts.at(-1);
+      return {
+        ...chosen,
+        fallback: "none",
+        budgetMax: maxTokens,
+        overBudgetBy: 0,
+        provenanceCoverage: provenanceCoverageOf(chosen.text, failuresById),
+        evidenceMissing,
+        sections: measureLedgerSections(chosen.text),
+        // C63：所有尝试的 tokens（归因据此判断「所选是否已是最省的一份」）
+        attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
+      };
+    }
   }
   const best = pickFallback(attempts, maxTokens, failures.length);
   if (best) {
@@ -907,7 +1350,17 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     //   `fallback` 三态：none（预算内）/ over-budget（兜底超限，但已是最省的那份）/ impossible（连兜底都构造不出）。
     //   `overBudgetBy` 给指标系统单独统计，调用方（engine/doctor/审计）不需要自己再算一遍。
     const over = Math.max(0, best.tokens - maxTokens);
-    return { ...best, fallback: fallbackStatusOf(best, maxTokens), budgetMax: maxTokens, overBudgetBy: over };
+    return {
+      ...best,
+      fallback: fallbackStatusOf(best, maxTokens),
+      budgetMax: maxTokens,
+      overBudgetBy: over,
+      // ★ 出处覆盖率（0–1）：边行里带 (seq …) 的比例。应恒为 1；掉下来说明有路径在砍出处。
+      provenanceCoverage: provenanceCoverageOf(best.text, failuresById),
+      evidenceMissing,
+      attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
+      sections: measureLedgerSections(best.text),
+    };
   }
   /* istanbul ignore next -- 循环必然返回 */
   return {
@@ -920,6 +1373,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     fallback: "impossible",
     budgetMax: maxTokens,
     overBudgetBy: 0,
+    provenanceCoverage: 1,
+    evidenceMissing,
+    sections: { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 },
   };
 }
 
@@ -939,14 +1395,33 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
  *
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number, fallback:string, budgetMax:number, overBudgetBy:number}}
  */
-export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
+export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {}) {
   const root = g?.rootNode ?? (g?.rootUserNodeIds ?? []).map((id) => g?.nodes?.[id]).filter(Boolean)[0];
   const latest = latestAgentNode(g);
   const goalText = clip(String(latest?.goal ?? root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
   const constraints = root?.constraints ?? [];
   const lines = ["<chess-ledger>"];
-  if (goalText) lines.push(`GOAL: ${goalText}`);
+  // ★ C224：契约 ① 认的是 **ROOT USER**（不是 GOAL）——零失败会话走最小清单，
+  //   旧版只写 GOAL ⇒ handoff-check ①根目标 直接 FAIL（用生产分支后 live 实测 3 个会话）。
+  const rootText = clip(String(root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
+  if (rootText) lines.push(`ROOT USER (verbatim): ${rootText}`);
+  if (goalText && goalText !== rootText) lines.push(`GOAL: ${goalText}`);
+  else if (!rootText && goalText) lines.push(`GOAL: ${goalText}`);
   lines.push(`CONSTRAINTS: ${constraints.length}`);
+  // ★ C223：零失败边的会话占真实会话的约 26%，而旧版最小清单**完全没有当前位置** ——
+  //   模型只拿到「目标 + 约束个数 + 没有失败」，不知道自己在哪一步、手里那条工作路径是什么。
+  //   契约 ⑥（图有路径 ⇒ 清单必须有当前位置）在这里被违反了：handoff-check 在 live 上抓到 2 个会话
+  //   （5df02bf8 / 30140e4c）。补一行和主清单同形态的 `# path:`（头尾折叠，宽度由 pathDigestLine 控制）。
+  const minimalPathIds = latest ? currentPath(g, latest.id).map((n) => n.id) : [];
+  if (minimalPathIds.length > 0) lines.push(pathDigestLine(minimalPathIds));
+  // ★ C224：契约 ④/⑤ 认的是 OPTIONS / UNVERIFIED 两个词。零失败**不等于**没有其它问题边 ——
+  //   「未落地尝试」与「跑了但没外部信号」都可能存在，旧版把这两类一起吞掉，
+  //   生产里模型完全看不到（handoff-check 改走生产分支后立刻抓到 2 个会话）。只给计数行，约 10 token。
+  const minimalEdges = Object.values(g?.edges ?? {});
+  const unverifiedCount = minimalEdges.filter((e) => e?.result === "unverified" && !isDanglingResidue(e, { graph: g, now })).length;
+  const optionCount = minimalEdges.filter((e) => isDanglingOption(e, { graph: g, now })).length;
+  if (optionCount > 0) lines.push(`OPTIONS: ${optionCount} not yet landed`);
+  if (unverifiedCount > 0) lines.push(`UNVERIFIED: ${unverifiedCount} unproven`);
   lines.push("NO_FAILED_ATTEMPTS_YET");
   lines.push("</chess-ledger>");
   const text = lines.join("\n");
@@ -959,6 +1434,9 @@ export function renderMinimalLedger(g, { maxTokens = 500 } = {}) {
     omittedEdges: 0,
     failureCount: 0,
     shownFailures: 0,
+    // 最小清单不渲染任何带 seq 的行 ⇒ 出处覆盖率天然是 1（不是"没检查"，是"没有可砍的"）
+    provenanceCoverage: 1,
+    evidenceMissing: 0,
     fallback: over > 0 ? "over-budget" : "none",
     budgetMax: maxTokens,
     overBudgetBy: over,
@@ -985,7 +1463,7 @@ function pickFallback(attempts, maxTokens, failureCount) {
  * 这是「模型能不能看懂标记」的兜底：标记只要出现，解释就一定在同一份清单里，
  * 不依赖「有没有检测到手割」这种无关条件（旧版的 bug：只有 EACCES 的会话里 [blocked] 裸奔）。
  */
-function markerLegendLines(tagLists) {
+function markerLegendLines(tagLists, { compact = false } = {}) {
   const seen = [];
   for (const tags of tagLists) {
     for (const tag of tags ?? []) {
@@ -994,6 +1472,11 @@ function markerLegendLines(tagLists) {
     }
   }
   if (seen.length === 0) return [];
+  // ★ C51：L2+ 起图例压成**一行**（`a = x · b = y`）—— 每多一行都要付换行与前缀的 token；
+  //   在预算紧张的中低档位，语义一个不少、只省排版。L0/L1 仍用多行形式（预算宽裕时更好读）。
+  if (compact) {
+    return ["# markers: " + seen.map((key) => `${key} = ${MARKER_LEGEND[key] ?? "(unknown marker)"}`).join(" · ")];
+  }
   const out = ["# markers:"];
   for (const key of seen) out.push(`#   ${key} = ${MARKER_LEGEND[key] ?? "(unknown marker)"}`);
   return out;
@@ -1013,7 +1496,13 @@ export function collectConstraints(g) {
  * 这些内容由规则抽取、逐字保留，模型只负责压缩表达，不负责决定丢什么。
  * ★ 这里**全量**（不降级）—— 摘要是一次性成本，且失败边正是压缩必须保住的东西。
  */
-export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = null, now = Date.now() } = {}) {
+export function renderFacts(
+  g,
+  { maxFailures = 800, headFailures = 80, range = null, treeDir = "", traceRoot = "", now = Date.now() } = {},
+) {
+  // ★ 2026-11-01（调研候选 #3）：省略行必须给出**可解析的位置**，且不允许泄漏绝对路径（P6a）。
+  //   与热清单的 TRACE 行同一套相对化规则：`treeDir` → `sessions/<sid>`（或配置的 traceRoot）。
+  const relTree = treeDir ? traceRelativeDir(treeDir, traceRoot) : "";
   let allFailures = failureEdges(g);
   // ★ P1-8：增量 fold 只应把**本段**失败边塞进摘要。旧版取全量 → 摘要体积随全局失败数增长，
   //   真实会话的 fold 摘要已 13,953 字符；再涨会触发官方「summary 不小于被遮蔽内容」，fold 永久失败。
@@ -1063,7 +1552,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     for (const c of cons) lines.push(`* ${c}`);
   }
   if (omitted > 0) {
-    lines.push(`FAILED_ATTEMPTS_OMITTED: ${omitted} earlier dead ends ${omittedSpan} are NOT listed here for budget — their full text is in graph.json; do not invent or merge them, just note that they exist.`);
+    lines.push(`FAILED_ATTEMPTS_OMITTED: ${omitted} earlier dead ends ${omittedSpan} are NOT listed here for budget — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (node files: nodes/<id>.md); do not invent or merge them, just note that they exist.`);
   }
   if (failures.length) {
     lines.push(`FAILED_ATTEMPTS (${failures.length} listed of ${allFailures.length}; keep every line, never merge, never drop):`);
@@ -1090,7 +1579,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
     const residueFailures = allFailures.filter((e) => classifyDangling(e, { graph: g, now }) === "residue");
     if (residueFailures.length > 0) {
       lines.push(
-        `DANGLING_RESIDUE: ${residueFailures.length} of the failed attempts above have no endpoint (to=null; 1.9.1 rewash residue) — excluded from hot-list analysis, data kept in graph.json.`,
+        `DANGLING_RESIDUE: ${residueFailures.length} of the failed attempts above have no endpoint (to=null; 1.9.1 rewash residue) — excluded from hot-list analysis, data kept in ${relTree ? `${relTree}/graph.json` : "graph.json"}.`,
       );
     }
     if (stats.fromBroken > 0) {
@@ -1100,7 +1589,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
       lines.push(`LIVE_UNSETTLED: ${stats.liveUnsettled} edges are newly unsettled (untested, <=10min) — kept visible on purpose.`);
     }
     if (stats.candidates > 0) {
-      lines.push(`STALE_UNSETTLED: ${stats.candidates} edges are untested and older than 10min — listed as OPTIONS (continue or abandon), NOT residue.`);
+      lines.push(`STALE_UNSETTLED: ${stats.candidates} edges are untested and older than 10min — listed as OPTIONS (not yet landed), NOT residue.`);
     }
   }
   // ★ P6C-1：未落地的尝试（untested + to=null）单独成段，不再混进 UNVERIFIED_CLAIMS。
@@ -1108,7 +1597,7 @@ export function renderFacts(g, { maxFailures = 800, headFailures = 80, range = n
   const options = openAll.filter((e) => isDanglingOption(e, { graph: g, now }));
   const open = openAll.filter((e) => !isDanglingOption(e, { graph: g, now }));
   if (options.length) {
-    lines.push("OPTIONS (not yet landed — you may continue or abandon):");
+    lines.push("OPTIONS (not yet landed):");
     for (const e of options.slice(-40)) lines.push(`* ${e.id} "${clip(e.intent || e.action, 90)}"${staleTagOf(e, now)}`);
   }
   if (open.length) {

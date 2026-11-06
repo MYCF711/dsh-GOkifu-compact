@@ -38,7 +38,7 @@ function failingGraph({ sessionId = "fx-trace", failures = 3 } = {}) {
 
 const ABS_WIN = String.raw`D:\DeepSeek Harness\home\chess-context\sessions\abc-123`;
 const ABS_POSIX = "/d/DeepSeek Harness/home/chess-context/sessions/abc-123";
-const ABS_USER = "C:\\workspace\\<user>//chess-context/sessions/abc-123";
+const ABS_USER = "<USER_HOME>/chess-context/sessions/abc-123";
 
 const traceLine = (text) => text.split("\n").find((l) => l.startsWith("TRACE:")) ?? "";
 const ABSOLUTE_RE = /(?:[A-Za-z]:[\\/]|^\/|\/Users\/|\/home\/|DeepSeek Harness|Administrator)/;

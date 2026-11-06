@@ -30,7 +30,7 @@ export function extractConstraintsBlock(facts) {
 export const CHESS_SUMMARY_OPEN = "<chess-fold>";
 export const CHESS_SUMMARY_CLOSE = "</chess-fold>";
 
-export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, priorFold = false }) {
+export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, priorFold = false, preGraph = false }) {
   const lines = [];
   lines.push(
     "You are the fold engine of a chess-record (棋谱) context system for an AI coding assistant. " +
@@ -41,6 +41,15 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("");
   lines.push(facts);
   lines.push("");
+  if (preGraph) {
+    // ★ C39：重启续跑的历史可能**早于棋谱**（C30 的 preGraph）。这段没有任何节点 id 可引用 ——
+    //   明说这一点，避免模型给不存在的 nN 编号（幻觉探针 unknownIds 会把它抓出来）。
+    lines.push(
+      "NOTE: the folded segment predates the chess record, so it has NO node ids. Cite it by seq ranges only; " +
+        "never introduce a node id that is not listed in the authoritative block above.",
+    );
+    lines.push("");
+  }
   lines.push("Rules that bind your output:");
   lines.push("- ROOT_USER_REQUEST_VERBATIM and CONSTRAINTS_VERBATIM must be preserved word-for-word. Never paraphrase a constraint: the difference between 必须 and 最好 is a different task.");
   lines.push(
@@ -51,7 +60,15 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("- If you must cut for length: cut narrative, cut pleasantries, cut redundant explanation — NEVER a constraint, NEVER a failed attempt.");
   lines.push("- EVERY line under FAILED_ATTEMPTS must appear in your output — one line each, with its reason and evidence seq. Never merge two of them, never drop one because it looks obsolete. They are why the next model will not walk into the same wall.");
   lines.push("- Never promote an UNVERIFIED_CLAIM to a verified fact. Only exit codes, test counts, diffs and explicit tool errors count as verification.");
-  lines.push("- Never invent a node, an edge, a result, or a path.");
+  // ★ C455：**"别发明 id"这条规矩以前只在 preGraph 分支里出现** —— 常规折叠反而没写。
+  //   而真机上确实有摘要写出「这次折叠时还不存在的 id」（doctor 的 outOfRangeLater，19 次，
+  //   含 pressure 折叠；重渲染事实块确认那些 id 不在块里 ⇒ 不是我们喂的，是模型自己补的）。
+  //   编号一旦进了 checkpoint，下一个模型就会拿它去查 —— 查不到，或者查到一个**未来**的状态。
+  //   所以这条必须**无条件**出现，并且把"合法集合"说清楚：只能是上面那块里出现过的。
+  lines.push(
+    "- Cite ONLY ids that literally appear in the authoritative block above. Never guess, never continue a sequence " +
+      "(n1, n2, n3 …). Never invent a node, an edge, a result, or a path. An id that is not in that block does not exist for you.",
+  );
   lines.push("");
   lines.push("Output EXACTLY this Markdown structure. Keep every section, in order. Write \"(none)\" when empty — never drop a section.");
   lines.push("");
@@ -61,7 +78,9 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("## 棋谱（状态节点）");
   lines.push("- n<id> seq=<seq> 目标=<one line> 状态=<world8>/<constraint8>");
   lines.push("");
-  lines.push("## 已探明死路（逐条保留，一条不许少）");
+  // C47：标题只写事实（章节名）；「一条都不许丢」已在上面的规则里说过两遍，
+  // 写进标题会随摘要**长期留在上下文里**，变成一条对后来模型的指令。
+  lines.push("## 已探明死路");
   lines.push("- e<id> \"<intent>\" → <reason> (evidence seq <a-b>)");
   lines.push("");
   lines.push("## 已验证事实");
@@ -70,12 +89,17 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("## 未验证");
   lines.push("- <claim + why it is unproven>");
   lines.push("");
-  lines.push("## 当前节点与下一步");
+  lines.push("## 当前节点与最近用户消息");
   lines.push("- 当前节点：n<id>（状态 <world8>/<constraint8>）");
-  lines.push("- 下一步：<the single next action, directly in line with the most recent request>");
+  // ★ 边界（2026-11-01，见 docs/压缩的职责边界.md）：这里要**事实**，不要「下一步该做什么」。
+  //   旧模板写的是 `- 下一步：<the single next action, ...>` —— 那会让摘要产出行动建议，
+  //   而行动决策属于 AGENTS / persona / 模型自身；压缩产物只该回答「发生过什么、用户最后说了什么」。
+  lines.push("- 最近一条用户消息（逐字摘录首行）：<verbatim first line of the latest user message>");
   lines.push("");
   lines.push("## 原始坐标");
-  lines.push(`- 本段遮蔽 seq ${shadowedStart}-${shadowedEnd}；逐字原文仍在 DSH 会话日志中，需要时按 seq 回读。`);
+  // ★ C64（专员审计 P0）：「需要时按 seq 回读」是**教模型何时恢复记忆**（职责边界 §2 明列禁止）。
+  //   这里只陈述坐标事实（原文在哪、按什么可定位），何时回读由模型/AGENTS 决定。
+  lines.push(`- 本段遮蔽 seq ${shadowedStart}-${shadowedEnd}；逐字原文在 DSH 会话日志中（seq 可定位）。`);
   lines.push("");
   lines.push("Hard limits (a record over these limits counts as a failed fold):");
   // P1-9：旧文案「<1200 字符」与「每条失败边都必须出现」矛盾 —— 超过约 15 条死路就不可满足。

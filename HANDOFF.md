@@ -1,6 +1,187 @@
 # dsh-GOkifu-compact · 交接文件
 
-## 🆕 2026-11-01 21:50 · 1.16.0（当前工作树）
+## ✅ 当前状态（滚动更新，2026-11-04 21:1x 本地 · C573）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.18.0**（本地未发布；由 1.17.6 推中版本，小版本归零）。tag / npm publish / GitHub Release 均未在本轮执行；发布前继续用 `node scripts/release.mjs` 预演 |
+| ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
+| 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
+| 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
+| 门禁 | `npm run gate`：**6/7 判分门 + 5 条参考门**（仅 handoff 保留 2 条既有 foldMark FAIL）。全量 **2072 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
+| 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
+| 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
+| 实验室工具（本轮新增） | `session-scan`（逐帧解 zstd 会话）· `cache-rate`（命中率 + `--by-session` 算钱）· `context-curve`（锯齿曲线）· `token-calib`（与官方比例对照）· `release-notes-drift`（发布说明漂移）· `backfill-plan`（钱/点击/耗时） |
+| ✅ **已由真机数据证明的修复** | **C458**（摘要里的非法 id 换 `n?`）：重启后 2 次折叠清洗 **10 / 6** 条，`outOfRangeLater` 与 `unknownIds` 双双 **归零**；对照组（修复前 7 条）100% 带「更晚实体」。`node scripts/summary-refs.mjs` 可直接复跑 |
+| ⏳ 还差真机样本的**一项**（C466 已补齐） | **C466 已由真机证明**：386 张 live 图里 **325 张有 `closeout`、其中 159 张写了 `foldAttempted/folded`**；**C467 仍缺**——`lastFoldFailure` 落图 **0 条**，要有一次**失败**折叠才会出现，不能造 |
+| ⏳ 唯一待办 | **补账真跑**（规模/花费/段数**只认 `node scripts/backfill-plan.mjs` 当次输出**，本行不再抄第二份 —— 旧值「49 个 / 10.7M tok / $1.72 / 3 次点击」已过期）；先把 `closeoutMaxFoldTokens` 按干跑给的值调大（C392） |
+| 未结案候选 | **K-20**（token 比例标定：实测端到端只差 1.07× ⇒ 降级）· **K-22**（两个「上下文大小」不是一个数 + 800k 台阶；证据已在 C366 埋好，重启后第一次 fold 即可对账） |
+| ⏭ 重启后的三步（照抄） | ① `npm run status` 看六行（若「全量测试」显示"未重跑"且门禁绿，即一切正常）②`node scripts/accept-after-restart.mjs` 看是否 `ready` ③ 想验证补账通道就先 `node scripts/backfill-one.mjs --session e78cc233 --dry`（只演不跑），确认后去掉 `--dry` 补**一个**小会话 |
+| 🔜 重启后**应该新出现**的东西 | `state.today.truncated`、`state.update.relation`、`foldMark.usage.model` / `finishReason` / `measuredBefore`、doctor「折叠证据字段」由 `0 0 0` 变为非 0、面板认识 `sessionIds` 参数（`accept-after-restart` 会点名）；若仍缺，说明面板那份模块还是旧的 |
+| 怎么读这份文件 | 本块 = 现状；下面是**追加日志**（旧在上、新在下）。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` |
+
+---
+
+## 🔁 每轮命令（改完代码 / 加完 CHANGELOG 就按顺序跑）
+
+```bash
+node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
+node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
+npm run gate                                # 6 判分门；跑完把实测 passed 回写 test/counts-baseline.json
+node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（**8 份文档 / 14 处锚点**一次改完）
+node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
+```
+
+> **为什么第 4 条不是可有可无的**：`passed` / `C1–C<n>` / `xxx 条条目` / `xxx 个编号` 这四类数字
+> 以前在 8 份文档里被手抄了 14 处，每加一条 CHANGELOG 或一个测试就要人肉改一遍，下一轮又漂
+> （连续 5 轮的工时都耗在这上面）。
+> 现在它们**只有一个来源**：`test/counts-baseline.json` 的 `passed` + `CHANGELOG.md`（经
+> `scripts/changelog-index.mjs` 的 `parseEntries` 解析），由 `scripts/sync-doc-numbers.mjs` 写回；
+> `--check` 也挂在 `npm run gate` 的「仅供参考」区，每次门禁都会出现一次。
+> **不要再手改那 10 处** —— 改了要么被下一次 `--write` 覆盖，要么被 `--check` 点名。
+> bench tokens / doctor 警告数 / live fold 数 **不在**本机制内：它们各自由 `bench-repro` /
+> `doctor` / `live-folds` 重新生成。
+
+## 🗒 追加日志（旧在上、新在下；最后更新到 C171）
+
+
+| 项 | 值 |
+|---|---|
+| 版本 | `package.json` 已 bump 到 **1.17.0**（`check-maintenance` 要求：改了代码必须 bump，否则 git 源用户永远停在旧 commit）；**未 npm publish、未打 tag** —— 这两步需主人授权。当前 `check-maintenance` 预期只剩 1 项失败：「1.17.0 没有 tag」= 尚未发版 |
+| 单测 | **668 passed / 0 skipped / 0 failed**（`node test/run.mjs`，**必须串行**；并发跑会共用 `test/.harness/graphs`，出现 T2-5 类假红） |
+| 本轮提交 | `e7e72f9`（C2/C3/C4，本会话）；并行会话另有 `262c92d`(thrashing 进 doctor) / `c79c8ed`(fold 无效一等可见 + 重注入契约) / `671132a`(调研三份归档) / `a3fe4d4`(ROOMS 登记 touched-files) / `31188a5`(压缩质量观测盘点) |
+| **C2 出处覆盖率可观测** | `ledgerBudgetMetrics.provenanceCoverage` → `accumulateLedgerBudget()`（`provenanceMin`/`provenanceLow`；旧 `ledger-budget.json` 无字段时首累计按 **1** 起算，不许当 0）→ doctor「热清单预算（fallback）」显示 `provenanceMin`（旧文件显示「未采集」）；覆盖率 <1 时日志升 warn 并带数值 |
+| **C3 省略行可解析** | 热清单省略行 + `FAILED_ATTEMPTS_OMITTED` + `DANGLING_RESIDUE` 统一给「数量 + 区间 + 相对化路径」（`sessions/<sid>/graph.json`、`nodes/<id>.md`；无 treeDir 退化 `graph.json`），**绝不泄漏绝对路径**（P6a）；`renderFacts` 新增 `treeDir/traceRoot` 选项，`engine.summarize` 传入会话目录 |
+| **C4 折叠段最近访问文件** | 新房间 `src/rooms/touched-files.mjs`：从图边 `action` 机械解析 `read/edit/write/multi_edit/apply_patch` 的 `file_path`（不解析 bash），按 evidence 区间过滤/倒序/去重/上限 5；`engine.summarize` 在约束段之后**机械追加**（零模型调用），**只进折叠摘要、不进每步热清单** |
+| 验证（本轮） | 全量 634/0/0；`ledger-boundary` 8/8、`touched-files` 9/9、`engine-harness` 45/45；真实语料 `measure-ledger`：11 会话 / 3509 tokens，与 HEAD 分支**逐会话一致**（C3 对无省略场景零成本）；doctor live = 0 错误 / 1 警告（`over-budget=5` 是 21:51 重启后的**既有行为**，归因见 `docs/压缩质量-现有观测盘点与缺口.md` §3，不是本轮回归） |
+| **C5 交接测试可执行化** | 新脚本 `scripts/handoff-check.mjs`：只读地对 live 每张图渲染一次，按《压缩的重注入契约》七项 + 省略行可解析 + 预算逐项判定（`--json` 机读）。首跑 11 个会话抓出三个真缺口并修掉：⑤UNVERIFIED 在 L2+ 静默消失、失败边不是物理一行（多行 errorSnippet 把 seq 挤到第二行）、出处覆盖率把 OPTIONS/UNVERIFIED 算进分母。修后 **FAIL 11→0 / WARN 8→4**（剩余：2 张无 user 节点孤儿图 + 1 次 over-budget，均已在输出里说明） |
+| **独立验证（专员）** | 报告 `tmp/verify-round2/REPORT.md`：以 commit 冻结的干净 worktree 复验，**C2/C3/C4/C5 全部 PASS、P0=0/P1=0**；全量 634/0/0；变异检查证实 C3/C4/单行化/覆盖率口径 4 个新测试真红；边界审计无新增行为指导；预算 C2/C3/C4 逐会话 0 token、C5 条件 +75（生产口径）。它指出的 3 个 P2 已收口：doctor「未采集」不再报 ok、补 `test/unverified-tier.test.mjs`、handoff-check ⑤ 排除 residue（live 修后 FAIL 0 / WARN 3）。全量现为 **638/0/0** |
+| **C6/C7 保真度 L1** | `src/rooms/fold-quality.mjs`：`constraintRecall`（丢一条=任务变了）/`failureRecall`（丢一条=必然重踩）/`compressionRatio`；engine 每次 fold 写 `foldMarks[i].quality`；doctor 新增「压缩保真度（最近 fold）」并在召回 <1 时 error/warn + 点名丢失项；老 foldMark 无 quality ⇒ 「未采集」不报 ok。测试：`fold-quality` 6 用例 + engine-harness P2-2-1/P2-2-4 扩展；**C7 补齐两个口径漏洞**：`summaryMode: rules`/降级 fold 也记 quality（以前永远 null ⇒ 「未采集」）；`summaryTokens` 改用 CJK 感知口径（旧 `chars/2` 会系统性低估 compressionRatio）。测试：Q-7 + P2-2-1 公式一致性 + P2-2-2 规则降级保真度 |
+| **C8 保真度真值链路（本轮）** | `real-fold-trigger.mjs` 改造成可验证保真度：桩把事件派发给 `ctx.emit("session/event")`（keeper 真跑）+ 补失败调用与 `step/end`（边有终点，不被判残留）+ 校验看所有 foldMark。实测真实模型 3 次 fold：`fold#1 c=2/1 f=1/0`，**不再真空通过**。边界：桩 LLM 自拼 prompt ⇒ constraintRecall 有效、failureRecall 不代表生产；证明的是 engine→keeper→fold-quality→foldMarks 链路。证据 `evidence/fold触发验证.{json,md}` |
+| **C9 交接门禁升级（本轮）** | `handoff-check` 增 ⑩保真度（constraintRecall<1=fail / failureRecall<1=warn / 真空样本=warn，并点名丢失项）与 ⑪幻觉探针（unknownIds 非空=warn）；无 fold 的会话不告警、旧折叠缺 quality 标「未采集」。`test/handoff-check.test.mjs` 7 用例。live：FAIL 0 / WARN 6（2 孤儿图 + 3 旧折叠 + 1 over-budget） |
+| **C10 模型自身保真（本轮）** | engine 在机械追加段之前留一份纯模型输出 `modelText` → `foldMarks[i].quality.modelConstraintRecall` 变成真实数字（此前生产路径恒 null）；规则路径显式清空防串味；doctor 已会显示「模型自身约束召回」。测试：P2-2-1/P2-2-2 各加断言 |
+| **C11 tier-2 保真度（本轮）** | 合并最老两个 checkpoint 的 tier-2 路径也记 `quality` + `summaryChars`，并消费 summarize 留下的 pending 字段（谁生产谁消费）；T2-1 增三条断言。至此**常规 fold / 规则降级 / tier-2 合并**三条压缩路径都有保真度样本 |
+| **C12 fold 触发原因（本轮）** | `foldMarks[i].trigger`（pressure / context-overflow / tier2）；doctor 最近 5 次 fold 行内显示，并新增「fold 触发原因」分布（出现 context-overflow ⇒ warn「已被迫自救，压缩没跟上增长」）。测试：溢出自救 / P2-2-1 / T2-1 / P2-2-4 各加断言 |
+| **C13 门禁补 ⑫（本轮）** | `handoff-check` 增 ⑫触发原因：分布显示 pressure/context-overflow/tier2；出现 overflow ⇒ warn「压缩没跟上增长」；缺 trigger ⇒「旧版本折叠」warn；无 fold ⇒ ok。`handoff-check` 测试 10/10。live：FAIL 0 / WARN 9（新增的 2 条 ⑥⑫ 均为旧 foldMark 缺字段的「未采集」） |
+| **C14 手动压缩记账（本轮）** | `compactNow` 包装 + 公开 `recordFoldMark()` 测试接缝：手动 `/compact` 也写 `foldMark`（trigger="manual"）+ 保真度样本 + summaryChars，并消费 pending 摘要字段。至此 5 类压缩路径（自动/规则降级/tier-2/溢出/手动）全覆盖。engine-harness 47/47 |
+| **C15 边界机器审计（本轮）** | `scripts/boundary-audit.mjs`：只扫字符串字面量（剥注释）、两条规则（行为指导 / 工具治理）、`facts-prompt` 摘要指令在 ALLOW 里显式豁免。首跑抓到 2 条真残留并修掉（`continue or abandon` 行动许可、规则摘要标题「与下一步」）。`test/boundary-audit.test.mjs` 5 用例；接入发版验收第 5 步 |
+| **C16 重访标记（本轮）** | CURRENT PATH / WORKING 的节点标签带 `×N`（`transpositions` 的符号化，N=总到达次数）；只陈述图结构事实、零成本（无重访逐字节不变）、`# path:` 极压档不标。测试 ledger-boundary M |
+| **C17 因果配对（本轮）** | 失败边若被**同一 action 的更晚成功边**解决，行尾标 `↑later-ok:<边id>`（`laterSuccessOf()` 可单测）；只陈述事实、不写建议；live +11 tokens（4/33 命中）、bench 446 不变。测试 ledger-boundary N |
+| **C18 重试计数（本轮）** | 失败边同 action 第 k 次失败（k≥2）标 `↻k`，**只在组内最近一条**上标（每条都标 +12 tok，只标最近一条 +1 tok）；bench 基线 446→447、README 同步。ledger-boundary O |
+| **C19 收尾（本轮）** | ①补 C14 接线测试（替换桩基类 compactNow 模拟宿主 → 断言 trigger=manual/区间/pending 被消费）；②`package.json`/README 版本 1.16.0 → **1.17.0（未发布）**——修复「改了代码但版本没 bump ⇒ git 源用户永远停在旧 commit」；`check-maintenance` 现只剩 1 项预期失败（1.17.0 无 tag）|
+| **C20 fold 成本效率（本轮）** | 三次 live fold 实测：摘要 input/shadowed = **1.43–1.63**（读整个 surface，不是被折叠段）、输出仅 362–3004 ⇒ 瓶颈在「读」。doctor 新增「fold 成本效率」，≥2 判 warn；证据 `evidence/折叠成本-实测-2026-11-02.md`；P2-2-4 增断言 |
+| **C21 小窗口 headroom 封顶（本轮）** | 07 调研发现 `headroomTokens=65536` 绝对值在小窗口吃掉阈值：100K 窗口 45%→26.3%、≤73,728 直接抛错（压缩不可用）。`resolveSpec` 改为按 `messageBudget×25%` 封顶（大窗口不变）；engine-harness S4-5。07 调研沉淀 `docs/research/07-trigger-and-budget.md` |
+| **C22 巡检第 2 次（本轮）** | 门禁全绿：668 测试 / bench 447 · 8/8 / handoff FAIL 0 / boundary 0 / maintenance 8 通过（1 预期失败=无 tag）/ doctor 0 错 5 警（逐条解释）。修掉 3 处过期文档数字（README 615→668、HANDOFF 634→668、00 §10 补 C18–C21）。证据 `evidence/巡检-第2次-2026-11-02.md` |
+| **C23 文档索引门禁（本轮）** | 新增 `docs/research/README.md`（00–07 唯一入口）+ `scripts/docs-index-check.mjs`（除索引外每个 .md 必须登记，否则 exit 1）；补 `evidence/README.md`（新增折叠成本/巡检第2次、bench 446→447、补 3 份漏登记历史证据）；测试 4 用例；接入发版验收第六步 |
+| **C24 可寻址闭包（本轮）** | `foldClosureOf(graph, range)`：每次 fold 记「覆盖了哪些节点/边」（计数+首尾 id，不存全量）；三条记账路径（常规/tier-2/手动）都带 `closure`；doctor 最近 5 次 fold 显示 `closure 3n/2e`。测试 fold-closure 4 用例 + P2-2-1/C14/T2-1 断言 |
+| **最终验收快照（本轮）** | `evidence/最终验收-2026-11-02.md`：六道门禁全绿 —— 676 测试 / bench 447·8/8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警（逐条解释）；live 11 会话 / 555 节点 / 672 边 / 自环 0 / 热清单 3543 tok；版本 **1.17.0 未发布**（tag/publish 待授权）；已知缺口：live 真值样本、#9/#11/#17 |
+| **收口确认（第 24 轮，2026-11-02 01:10）** | 六道门禁复跑全绿：676 测试 / bench 447·8-8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 4 警（均为跨日或旧 foldMark 未采集）；版本 1.17.0 未发布，tag/publish 待授权；**本轮无代码改动**（避免收尾引入未验证风险）。剩余：live 真值样本（等真实 fold）、#9/#11/#17 候选、发版授权 |
+| **⚠ 用户层 patch 遮蔽（2026-11-02 实机事故）** | 重启后 `chess-context/` 不落盘：`profiles/desktop/cordis.patch.yml`（用户层，最后应用）里的 `preset-standard` 快照写回了 `@deepseek-ai/dsh-compaction-basic`，盖掉了 bundle 层的 engine 覆盖。**已加检测**（`findShadowedUserPresets` + doctor/verify-install 各一项，live 现在准确报 error）；**修复包**在 `home/.gokifu-fix-2026-11-02/`（DSH 完全退出后运行 `apply-fix.cmd`，带备份/原子替换/回滚；幂等）。教训：**verify 只看包内 patch 不够，必须看最后生效的用户层** |
+| **✅ 已收口（2026-11-02 02:36）** | 主人重启后引擎由**机器级层**接管：`/gokifu/api` version 1.17.1；`doctor` 0 错误 / 1 警告（用户层遮蔽 = ✓ 已被机器级层接管）；`verify-install` 19/19；`chess-context/sessions/` 恢复写入（`session-8cc34e32…`）。修复包 `home/.gokifu-fix-2026-11-02/` 留作应急（1.17.1 起正常退出会自动登记，不需要它） |
+| **C27 机器级层自愈（1.17.1，本轮）** | 插件在**进程退出时**把用户层里被写回 compaction-basic 的 `preset-*` 行原样复制到 `$DSH_HOME/cordis.patch.yml`（宿主最后应用），只换 compaction 成员 → 下次启动接管，**用户零命令**。doctor/verify 三态化（已登记 ✓ / 未登记提示）。测试 `user-patch-heal` 9 用例；离线组装验证 persona 与 22 个成员逐字保留 |
+| **⏰ 无人值守约定（2026-11-02）** | 每小时定时任务（`schedule-c0e8f774…`）为**自愈式**：每轮先 `get_goal` —— 空则 `create_goal`（max_goal_rounds=240）、blocked/paused 则 `update_goal resume`、complete 则新建，然后才干活。所以 goal 被系统判受阻不会让循环停摆。硬约束不变：串行全量测试、只 add 自己文件、不重启 DSH、不 push |
+| **C28 live fold 证据（1.17.1 后）** | `node scripts/live-folds.mjs` 扫 `foldMarks` 生成 `evidence/live-folds.{json,md}`（只读）。真机 6 次 fold：usage 6/6、trigger 2/6、quality 2/6（其余是老 fold 无字段）、c=1/f=1、压缩比 127–133.8、成本 1.43–1.81、空闭包 2。巡检照它报数，不再手抄 |
+| **C29 机器级层漂移观测（1.17.1）** | doctor 新增「机器级层与用户层一致（未漂移）」：`planHomePatch(profile,home).needed` 判副本落后 ⇒ warn（可自愈）；测试 H-10 覆盖「改人设 ⇒ 判漂移、新副本带新人设」 |
+| **C30 闭包 preGraph（1.17.1 后）** | `foldClosureOf` 增 `preGraph`/`graphNodes`：区间早于本图（或图空）⇒ preGraph=true（重启续跑的历史不可回查）；`live-folds` 证据页 + `doctor` 保真度 detail 消费；测试 CL-5/CL-6 + live-folds 3 条 |
+| **C31 fold 边界完整性（1.17.1 后）** | `foldBoundaryOf` 记 `{overlapping, openAtEnd, unsettled}`，三条记账路径都写 `foldMark.boundary`；doctor 新检查（openAtEnd>0 ⇒ error）；live-folds 证据页加边界行；测试 fold-boundary 4 用例 + harness 断言 |
+| **C32 研究收口 + 真实链路 gate（1.17.1 后）** | ① G-2 `derivable` 判**不适用**（离线渲染普查：热清单/摘要指令都不注入工具输出体，无降级落点）→ `evidence/热清单内容普查-2026-11-02.md`；② `real-fold-trigger` 加 `fold-fields` 断言（closure/preGraph/boundary 必须存在且 openAtEnd=0），真机 **6/6** |
+| **C33 非破坏合并数据层（1.17.1 后）** | `into.superseded[]`（≤8 条 id/seq/goal/ts/at）+ `supersededCount` + 出边 `retargetedFrom`；`transpositions`/`×N` 渲染不动；doctor 新增「置换合并可追溯」审计（记录指向仍在图里的节点 ⇒ error）；测试 merge-provenance 4 用例 |
+| **C34 运行实例版本标记（1.17.1 后）** | engine 启动写 `<chess-context>/build.json`（version/startedAt/pid，原子、失败静默、测试写临时目录）；doctor 新增「运行实例版本」：磁盘更新而进程落后 ⇒ warn「重启后生效」；测试 build-stamp 4 用例 |
+| **C35 合同 §6-4 消费者 + 验收清单刷新（1.17.1 后）** | doctor 新增「fold 悬空（dangling）」（fromBroken⇒error / liveUnsettled⇒warn）；live-folds 汇总 dangling；合同 §6 表刷新到 2026-11-02 live 数字并补第 9–13 行。live：3 次 fold、liveUnsettled 0 |
+| **C36 handoff-check ① 语义修正（1.17.1 后）** | 空图（0 节点）⇒ ① 记 ok「不适用」，不再当成「缺 rootUserNodeIds」告警；live WARN **9 → 7**；测试 H-11 |
+| **C36.1 ⑥ 误报修复（1.17.1）** | 当前路径===工作路径时 ledger 只写 `WORKING:` 行，⑥ 旧判据不认 ⇒ 合法渲染被判 FAIL（live 7520721a 实测）；补 `/^WORKING:/m` + H-12；live handoff-check **FAIL 1→0**、WARN 7 |
+| **✅ 重启后自动转绿（03:01 重启）** | `build.json` 已落盘（v1.17.1 / 03:01）、home 层漂移自愈；doctor 只剩「fold 边界完整性」未采集（下次 fold 落 boundary 即转 ✓） |
+| **C37 ⑬fold边界门禁 + ①agent-only（1.17.1）** | handoff-check 新增 ⑬：`boundary.openAtEnd>0` ⇒ fail（与 doctor 同口径）；① 区分空图 / agent-only（ok）/ 有 user 漏记 root（warn）/ 缺 ROOT USER（fail）；测试 H-13/H-14；live WARN 8→7 |
+| **C38 真空样本告警分层（1.17.1）** | handoff-check ⑩ 真空样本改 ok（detail 标明「非缺陷」）；doctor 保真度在**全部样本真空**时 warn「保真度未被检验」。live handoff WARN **7→5**；测试 H-15 + H-4 改写 |
+| **C39 摘要指令 preGraph 提示（1.17.1）** | `buildChessInstruction({preGraph})`：本段早于棋谱时明说「没有节点 id，只按 seq 引用，不许编造 nN」；engine 用 `foldClosureOf(...).preGraph` 传参；测试 facts-prompt 3 用例 |
+| **C41 over-budget 归因（1.17.1）** | live 19/263（7.2%）超预算、最大 117 tokens；离线 1/19（574/500）。成因=根目标+约束+最少失败边的下限 > 500。L6（3 条失败+关标记）能把 574 压到 472，但破坏 M2/L5/「诚实超限」三条不变量（bench 447→238）⇒ **否决并入库**；证据页含重新评估阈值 |
+| **C42 live 验证 C30/C31（1.17.1）** | 新增 3 次 fold：2 次 preGraph=false（n=156/n=57）、**1 次 preGraph=true**（seq 1022-1487，区间 0 节点）；3 次 boundary.openAtEnd 全 **0** ⇒ doctor「fold 边界完整性」转 ✓；`unsettled` 口径澄清为「未拿到强验证（含 unverified）」并写入合同 §6 |
+| **C43 成本口径修正（1.17.1）** | `input/shadowed` 含 host 固定开销（工具/system/保留尾部/旧 checkpoint），单看会误判；新增 `foldCostMetrics`（share 判据 <30%、ratio 仅对照、roi 收益）；doctor 改「fold 成本口径（遮蔽占读入）」；live **47%–74%**、ROI 0.45–0.74 ⇒ 健康 |
+| **C44 over-budget 归因指标（1.17.1）** | `renderLedger` 返回 `unyieldingTokens`（根目标+约束，不可裁）；`ledger-budget.json` 新增 `budgetFloorOver`（底线即超预算的次数）；doctor 预算告警追加设计内归因。live 待下次重启后生效；测试 T-4 + 累计规则断言 |
+| **C45 图例去行动建议 + 审计规则（1.17.1）** | `MARKER_LEGEND` 8 条全部改事实口径（删 retry when / take it / or create it）；`boundary-audit` 新增 `retry-advice` error 规则（英文行动建议与中文同口径）；markers 测试同步；bench 447 / L5 不变 |
+| **C46 UNVERIFIED 去认知指令（1.17.1）** | `treat as unproven` → `unproven`（只陈述状态）；`boundary-audit` 新增 `epistemic-advice`（treat as / you can / make sure to…）；测试 B-6/B-7 + 事实写法不假红 + U-4；B-1 放宽为「至少命中行为指导」 |
+| **C47 摘要章节标题去指令（1.17.1）** | `## 已探明死路（逐条保留，一条不许少）` → `## 已探明死路`（facts-prompt 模板 + ruleSummary 两侧一致）；规则已在正文规则段，标题不再长期带指令；真机脚本期望同步；bench 447 / L5 |
+| **C48 over-budget 按会话归因（1.17.1）** | `ledger-budget.json` 新增 `overBySession`（前 8 来源）+ doctor 显示「主要来源」；离线归因证明 19.5% 由 `session-d70b7c2f`（649/500，7 条长失败原因）单会话放大，非系统性退化 |
+| **C49 over-budget 归因细分（1.17.1）** | 新增 `budgetIrreducible`（已列全失败边仍超 ⇒ 再省必须丢失败记忆，设计内）；doctor 同时显示 floorOver / irreducible；测试覆盖两种形态；证据页追加第 6 节 |
+| **C50 live-folds 跨轮趋势（1.17.1）** | `trendOf`：新增 fold / 质量下限变化 / 边界回归 / 成本漂移；`main()` 读上次快照后一起落盘；证据页加「与上次对比」小节；测试 L-6 |
+| **C51 图例单行化（1.17.1）** | L2+ 标记图例压成一行（无换行/无 `#   ` 前缀），L0/L1 仍多行；bench **447→446**（基线已更新+注明理由）；「uniform 标记剔除」实验省到 413 但丢语义（全 blocked 会话失去「被什么挡住」）⇒ 否决入库 |
+| **C52 同类失败标记汇总（1.17.1）** | L2+ 且失败边 ≥3、完整标记串完全相同时 → 一行 `# all N failures: <key>`，逐行不再重复（图例仍解释键；retry-if 指针因完整串不同而保留）；bench **446→430**；c17 三个夹具预算重定（300→270、330→280，注释写明） |
+| **C53 构建标识 buildId（1.17.1）** | `repoBuildId()` = package.json + src 所有 .mjs 内容哈希（12 hex）写入 build.json；doctor 同比较 semver 与 buildId，stale ⇒「运行实例 build X vs 磁盘 Y，重启后生效」；live 现报 `unknown vs 11f699aeab7d`；测试 S-6/S-7；rooms 允许 node:crypto |
+| **C54 会话分布 + thrash 进证据（1.17.1）** | `live-folds` 新增 `bySession`（有 fold 会话数 / multiFold≥3 / top3）与 `summary.thrash`；证据页加「会话分布」小节；live 首跑 **12 次 fold / 6 会话 / 2 个 multiFold / thrash 0**；测试 L-7 |
+| **C55 研究文档收口（2026-11-02）** | `docs/research/00` §11 重排（候选 8–26 全部归位、去重复行号）+ §11.1 状态快照（731 passed / bench 430 / handoff WARN 4 / doctor 3 警 / verify-install 19-19 / boundary 0 / folds 12-6） |
+| **C56 清冗余指针（1.17.1）** | 省略行尾与 UNVERIFIED 计数行的两处冗余指针删除（无损）；bench **430→415**；README/合同文案同步 |
+| **C57 超预算离线归因脚本（1.17.1）** | `scripts/overbudget-report.mjs`：逐会话重渲染 + 三态归因（floor / irreducible / reducible?）；live 首跑 23 会话 → within 22 / irreducible 1 / reducible? **0**（无渲染 bug）；测试 3 例 |
+| **C58 超预算快照 + 跨轮对比（1.17.1）** | `overbudget-report --out` 写 `evidence/over-budget-snapshot.{json,md}`（含 `trendOverBudget`：构成增删 / 头号来源变化）；首快照 20:02Z：within 22 / irreducible 1 / reducible? 0；测试 C58 |
+| **C59 渲染不变量模糊测试（2026-11-02）** | `test/ledger-properties.test.mjs`：10 种子 × 5 预算 = 50 次渲染（31 次 over-budget、覆盖 L3/L5/省略），断言根与约束头段、失败边账目闭合、超限自报、出处覆盖率=1、无绝对路径/无指导、渲染幂等；首跑全绿 |
+| **C60 折叠纯函数不变量（2026-11-02）** | `test/fold-properties.test.mjs`：随机图+随机区间，闭包计数=暴力扫描、preGraph 语义、openAtEnd≤overlapping 且全盖为 0、unsettled、保真度召回/unknownIds/压缩比；首跑全绿 |
+| **C61 引擎级折叠不变量（2026-11-02）** | `engine-harness` C61：真实 `compactIfNeeded` 后断言失败边/约束一条不少、闭包与暴力重算一致、`openAtEnd=0`、foldMark 字段齐全；顺带记下两个测试坑（idle 才落盘、失败边要落在折叠头） |
+| **C62 连续折叠不变量（2026-11-02）** | `engine-harness` C62：三轮真实 fold，断言区间单调（不许重扫已折区域）、失败边只增不减、每次 foldMark 带 quality/closure/boundary；首跑全绿 |
+| **C63 修正超预算归因假阳性（1.17.1）** | `renderLedger` 新增 `attemptTokens`；`classifyBudget` 把 `reducible?` 换成 `bug`（所选 > 最省尝试才报）；C59 追加「over-budget ⇒ 所选 = 最省尝试」不变量；live 复核 bug=0（此前 8fe881d1 被误报） |
+| **C64 专员审计落地（1.17.1）** | P0：摘要模板「需要时按 seq 回读」→「（seq 可定位）」；P1：删置换告警「别重复」、图例去 retry-if 建议、`safeMeasureFoldQuality` 兜住诊断异常、职责边界改「已修清单」；P2：handoff-check 用 `budgetMax`、overbudget-report 按生产形状渲染（666 而非 641）、doctor 悬空未采集→warn、审计补 `directive-short`/`memory-restore-advice`、文档数字统一 415 |
+| **C65 诊断脚本安全默认（1.17.1）** | `live-folds` 默认只打印、`--write` 才落盘（L-8 用例）；`traceRecent` 接入 `traceDropped` 计数并在 doctor 显示；bench 415 不变 |
+| **C66 doctor 四项检查补测（2026-11-02）** | `test/doctor-cli.test.mjs`：子进程 + 临时 home 断言 fold 悬空 / 边界完整性 / 置换合并可追溯 / 分项占用四项（含「未采集必须 warn」与「自相矛盾必须 error」）；4 例全绿 |
+| **C67 minimal 字段接消费者（1.17.1）** | `minimal` → `minimalRenders` 计数 → doctor 显示「最小清单（无失败边）N 次」；T-5 + engine-harness + doctor-cli 三处断言；**专员审计 12 条全部收口** |
+| **C68 发布就绪评估（2026-11-02）** | `docs/发布就绪-2026-11-02.md`：交付物形态 / 能力面 / 七层验证证据 / 「已无优化方向」逐项依据 / 已知缺口与不修理由 / 专员审核结论 / 重启清单（交用户）/ 结论：到达能力上限，唯一待办=重启 |
+| **C69 重启后核对脚本（2026-11-02）** | `scripts/post-restart-check.mjs`：buildId/版本/预算归因三态 + doctor 0 错 + boundary 0 条，一条命令给 fail/warn；live 实测 fail 1（缺 buildId）/ warn 1（578 次 over 无归因）⇒ 明确指向「等重启」；测试 3 例 |
+| **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`session-1361ce28` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
+| **C71 研究文档收口（2026-11-02）** | `docs/research/00` §11 补 27–33、§11.1 刷新（752 passed / folds 15-6 / c=f=1）、新增 §11.2 审计规则演进（C15→C64 五次扩规则的漏网句式与「自审盲区」教训） |
+| **C72 真实会话校准（2026-11-02）** | `scripts/ledger-calibration.mjs`：live 24 会话按生产形状渲染 → **p50 419** / p90 521 / max 688 / 超预算 3-24；证明 bench 415 与真实中位一致（此前「未校准」已消除）；证据 `evidence/ledger-calibration.{json,md}`；测试 2 例 |
+| **C73 负结论（2026-11-02）** | 试图用 provider `outputTokens` 校准本地 `estimateTokens`：实测比值中位 0.537 但**分母含 reasoning/格式开销**，与摘要正文不同量 ⇒ 指标不落地（脚本已回滚）；正解仍需宿主 tokenizer；判据「分母必须与分子同量」入库 |
+| **C74 合同 §6 现状列刷新（2026-11-02）** | 14 行全部按 20:56Z 实测刷新（2293 渲染/583 超、15 次 fold、dangling 11、sections failures 68%、trigger pressure 11/15、closure preGraph 1 true/7 false、boundary 8 次 openAtEnd 0、buildId 缺失=等重启）；表头标明「这是快照，判读看命令」 |
+| **C75 模糊测试加固（2026-11-02）** | `ledger-properties` 种子 10→40（50→200 次渲染）+ 断言「必须命中 over-budget / 省略分支」；`fold-properties` 闭包种子 7→20 + 断言「必须覆盖到节点」；防止属性测试退化成恒真 |
+| **C76 live 证据补采（2026-11-02）** | 新增第 7 个会话 `634616f8`（第 16 次 fold：pressure、c=1/f=1、closure+boundary 齐全、openAtEnd=0）；live-folds / 逐会话页 / evidence README / research §11.1 四处口径同步（16 次 / 7 会话 / 8 次 boundary 全 0 / 成本 47–76%） |
+| **C77 发布就绪文档数字刷新（2026-11-02）** | 749→754 passed、13→16 次 fold / 6→7 会话、成本 47→76%、超预算改双口径（即期 bug=0 + 累计 583/2293）；表头标注「快照，判读看命令」 |
+| **C78 交接门禁补 ⑭fold成本（2026-11-02）** | handoff-check 新增 ⑭（遮蔽占读入 <30% ⇒ warn，按最差一次判；无 usage=未采集 ok）；live 本会话「3 次 fold 最低 64% 健康」；测试 H-12/H-13 |
+| **C79 交接门禁 ⑮⑯（2026-11-02）** | handoff-check 新增 ⑮fold悬空（fromBroken⇒fail / liveUnsettled⇒warn / residue 不判错）与 ⑯闭包自洽（区间反向或 nodes>graphNodes⇒fail，preGraph 标注）；live 本会话两项皆 ok；测试 H-14/H-15 |
+| **C80 合同 §6c：有意不加门禁的字段（2026-11-02）** | route/ms/summaryChars/totalAfter/foldCount 属纯诊断；fallback 属全局趋势；区间由 ⑯ 间接校验；判据「只有存在可判错边界才加门禁」写进合同 |
+| **C81 终验收尾（2026-11-02T21:13Z）** | 7 门禁 + verify-install + post-restart + 即期归因一次串行跑完并归档 `evidence/终验-2026-11-02.md`：758 passed / bench 415 无 DRIFT / handoff FAIL 0 WARN 5 / doctor 0 错 3 警 / boundary 0 / verify-install 19-19 / post-restart **fail 1**（旧进程，等重启）/ 即期 bug 0 |
+| **C82 打包可复现性检查（2026-11-02）** | `scripts/pack-check.mjs`：npm pack 文件必须全部 ⊆ `git ls-files` + 关键文件齐全；坑：`git ls-files` 默认转义中文路径（需 `-c core.quotePath=false`），否则 57 个中文文档假红；实测包内 121 文件、无出处 0；测试 3 例 |
+| **C83 CLI 路由测试（2026-11-02）** | `test/cli-routing.test.mjs`：转发目标必须存在、每个 command 必须写进用法、bin 存在且分派 doctor、files 白名单含 bin 目录；子进程验证未知命令非 0 + `--help` 为 0；4 例全绿 |
+| **C84 安装产物生成器补测（2026-11-02）** | `make-presets-override` 此前零测试：新增 3 例（dry-run 不改文件/不留备份且自检通过、两次输出逐字相同、仓库 patch 覆盖四 preset 且无 compaction-basic） |
+| **C85 bench 默认不写盘（2026-11-02）** | `test/bench.mjs` 写证据改为显式 `--write`；档位打进 stdout 摘要行，`bench-repro` 改为解析 stdout（旧写法依赖证据文件会过期）；门禁跑完工作树不再变脏；测试 3 例 |
+| **C86 用户文档命令校验（2026-11-02）** | `test/docs-commands.test.mjs`：README/QUICKSTART 里 `node scripts|test/X.mjs` 必须存在、`npx` 子命令必须被 cli 分派；体检结果 0 腐坏（历史计划文档有意排除，理由写进测试头） |
+| **C87 patch↔包名一致性（2026-11-02）** | `test/patch-manifest.test.mjs`：引擎行 = `<pkg>/engine` × 4、四个 preset 覆盖块齐全、insert 用同一包名、无 compaction-basic 配置行；踩坑：头部注释含该词，判据只查 YAML 行 |
+| **C88 回滚路径补测 + 字典序 bug（2026-11-02）** | revert 此前零测试；补 5 例并修真 bug：备份名 `…-999` 字典序排在 `…-1000` 后 ⇒ 回滚会挑旧备份；改为按尾部数字排序，「999 vs 1000 选 1000」用例在旧实现上必红 |
+| **C89 安装第①步补测（2026-11-02）** | `patchProfileForUi`/`removeManualUiRow` 此前零测试：5 例（无文件不乱建 / dry-run 不落盘 / 真跑留备份且幂等 / 删除留备份 / 结构不认识拒绝改）；全绿=实现正确 |
+| **C90 注入渲染失败可观测（2026-11-02）** | `injectionErrorDelta` + engine 计数 `ledgerBudget.renderErrors` + doctor「注入渲染失败 N 次」；hot-inject 真实降级用例（缺 rootUserNodeIds 才真抛）；测试四态 + doctor 显示 |
+| **C91 注入跳过原因分布（2026-11-02）** | `skipReasonKey` + `bumpSkipReason`（有界 8 键，超出归 other）+ `ledgerBudget.skipReasons`（每 20 次落盘）+ doctor「跳过分布」前 3 名；测试 6 条 + doctor 显示 |
+| **C92 最近访问文件解析器健壮性（2026-11-02）** | 正则元字符/引号/空格/截断/空值 14 种形状：永不抛、返回值必是输入子串（禁止猜）、元字符路径精确；3 组全绿（无 bug） |
+| **C93 索引端点指纹（2026-11-02）** | `endpointNumber`：非 `n<数字>` 的 id 不再退化成 0（`node42`⇒42，无数字⇒字符串指纹）；2 例（稳定性/区分度 + 端点变化后必须重建）；记下「快路径靠 cheapKey，改结构必须 bump 版本」的设计约定 |
+| **C94 第三方 preset 压缩边界（2026-11-02）** | 发现 `dsh-design-studio:preset-design` 自带 compaction-basic（设计模式不走棋谱压缩）；doctor 新增「第三方 preset 的压缩后端」检查（warn 点名，不强行覆盖）；坑：preset 行缩进，`^- id:` 漏扫 ⇒ 改 `^\s*- id:` |
+| **C95 preset 覆盖唯一性（2026-11-02）** | doctor 新增检查：同一 preset 被 ≥2 个 bundle 覆盖 ⇒ warn 点名（后写者整体接管、压缩后端可能被静默顶掉）；live 实测 5 个 preset 各单 owner、扫 12 个 patch；测试 C95 |
+| **C96 insert id 唯一性（2026-11-02）** | doctor 新增检查：insert 行按 id 建索引，撞到本插件 `gokifu-ui` ⇒ **error**（设置页/API 会消失），别人之间撞 ⇒ warn；live 实测 16 个 id 各单 owner、扫 12 个 patch；测试三态 |
+| **C97 README 排查入口（2026-11-02）** | 常见问题补三条（第三方 preset 不走棋谱压缩 / insert id 撞车导致页面消失 / 运行实例版本与磁盘不一致），并写进 doctor 检查名；C97-1 断言 README 点名的检查在 doctor.mjs 真实存在 |
+| **C98 QUICKSTART 排查补齐（2026-11-02）** | §四 补三条（第三方 preset 不走棋谱压缩 / insert id 撞车导致页面消失 / 运行实例版本与磁盘不一致）+ `post-restart-check` 入口；C98-1 断言新手文档必含这三处 |
+| **C99 QUICKSTART 项数过期（2026-11-02）** | 「18 项/18-18」实际已 19 项：改为不写死项数 + 保留「哪一项可能短红」；C99-1 禁止 QUICKSTART 出现写死项数 |
+| **C100 文档数字锚判据（2026-11-02）** | `docs-numbers`：文档「boundary-audit N 条规则」= `RULES.length`、bench「N tokens」= `EXPECTED_TOKENS`；立刻抓到文档写 5 条、实际 **6** 条（已改正）；两条判据都要求至少命中一次 |
+| **C101 数字锚再补两根（2026-11-02）** | 文档「fold 间隔 < N 事件」= `THRASH_SEQ`(30)、`hotLedgerMaxTokens` 数值 = schema 默认(500)；两处都正确 => 由「碰巧对」变「有人看守」；记下「别在正则里塞换行，用 split(fromCharCode(10))」 |
+| **C102 live 证据补采（2026-11-02）** | 新增 2 次 fold（8cc34e32 seq 2171–3166；本会话 seq 7930–9799 = 当前摘要来源）：总数 18 / 7 会话、quality 14 次召回全 1、boundary 11 次全 0、thrash 0；四处口径同步 |
+| **C103 闭包链检查（2026-11-02）** | live 出现「fold 区间重叠」（1e82afca 7272–8862 vs 上轮 4876–8547）→ 查清是 checkpoint 节点 seq 回落，**节点集不重叠**；新增 `closureChainOf` + live-folds「闭包链」节（18 次 fold / 5 对 / 节点级重叠 0），把「区间 vs 节点集」分开 |
+| **C104 越界引用探针（2026-11-02）** | `findOutOfRangeIds`：id 存在但不在本次折叠区间 ⇒ 出界（幻觉探针抓不到的一类）；`measureFoldQuality.outOfRangeIds`、handoff ⑪ 合并两路、doctor 新增一行；测试 Q-8 + H-16；实现坑：`` 被脚本写坏成控制字符 ⇒ 改「不依赖转义」的匹配 |
+| **C105 合并 id 不再算幻觉（2026-11-02）** | 置换合并会把被吞节点从 nodes 删除、只留 `superseded[]`；`findUnknownIds` 曾把它判成编造 id（假红）。已把合并历史纳入已知集合；越界探针不重复报；测试 Q-9；live 当前无合并 ⇒ 不改变现有数字 |
+| **C106 合并 vs 闭包自洽（2026-11-02）** | 查证 ⑯ 用的是折叠当时的 `closure.graphNodes`（非当前图）⇒ 后续合并缩图不会假红；加回归 H-17（历史闭包不误判 / 真坏数据仍 fail）；无 bug |
+| **C107 否决 #17 derivable（2026-11-02）** | 理由：认知指令（epistemic-advice 已禁）/ 需先判定「可推导」/ 收益微小；research §11.3 新增「已否决候选」表；顺带修正 §11.2 规则数（基线 2 + 新增 4 = 6）；facts-prompt 新增 C107 守住「故意的冗余」 |
+| **C108 折叠路径记账静态审计（2026-11-02）** | `fold-mark-sites`：静态读 engine.mjs，所有 `foldMarks.push` 与 `recordFoldMark` 必须带 quality/trigger/closure（简写键也认）；防「新增路径漏记 ⇒ doctor 未采集」；坑：正则 `\s` 被脚本吃掉，改无转义字符类 |
+| **C109 预算统计必须落盘（2026-11-02）** | `ledger-budget-persist`：每个 `ledgerBudget.X =` 赋值 15 行内必须 `#persistLedgerBudget()`（节流须写注释）；落盘走 `persist.persistBudget` 单一入口；C109-3 用合成片段验证判据本身不作假 |
+| **C110 节点文档一致性（2026-11-02）** | 缺 `nodes/<id>.md` = 热清单省略行空指针 ⇒ doctor 新增检查（缺 warn / 陈旧仅计数）；live 24 会话：缺 0、陈旧 94；纯函数 `node-docs.mjs` + 2 例 + doctor-cli 1 例；夹具陷阱：makeHome 默认会话也要补 |
+| **C111 陈旧 md 自愈（2026-11-02）** | 94 个陈旧 `nodes/*.md` 全部紧邻 maxNode = 「写了又回滚」残骸；`tree` 落盘时删掉「不在图里」的 `n<数字>.md`（其它文件不碰、失败静默）；测试 C111 + **C111-2 假 port 接口必须与 createFsPort 一致**（缺 readdirSync 会被 catch 吞掉） |
+| **C112 回滚后 tree 落盘（2026-11-02）** | 三处 restore() 后的 flush 从非 tree 改为 tree:true：index.md 不会停在回滚前、nodes/*.md 当场自愈（94 残骸的根因）；静态 C112 + 行为 C112（删节点后索引必须同步） |
+| **C113 回滚清 dirty（2026-11-02）** | 裸 `Object.assign(g, fromJSON(snap))` 回滚会留下失败尝试的 `delNodes` ⇒ 下一个 delta 帧落盘后，load 回放把已恢复节点再删一遍；新增 `restoreFromSnapshot`（图+dirty 一起回到快照）+ 静态禁用裸 assign；测试 C113-1（记录 bug）/C113-2（修复语义） |
+| **C114 端到端验收 + 不变量表（2026-11-02）** | C113 补端到端：基线落盘→合并→回滚→落盘→load，两节点都在；新增 `docs/落盘与回滚不变量.md`（6 条不变量 + 允许现象 + 改动检查清单） |
+| **C115 live 第 19 次 fold（2026-11-02）** | 本会话 seq 9802–11525（pressure，c=1/f=1，openAtEnd 0）= 当前摘要来源；总数 19 / 7 会话、quality 15、boundary 12 全 0、闭包链 6 对无节点重叠；四处口径同步 |
+| **C116 docs 根索引（2026-11-02）** | 新增 `docs/README.md`（24 份文档按现状/历史分组 + 判读顺序）；`docs-index-check` 覆盖 docs 根 ⇒ 未索引 0；以后新文档不登记会红 |
+| **C117 测试数锚（2026-11-02）** | 修正现行文档两处过期测试数（743/754 → 824），统一写成「当次输出 + 时间戳」；docs-numbers 新增 C117：现行文档任何 `N passed` 必须同时带时间戳与「当次输出」提示 |
+| **C118 证据数字一致性（2026-11-02）** | `evidence-consistency`：从 `live-folds.json` 重算总数/会话数/quality 数/压缩比/成本/thrash，断言 README 与 research §11.1 出现同口径字符串；逐会话表与 bySession 一致、openAtEnd 和为 0；措辞容错、数字不饶 |
+| **C119 证据文件陈旧（2026-11-02）** | `bench-2000.json` 还写着 447（文档/基线全写 415）—— C85 改成不写盘后没人刷新；已 `--write` 刷成 415/L5；新增 C119-1（证据==基线）与 C119-2（校准 p50/p90/min/max/超预算==README 行） |
+| **C120 证据双向可发现性（2026-11-02）** | C120-1 每个 evidence 文件主干必须在 README（允许 `X.*`）/ C120-2 README 点名文件必须存在 / C120-3 现行文档 `evidence/xxx` 引用必须存在；体检 39 文件 0 孤儿、27 引用 0 悬空 |
+| **C121 调研文死链（2026-11-02）** | `压缩质量盘点` 指向不存在的 `04-compression-evaluation.md`（实际是 01-academic / 02-product）已修正；新增 C121：现行文档 + research 内对 `docs/research/NN-*.md` 的引用必须存在（只查调研文，历史引用不误报） |
+| **C122 可引用数字表 446→415（2026-11-02）** | `06-可引用数字表.md` 的热清单行停在 446（旧 351），现 415；已更正并补口径演进；新增 C122：按 `bench-repro` 来源行定位校验 token 数（不能用 C100-2，会把外部 185/2.6K 误报） |
+| **C123 数字表算术自洽（2026-11-02）** | 06 表两条纯算术判据：三次采样均值必须 == 文中 6.67、804/10419 必须 ≈ 1/13；坑：`(\d+)/8` 会吃掉 `6.67/8` 的 67，改为按「三次采样：」字段定位 |
+| ⚠ 并行会话警告 | 同一工作树存在**另一个会话**在并发提交（见上方提交列表，`262c92d` 曾把本会话未跟踪的 `touched-files.mjs` 扫进它的提交）。**提交前必须 `git log` + `git status` 核对；只用显式 `git add <文件>`，禁用 `git add -A`** |
+| 下一轮候选 | ① 压缩质量评估 L1（`constraintRecall`/`failureRecall`/`compressionRatio`，零模型调用，见 `docs/压缩质量-现有观测盘点与缺口.md` §4）；② `foldRange{fromSeq,toSeq,reason}` 显式 forgotten 边界（改 graph schema，**需契约先行**）；③ fold-planner 预算两档动态化（纯函数）；④ `superseded_by` 标注（不删边）；⑤ 可寻址闭包（压缩块 → 原始 seq 闭包） |
+
+## 🆕 2026-11-01 21:50 · 1.16.0（已发布 → 历史）
 
 | 项 | 值 |
 |---|---|
@@ -10,7 +191,7 @@
 | 生成器 | `node scripts/make-presets-override.mjs [--write]` —— 读宿主 asar 里的官方 preset，**文本级**改写（官方文件里的 `!!js` 表达式绝不能被 YAML round-trip）。DSH 升级后重跑再发版 |
 | 已否决 | **运行时接管方案（R17）**：`src/rooms/takeover.mjs` + `installTakeover` 会让 preset 生成树挂载失败（重启后会话只剩宿主级工具，`bash`/`read`/`write` 全消失）。代码在 `git stash`：`wip:R17-takeover（事故，留档）`，**不要恢复** |
 | 隔离验证（真跑过） | ① `--dump-config` 四个 `- id: preset-*` 行都带 `dsh-gokifu-compact/engine`；② `agentPreset: "standard"` 会话里**工具齐全**（模型成功调用工具并拿到输出）；③ `<home>/chess-context/sessions/<id>/graph.json` 落盘（含 user/agent 节点与带 verify 的边）；④ 卸载后 `--dump-config` 里引擎行归零、四个 preset 内部 `compaction-basic` 全部回来 |
-| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1286ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
+| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `session-1361ce28` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
 | 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
 | 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add <WORKSPACE>/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
@@ -57,7 +238,7 @@
 
 ## 新版 DSH 适配（0.2.1-rc.5）—— 装回去之前必读
 
-> 完整方案（逐行源码实测）：`<WORKSPACE>\gokifu-2026-11-01\compat-deploy.md`。
+> 完整方案（逐行源码实测）：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\compat-deploy.md`。
 > 本节只留结论与顺序，别整段抄。
 
 **三道版本闸（缺一不可，全在宿主 `dsh-app-boot` 里）**
@@ -115,7 +296,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 2. **引擎名必须写 `dsh-gokifu-compact/engine`**，不能写包根：包根 `exports["."]` → `src/ui.mjs` 是 UI host，
    DSH 会把 UI host 当压缩引擎，**装回去了照样挂**。
 
-> 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1306 B / 39 CRLF / 无 BOM）；
+> 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1361 B / 39 CRLF / 无 BOM）；
 > UTF-8 编辑器保存会让它静默失效。`live` 若用 `link:` 指向工作树，则**工作树里任何未提交改动重启后都会被直接加载**。
 >
 > **⚠ 启动器（1.13.0 发现并已修）**：`D:\DeepSeek Harness\启动 DSH.cmd` **原本是坏的** —— 两处路径写
@@ -126,11 +307,11 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 ## 测试用 DSH 实例（W-C · 1.13.0 建成，这是本轮最重要的能力）
 
 > 目的：以后**任何**「装回去到底行不行」的验证，都在这个**独立实例**上做，不再拿生产 home 冒险。
-> 细节与逐条证据：`<WORKSPACE>\gokifu-2026-11-01\test-instance.md`。
+> 细节与逐条证据：`E:\Documents\deepseek-harness\default-workspace\gokifu-2026-11-01\test-instance.md`。
 
 | 项 | 值 |
 |---|---|
-| 测试 home | **`<DSH_HOME>\dsh-test-home`**（独立 `DSH_HOME`，与生产 `D:\DeepSeek Harness\home` 完全隔离） |
+| 测试 home | **`<TEST_DSH_HOME>`**（独立 `DSH_HOME`，与生产 `D:\DeepSeek Harness\home` 完全隔离） |
 | 端口 | **62619**（生产是 62618）⇒ 两个实例可同时跑 |
 | profile | `web`（自动创建），已装 `dsh-gokifu-compact` + 自建 preset bundle，二者都在 `dsh.profile.bundles` 里 |
 | 起停 | 起：`dsh --profile web --host 127.0.0.1 --port 62619 --no-open`；停：`netstat -ano \| grep LISTENING \| grep :62619` 拿 PID 后 `taskkill //PID <PID> //T //F` |
@@ -230,7 +411,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 | 版本 | **1.9.1**（工作区 = 已安装 junction 指向的源码，npm latest 仍是 1.8.1 —— 未发布） |
 | 单测 | **134 passed / 0 failed**（新增 `test/selfloop.test.mjs` 8 项 + harness 端到端 1 项） |
 | 全库自环 | **6,172 → 0**（`node test/rewash-selfloop.mjs --apply` 已执行） |
-| 未生效 | **必须重启 DSH**：正在跑的进程仍加载旧代码，会持续把自环写回（实测每分钟 +100 条） |
+| 未生效 | ~~必须重启 DSH~~ **已于 2026-11-04 重启接管**：当时运行实例仍加载旧代码，会持续把自环写回（实测每分钟 +100 条）；重启后自环归零已验证 |
 
 ### 这一版修了什么（三份独立评估共同指向的那个洞）
 
@@ -246,7 +427,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 
 **重启后的验收**：
 ```bash
-node test/doctor.mjs          # 「图结构（自环）」应为 ✓（0 个坍缩图）
+node scripts/doctor.mjs       # 「图结构（自环）」应为 ✓（0 个坍缩图）
 node test/verify-graphs.mjs   # 图结构：自环 0 = 0.0%
 node test/rewash-selfloop.mjs # 若运行期又写出自环，说明修复没生效 —— 先查 worldstate.touch
 ```

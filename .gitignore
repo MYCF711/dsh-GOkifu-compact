@@ -10,3 +10,4 @@ node_modules/
 # find-project.mjs、replay.mjs、scan-graphs.mjs、verify-*.mjs、
 # worldhash.test.mjs、headless-fold-check.patch.yml）不受影响，仍是跟踪状态。
 tmp/
+test/.harness.lock

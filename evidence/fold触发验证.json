@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T09:34:05.902Z",
+  "generatedAt": "2026-11-01T18:50:59.300Z",
   "model": "group/deepseek-v4.1-flash1017",
   "window": 200000,
   "threshold": 90000,
@@ -12,9 +12,9 @@
     {
       "step": "over-threshold",
       "folded": true,
-      "before": 25,
+      "before": 28,
       "after": 6,
-      "summaryChars": 307,
+      "summaryChars": 546,
       "status": "ok"
     },
     {
@@ -33,19 +33,41 @@
       "injected": 6,
       "compressibleTail": 7,
       "status": "ok"
+    },
+    {
+      "step": "fold-fields",
+      "folded": true,
+      "status": "ok"
     }
   ],
   "summary": {
-    "ok": 5,
+    "ok": 6,
     "na": 0,
     "fail": 0,
-    "total": 5
+    "total": 6
   },
   "usage": {
     "calls": 3,
-    "prompt": 1552,
-    "completion": 3102,
-    "total": 4654,
+    "prompt": 1589,
+    "completion": 2870,
+    "total": 4459,
     "empty": 0
-  }
+  },
+  "quality": {
+    "constraintRecall": 1,
+    "failureRecall": 0,
+    "compressionRatio": 359.22,
+    "expectedConstraints": 2,
+    "expectedFailures": 1,
+    "missingConstraints": [],
+    "missingFailures": [
+      "e1"
+    ],
+    "summaryTokens": 343,
+    "shadowedTokens": 123211,
+    "unknownIds": [],
+    "modelConstraintRecall": 0.5
+  },
+  "qualityVerdict": "ok",
+  "qualityNote": "本脚本的 ctx.llm 是桩（不使用引擎的棋谱指令，自己拼 prompt）：constraintRecall 由引擎机械追加保证，failureRecall 受桩 prompt 影响、不代表生产；证明的是 engine→keeper→fold-quality→foldMarks 链路非真空。"
 }

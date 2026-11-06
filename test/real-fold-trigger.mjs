@@ -91,6 +91,16 @@ function makeSession(id) {
     append(type, data, opts) {
       const event = { type, seq: log.length, time: Date.now(), data, ...(opts ?? {}) };
       log.push(event);
+      // 2026-11-01（保真度真实链路）：把事件同步派发给 ctx —— engine 的 keeper 注册在
+      // ctx.on("session/event", …)；手写桩不发事件 ⇒ keeper 从不运行 ⇒ 图里没有约束/失败边
+      // ⇒ fold-quality 永远「真空通过」。补上派发后，本文件才能真正验证保真度链路。
+      if (typeof session._emit === "function") {
+        try {
+          session._emit(event);
+        } catch {
+          /* 派发失败不阻塞桩本身 */
+        }
+      }
       const op = opts?.surfaceOp;
       const surfaceable = ["system/message", "developer/message", "user/message", "assistant/message", "tool/result"].includes(type);
       if (surfaceable) {
@@ -132,6 +142,9 @@ async function main() {
     return;
   }
 
+  // ★ 2026-11-01：每次运行前把项目 src/ 同步到 WORK/src —— 否则验证的是提取目录里的**旧副本**
+  //   （real-fold.mjs 早就这么做了；本文件之前没同步，跑出来的 quality 可能来自旧引擎）。
+  nodeFs.cpSync(nodePath.join(ROOT, "src"), nodePath.join(WORK, "src"), { recursive: true, force: true });
   const { createRequire } = await import("node:module");
   const workRequire = createRequire(nodePath.join(WORK, "package.json"));
   const { Context } = await import(pathToFileURL(workRequire.resolve("@deepseek-ai/cordis")).href);
@@ -203,6 +216,8 @@ async function main() {
         return 500;
       },
     };
+    // 2026-11-01（保真度真实链路）：把手写桩的事件派发给 ctx（见 append 里的说明）。
+    session._emit = (event) => ctx.emit("session/event", session, event);
     return ctx;
   }
 
@@ -225,6 +240,45 @@ async function main() {
 
   session.seed("system", "sys");
   session.append("turn/start", { turn: 1 });
+  // 2026-11-01（更正上一轮的结论）：这段带约束的 user 消息**现在真的生效了**。
+  // 上一版说「手写桩不触发 ctx.on('session/event') ⇒ keeper 不跑 ⇒ 保真度只能真空通过」——
+  // 问题真实存在，但结论不是「没法验证」，而是「桩没把事件派发出去」。现在 append() 会
+  // session._emit(event) → ctx.emit("session/event", …)，keeper 真跑，图里会有约束与失败边，
+  // 于是 fold-quality 的 expectedConstraints / expectedFailures 都 > 0 —— 这次是**有内容的检验**。
+  session.seed("user", "硬约束：不要动 prod 配置；测试必须串行跑，不要并发。");
+  // 2026-11-01：补一次**失败的**工具调用 —— 保真度要验证「失败边有没有被留住」，
+  // 而失败边只在 keeper 真跑时才产生。这条边带着 EACCES 原文进图，模型摘要必须提到它。
+  session.append(
+    "assistant/message",
+    {
+      message: {
+        id: "a-fail",
+        role: "assistant",
+        content: [
+          { type: "text", text: "先跑一遍测试确认现状。" },
+          { type: "tool-call", id: "c-fail", name: "bash", arguments: JSON.stringify({ command: "npm test" }) },
+        ],
+        source: { kind: "model", provider: "p", model: "m" },
+      },
+    },
+    { surfaceOp: "append" },
+  );
+  session.append(
+    "tool/result",
+    {
+      message: {
+        id: "t-fail",
+        role: "tool",
+        content: [{ type: "text", text: "ERR_EACCES: permission denied, open /very/long/path/to/config.json [exit code: 1]" }],
+        source: { kind: "tool", callId: "c-fail" },
+        isError: true,
+      },
+    },
+    { surfaceOp: "append" },
+  );
+  // 2026-11-01：补一个 step/end —— keeper 在这一步建 agent 节点并把本步的边指向它。
+  // 没有这一步，失败边会一直 to=null（10 分钟后被判成 rewash 残留，保真度就统计不到它）。
+  session.append("step/end", { turn: 1, step: 1 });
   for (let i = 0; i < 24; i += 1) session.seed("user", `第 ${i} 步：${i % 3 === 0 ? "改缓存策略" : "跑测试"}（这是用于验证 fold 的长历史）`);
 
   const agent = { session, options: {} };
@@ -282,6 +336,73 @@ async function main() {
     results.push({ step: "overflow", folded: false, injected, compressibleTail: compressibleTail(session), status: "fail" });
   }
 
+  /* 2026-11-01（保真度真实链路验证）：fold 落盘后读回 foldMark.quality。
+     判据：① quality 存在 ② expectedConstraints / expectedFailures 都必须 > 0
+     （否则这次验证又退化成「真空通过」）③ constraintRecall 必须 = 1。 */
+  let quality = null;
+  let qualityVerdict = "未采集";
+  try {
+    const { readFileSync } = await import("node:fs");
+    const graphFile = nodePath.join(graphDir, "sessions", "fold-trigger", "graph.json");
+    // 优先读引擎内存里的图：落盘是 debounce/idle 触发的，进程直接退出时盘上可能还是旧快照。
+    // （这不是测试取巧 —— engine 真实运行时读的也是这份内存图，落盘只是给 doctor/外部读。）
+    const inMemory = engine.graphs?.get?.(session.id) ?? null;
+    const g = inMemory ?? JSON.parse(readFileSync(graphFile, "utf8"));
+    const marks = (g.foldMarks ?? []).filter((m) => m && m.quality);
+    // 增量 fold：早期 range 才包含那条失败边，所以要对**所有** foldMark 取「最丰富」的那次样本，
+    // 只 + 看最后一次会得出「真空通过」的错误结论（实测踩过）。
+    quality = marks
+      .map((m) => m.quality)
+      .sort((a, b) => (b.expectedFailures + b.expectedConstraints) - (a.expectedFailures + a.expectedConstraints))[0] ?? null;
+    for (const m of marks) {
+      const q = m.quality;
+      console.log(
+        "  fold#" + m.foldCount + " seq " + m.seqStart + "-" + m.seqEnd +
+          " quality: c=" + q.expectedConstraints + "/" + q.constraintRecall +
+          " f=" + q.expectedFailures + "/" + q.failureRecall,
+      );
+    }
+    // C30/C31：真实链路也必须把 closure(preGraph/graphNodes) 与 boundary(openAtEnd) 落进 foldMark，
+    // 不只是单测里过。缺字段 = 记账退化，直接判失败（这是 gate，不是提示）。
+    const fieldGaps = [];
+    for (const m of marks) {
+      if (!m.closure || typeof m.closure.nodes !== "number") fieldGaps.push(`fold#${m.foldCount} 缺 closure`);
+      else if (typeof m.closure.preGraph !== "boolean" || typeof m.closure.graphNodes !== "number") fieldGaps.push(`fold#${m.foldCount} closure 缺 preGraph/graphNodes`);
+      if (!m.boundary || typeof m.boundary.openAtEnd !== "number") fieldGaps.push(`fold#${m.foldCount} 缺 boundary`);
+      else if (m.boundary.openAtEnd !== 0) fieldGaps.push(`fold#${m.foldCount} 切点落在调用中间（openAtEnd=${m.boundary.openAtEnd}）`);
+    }
+    if (fieldGaps.length > 0) {
+      console.log("  字段缺口：" + fieldGaps.join("；"));
+      results.push({ step: "fold-fields", folded: true, status: "fail", gaps: fieldGaps });
+    } else {
+      const sample = marks[0];
+      console.log(
+        "  字段：closure n/e=" + sample.closure.nodes + "/" + sample.closure.edges +
+          " preGraph=" + sample.closure.preGraph + " graphNodes=" + sample.closure.graphNodes +
+          " boundary=" + JSON.stringify(sample.boundary),
+      );
+      results.push({ step: "fold-fields", folded: true, status: "ok" });
+    }
+    if (quality === null) qualityVerdict = "foldMark.quality 缺失";
+    else if (!(quality.expectedConstraints > 0) || !(quality.expectedFailures > 0)) {
+      qualityVerdict = "真空通过（expectedConstraints=" + quality.expectedConstraints + " / expectedFailures=" + quality.expectedFailures + "）";
+    } else if (quality.constraintRecall !== 1) {
+      qualityVerdict = "constraintRecall=" + quality.constraintRecall + "（缺 " + JSON.stringify(quality.missingConstraints) + "）";
+    } else qualityVerdict = "ok";
+  } catch (error) {
+    qualityVerdict = "读图失败：" + String(error?.message ?? error);
+  }
+  console.log(
+    // ⚠ 口径说明：本文件的 ctx.llm 是桩，它**不用**引擎给的 messages（棋谱指令 + 机械事实块），
+    //   而是自己拼一段 prompt ⇒ constraintRecall 靠引擎机械追加保证（有效），
+    //   failureRecall 则取决于桩 prompt 有没有把失败边喂给模型（**不代表生产**）。
+    //   这条链真正被证明的是：engine → keeper → fold-quality → foldMarks 落盘这一段。
+    "保真度：" + qualityVerdict +
+      (quality === null
+        ? ""
+        : "（约束 " + quality.expectedConstraints + " / 失败边 " + quality.expectedFailures + " · cRecall=" + quality.constraintRecall + " fRecall=" + quality.failureRecall + " ratio=" + quality.compressionRatio + "）"),
+  );
+
   const summary = summarizeResults(results);
   console.log(`\n${summary.text}`);
   console.log(`usage: prompt ${usage.prompt} / completion ${usage.completion} / total ${usage.total}（${usage.calls} 次调用${usage.empty > 0 ? `，${usage.empty} 次无 usage` : ""}）`);
@@ -295,11 +416,21 @@ async function main() {
     results,
     summary: { ok: summary.ok, na: summary.na, fail: summary.fail, total: summary.total },
     usage,
+    quality,
+    qualityVerdict,
+    qualityNote:
+      "本脚本的 ctx.llm 是桩（不使用引擎的棋谱指令，自己拼 prompt）：constraintRecall 由引擎机械追加保证，" +
+      "failureRecall 受桩 prompt 影响、不代表生产；证明的是 engine→keeper→fold-quality→foldMarks 链路非真空。",
   };
   nodeFs.writeFileSync(nodePath.join(OUT, "fold触发验证.json"), JSON.stringify(payload, null, 2), "utf8");
   // md 由 test/write-fold-evidence.mjs 从 json 生成（md 与 json 永远同源）
 
   if (!summary.passed) process.exitCode = 1;
+  // 保真度必须是有内容的检验（不是真空通过），否则本文件等于没验
+  if (qualityVerdict !== "ok") {
+    console.error("[FAIL] 保真度验证未通过：" + qualityVerdict);
+    process.exitCode = 1;
+  }
 }
 
 const invokedDirectly =

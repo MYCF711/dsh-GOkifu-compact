@@ -29,6 +29,7 @@ import { fromJSON } from "../src/rooms/kifu-model.mjs";
 import { renderFacts, estimateTokens } from "../src/rooms/ledger.mjs";
 import { buildChessInstruction } from "../src/rooms/facts-prompt.mjs";
 import { failureEdges } from "../src/rooms/kifu-model.mjs";
+import { loadSessionGraph } from "./graph-audit.mjs";
 
 /** 摘要必须包含的四章节（与 engine.ruleSummary / 模型 instruction 同一口径）。 */
 export const REQUIRED_SECTIONS = Object.freeze([
@@ -282,7 +283,7 @@ export function buildReport({ session, range, prompt, models, repeat, maxTokens,
 export function loadGraph(home, sessionId) {
   const file = nodePath.join(home, "chess-context", "sessions", String(sessionId), "graph.json");
   if (!nodeFs.existsSync(file)) throw new Error(`找不到 graph：${file}`);
-  return { graph: fromJSON(nodeFs.readFileSync(file, "utf8")), file };
+  return { graph: loadSessionGraph(file).graph, file };
 }
 
 /** 在真实会话里挑「失败边最多」的一个（没有就挑最大的）。 */
@@ -295,7 +296,7 @@ export function pickSession(home) {
     const file = nodePath.join(root, d.name, "graph.json");
     if (!nodeFs.existsSync(file)) continue;
     try {
-      const g = fromJSON(nodeFs.readFileSync(file, "utf8"));
+      const g = loadSessionGraph(file).graph;
       const failures = failureEdges(g).length;
       if (best === null || failures > best.failures) best = { id: d.name, failures, graph: g };
     } catch {
@@ -310,7 +311,7 @@ export function pickSession(home) {
 
 async function main(argv) {
   const opts = parseArgs(argv, process.env);
-  const picked = opts.graph ? { graph: fromJSON(nodeFs.readFileSync(opts.graph, "utf8")), id: nodePath.basename(nodePath.dirname(opts.graph)) } : opts.session ? { ...loadGraph(opts.home, opts.session), id: opts.session } : pickSession(opts.home);
+  const picked = opts.graph ? { graph: loadSessionGraph(opts.graph).graph, id: nodePath.basename(nodePath.dirname(opts.graph)) } : opts.session ? { ...loadGraph(opts.home, opts.session), id: opts.session } : pickSession(opts.home);
   const graph = picked.graph;
   const sessionId = picked.id ?? graph.sessionId ?? "unknown";
   const range = pickFoldSlice(graph);

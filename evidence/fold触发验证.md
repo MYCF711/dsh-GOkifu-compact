@@ -1,6 +1,6 @@
 # fold 触发验证：自动路径 + 真实模型
 
-> 生成于 2026-10-28T07:54:08.545Z　模型：`group/deepseek-v4.1-flash1017`
+> 生成于 2026-11-01T15:33:53.285Z　模型：`group/deepseek-v4.1-flash1017`
 > 模拟上下文窗口 200000，折叠阈值 90000（45% × 窗口）
 >
 > 本文件由 `test/write-fold-evidence.mjs` 从同目录 `fold触发验证.json` 生成 —— **md 与 json 必然同源**。
@@ -15,9 +15,9 @@
 | 场景 | 期望 | 实际 |
 |---|---|---|
 | ① 90000 以下 | 不 fold | 未 fold ✅ |
-| ② 超过阈值 | fold + surface 收缩 | 未 fold ❌ |
+| ② 超过阈值 | fold + surface 收缩 | fold ✅（28 → 6 节点，摘要 456 字符） |
 | ③ 立刻再调（增量 0） | growth gate 拦住 | 被拦住 ✅ |
-| ④ 增量足够 | 再次 fold | 未 fold ❌ |
+| ④ 增量足够 | 再次 fold | 再次 fold ✅ |
 | ⑤ 溢出自救 | 已压干净则 no-op | fold 了（可接受） |
 
 ## 判读方式

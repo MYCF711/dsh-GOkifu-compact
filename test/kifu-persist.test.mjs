@@ -29,6 +29,7 @@ import {
   DELTA_COMPACT_RATIO,
 } from "../src/rooms/kifu-persist.mjs";
 import {
+  addAgentNode,
   addEdge,
   addUserNodeId,
   clearDirty,
@@ -38,6 +39,7 @@ import {
   peekDirty,
   renderIndexMd,
   renderNodeMd,
+  settleEdge,
   sha,
   toJSON,
 } from "./graph-fixtures.mjs";
@@ -71,6 +73,7 @@ function makePort(opts = {}) {
       existsSync: wrap("existsSync"),
       mkdirSync: wrap("mkdirSync"),
       rmSync: wrap("rmSync"),
+      readdirSync: wrap("readdirSync"),
     },
     /** 只看写类操作（读/探测过滤掉），用于写序断言。 */
     writes() {
@@ -336,4 +339,288 @@ export const tests = {
       t.eq(again.truncatedFrames, 0, "不该有坏帧");
     });
   },
+};
+
+tests["C111 tree 落盘自愈陈旧节点文档（回滚/合并留下的 md 必须清掉）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 自建最小图（不借 buildGraph：那条夹具的节点集合不适合断言「删一个留一个」）
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+    const eid = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: eid }).id;
+    settleEdge(g, eid, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g);
+    const paths = sessionPaths(root, "s1");
+    const md = (id) => nodePath.join(paths.nodesDir, id + ".md");
+    t.eq(nodeFs.existsSync(md(u)), true, "首次 flush 必须写出用户节点 md");
+    t.eq(nodeFs.existsSync(md(n)), true, "首次 flush 必须写出 agent 节点 md");
+
+    // 模拟「写了又回滚」：agent 节点从图里消失，再走一次 tree 落盘
+    delete g.nodes[n];
+    g.order = g.order.filter((id) => id !== n);
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "keep-me.txt"), "x", "utf8");
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    t.eq(r.ok, true, "tree 落盘应成功");
+    t.eq(nodeFs.existsSync(md(n)), false, `已不在图里的 ${n}.md 必须被清掉`);
+    t.eq(nodeFs.existsSync(md(u)), true, "仍在图里的节点文档不许删");
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "keep-me.txt")), true, "非节点文件一律不碰");
+  });
+};
+
+tests["C111-2 假 port 必须与 createFsPort 的接口一致（缺方法会被 try/catch 静默吞掉）"] = (t) => {
+  // 真实教训：C111 的清理逻辑用 `port.readdirSync`，而假 port 没有该方法
+  // ⇒ 清理抛错、被 catch 吞掉、测试看到「没清理」却以为是实现问题。
+  const real = createFsPort();
+  const fake = makePort().port;
+  for (const key of Object.keys(real)) {
+    t.eq(typeof fake[key], "function", `假 port 缺少 createFsPort 的方法 "${key}" —— 注入方与真实实现接口必须一致`);
+  }
+};
+
+tests["C112 回滚后 index.md 必须跟着图重渲染（不许残留已删节点）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+    const eid = addEdge(g, { from: u, intent: "跑测试", action: "bash(npm test)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "跑测试", worldHash: "W1", constraintHash: "C1", via: eid }).id;
+    settleEdge(g, eid, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    t.eq(nodeFs.readFileSync(paths.indexFile, "utf8").includes(n), true, "首次渲染必须包含 agent 节点");
+
+    // 模拟回滚：agent 节点从图里消失
+    delete g.nodes[n];
+    g.order = g.order.filter((x) => x !== n);
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const index = nodeFs.readFileSync(paths.indexFile, "utf8");
+    t.eq(index.includes(n), false, `回滚后 index.md 不许还写着 ${n}（否则人看索引 = 看旧状态）`);
+    t.eq(index.includes(u), true, "仍存在的节点必须还在索引里");
+  });
+};
+
+tests["C133 任意写序点失败：磁盘上的图必须仍可解析，且节点集只会是「旧」或「新」"] = (t) => {
+  // 泛化 C111 那三个手挑注入点：把失败打到稳态落盘的**每一个** fs 操作上，
+  // 不允许出现「既不是旧图也不是新图」的第三种状态（那意味着半写/丢数据）。
+  let checked = 0;
+  for (let failIndex = 1; failIndex <= 8; failIndex += 1) {
+    withTmp((root) => {
+      // 先正常落一版基线
+      const okStore = createPersistStore({ port: makePort().port, root });
+      const base = buildGraph();
+      okStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base);
+      const beforeIds = Object.keys(base.nodes).sort();
+
+      // 再加一个节点，然后在第 failIndex 次 fs 操作上失败
+      let ops = 0;
+      const badPort = makePort({
+        failWhen: () => {
+          ops += 1;
+          return ops === failIndex;
+        },
+      });
+      const badStore = createPersistStore({ port: badPort.port, root });
+      addUserNodeId(base, { seq: 777, turn: 77, text: `第 ${failIndex} 次注入` });
+      const afterIds = Object.keys(base.nodes).sort();
+      const bad = badStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base);
+
+      // 失败之后必须能用新 store 读回来，且节点集是两者之一
+      const reload = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+      const loadedIds = Object.keys(reload.graph.nodes).sort();
+      const asBefore = JSON.stringify(loadedIds) === JSON.stringify(beforeIds);
+      const asAfter = JSON.stringify(loadedIds) === JSON.stringify(afterIds);
+      t.eq(asBefore || asAfter, true, `failIndex=${failIndex}（ok=${bad.ok}）读回的节点集既不是旧图也不是新图：${loadedIds.join(",")}`);
+      if (!bad.ok) {
+        t.eq(peekDirty(base).empty, false, `failIndex=${failIndex} 失败后 dirty 必须保留（下次重试还要写）`);
+        checked += 1;
+      }
+    });
+  }
+  t.eq(checked >= 4, true, `至少要有 4 个注入点真的失败（否则判据空转），实际 ${checked}`);
+};
+
+tests["C142-3 内存图为空（graph.json 读不出时的兜底）绝不许清 nodes/"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 先正常写出一版（3 个文档）：
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    const e1 = addEdge(g, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n1 = addAgentNode(g, { seq: 4, goal: "g1", worldHash: "W1", constraintHash: "C", via: e1 }).id;
+    settleEdge(g, e1, { to: n1, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    const before = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(before.length, 2, `基线应写出 2 个节点文档，实际 ${before.join(",")}`);
+
+    // 模拟「graph.json 读不出 ⇒ engine 建空图」：用空图做 tree 落盘
+    const empty = createGraph({ sessionId: "s1" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, empty, { tree: true });
+    t.eq(r.ok, true, "空图落盘本身不应失败");
+    const after = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(after.join(","), before.join(","), `空图不许清 nodes/（C142 审查 P1-1）：${before.join(",")} → ${after.join(",")}`);
+  });
+};
+
+tests["C145 重启后**第一次** tree 落盘也必须自愈（firstWrite 分支此前跳过清理）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 造一个「上次运行留下的」陈旧文档（此时 store 还没写过任何东西 = firstWrite 路径）
+    const paths = sessionPaths(root, "s1");
+    nodeFs.mkdirSync(paths.nodesDir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "n999.md"), "陈旧", "utf8");
+
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    const e = addEdge(g, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(g, { seq: 4, goal: "g", worldHash: "W", constraintHash: "C", via: e }).id;
+    settleEdge(g, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "n999.md")), false, "firstWrite + tree 也必须清掉陈旧 md");
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, `${u}.md`)), true, "真实节点必须写出");
+  });
+};
+
+tests["C145-2 非 tree 的 firstWrite 不许清理（避免误删影响性能与安全边界）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    const paths = sessionPaths(root, "s1");
+    nodeFs.mkdirSync(paths.nodesDir, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(paths.nodesDir, "n999.md"), "陈旧", "utf8");
+    const g = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(g, { seq: 1, text: "a" });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g); // 非 tree
+    t.eq(nodeFs.existsSync(nodePath.join(paths.nodesDir, "n999.md")), true, "非 tree 落盘不做清理（清理只在 tree 时）");
+    void u;
+  });
+};
+
+tests["C149 图是「重建」出来的（repaired）时，tree 落盘绝不许按图清理（会删旧图真实文档）"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 先落一版真实图：n1(user) + n2(agent) —— 两个文档
+    const real = createGraph({ sessionId: "s1" });
+    const u = addUserNodeId(real, { seq: 1, text: "a" });
+    const e = addEdge(real, { from: u, intent: "i", action: "bash(x)", evidence: { start: 2, end: 3 } });
+    const n = addAgentNode(real, { seq: 4, goal: "g", worldHash: "W", constraintHash: "C", via: e }).id;
+    settleEdge(real, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+    store.flush({ id: "s1", cwd: "D:/tmp/proj" }, real, { tree: true });
+    const paths = sessionPaths(root, "s1");
+    const before = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(before.length, 2, `夹具前提：两个节点文档，实际 ${before.join(",")}`);
+
+    // 重建图只有 n1（新图从 n1 开始编号）；旧图的 n2 必须在 repaired 落盘时不被动
+    const rebuilt = createGraph({ sessionId: "s1" });
+    addUserNodeId(rebuilt, { seq: 9, text: "重建后的第一个节点" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true, repaired: true });
+    t.eq(r.ok, true, "落盘本身应成功");
+    const after = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(after.includes("n2.md"), true, `repaired 落盘不许删旧图的 n2.md（实际剩：${after.join(",")}）`);
+
+    // 反向：非 repaired 的 tree 落盘必须清理（否则自愈功能失效）
+    const cleaned = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true });
+    t.eq(cleaned.ok, true, "正常落盘应成功");
+    const final = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).sort();
+    t.eq(final.includes("n2.md"), false, `非 repaired 时必须清理不在图里的文档，实际 ${final.join(",")}`);
+  });
+};
+
+tests["C173 大规模图（600 节点）在三种损坏下的自愈：不抛错、repaired 或可解析、且不误删文档"] = (t) => {
+  withTmp((root) => {
+    const { port } = makePort();
+    const store = createPersistStore({ port, root });
+    // 造 600 个节点 + 599 条边（接近真实会话的量级：live 平均 ~180、最大 ~1.4k）
+    const g = createGraph({ sessionId: "s1" });
+    let prev = addUserNodeId(g, { seq: 1, text: "起点" });
+    for (let i = 2; i <= 600; i += 1) {
+      const e = addEdge(g, { from: prev, intent: `步骤 ${i}`, action: `bash(cmd${i})`, evidence: { start: i * 2, end: i * 2 + 1 } });
+      const n = addAgentNode(g, { seq: i * 2 + 1, goal: `目标 ${i}`, worldHash: `W${i}`, constraintHash: `C${i}`, via: e }).id;
+      settleEdge(g, e, { to: n, result: i % 7 === 0 ? "failure" : "success", verify: { kind: "exit", summary: i % 7 === 0 ? "exit 1" : "exit 0" }, ...(i % 7 === 0 ? { errorSnippet: `第 ${i} 步失败` } : {}) });
+      prev = n;
+    }
+    t.eq(Object.keys(g.nodes).length, 600, "夹具前提：600 个节点");
+    const started = Date.now();
+    const first = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, g, { tree: true });
+    const msTree = Date.now() - started;
+    t.eq(first.ok, true, "首次 tree 落盘必须成功");
+    t.eq(msTree < 15000, true, `600 节点 tree 落盘耗时 ${msTree}ms，异常偏慢`);
+
+    const paths = sessionPaths(root, "s1");
+    const docsBefore = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).length;
+    t.eq(docsBefore, 600, `应写出 600 个文档，实际 ${docsBefore}`);
+
+    // 损坏 ①：delta 尾部塞半帧 ⇒ load 必须忽略坏尾，图仍可解析
+    nodeFs.appendFileSync(paths.deltaFile, "deadbeef	000000	{\"v\":1", "utf8");
+    const a = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+    t.eq(Object.keys(a.graph.nodes).length >= 600, true, `坏尾后 load 仍应有 ≥600 节点，实际 ${Object.keys(a.graph.nodes).length}`);
+
+    // 损坏 ②：graph.json 改成版本不符 ⇒ repaired=true，且**不许**因此清掉 600 个文档
+    const base = JSON.parse(nodeFs.readFileSync(paths.graphFile, "utf8"));
+    base.version = 999;
+    nodeFs.writeFileSync(paths.graphFile, JSON.stringify(base), "utf8");
+    const b = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+    t.eq(b.repaired, true, "版本不符必须 repaired");
+    const rebuilt = createGraph({ sessionId: "s1" });
+    addUserNodeId(rebuilt, { seq: 1, text: "重建后的节点" });
+    const r = store.flush({ id: "s1", cwd: "D:/tmp/proj" }, rebuilt, { tree: true, repaired: true });
+    t.eq(r.ok, true, "repaired 落盘必须成功");
+    const docsAfter = nodeFs.readdirSync(paths.nodesDir).filter((f) => f.endsWith(".md")).length;
+    t.eq(docsAfter >= 600, true, `repaired 落盘不许把 600 个文档清掉，实际剩 ${docsAfter}`);
+  });
+};
+
+tests["C176 规模 × 失败：300 节点图上任意写序点失败，读回只可能是「旧图」或「新图」"] = (t) => {
+  const N = 300;
+  const buildBig = () => {
+    const g = createGraph({ sessionId: "s1" });
+    let prev = addUserNodeId(g, { seq: 1, text: "起点" });
+    for (let i = 2; i <= N; i += 1) {
+      const e = addEdge(g, { from: prev, intent: `步骤 ${i}`, action: `bash(cmd${i})`, evidence: { start: i * 2, end: i * 2 + 1 } });
+      const n = addAgentNode(g, { seq: i * 2 + 1, goal: `目标 ${i}`, worldHash: `W${i}`, constraintHash: `C${i}`, via: e }).id;
+      settleEdge(g, e, { to: n, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+      prev = n;
+    }
+    return g;
+  };
+
+  for (const failAt of [1, 120, 420]) {
+    withTmp((root) => {
+      // 基线：完整落一版（先写盘，之后才是「增量失败」的场景）
+      const okStore = createPersistStore({ port: makePort().port, root });
+      const base = buildBig();
+      const first = okStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+      t.eq(first.ok, true, `failAt=${failAt} 基线落盘必须成功`);
+      const beforeIds = Object.keys(base.nodes).sort();
+
+      // 再加一个节点，然后在**第 failAt 次** fs 操作上失败
+      let ops = 0;
+      const badPort = makePort({ failWhen: () => { ops += 1; return ops === failAt; } });
+      const badStore = createPersistStore({ port: badPort.port, root });
+      const extra = addUserNodeId(base, { seq: 9000, text: "增量节点" });
+      const afterIds = Object.keys(base.nodes).sort();
+      const bad = badStore.flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+
+      const loaded = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+      const gotIds = Object.keys(loaded.graph.nodes).sort();
+      const asBefore = JSON.stringify(gotIds) === JSON.stringify(beforeIds);
+      const asAfter = JSON.stringify(gotIds) === JSON.stringify(afterIds);
+      t.eq(asBefore || asAfter, true, `failAt=${failAt}（ok=${bad.ok}）读回 ${gotIds.length} 个节点，既不是旧图(${beforeIds.length})也不是新图(${afterIds.length})`);
+      if (!bad.ok) {
+        t.eq(peekDirty(base).empty, false, `failAt=${failAt} 失败后 dirty 必须保留`);
+        // 失败后必须还能重试成功
+        const retry = createPersistStore({ port: makePort().port, root }).flush({ id: "s1", cwd: "D:/tmp/proj" }, base, { tree: true });
+        t.eq(retry.ok, true, `failAt=${failAt} 重试落盘必须成功`);
+        const again = createPersistStore({ port: makePort().port, root }).load({ id: "s1", cwd: "D:/tmp/proj" });
+        t.eq(Object.keys(again.graph.nodes).includes(extra), true, `failAt=${failAt} 重试后增量节点必须落盘`);
+      }
+    });
+  }
 };

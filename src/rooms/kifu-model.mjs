@@ -144,6 +144,9 @@ export function addAgentNode(g, { seq, turn = null, goal, worldHash, constraintH
  * 语义：fromId 的入边改指向 intoId 并标 transposition；fromId 从图中移除。
  * @returns 被重定向的边 id 列表
  */
+/** 合并时保留多少条被吞节点的身份记录（C33）。太多会把 graph.json 撑大；8 条足够审计。 */
+const SUPERSEDED_KEEP = 8;
+
 export function mergeNodeInto(g, fromId, intoId) {
   if (fromId === intoId || !g.nodes[fromId] || !g.nodes[intoId]) return [];
   const node = g.nodes[fromId];
@@ -157,7 +160,11 @@ export function mergeNodeInto(g, fromId, intoId) {
   for (const edge of Object.values(g.edges)) {
     // 出边也要改：旧版只改 edge.to，合并非叶子节点后它的所有出边 from 会指向已删除节点。
     // 实测（真实会话 graph.json）155 条边里 115 条 from 悬空 —— 图结构被悄悄破坏。
-    if (edge.from === fromId) edge.from = intoId;
+    if (edge.from === fromId) {
+      edge.from = intoId;
+      // C33：出边是从被吞节点转过来的 —— 记下来源，避免「这条边本来属于谁」永久丢失
+      if (edge.retargetedFrom === undefined) edge.retargetedFrom = fromId;
+    }
     if (edge.to === fromId) {
       edge.to = intoId;
       edge.transposition = true;
@@ -165,7 +172,15 @@ export function mergeNodeInto(g, fromId, intoId) {
     }
   }
   // 目标节点被别的边指回来 → 记录一次置换事实（人读视图用）
-  g.nodes[intoId].transpositions = (g.nodes[intoId].transpositions ?? 0) + 1;
+  const target = g.nodes[intoId];
+  target.transpositions = (target.transpositions ?? 0) + 1;
+  // ★ C33（2026-11-02）：非破坏合并 —— 被吞节点的身份（id/seq/目标/时间）保留在 into 上，
+  //   只把图结构（节点与边）按原语义收拢。这样「谁被合并了、合并了几次」可审计，
+  //   而不是只能从 transpositions 数字倒推。有界保留（SUPERSEDED_KEEP）避免 graph.json 膨胀。
+  const history = Array.isArray(target.superseded) ? target.superseded : [];
+  history.push({ id: fromId, seq: node.seq ?? null, goal: String(node.goal ?? "").slice(0, 200), ts: node.ts ?? null, at: Date.now() });
+  target.superseded = history.slice(-SUPERSEDED_KEEP);
+  target.supersededCount = (target.supersededCount ?? 0) + 1;
   delete g.nodes[fromId];
   g.order = g.order.filter((id) => id !== fromId);
   for (const [key, value] of Object.entries(g.stateIndex)) if (value === fromId) delete g.stateIndex[key];
@@ -205,7 +220,7 @@ function predecessorEdge(g, nodeId) {
 
 /* ────────────────────────────── 边 ────────────────────────────── */
 
-export function addEdge(g, { from, intent = "", action = "", evidence = null }) {
+export function addEdge(g, { from, intent = "", action = "", evidence = null, sig = "" }) {
   const id = `e${g.nextEdge++}`;
   g.edges[id] = {
     id,
@@ -213,6 +228,9 @@ export function addEdge(g, { from, intent = "", action = "", evidence = null }) 
     to: null,
     intent: norm(intent).slice(0, 200),
     action: norm(action).slice(0, 240),
+    // ★ C446：动作指纹（工具名 + 完整参数）—— 循环判据的键。老边没有这个字段，判据回落 action。
+    //   只在给了值时才写，避免把老图/夹具全刷一遍新字段。
+    ...(typeof sig === "string" && sig !== "" ? { sig } : {}),
     result: "untested",       // untested | success | failure | unverified
     verify: { kind: "none", summary: "" },
     errorSnippet: "",
@@ -250,13 +268,209 @@ export function settleEdge(g, edgeId, { to = null, result, verify, errorSnippet 
 }
 
 /** 所有失败边（热上下文的核心资产），按创建顺序。 */
+/**
+ * ★ C300：**「已修正的失败」只在这里定义一次**。
+ *
+ * 由来：这段逻辑在 `src/ui.mjs`（面板卡片）和 `scripts/doctor.mjs`（抗干扰度）里**各写了一遍**，
+ * 两边一模一样 —— 一模一样不等于永远一样：哪天一边改了 evidence 的读法，另一处会**静默分叉**，
+ * 面板说"修好了 8 条"、doctor 说"修好了 5 条"，而且两个都不会报错。
+ *
+ * 语义：某条 failure 之后，**同一个 action** 又成功过（success 的 end > 失败的 end）⇒ 记一条已修正。
+ * @param {object} g
+ * @returns {number}
+ */
+/**
+ * ★ C302：**边的证据位置只在这里读**。
+ *
+ * `evidence` 有两种历史形态：早先是数字（= 截止 seq），后来是 `{start,end}`。
+ * 这个"两种形态都认"的读法在仓库里出现过 **四份**（kifu-model / ledger ×3），
+ * 且默认值不一致（`NaN` vs `-Infinity`）—— 一模一样不等于永远一样，迟早分叉。
+ *
+ * @param {object} edge
+ * @param {number} [fallback] 读不出来时的返回值（默认 NaN；比较场景传 -Infinity 更方便）
+ * @returns {number}
+ */
+/**
+ * ★ C303：把边的证据读成 `{start,end}`（读不出来返回 null）。
+ *
+ * 这个函数在 `rooms/fold-quality.mjs`（叫 `evidenceSpan`）和 `rooms/touched-files.mjs`
+ * （叫 `evidenceSpanOf`）里**一模一样地写了两遍** —— 连名字都不一样，所以肉眼看不出重复。
+ * 现在只留这一份：`evidenceEndSeq` / `evidenceStartSeq` 也都从它派生。
+ *
+ * @param {object} edge
+ * @returns {{start:number,end:number}|null}
+ */
+/**
+ * ★ C320：**「这次摘要是不是被截断了」只有一种判法**。
+ *
+ * 三层口径实测（2026-11-02，逐层从 app.asar 挖出）：
+ *   - 宿主流式块：`assembler.finish.reason.kind ∈ {stop, tool-calls, "max-tokens", aborted, error}`（**连字符**）
+ *   - 宿主终态联合：`zStopReason = end_turn | "max_tokens" | …`（**下划线**）
+ *   - OpenAI 原始值：`finish_reason = "length"`
+ *
+ * 三种拼法指的是同一件事。所以判的时候**先归一化**（小写 + 去掉 `-` `_`），
+ * 再和 `maxtokens` / `length` 比 —— 否则换一层口径，仪器就静默失灵（C317/C318 连续踩过两次）。
+ *
+ * @param {unknown} reason
+ * @returns {boolean}
+ */
+export function isTruncatedFinish(reason) {
+  if (typeof reason !== "string" || reason === "") return false;
+  const normalized = reason.toLowerCase().replace(/[-_]/g, "");
+  // ★ C649：`max(assumed)` 是 C535 在 `finish` 读不到、completion 顶到 98% 预算时**反推**出来的，
+  //   语义逐字就是「撞满 max_tokens」—— 不认它，这条截断在 doctor / 面板里永远落进「不知道」。
+  return normalized === "maxtokens" || normalized === "length" || normalized === "max(assumed)";
+}
+
+export function evidenceSpan(edge) {
+  const evidence = edge?.evidence;
+  if (typeof evidence === "number" && Number.isFinite(evidence)) return { start: evidence, end: evidence };
+  if (evidence !== null && typeof evidence === "object" && Number.isFinite(evidence.start)) {
+    return { start: evidence.start, end: Number.isFinite(evidence.end) ? evidence.end : evidence.start };
+  }
+  return null;
+}
+
+export function evidenceEndSeq(edge, fallback = Number.NaN) {
+  const evidence = edge?.evidence;
+  if (typeof evidence === "number" && Number.isFinite(evidence)) return evidence;
+  if (Number.isFinite(evidence?.end)) return evidence.end;
+  const span = evidenceSpan(edge);
+  return span === null ? fallback : span.end;
+}
+
+/** ★ C302：证据的起始 seq（没有 start 时退回 end —— 与历史口径一致）。 */
+export function evidenceStartSeq(edge, fallback = Number.NaN) {
+  const evidence = edge?.evidence;
+  if (Number.isFinite(evidence?.start)) return evidence.start;
+  const end = evidenceEndSeq(edge, fallback);
+  return Number.isFinite(end) ? end : fallback;
+}
+
+export function countResolvedFailures(g) {
+  const edges = Object.values(g?.edges ?? {});
+  const endOf = (e) => evidenceEndSeq(e);
+  const okAt = new Map();
+  for (const e of edges) {
+    if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+    const at = endOf(e);
+    if (!Number.isFinite(at)) continue;
+    const prev = okAt.get(e.action);
+    if (prev === undefined || at > prev) okAt.set(e.action, at);
+  }
+  let resolved = 0;
+  for (const e of edges) {
+    if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
+    const at = okAt.get(e.action);
+    if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolved += 1;
+  }
+  return resolved;
+}
+
 export function failureEdges(g) {
   return Object.values(g.edges)
     .filter((e) => e.result === "failure")
     .sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 }
 
-/** 未验证 / 未结算的边。 */
+/**
+ * 一次 fold 的「可寻址闭包」：本次被折叠的 seq 区间里，**图里有哪些节点/边**。
+ *
+ * 为什么（2026-11-02，C24；来源 04 §7-D1「派生件带闭包」+ 00 候选 #12「可寻址闭包」）：
+ * 被遮蔽的原文在 append-only 日志里、按 seq 可回读；但从摘要/热清单里看到的 `n41`、`e88`
+ * 属于**哪一次 fold**、原始 seq 落在哪，此前只能靠 `foldMarks` 的区间自己推。
+ * 记下闭包后，「这条边是哪次折叠进来的」可以一步回答 —— 这是压缩产物可回溯的机器判据。
+ *
+ * 只存**计数 + 首尾 id**（不存全量 id 列表）：一个 fold 可能覆盖几百个实体，全存会让 graph.json 膨胀；
+ * 首尾 id + seq 区间已经足够定位（区间内的实体按 id 顺序连续）。
+ *
+ * @param {{nodes:object, order:string[], edges:object}} graph
+ * @param {{start:number,end:number}|null} range
+ * @returns {{nodes:number, edges:number, firstNode:string|null, lastNode:string|null, firstEdge:string|null, lastEdge:string|null, preGraph:boolean, graphNodes:number}|null}
+ */
+export function foldClosureOf(graph, range) {
+  if (graph === null || typeof graph !== "object") return null;
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
+  // ★ C194：区间方向自愈（C187/C189 的同一类风险）。若传进来的区间是反的（`start > end`），
+  //   旧的 `seq >= start && seq <= end` 恒为 false ⇒ 闭包会报「覆盖 0 个节点/边」，
+  //   看起来像「折了个空区间」，而真相是**区间反了**。这里先归一再判断。
+  const lo = Math.min(range.start, range.end);
+  const hi = Math.max(range.start, range.end);
+  const inRange = (seq) => Number.isFinite(seq) && seq >= lo && seq <= hi;
+  const nodeIds = [];
+  for (const id of graph.order ?? []) {
+    const node = graph.nodes?.[id];
+    if (node !== undefined && inRange(Number(node.seq))) nodeIds.push(id);
+  }
+  const edgeIds = [];
+  for (const edge of Object.values(graph.edges ?? {})) {
+    const ev = edge?.evidence;
+    const start = typeof ev === "number" ? ev : Number(ev?.start);
+    const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    if (end >= lo && start <= hi) edgeIds.push(edge.id);  // ★ C194：归一后的区间
+  }
+  const byId = (a, b) => Number(String(a).slice(1)) - Number(String(b).slice(1));
+  nodeIds.sort(byId);
+  edgeIds.sort(byId);
+  // ★ C30（2026-11-02）：区分「区间里没有实体」与「区间早于本图」。
+  //   重启后会话历史续跑时，fold 覆盖的 seq 段可能没有任何图节点（图是本次启动才建的）——
+  //   此时摘要里的 nN/eN「可回查」承诺是空的，必须如实标注，而不是让人以为 0 就是「恰好没实体」。
+  let minNodeSeq = null;
+  for (const id of graph.order ?? []) {
+    const seq = Number(graph.nodes?.[id]?.seq);
+    if (Number.isFinite(seq) && (minNodeSeq === null || seq < minNodeSeq)) minNodeSeq = seq;
+  }
+  const graphNodes = (graph.order ?? []).filter((id) => graph.nodes?.[id] !== undefined).length;
+  const preGraph = nodeIds.length === 0 && (minNodeSeq === null || hi < minNodeSeq);
+  return {
+    nodes: nodeIds.length,
+    edges: edgeIds.length,
+    firstNode: nodeIds[0] ?? null,
+    lastNode: nodeIds.at(-1) ?? null,
+    firstEdge: edgeIds[0] ?? null,
+    lastEdge: edgeIds.at(-1) ?? null,
+    preGraph,
+    graphNodes,
+  };
+}
+
+/**
+ * 折叠边界完整性（C31，2026-11-02）：判断这次 fold 的切点有没有把「工具调用」切成两半。
+ *
+ * 为什么：fold 在 step 边界执行，正常不会切开一个 call（证据区间跨过切点）。一旦切开，
+ * 摘要会引用一个结果落在区间外的调用 —— 模型回查时看到的是悬空的 attempt。
+ * `unsettled` 记区间内**未拿到强验证**的边（result 是 unverified/untested —— live 里 bash 成功
+ * 大多没有退出码标记，会落进 unverified，所以这个数通常很大；只作观测，不判错）。
+ *
+ * @param {{edges:object}} graph
+ * @param {{start:number,end:number}|null} range
+ * @returns {{overlapping:number, openAtEnd:number, unsettled:number}|null}
+ */
+export function foldBoundaryOf(graph, range) {
+  if (graph === null || typeof graph !== "object") return null;
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return null;
+  // ★ C194：同上 —— 反向区间会让「重叠边统计」恒为 0，看起来像「切得完美」，必须归一。
+  const rangeLo = Math.min(range.start, range.end);
+  const rangeHi = Math.max(range.start, range.end);
+  let overlapping = 0;
+  let openAtEnd = 0;
+  let unsettled = 0;
+  for (const edge of Object.values(graph.edges ?? {})) {
+    const ev = edge?.evidence;
+    const start = typeof ev === "number" ? ev : Number(ev?.start);
+    const end = typeof ev === "number" ? ev : Number.isFinite(ev?.end) ? ev.end : start;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    if (end < rangeLo || start > rangeHi) continue;
+    overlapping += 1;
+    if (edge.result === "unverified" || edge.result === "untested") unsettled += 1;
+    // 证据区间跨过 fold 终点 = 切点落在一次工具调用中间（正常应为 0）
+    if (start <= range.end && end > range.end) openAtEnd += 1;
+  }
+  return { overlapping, openAtEnd, unsettled };
+}
+
+/** 未验证 / 未结算的边。 *//** 未验证 / 未结算的边。 */
 export function openEdges(g) {
   return Object.values(g.edges).filter((e) => e.result === "unverified" || e.result === "untested");
 }
@@ -313,7 +527,7 @@ export function toJSON(g) {
   return JSON.stringify(g, null, 1);
 }
 
-export function fromJSON(text) {
+export function fromJSON(text, { heal = false } = {}) {
   const obj = JSON.parse(text);
   if (obj.version !== GRAPH_VERSION) throw new Error(`graph: unsupported version ${obj.version}`);
   // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
@@ -354,6 +568,35 @@ export function fromJSON(text) {
     if (rebuilt[key] === undefined) rebuilt[key] = id;
   }
   obj.stateIndex = rebuilt;
+  // ★ C526：**悬空边自愈**。合并/置换会把节点收拢进别的节点，可历史数据里出现过
+  //   「边还在、端点没了」（真机 session-8a73e06b：e4633 → from=n4559 不存在，C140 报警）。
+  //   这里给缺失端点**补一个桩节点**：边不丢（它记着"当时做过什么"），图也自洽。
+  //   桩节点带 `stub: true` 与来源边 id，随时能审计。
+  try {
+    const stubs = [];
+    if (!heal) throw new Error("skip");
+    for (const edge of Object.values(obj.edges ?? {})) {
+      for (const side of ["from", "to"]) {
+        const nodeId = edge?.[side];
+        if (typeof nodeId !== "string" || nodeId === "") continue;
+        if (obj.nodes[nodeId] !== undefined) continue;
+        obj.nodes[nodeId] = {
+          id: nodeId,
+          seq: Number(edge?.evidence?.start) || null,
+          kind: side === "from" ? "agent" : "agent",
+          text: `（节点缺失，已补桩：边 ${edge?.id ?? "?"} 引用）`,
+          stub: true,
+          stubFromEdge: edge?.id ?? null,
+          ts: Date.now(),
+        };
+        if (Array.isArray(obj.order) && !obj.order.includes(nodeId)) obj.order.push(nodeId);
+        stubs.push(nodeId);
+      }
+    }
+    if (stubs.length > 0) obj.repairedStubs = [...new Set([...(obj.repairedStubs ?? []), ...stubs])];
+  } catch {
+    /* 自愈失败不影响加载 */
+  }
   return obj;
 }
 
@@ -458,6 +701,9 @@ export function validate(g) {
     const node = g.nodes[id];
     if (!node) { problems.push(`order 引用了不存在的节点 ${id}`); continue; }
     if (node.kind === "user" && !node.text) problems.push(`user ${id}: 原话为空（约束锚失效）`);
+    // ★ C526：补桩节点（`stub:true`）**故意没有状态哈希** —— 它是"端点被删、边还在"时补的占位，
+    //   给它编个假哈希反而会把置换表污染成假的"同一局面"。这里直接跳过，但**计入**可见字段。
+    if (node.stub === true) continue;
     if (node.kind === "agent" && (!node.worldHash || !node.constraintHash)) {
       problems.push(`agent ${id}: 缺状态哈希（置换表会退化）`);
     }
@@ -530,15 +776,36 @@ function cheapKey(g) {
  *   那两个渲染器原来是 O(N×E)（每个节点都 `Object.values(g.edges).filter(...)`，BFS 每轮也是），
  *   5000 边实测 3.6s / 7.0s；现在索引一次建好后是 O(E + N)。
  */
+/**
+ * ★ C93：端点 id 的**稳定数字指纹**。
+ *   旧写法 `Number(String(id).slice(1))` 假定 id 一定是 `n<数字>`；遇到 `node7` / 老数据里的
+ *   非 `n` 前缀 id 时它会退化成 0 —— 多个不同端点全部贡献 0，导致 index 缓存键碰撞、
+ *   同毫秒内改边时**拿到过期索引**（手割分析会算出错的 reach）。
+ *   这里：优先取尾部数字；没有数字就退化成字符串指纹（长度 + 字符码和），仍然 O(1)、仍然确定。
+ * @returns {number} 非负 32 位整数
+ */
+export function endpointNumber(id) {
+  const text = String(id ?? "");
+  const m = /(\d+)$/.exec(text);
+  if (m !== null) return Number(m[1]) || 0;
+  let sum = text.length;
+  for (let i = 0; i < text.length; i += 1) sum = (sum * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(sum);
+}
+
 function graphIndex(g) {
   const edges = Object.values(g.edges);
   let toSum = 0;
   let fromSum = 0;
   for (const e of edges) {
-    if (e.to) toSum = (toSum + (Number(String(e.to).slice(1)) || 0)) | 0;
-    if (e.from) fromSum = (fromSum + (Number(String(e.from).slice(1)) || 0)) | 0;
+    if (e.to) toSum = (toSum + endpointNumber(e.to)) | 0;
+    if (e.from) fromSum = (fromSum + endpointNumber(e.from)) | 0;
   }
   const cheap = cheapKey(g);
+  // ★ C562（**撤销**）：这里一度想用「便宜键没变就跳过签名计算」省掉 O(E)。
+  //   但 `test/` 里有一条用例专门盯「**绕过 bump 的直接改边**」（引擎里真有 `edge.to = node.id` 这种写法）：
+  //   只靠 cheapKey 会拿到过期索引，结论是错的。**省 17% 的采样不值得让结论可能错** —— 撤回。
+  //   （真正的大头在 `fitPaths` 的线性扫描，已改二分：500-token 档 80.5 → 27.4 ms。）
   const sig = `${cheap}|${edges.length}|${Object.keys(g.nodes).length}|${toSum}|${fromSum}`;
   let cache = g[TEWARI_CACHE];
   if (cache === undefined || cache.sig !== sig) {
@@ -554,7 +821,7 @@ function graphIndex(g) {
         else byTo.set(e.to, [e]);
       }
     }
-    cache = { sig, cheap, byFrom, byTo, reach: new Map(), results: new Map() };
+    cache = { sig, cheap, edgesLen: edges.length, nodesLen: Object.keys(g.nodes).length, byFrom, byTo, reach: new Map(), results: new Map() };
     Object.defineProperty(g, TEWARI_CACHE, { value: cache, enumerable: false, configurable: true, writable: true });
     _graphIndexStats.builds += 1;
   } else {
@@ -913,14 +1180,176 @@ export function markNodeDirty(g, id) {
 export function markEdgeDirty(g, id) {
   if (id) dirtyOf(g).edges.add(id);
 }
-/** 标记节点被删（order 里也要去掉）。 */
+/**
+ * 标记节点被删（order 里也要去掉）。
+ */
 export function markNodeDeleted(g, id) {
   if (!id) return;
   const d = dirtyOf(g);
   d.delNodes.add(id);
   d.nodes.delete(id);
   d.orderDrop.push(id);
+  // ★ C148（复审 P1-4）：**必须同时从 orderAppend 里摘掉** —— `applyDelta` 是先按 `orderDrop` 删、
+  //   再按 `orderAppend` 追加。同一个 id 两边都在时，回放会把**已删节点推回 order** ⇒ 幽灵节点。
+  //   C146 只在 `applyDirtySnapshot` 里过滤，主路径（创建即删）仍会漏。
+  const at = d.orderAppend.lastIndexOf(id);
+  if (at >= 0) d.orderAppend.splice(at, 1);
 }
+
+/**
+ * ★ C113 / C142：从快照恢复图。**必须处理 dirty**，而且不能简单清空。
+ *
+ * 两件事要同时成立：
+ *   ① 失败尝试期间的 dirty（`delNodes` / `orderDrop` …）**必须丢弃** ——
+ *      否则下一次非 full 落盘会把它写进 `delta.jsonl`，`load` 回放时把已恢复的节点再删一遍（C113）。
+ *   ② 快照时刻**本来就还没落盘**的 dirty **必须保留** ——
+ *      快照是在 `compactIfNeeded` 入口拍的，此时刚进 keeper 的用户节点还在 pending
+ *      （flush 是 1.2s debounce）。清空它 = 这个节点永远不落盘，但 `index.md` 里却有它
+ *      ⇒ 重启后节点凭空消失（C142 修的 P0）。
+ *
+ * 所以语义是：**图 + dirty 一起回到快照那一刻**。调用方应把 `snapshotDirty` 传进来；不传则按
+ * 「快照是干净的」处理（仅旧调用方兼容）。
+ *
+ * ── ★ C640：回滚**不许跨过「已成功落盘」的边界**（数据一致性，不是显示问题）─────────
+ *
+ * 反例链（真机 session-8cc34e32 实测，n3780 就是这么没的）：
+ *   ① `compactIfNeeded` 入口拍快照；
+ *   ② fold 的 `await compactRegion(...)` 期间 keeper 照常落账，**1.2s debounce 的 flush 真的写了** ——
+ *      这些节点在快照之后创建，所以**快照里没有它们**，但它们是磁盘上的真实记录（dirty 已被清空）；
+ *   ③ fold 失败 / 折不动 ⇒ 本函数把图**整体**换回快照 ⇒ 那些节点从内存消失，而 dirty 只回填
+ *      「快照时刻的 dirty」⇒ 再没有任何路径会把它们写出来；
+ *   ④ 回滚后 engine 立刻 `#flush({tree:true})`；只要满足 `full || deltaBytes > compactLimit`，
+ *      `kifu-persist.flush()` 就会**重写基线 + 清空 delta** ⇒ 连 delta 层也没了。
+ *   图上没有、delta 也没有 ⇒ **记录永久丢失**；而引用它的边（回滚后新写的）留在 delta 里
+ *   ⇒ 全库审计里那条「from 节点不存在」，派生视图 `nodes/n3780.md` 还在。
+ *   注意 ④ 只是**最早**的一次机会：就算这次没跨阈值（delta 完好），下一次 `agent/status idle` 的
+ *   `#flush({full:true})` 照样重写基线并清空 delta ⇒ 同样丢。所以修复必须落在**回滚这一步**。
+ *
+ * 为什么选「保留 + 重新标脏」（方案 A 的完整形态），而不是「回滚路径上不重写基线」（方案 B）：
+ *   · B 只把丢失**推迟一步**（上段最后一句），而且会让内存与磁盘长期分叉（内存说没有、
+ *     重放说有）；它还要给 `flush` 加一个「这次是回滚」的参数穿过 60+ 个调用点 —— 改动更大。
+ *   · A 的**字面**形态（只把 id 重新标 dirty）是**空操作**：`deltaFromDirty()` 会跳过不在
+ *     `g.nodes` 里的 id，回滚已经把内容删了 ⇒ 那一帧什么都写不出来（`rollback-persist.test.mjs`
+ *     的 C640-4 把这个死路钉住了）。所以 A 必须连**内容**一起保留，否则等于没修。
+ *
+ * 实现口径（四条，缺一条就会修出更糟的东西）：
+ *   ① 只保留「快照之后的 + **已落盘**的」：判据是「在回滚前的图里、但不在快照里、且**不在回滚前的
+ *      dirty 里**」。dirty 只在落盘成功后才被清（`clearDirty` 只有 flush 成功与回滚两个调用点），
+ *      所以「不在 dirty」= 它已经写进基线或 delta 了；
+ *   ② 边必须**两端都在回滚后的图里**才保留 —— 否则我们就是在亲手**造一条悬空边**，比丢记录更糟；
+ *   ③ `nextNode` / `nextEdge` 只增不减：回滚若把 id 计数器退回去，后来的新节点会**复用已落盘记录的
+ *      id**（真机正是 n3780 缺失、n3781 却存在 —— 同一批 id 被两次分配）。
+ *   ④ 只**多写一帧** delta，绝不删任何已落盘的东西 —— 宁可重复写，也不许让落盘的东西消失。
+ *
+ * stateIndex 不在这里补：它是**派生数据**，`fromJSON()` 每次加载都按 `order` 重建。
+ */
+export function restoreFromSnapshot(g, snapshot, snapshotDirty = null) {
+  // 回滚前的 dirty = 「快照之后创建、但还没落盘」的那一批 —— 判据①的另一半
+  const beforeDirty = peekDirty(g);
+  // 只解析一次（真机图 3.6MB，解析两遍是白烧 30ms）
+  const parsed = fromJSON(snapshot);
+  // 先把引用抓出来：下面 `Object.assign` 会把 `g.nodes` / `g.edges` 换成快照的表
+  const kept = rollbackFloor(g, parsed, beforeDirty);
+
+  Object.assign(g, parsed);
+  clearDirty(g);
+  if (snapshotDirty) applyDirtySnapshot(g, snapshotDirty);
+  // ★ 必须放在 applyDirtySnapshot 之后：这些标记不许被 dirty 快照的「回填」覆盖掉
+  keepPersisted(g, kept);
+  return g;
+}
+
+/**
+ * ★ C640：挑出「快照之后**已经成功落盘**」的节点 / 边（只取引用，不复制）。
+ *
+ * 判据（两句，都不需要问落盘层）：
+ *   · 在**当前图**里、但**快照图**里没有 ⇒ 它是快照之后才出现的；
+ *   · **回滚前的 dirty 里没有**它 ⇒ 它已经落盘了（dirty 只在落盘成功后才被清空）。
+ * 从没被标脏的东西不可能出现在图里：所有 mutator 都会顺手 `markNodeDirty` / `markEdgeDirty`。
+ *
+ * @returns {{nodes: Array<{id:string,node:any}>, edges: Array<{id:string,edge:any}>}} 按 id 数字序（= 创建序）
+ */
+function rollbackFloor(g, snapshotGraph, beforeDirty) {
+  const pendingNodes = new Set(beforeDirty?.nodes ?? []);
+  const pendingEdges = new Set(beforeDirty?.edges ?? []);
+  const num = (id) => {
+    const n = Number(String(id).slice(1));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const nodes = [];
+  for (const [id, node] of Object.entries(g.nodes ?? {})) {
+    if (!node) continue;
+    if (snapshotGraph.nodes?.[id] !== undefined) continue; // 快照里有 ⇒ 回滚会带回来，不用管
+    if (pendingNodes.has(id)) continue; // 还没落盘 ⇒ 丢掉才是回滚的本意
+    nodes.push({ id, node });
+  }
+  nodes.sort((a, b) => num(a.id) - num(b.id));
+  const edges = [];
+  for (const [id, edge] of Object.entries(g.edges ?? {})) {
+    if (!edge) continue;
+    if (snapshotGraph.edges?.[id] !== undefined) continue;
+    if (pendingEdges.has(id)) continue;
+    edges.push({ id, edge });
+  }
+  edges.sort((a, b) => num(a.id) - num(b.id));
+  return { nodes, edges };
+}
+
+/**
+ * ★ C640：把「已落盘」的那批放回图里**并重新标脏**，让下一次落盘把它们再写一遍。
+ *
+ * 语义上这不是「恢复」，而是「拒绝回滚一个已经发生的事实」：磁盘上已经有了，内存就不能假装没有。
+ * 重复写一帧 delta 的代价只是一次 upsert；丢掉它的代价是一条永久悬空边 + 一个再也读不到的局面。
+ */
+function keepPersisted(g, kept) {
+  if (kept.nodes.length === 0 && kept.edges.length === 0) return g;
+  const orderSet = new Set(g.order ?? []);
+  for (const { id, node } of kept.nodes) {
+    g.nodes[id] = node;
+    // order 是「创建顺序」：这些是快照之后创建的，追加到尾部才是对的顺序
+    if (!orderSet.has(id)) {
+      g.order.push(id);
+      orderSet.add(id);
+      markOrderAppend(g, id);
+    }
+    markNodeDirty(g, id);
+    // ★ id 计数器只增不减（见上面的 ③）：否则后来的节点会复用这条已落盘记录的 id
+    const n = Number(String(id).slice(1));
+    if (Number.isFinite(n) && n >= Number(g.nextNode ?? 1)) g.nextNode = n + 1;
+  }
+  for (const { id, edge } of kept.edges) {
+    // ★ 端点必须都在**回滚后的图**里（快照 ∪ 已保留）；缺一个就不保留 —— 不许自己造悬空边
+    if (edge.from && g.nodes?.[edge.from] === undefined) continue;
+    if (edge.to && g.nodes?.[edge.to] === undefined) continue;
+    g.edges[id] = edge;
+    markEdgeDirty(g, id);
+    const n = Number(String(id).slice(1));
+    if (Number.isFinite(n) && n >= Number(g.nextEdge ?? 1)) g.nextEdge = n + 1;
+  }
+  g.updatedAt = Date.now();
+  bumpRev(g);
+  return g;
+}
+
+/**
+ * ★ C142：把一份 `peekDirty()` 快照回填到图上（用于回滚后恢复「快照时刻仍未落盘」的变更）。
+ * 只读写 dirty 集，不动图内容。
+ */
+export function applyDirtySnapshot(g, snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return g;
+  const d = dirtyOf(g);
+  for (const id of snapshot.nodes ?? []) d.nodes.add(id);
+  for (const id of snapshot.edges ?? []) d.edges.add(id);
+  for (const id of snapshot.delNodes ?? []) d.delNodes.add(id);
+  for (const id of snapshot.delEdges ?? []) d.delEdges.add(id);
+  // ★ C146：「创建后又删除」的节点不能进 orderAppend —— `applyDelta` 先删后追加，
+  //   会把已删节点**重新推回 order**（幽灵节点）。所以在源头按 delNodes 过滤。
+  const deleted = new Set(snapshot.delNodes ?? []);
+  for (const id of snapshot.orderAppend ?? []) if (!deleted.has(id)) d.orderAppend.push(id);
+  for (const id of snapshot.orderDrop ?? []) d.orderDrop.push(id);
+  return g;
+}
+
 /** 标记 order 新增（节点创建时调用）。 */
 export function markOrderAppend(g, id) {
   if (id) dirtyOf(g).orderAppend.push(id);
@@ -984,7 +1413,7 @@ export function deltaFromDirty(g, dirty = peekDirty(g)) {
  * 把一帧增量应用到图上（幂等：upsert 是绝对覆盖；order 追加前查重）。
  * 应用后 stateIndex 按 fromJSON 的同一规则重建 —— 它是派生数据，不进 delta。
  */
-export function applyDelta(g, delta) {
+export function applyDelta(g, delta, { heal = false } = {}) {
   if (!delta || delta.v !== 1) throw new Error(`graph: unsupported delta version ${delta?.v}`);
   for (const [id, node] of Object.entries(delta.nodes ?? {})) g.nodes[id] = node;
   for (const [id, edge] of Object.entries(delta.edges ?? {})) g.edges[id] = edge;
@@ -1009,6 +1438,29 @@ export function applyDelta(g, delta) {
       }
     }
   }
+  // ★ C526：**删节点会留下悬空边**（真机 session-8a73e06b：delta 删了 n4559，而 e4633 留在 base 里
+  //   ⇒ C140 报「from 节点不存在」）。这里在应用增量后扫一遍：端点没了的边**补桩节点**，
+  //   边本身保留 —— 它记着"当时做过什么"，不该因为一次收拢就消失。
+  const stubs = [];
+  if (heal) for (const edge of Object.values(g.edges ?? {})) {
+    for (const side of ["from", "to"]) {
+      const nodeId = edge?.[side];
+      if (typeof nodeId !== "string" || nodeId === "") continue;
+      if (g.nodes[nodeId] !== undefined) continue;
+      g.nodes[nodeId] = {
+        id: nodeId,
+        seq: Number(edge?.evidence?.start) || null,
+        kind: "agent",
+        text: `（节点缺失，已补桩：边 ${edge?.id ?? "?"} 引用）`,
+        stub: true,
+        stubFromEdge: edge?.id ?? null,
+        ts: Date.now(),
+      };
+      if (Array.isArray(g.order) && !g.order.includes(nodeId)) g.order.push(nodeId);
+      stubs.push(nodeId);
+    }
+  }
+  if (stubs.length > 0) g.repairedStubs = [...new Set([...(g.repairedStubs ?? []), ...stubs])];
   rebuildStateIndex(g);
   bumpRev(g);
   // 结构变了 ⇒ 索引缓存必须作废（直接删挂载的 Symbol，下次渲染重建）

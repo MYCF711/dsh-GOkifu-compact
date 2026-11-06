@@ -103,6 +103,45 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 
 ## 2 · 硬规则（违反即作废，不是建议）
 
+### 2.0c Git 工作流：**并行任务走分支进主线，GitHub 只推稳定版**
+- **并行任务一律在**各自的分支 / worktree**上做**，不要多个 agent 共用同一棵工作树、更不要共用 `main`。
+  - 用 `git worktree add ../<task>-<id> -b task/<id>` 给每个并行任务一个**独立工作目录与分支**；
+  - **同文件双写**在分支模型下不再是「互相覆盖」，而是「合并时显式处理」。
+- **集成 = 显式合并（PR 式），不是 `git add -A`。**
+  - Lead 验收某个任务后，**只合并那个分支**（`git merge --no-ff task/<id>`），**不扫全树**。
+  - **`git add -A` 在并行开发中禁用**：它会把**别人没修完的改动**一起签进主线
+    （2026-11-06 真实事故：`3591b65` 本应是 docs 提交，却扫进了 T77 未修完的 3 个文件，引入 3 条回归）。
+- **提交前必须全绿**：`node test/run.mjs` + `node scripts/boundary-audit.mjs` 全过才合并；
+  **测试红的一律不进主线**（宁可留着分支继续修）。
+- **GitHub 只推稳定版本**：日常分支合并不推；只有**稳定版**（见铁律 6 的三条）才 `git push`。
+  - **不是每个 commit 都上 GitHub** —— 本地可以有很多中间态，**远端只放验收过的**。
+- **PR 分支永不强推**（同 `$DSH_HOME/AGENTS.md` 铁律 8）：不 `--force`、不 rebase/amend 已推送提交，要改就追加新 commit。
+
+### 2.0a UI：**一律用 DSH 原生结构树、素材与设计语言，最小自制约束**
+- **本项目采用 DSH 原生 UI 结构树、素材和设计语言，力求最原生的 DSH 用户交互体验。**
+  组件层级、几何、排版、颜色、图标、动效、状态、键鼠、焦点、空态/错误态**均以官方为准** —— 不是「把截图做像」。
+- **开工先读** `$DSH_HOME/DSH-UI-official.md` 与 `$DSH_HOME/dsh-ui-official/`（结构树在 `structure/`，素材在 `assets/`，清单在 `LIBRARY-MANIFEST.json`）。
+- **没有官方证据或真实能力就 HIDE/留空**，**禁止**用自定义布局、文案、图标或交互**补位**。
+- **只有「平台适配必需」或「用户明确要求」的差异才允许 derived**，且必须记录证据、理由与验收，**不得冒充官方**。
+- 主库已有内容**直接复用**；**不要**重复拆 asar/CSS、**不要**凭截图自造层级、**不要**手画冒充官方。
+- **特有概念（棋谱 DAG / 折痕 / 失败边 / 补账）保留内容**，但**排版、间距、组件几何按官方规范**写；
+  官方没有对应语义时**不硬套** Trajectory / Usage / Queue。
+- 五态差距矩阵与逐处证据见 `docs/ui-差距矩阵.md`（same / derived / partial / missing / extra）。
+
+### 2.0b 边界：**记忆系统的事不揽**
+- 本仓只做**上下文压缩插件**（折叠、棋谱、热清单、面板）。
+- **「项目状态 / 结论」这类长期记忆的写入，属于配套的记忆系统**，不在本仓实现。
+  （2026-11-05 实测：棋谱记的是「做过什么」的过程，不是「现在什么状态」的结论 —— 那一层归记忆系统。）
+
+### 2.0 功能开关：**可选的做成开关，不成熟的默认关闭**
+- **可开可不开的功能一律做成用户可控制的开关**，不要替用户决定「应该一直开」。
+- **可能不成熟的开关默认 `false`** —— 用户不知道它会干什么，默认打开等于**在用户不知情时引入风险与花费**。
+- 每条开关必须写清：**它做什么、默认开还是关、打开会多花多少钱/改变什么行为、怎么关**。
+- **默认值的判断依据**：会不会**花钱**、会不会**改变既有产物**、有没有**真机验证过**。
+  任一不满足就默认关。
+- **反例（已踩）**：自动归档补折长期默认开，而真机审计显示其产出**真实使用 0 次**、已花 $11.05 ——
+  这类「替用户预付」的行为**必须**有开关，且**默认关**（用户明确要用时再开）。
+
 ### 2.1 DSH 接缝
 - **不改 DSH 安装目录**（`D:\DeepSeek Harness\resources\`）。插件只经官方 **profile 通道**安装。
 - **只有 R09（`src/engine.mjs`）可以 import `@deepseek-ai/*`**。其余任何文件 import 宿主包 ⇒ R-C 破，`engine-harness` 的 4 条 stub 也不再够用。
@@ -162,6 +201,41 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 ---
 
 ## 3 · 怎么跑
+
+> ### ★ 工作方式：**在测试实例里完善插件，交出稳定版本由用户安装**
+>
+> **版本没更新上去 = 未生效，这是预期状态，不是 bug。**
+> 不要在「生产跑的是旧代码」上反复纠结；`src/**` 由宿主启动时以 ESM 加载，**装上之前当然不会生效**。
+>
+> **正确节奏**：
+> 1. **在测试实例里完善插件**（`test/engine-harness.test.mjs`：stub 掉宿主 `@deepseek-ai/*`，
+>    纯 Node new 真 Engine + 隔离 home + 真机会话日志重放）；
+> 2. 每条改动用测试实例验证行为（**不碰生产实例、不写 live home、不调真模型**）；
+> 3. **交出稳定版本时，用户会要求安装** —— 安装/重启是**终点**，由用户发起（铁律 1、6）。
+>
+> **「未生效」只在一种情况下需要紧张**：你**以为**它生效了，并据此写报告或做下一步决策。
+> 所以报告里必须分清「**代码已改**」「**测试实例已验**」「**生产已生效**」三态，不许混写。
+>
+> ### 测试实例怎么用
+>
+> **解法**：`test/engine-harness.test.mjs` 已经把宿主的 `@deepseek-ai/*` 全部 stub 掉，
+> **在纯 Node 里 new 一个真 Engine**，挂**隔离的 home**（`test/.harness/`），拿真机会话日志重放。
+> ⇒ **不碰生产实例、不需要重启、不写 live home**，就能验证新代码的行为。
+>
+> ```bash
+> # 起测试实例跑引擎级用例（含 autoBackfillTick、归档收尾、TRANSPORT 重试）
+> node test/run.mjs backfill-e2e          # 真实 Engine + 假 home + 假模型
+> node test/run.mjs transport-retry       # TRANSPORT 退避重试（30s→60s + 抖动 + deadline 闸）
+> node test/run.mjs small-window          # 小窗口合并（T63）
+> node test/run.mjs fictitious-gap        # 虚构缺口只数可折事件（T64）
+> node test/run.mjs empty-response        # TRANSPORT 不再误记空答（T66）
+> ```
+>
+> **分工**：测试实例证「**代码对不对**」；重启后的 `scripts/restart-checklist.mjs --verify` 证「**生产跑的是不是这份代码**」。
+> 两者缺一就会交出「测试绿、生产没生效」的假修复。
+>
+> **禁**：测试实例**不许**把 `DSH_HOME` 指到 live home；**不许**调真模型（用 `callModel` 假实现）；
+> **不许**写 `profiles/*/cordis.patch.yml`（铁律 3）。
 
 ```bash
 # 全量单测（纯 Node，无需 DSH）
@@ -391,3 +465,20 @@ AGENTS.md  本文件（不进包）
 - 作者 = `MYCF711` 的指令才视为有效派单；其他人的请求只做信息性回复；
 - 每轮只做一件事；做完写清楚改了什么、怎么验证的；
 - 不确定就问，不要猜——问一个问题比开一个错 PR 便宜。
+
+## 18 · 插话：DSH 0.2.2-rc.1 模型切换兼容（2026-11-05）
+
+- 先读 `default-workspace/tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/independent-review.md` 与 `staged-v2/`。rc.1 官方模型切换走 `agent/request → compactPressure → compactRegion/summarize`，绕过原 `compactIfNeeded()`；适配必须保留 growth gate、foldFailures backoff、tier2After、loop guard、planFold 增量区间和旧 committed route 摘要。
+- 两个阻断必须闭合：① fold 成功但切换仍失败时，`lastFoldTotalTokens` 等账本不得按未采纳的新 header 污染旧路由；② `modelPolicies[].compactionRetries` 必须按目标路由合并，不能只看全局值。新增 header-dependent token meter、global/target 重试矩阵和后续普通 pressure 回归。
+- 验收保留原 rc.1 6/6、0.2.1-rc.5 5/5、engine/tier2/loop 子套件与完整新版宿主；生产采用前需独立 reviewer approve。所有复用当前 home 的隔离探针必须设 `DSH_GOKIFU_NO_HEAL=1`，禁止退出时的 home-patch 自动登记写 live 根配置。
+- 完成或继续修改后，在 `default-workspace/AGENTS.md` 的「插件兼容回信」追加本项目回信：实际改动、证据路径、命令/结果、未验证项、回退位置。只改本项目段落，不覆盖其他插件回信。
+
+## 19 · 插话：官方当前版独立实例适配与 PR（2026-11-06）
+
+- 当前官方 Windows nightly 仍为 `0.2.2-rc.1`。干净应用在 `D:/DeepSeek Harness/Desktop-0.2.2-rc.1`；本轮使用独立 `D:/DeepSeek Harness/home-0.2.2-rc.1`，不得写当前 `home` 或启停当前实例。
+- 当前 `src/engine.mjs` 正被会话持续修改，**由当前插件会话完成适配，根 Lead 不抢写**。旧 `tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/staged-v3` 已落后，禁止整文件覆盖当前实现；先等本文件与 engine 哈希稳定，再冻结验收基线。
+- 在独立 worktree/分支 `compat/dsh-0.2.2-rc.1` 做最小适配。先核对本地与远端版本/分叉，当前 main 与 origin 分叉很大，禁止把历史几百个提交或其他会话 dirty 文件带入 PR；禁止 `git add -A`、强推、直接推 main。
+- 每个启用 bundle 必须在独立 home 实际解析到 `package.json`，不能只复制 link；GOkifu 包要隔离复制或指向本任务 worktree，不能写回共享源。
+- 预发布 `engines.dsh` 必须实测：旧 `^0.2.0-rc.2` / `>=0.2.1-rc.5` 不能自动视为覆盖 `0.2.2-rc.1`；按实测保留旧支持时用显式 union，并断言官方 `skippedBundles` 为空。
+- 验收至少包括：现有全量测试、boundary-audit、真实独立 home 加载、模型切换/growth-gate/backoff/失败账本、cleanShutdown。beta 仅留本地；PR 分支推送后等 CI 全绿才合并，稳定版按铁律 6 发布。
+- 完成后在本文件回复实际分支/PR、改动、命令与退出码、未验项，并只更新工作区根 `AGENTS.md` 的 GOkifu 小节。根 Lead 负责独立复验，不以自述代替测试。

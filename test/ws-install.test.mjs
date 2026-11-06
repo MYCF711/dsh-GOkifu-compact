@@ -222,7 +222,7 @@ tests["S10c-3 manifestError 进 ✗ 详情：profile/package.json 缺失时说�
     t.includes(declares.detail, "profile/package.json 不存在");
     t.includes(declares.detail, nodePath.join(home, "profiles", "desktop", "package.json"));
     t.includes(resolves.detail, "profile/package.json 不存在");
-    t.eq(result.checks.length, 18, "缺清单时检查项数量仍必须是 18（门禁才可比对）");
+    t.eq(result.checks.length, 19, "缺清单时检查项数量仍必须是 19（门禁才可比对；19 = 18 + 用户层 patch 遮蔽检查）");
     t.eq(result.failed, 18, "空 home ⇒ 18 项全红");
 
     // 清单在但不是 JSON ⇒ manifestError 必须分档说「不是合法 JSON」（不是笼统的「读不到」）
@@ -234,7 +234,7 @@ tests["S10c-3 manifestError 进 ✗ 详情：profile/package.json 缺失时说�
     t.notIncludes(st.manifestError, "不存在");
     // verify-install 这边：清单读不出内容时不许谎报绿灯（dsh.profile.bundles 那条必须跟着红）
     const bad = verify(home);
-    t.eq(bad.checks.length, 18, "坏 JSON 时检查项数量仍 18");
+    t.eq(bad.checks.length, 19, "坏 JSON 时检查项数量仍 19");
     t.eq(bad.failed, 18, "坏 JSON ⇒ 18 项全红");
     const badDeclares = named(bad, "profile/package.json 声明了本包依赖");
     t.includes(badDeclares.detail, "不是合法 JSON");
@@ -413,14 +413,14 @@ tests["S10c-5 分档函数边界：dir 是文件 / package.json 是目录 / 读�
 
 /* ═════════════════════ S10e · 缺失形态占位红 + EOF 换行 ═════════════════════ */
 
-tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 18"] = (t) => {
+tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 19"] = (t) => {
   const fixture = makeHealthyHome("s10e1");
   try {
     rmrf(nodePath.join(fixture.home, "preset-bundles"));
     const result = verify(fixture.home);
     const presetFile = nodePath.join(fixture.home, "preset-bundles", PRESET, "cordis.patch.yml");
     t.ok(!nodeFs.existsSync(presetFile), "前置：预设文件应不存在");
-    t.eq(result.checks.length, 18, "检查项数量");
+    t.eq(result.checks.length, 19, "检查项数量");
     const presetChecks = result.checks.filter((c) => c.name.startsWith("preset "));
     t.eq(presetChecks.length, 5, "preset 组必须是 5 条（1 条路径 + 4 条占位）");
     t.ok(presetChecks.every((c) => c.ok === false), "preset 组 5 条必须全红");
@@ -439,14 +439,14 @@ tests["S10e-1 preset 缺失：4 条占位红 + 1 条路径，总数仍 18"] = (t
   }
 };
 
-tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径），总数仍 18，且首条不是含糊话"] = (t) => {
+tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径），总数仍 19，且首条不是含糊话"] = (t) => {
   const fixture = makeHealthyHome("s10e2");
   try {
     const profilePkg = nodePath.join(fixture.profileDir, "package.json");
     nodeFs.rmSync(profilePkg);
     const result = verify(fixture.home);
     t.ok(!nodeFs.existsSync(profilePkg), "前置：清单应不存在");
-    t.eq(result.checks.length, 18, "检查项数量");
+    t.eq(result.checks.length, 19, "检查项数量");
     // ② 组：从「声明了本包依赖」到「UI 挂载通道二选一」共 5 条
     const names = [
       "profile/package.json 声明了本包依赖",
@@ -465,10 +465,10 @@ tests["S10e-2 profile/package.json 缺失：5 条占位红（首条带路径）�
     t.includes(first.detail, profilePkg);
     // 旧版这条只说 "profile/package.json 不存在：<路径>"；新版必须带上 manifestError 的整句（含路径与原因）
     t.includes(first.detail, `不存在：${profilePkg}`);
-    // 检查顺序恒定：①7 条（含 F1 的 3 条版本闸） → ②5 条 → ③④⑤5 条 → ⑥1 条 = 18
-    t.eq(result.checks.length, 18, "顺序与数量都要恒定");
+    // 检查顺序恒定：①7 条（含 F1 的 3 条版本闸） → ②5 条 → ③④⑤5 条 → ⑥1 条 + ⑦用户层遮蔽 1 条 = 19
+    t.eq(result.checks.length, 19, "顺序与数量都要恒定");
     t.eq(result.failed, 5, "只有 ② 组 5 条红、①③④⑤⑥ 仍绿（其余部分没被牵连）");
-    t.ok(result.checks.filter((c) => c.ok).length === 13, "绿项必须是 13 条");
+    t.ok(result.checks.filter((c) => c.ok).length === 14, "绿项必须是 14 条（19 - 5 红）");
     // 反例：清单缺失时，②组第一项以外的 4 条不能各说各话
     for (const c of result.checks.filter((x) => names.slice(1).includes(x.name))) {
       t.includes(c.detail, "profile/package.json 不存在");
@@ -868,7 +868,7 @@ tests["F1-4 缺 engines.dsh / engines 与 peer 口径不一致 → 各自红（�
   t.ok(bad.enginesProblems.some((line) => line.includes("口径不一致")), bad.enginesProblems.join("；"));
 };
 
-tests["F1-5 verify-install 真的挂上了这 3 条判据，健康夹具在 0.2.1-rc.5 下 18/18 全绿，改回精确钉死即转红"] = (t) => {
+tests["F1-5 verify-install 真的挂上了这 3 条判据，健康夹具在 0.2.1-rc.5 下 19/19 全绿，改回精确钉死即转红"] = (t) => {
   const fixture = makeHealthyHome("f1-5");
   try {
     const result = verifyInstall({ dshHome: fixture.home, profile: "desktop", preset: PRESET, dshVersion: "0.2.1-rc.5" });
@@ -877,7 +877,7 @@ tests["F1-5 verify-install 真的挂上了这 3 条判据，健康夹具在 0.2.
       t.ok(check !== undefined, `「${fragment}」这条不许消失（少了 = 闸门没查）`);
       t.ok(check?.ok === true, `「${fragment}」在健康夹具上必须绿：${check?.detail}`);
     }
-    t.eq(result.checks.length, 18, "检查项数量");
+    t.eq(result.checks.length, 19, "检查项数量");
     t.eq(result.failed, 0, `健康夹具应 0 红：${result.checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.detail}`).join(" / ")}`);
 
     // 反例：把夹具清单改回精确钉死 ⇒ 版本闸必须转红（证明这 3 条不是常量绿）

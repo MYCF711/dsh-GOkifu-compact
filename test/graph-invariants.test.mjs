@@ -24,7 +24,7 @@
  * 变异自检（证明不是假绿）不在本文件里跑：它会把整个仓库复制到 `os.tmpdir()` 的副本，
  * **只在副本里变异和运行**（正式源码全程只读，开始/结束 tree sha256 必须一致）。
  * 单独脚本：
- *   `node /d/workspace/tmp/dsh-gokifu-compact/s1a/mutation-selfcheck.mjs`
+ *   `node <WORKSPACE>/tmp/dsh-gokifu-compact/s1a/mutation-selfcheck.mjs`
  */
 
 import nodeFs from "node:fs";
@@ -623,7 +623,7 @@ export const tests = {
       t.eq(text.code, 1, "退化图必须 exit 1（旧口径 ratio=0 ⇒ 假绿）");
       t.includes(text.stdout, "✗ fx-degenerate", "必须点名");
       t.includes(text.stdout, "degenerate-graph:", "必须给出判据代号");
-      t.includes(text.stdout, "有 2 条边但 0 个节点", "必须给出边/节点数");
+      t.includes(text.stdout, "条边声称端点但 0 个节点", "必须给出边/节点数（C182 起措辞点明「声称端点」）");
       const run = runCli(root, ["--strict", "--json"]);
       t.eq(run.code, 1, "JSON 模式同退出码");
       t.notIncludes(run.stdout, "Infinity", "JSON 里不得出现 Infinity（stringify 会变 null）");
@@ -668,4 +668,21 @@ export const tests = {
       t.includes(help.stdout, "--max-self-loop-rate", "用法里要有阈值参数");
     });
   },
+};
+
+tests["C182 空会话（0 节点 + 两端为 null 的边）不算退化图；真正「边声称端点却无节点」才算"] = (t) => {
+  // ① 空会话：没有用户消息的临时会话会留下 untested/unverified 边，from/to 皆 null
+  const empty = createGraph({ sessionId: "fx-empty" });
+  const e = addEdge(empty, { from: null, intent: "", action: "bash(x)" });
+  settleEdge(empty, e, { to: null, result: "unverified", verify: { kind: "no-exit", summary: "no exit" } });
+  t.eq(Object.keys(empty.nodes).length, 0, "夹具前提：0 个节点");
+  const okItem = checkGraph({ session: "fx-empty", graph: empty });
+  t.eq(okItem.violations.some((v) => v.code === "degenerate-graph"), false, `空会话不该判退化：${JSON.stringify(okItem.violations)}`);
+
+  // ② 真损坏：边声称端点（from/to 非 null）但节点表空
+  const broken = degenerateGraph({ edges: 2 });
+  const badItem = checkGraph({ session: "fx-broken", graph: broken });
+  const v = badItem.violations.find((x) => x.code === "degenerate-graph");
+  t.ok(Boolean(v), "边声称端点却无节点必须判退化");
+  t.eq(v.value, 2, "value = 声称端点的边数");
 };

@@ -95,7 +95,7 @@ node test/build-tree.mjs "D:/DeepSeek Harness/home/chess-context/sessions/sessio
 > 与事故文档 §2.2 的分布**逐项一致**（226 / 3 成功 / 139 / 80 / 2 / 1 / 1）。
 > 注：文档里「80」「2」是事件数；若按字符串出现次数数（错误原文会在多处被引用）是 85 和 13 —— 两个数都对，口径不同。
 
-### 3.2 magpie `usage.jsonl`（`<HOME>\.config\magpie\usage.jsonl`，10,312,222 字节）
+### 3.2 magpie `usage.jsonl`（`<USER_HOME>\.config\magpie\usage.jsonl`，10,312,222 字节）
 
 | 项 | 数值 |
 |---|---:|

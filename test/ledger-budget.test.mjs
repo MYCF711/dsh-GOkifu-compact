@@ -15,7 +15,7 @@
  */
 
 import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "./graph-fixtures.mjs";
-import { renderLedger, renderFacts, fallbackStatusOf, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderMinimalLedger, renderFacts, fallbackStatusOf, _internal } from "../src/rooms/ledger.mjs";
 
 const { pickFallback } = _internal;
 
@@ -142,4 +142,53 @@ export const tests = {
       prev = r.tokens;
     }
   },
+};
+
+tests["T-4 不可裁下限可量化：约束+根目标本身的 token 数 > 预算时如实标出（C44）"] = (t) => {
+  const g = heavyGraph({ constraints: 6, failures: 2, sessionId: "fx-floor" });
+  const led = renderLedger(g, { maxTokens: 200 });
+  t.eq(typeof led.unyieldingTokens, "number", "必须给出不可裁下限的 token 数");
+  t.ok(led.unyieldingTokens >= 200, `约束+根目标应超过 200 预算，实际 ${led.unyieldingTokens}`);
+  t.eq(led.fallback, "over-budget", "底线超预算时必然 over-budget");
+  const wide = renderLedger(g, { maxTokens: 5000 });
+  t.ok(wide.unyieldingTokens > 0, "宽松预算下也要给出这个数（用于趋势）");
+  t.ok(wide.unyieldingTokens < wide.tokens, "底线必须小于整段清单（否则说明统计把失败边也算进去了）");
+};
+
+/** C44 夹具：约束不小 + 少量失败边（约束+根目标本身就吃掉预算）。 */
+function heavyGraph({ constraints = 6, failures = 2, sessionId = "fx-floor" } = {}) {
+  const g = createGraph({ sessionId });
+  const pad = (n, tag) => `${tag} `.repeat(Math.ceil(n / (tag.length + 1))).slice(0, n);
+  const cons = Array.from({ length: constraints }, (_, i) => `约束 ${i}：${pad(110, "不要动 prod 配置")}`);
+  const u = addUserNodeId(g, { seq: 1, text: "把设置改回侧边栏", constraints: cons });
+  for (let i = 0; i < failures; i += 1) {
+    const e = addEdge(g, { from: u, intent: `尝试 ${i}`, action: `bash(x${i})`, evidence: { start: 2 + i, end: 3 + i } });
+    settleEdge(g, e, { result: "failure", verify: { kind: "exit", summary: "exit 1" }, errorSnippet: "Error: boom" });
+  }
+  return g;
+}
+
+tests["C225 最小清单必须**保持最小**：≤120 tokens（C223/C224 往里加了 4 行，防止继续膨胀）"] = (t) => {
+  // 背景：C223 加了 `# path:`、C224 又加了 ROOT USER / OPTIONS / UNVERIFIED 三类契约行。
+  // 每一条都有正当理由，但**下限会一路抬上去** —— 这条守卫把"最小清单"钉在一个数上：
+  // 加了东西后超预算就红，逼下一个人先回答「这条真比别处省吗」。
+  const g = createGraph({ sessionId: "fx-minimal-budget" });
+  addUserNodeId(g, { seq: 1, text: "把测试跑绿，别改 public API" });
+  addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  for (let i = 0; i < 5; i += 1) addAgentNode(g, { seq: 3 + i, goal: `步骤 ${i}`, worldHash: `W${i + 2}`, constraintHash: "C1" });
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  t.eq(led.minimal, true, "仍是最小清单形态");
+  t.eq(led.tokens <= 120, true, `最小清单必须 ≤120 tokens（实际 ${led.tokens}）—— 超了就先想清楚这条行值不值`);
+  t.eq(led.fallback, "none", `最小清单不该超预算（实际 ${led.fallback}）`);
+};
+
+tests["T-5 最小清单（C67）：renderMinimalLedger 必须标 minimal:true，且指标层能读到"] = (t) => {
+  const g = createGraph({ sessionId: "fx-minimal" });
+  const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+  addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  t.eq(led.minimal, true, "最小清单必须带 minimal:true（否则该字段永远无消费者）");
+  t.eq(typeof led.tokens, "number", "仍要有 tokens");
+  const full = renderLedger(g, { maxTokens: 500 });
+  t.eq(full.minimal === true, false, "普通渲染不许冒充最小清单");
 };

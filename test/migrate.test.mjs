@@ -15,7 +15,7 @@ import nodePath from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createGraph, addUserNode, addEdge, settleEdge, addAgentNode, toJSON, fromJSON, renderIndexMd } from "./graph-fixtures.mjs";
 import { DANGLING_STALE_MS } from "../src/rooms/ledger.mjs";
 import { graphRoot, sessionPaths } from "../src/rooms/kifu-persist.mjs";
@@ -703,10 +703,25 @@ Object.assign(tests, {
     const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
     const count = (src.match(/opts\.mode === "merge"/g) ?? []).length;
     t.eq(count, 2, `merge 分支必须恰好 2 处（执行 + 输出），实际 ${count}`);
-    // 执行链里必须调 mergeMany，输出链里必须有 backup:
-    t.includes(src, "mergeMany(opts.mergeTarget", "必须调 mergeMany");
     t.includes(src, "backup:", "人类摘要必须打印备份目录");
     t.includes(src, "已回灌并重建 index.md", "apply 人类摘要必须说明写了什么");
+
+    // 本用例自身也必须吃到真实 CLI 行为：删 mergeMany import 后这里会直接失败，
+    // 不能只靠相邻的 P6C-C1 间接兜底。
+    const fx = archivedSession("cli2");
+    try {
+      const cli = nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs");
+      const out = execFileSync(process.execPath, [cli, `--merge-sidecar=${fx.dir}`, `--backup-dir=${fx.backupRoot}`, "--json"], {
+        encoding: "utf8",
+        timeout: 120_000,
+      });
+      const result = JSON.parse(out);
+      t.eq(result.merged, 3, "merge dispatch 必须真的调用 mergeMany 并返回三条可回灌边");
+      t.eq(result.dryRun ?? true, true, "本探针保持 dry-run，不写图");
+    } finally {
+      nodeFs.rmSync(fx.root, { recursive: true, force: true });
+      nodeFs.rmSync(fx.backupRoot, { recursive: true, force: true });
+    }
   },
 });
 
@@ -794,3 +809,61 @@ Object.assign(tests, {
     }
   },
 });
+
+tests["C278 dry-run 必须说清「会改哪些会话」——只报 affected N 用户没法判断该不该 --apply"] = (t) => {
+  const root = tmpRoot("per-session");
+  try {
+    for (const id of ["sess-a", "sess-b", "sess-c", "sess-d", "sess-e", "sess-f"]) {
+      makeSessionDir(root, id, () => mixedGraph(id).g);
+    }
+    const result = dryRun(root, { now: NOW });
+    t.eq(Array.isArray(result.perSession), true, "dry-run 必须给出 perSession（打印要用）");
+    t.eq(result.perSession.length, 6, "六个受影响会话必须全部进入明细");
+    t.eq(result.perSession.length, result.affectedSessions, "perSession 条数必须等于 affectedSessions");
+    t.eq(result.perSession.every((one) => one.residue > 0 && Number.isFinite(one.bytesBefore)), true,
+      "每条明细都要带 residue 与文件大小");
+
+    // 真跑 CLI：人读输出必须消费这份明细，前五条之外给出剩余数，且 dry-run 一个字节都不写。
+    const before = hashTree(root);
+    const cli = nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs");
+    const out = execFileSync(process.execPath, [cli, `--root=${root}`, `--now=${NOW}`], { encoding: "utf8", timeout: 120_000 });
+    const lines = out.split(/\r?\n/).filter((line) => /^  · sess-/.test(line));
+    t.eq(lines.length, 5, `人读输出必须真的列出前五条会话明细：\n${out}`);
+    t.eq(lines.every((line) => /: residue [1-9]\d*（\d+ bytes）/.test(line)), true,
+      `输出明细必须带 residue 与 bytes：\n${out}`);
+    t.includes(out, "…另 1 个会话", "第六个会话必须折叠成剩余计数，而不是静默丢掉");
+    t.eq(hashTree(root), before, "CLI dry-run 前后整目录哈希必须相同");
+  } finally {
+    nodeFs.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+tests["C279 repair-foldmarks：只换反掉的区间，别的字段一个不碰（且幂等）"] = async (t) => {
+  const mod = await import(pathToFileURL(nodePath.join(HERE, "..", "scripts", "repair-foldmarks.mjs")).href);
+  t.eq(typeof mod.findSwappedMarks, "function", "必须导出 findSwappedMarks");
+  t.eq(typeof mod.swapRanges, "function", "必须导出 swapRanges");
+
+  const graph = {
+    foldMarks: [
+      { at: 1, seqStart: 10, seqEnd: 20, trigger: "pressure", summaryChars: 99 },
+      { at: 2, seqStart: 17596, seqEnd: 7629, trigger: "tier2", closure: { nodes: 0 }, summaryChars: 2999 },
+      { at: 3, seqStart: 5, seqEnd: 5, trigger: "pressure" },
+      { at: 4, seqStart: "x", seqEnd: 7 },
+    ],
+  };
+  const bad = mod.findSwappedMarks(graph);
+  t.eq(bad.length, 1, `只该认出 1 条（相等/坏值都不算）：${JSON.stringify(bad)}`);
+  t.eq(bad[0].index, 1, "指的是第 2 条（index 1）");
+
+  const fixed = mod.swapRanges(graph);
+  t.eq(fixed, 1, "换回 1 条");
+  t.eq(graph.foldMarks[1].seqStart, 7629, "start 变成原来的 end");
+  t.eq(graph.foldMarks[1].seqEnd, 17596, "end 变成原来的 start");
+  // 别的字段必须原样（换的是区间顺序，不是重写记录）
+  t.eq(graph.foldMarks[1].summaryChars, 2999, "summaryChars 不许动");
+  t.eq(graph.foldMarks[1].trigger, "tier2", "trigger 不许动");
+  t.eq(graph.foldMarks[0].seqStart, 10, "没坏的记录不许动");
+  // 幂等：再跑一次不该再改
+  t.eq(mod.swapRanges(graph), 0, "第二次必须是 0（幂等）");
+  t.eq(mod.findSwappedMarks(graph).length, 0, "修完之后不该再有反序");
+};

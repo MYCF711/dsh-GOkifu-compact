@@ -128,13 +128,19 @@ export function checkGraph({ session, sessionId = "", graph, limits = DEFAULT_LI
   // ★ N=0 且 E>0：边表还在、节点表被清空 ⇒ 所有边无归属。此时 edgePerNode 的分母为 0，
   //   既有口径把它记作 0（不引入 Infinity），比率判据永远不会触发 —— 必须单独判红。
   //   空图（N=0,E=0）不在此列：没有边就没有「无归属的边」，仍按既有约定判绿。
+  // ★ C182：区分「边声称有端点、但节点全没了」（真损坏）与「边两端都是 null 的空会话」
+  //   （live 实测：一个没有用户消息的临时会话留下 2 条 untested/unverified 边，from/to 皆 null）。
+  //   后者不是结构损坏 —— 没有节点可归属，也就没有「不可回溯」的问题。
   if (metrics.nodes === 0 && metrics.edges > 0) {
-    violations.push({
-      code: "degenerate-graph",
-      value: metrics.edges,
-      limit: 0,
-      message: `有 ${metrics.edges} 条边但 0 个节点（边无归属，图结构不可回溯）`,
-    });
+    const claimed = Object.values(graph.edges ?? {}).filter((e) => e && (e.from != null || e.to != null)).length;
+    if (claimed > 0) {
+      violations.push({
+        code: "degenerate-graph",
+        value: claimed,
+        limit: 0,
+        message: `有 ${claimed} 条边声称端点但 0 个节点（边无归属，图结构不可回溯）`,
+      });
+    }
   }
 
   if (metrics.selfLoops > limits.maxSelfLoops) {

@@ -36,6 +36,8 @@ function loadClientBundle() {
   const react = {
     createElement: (...args) => ({ args }),
     useState: () => [undefined, () => {}],
+    // ★ C510：客户端用了 useRef（模型二级菜单）——假 React 必须也有，否则渲染类测试会炸
+    useRef: (initial) => ({ current: initial }),
     useEffect: () => {},
     useCallback: (callback) => callback,
     useMemo: (factory) => factory(),
@@ -233,7 +235,9 @@ export const tests = {
     t.includes(CLIENT_SRC, "profileLabel(state, health)", "标题行与状态卡共用同一 profile 来源");
     t.includes(CLIENT_SRC, "styles.headerMeta", "宽屏标题行右侧要有 profile 区（右上方不再空）");
     // 只读 host 字段：不得为此新增接口调用
-    t.eq((CLIENT_SRC.match(/callApi\("(?!state|models|save|defaults)/g) ?? []).length, 0, "不许为 profile 新增 host 接口");
+    // ★ C234：白名单补 `backfill`（补账是面板的真功能，服务端 C216 起就有这个 action；
+    // `update` 走的是自己的 requestUpdate，不经过 callApi；其余新 action 仍会被这条抓住。
+    t.eq((CLIENT_SRC.match(/callApi\("(?!state|models|save|defaults|backfill)/g) ?? []).length, 0, "不许为 profile 新增 host 接口");
   },
 
   "⑨ U4-④ gap 收敛：全站只有 4/8/12/16 四档（以后新加一个 gap 值会被抓）"(t) {
@@ -267,4 +271,64 @@ export const tests = {
       t.ok(!gaps.some((entry) => entry.value === legacy), `gap=${legacy} 是收敛前的旧值，不许回来`);
     }
   },
+};
+
+/**
+ * ★ C269：卡片「定义了但没摆进布局」是本仓库最容易犯的错 ——
+ *   `backfillCard` 是我手加进 `rightColumn` 的；下一次有人加卡片忘了这一步，面板上看不见任何异常，
+ *   只是**功能凭空消失**。这里用静态断言把「定义 + 摆位」成对钉住。
+ */
+tests["C269 每张右栏卡片都必须既定义、又出现在 rightColumn 里（否则功能静默消失）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  const layout = src.match(/const rightColumn = \[([^\]]*)\]/);
+  t.eq(layout !== null, true, "必须有 rightColumn 布局数组");
+  const placed = layout[1].split(",").map((x) => x.trim()).filter(Boolean);
+
+  for (const card of ["statusCard", "updateCard", "backfillCard", "latestCard", "todayCard"]) {
+    t.eq(new RegExp(`const ${card} =`).test(src), true, `${card} 必须被定义`);
+    t.eq(placed.includes(card), true, `${card} 被定义了却没进 rightColumn —— 面板上看不见它`);
+  }
+  // 反向：布局里不许有不存在的变量（拼错名字 ⇒ 运行时 undefined）
+  for (const name of placed) {
+    t.eq(new RegExp(`const ${name} =`).test(src), true, `rightColumn 里的 ${name} 没有对应定义（拼错了？）`);
+  }
+};
+
+/**
+ * ★ C270：面板承诺的每个 action，服务端都必须真的认。
+ *   反向（服务端有、面板不调）允许存在，但必须是**已知允许列表** ——
+ *   新增一个没人调的服务端 action，要么补面板，要么明确加进允许列表并写原因。
+ */
+tests["C270 面板调的每个 action 服务端都必须认；服务端多余 action 要有明确允许"] = (t) => {
+  const client = nodeFs.readFileSync(nodePath.join(HERE, "..", "lib", "client.js"), "utf8");
+  const server = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+
+  const called = new Set([
+    ...[...client.matchAll(/callApi\("([a-z]+)"/g)].map((m) => m[1]),
+    ...[...client.matchAll(/action:\s*"([a-z]+)"/g)].map((m) => m[1]),
+  ]);
+  const served = new Set([...server.matchAll(/action === "([a-z]+)"/g)].map((m) => m[1]));
+
+  t.eq(called.size > 0, true, "必须能解析出客户端调用的 action（正则失配会让这条永远绿）");
+  for (const name of called) {
+    t.eq(served.has(name), true, `面板调用了 ${name}，但服务端没有这个 action（点了会 404/未知 action）`);
+  }
+  // 服务端有、面板不用的：只允许这两个已知项（它们已并入 state 载荷）
+  const ALLOWED_SERVER_ONLY = new Set(["defaults", "health"]);
+  for (const name of served) {
+    if (ALLOWED_SERVER_ONLY.has(name)) continue;
+    t.eq(called.has(name), true, `服务端有 action "${name}" 但面板从不调用 —— 要么补面板，要么加进允许列表并写原因`);
+  }
+};
+
+tests["⑨ C510 假 React 必须提供客户端用到的每个 hook（否则渲染类测试假绿）"] = (t) => {
+  const hooks = new Set([...CLIENT_SRC.matchAll(/\b(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]));
+  const local = new Set([
+    ...[...CLIENT_SRC.matchAll(/function\s+(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]),
+    ...[...CLIENT_SRC.matchAll(/const\s+(use[A-Z][A-Za-z]*)\s*=/g)].map((x) => x[1]),
+  ]);
+  const fakeSrc = nodeFs.readFileSync(nodePath.join(HERE, "ui-layout.test.mjs"), "utf8");
+  // 不用正则：避免 `` 在模板串里被当成退格符（这个坑今天已经踩两次）
+  const missing = [...hooks].filter((name) => !local.has(name) && !fakeSrc.includes(`${name}:`));
+  t.eq(missing, [], `假 React 缺这些 hook：${missing.join(", ")}`);
 };

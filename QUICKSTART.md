@@ -18,8 +18,8 @@ cd "<WORKSPACE>/repos/dsh-GOkifu-compact"
 node test/verify-install.mjs
 ```
 
-期望：**18 项里只有「运行期已产出棋谱」可能在首次启动后短暂为红**（还没有会话跑过 compression），
-其余全绿；跑过一个会话后应 18/18。
+期望：**逐项列表里只有「运行期已产出棋谱」可能在首次启动后短暂为红**（还没有会话跑过 compression），
+其余全绿；跑过一个会话后应当**全部通过**（脚本会打印「全部通过」并给出项数，不在此处写死数字 —— 检查项会随版本增加）。
 （S10a 起「依赖声明的 link 目标」是真检查：解析后的目录必须存在、包名必须是本包、node_modules 实际指向要一致 —— 以前只查字符串前缀，目标不存在也报 ✓）
 其中「运行期已产出棋谱」那条的 mtime 应该是**刚刚**（说明 keeper 在工作）。
 
@@ -114,6 +114,27 @@ node test/rollback.mjs
 
 `graph.json` 解析失败时，插件会**自动重建空图**（不崩），但会丢历史。
 想保留现场就先复制一份再重启。
+
+### 某个模式好像没走棋谱压缩
+
+本插件只覆盖**四个官方 preset**（标准 / PTC / 极简 / 创造）。第三方插件自带的 preset
+（例如 `dsh-design-studio` 的「设计模式」）可能在它自己的 bundle patch 里重新声明 `compaction-basic`
+—— 那个模式下就是原生压缩。强覆盖别人的 preset 属越权、且会被对方升级冲掉，所以本插件**只登记不覆盖**：
+`node scripts/doctor.mjs` 的「第三方 preset 的压缩后端（C94）」会点名是哪个 preset。
+
+### 装完别的插件后设置页 / 「上下文压缩」页面不见了
+
+多半是 bundle patch 的 `insert` **id 撞车**：宿主按 id 建索引，后写的替换先写的。
+`doctor` 的「insert id 唯一性（C96）」在撞到本插件 `gokifu-ui` 时会直接报 **error**；
+两个插件抢同一个 preset 则由「preset 覆盖唯一性（C95）」报 warn。
+
+### `doctor` 说「运行实例版本」不一致
+
+说明磁盘代码已更新、但进程还是旧的（本插件用 `link:` 安装）。重启 DSH 后跑一条命令核对：
+
+```bash
+node scripts/post-restart-check.mjs   # 期望全 ✓：buildId 一致 + 归因字段出现 + doctor 0 错 + boundary 0 条
+```
 
 ### fold 一直不触发
 

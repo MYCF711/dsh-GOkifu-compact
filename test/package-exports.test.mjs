@@ -166,3 +166,117 @@ tests["OPT-EXPORTS · 包 files 覆盖 src/（两个 exports 目标会真的被�
     if (/\.engine-under-test/.test(normalized)) throw new Error(`exports 目标被包排除规则命中：${rel}`);
   }
 };
+
+tests["C155 打包清单必须包含全部运行时文件（新增房间漏进 files 白名单 = 用户那边直接崩）"] = (t) => {
+  const REPO = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
+  // Windows 下 npm 是 .cmd，必须经 shell；用**单条命令字符串**避免 DEP0190（args+shell 已废弃）
+  const packed = spawnSync("npm pack --dry-run --json", { cwd: REPO, encoding: "utf8", shell: true });
+  t.eq(packed.status, 0, `npm pack --dry-run 必须成功：${String(packed.stderr ?? "").slice(0, 200)}`);
+  const info = JSON.parse(packed.stdout)[0];
+  const files = new Set(info.files.map((f) => f.path));
+
+  // ① 关键运行时文件一个都不能少
+  for (const need of ["package.json", "cordis.patch.yml", "src/engine.mjs", "src/ui.mjs", "lib/client.js"]) {
+    t.eq(files.has(need), true, `打包清单缺少 ${need}`);
+  }
+  // ② 磁盘上每个 src/rooms/*.mjs 都必须进包（新房间忘了白名单，用户端 import 会 404）
+  const roomsOnDisk = nodeFs.readdirSync(nodePath.join(REPO, "src", "rooms")).filter((f) => f.endsWith(".mjs"));
+  const roomsPacked = [...files].filter((f) => f.startsWith("src/rooms/") && f.endsWith(".mjs"));
+  const missing = roomsOnDisk.filter((f) => !files.has(`src/rooms/${f}`));
+  t.eq(missing.length, 0, `这些房间没进包：${missing.join(", ")}`);
+  t.eq(roomsPacked.length, roomsOnDisk.length, `包内房间数 ${roomsPacked.length} 应等于磁盘 ${roomsOnDisk.length}`);
+  // ③ 量级守卫：包内文件数不应异常缩水（历史 128→129）
+  t.eq(info.files.length >= 100, true, `包内文件数异常偏少：${info.files.length}`);
+};
+
+tests["C159 真 tarball 安装形态：解包后 import 子路径必须可用（files 漏项在用户端就是 404）"] = (t) => {
+  const REPO = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
+  const tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-tgz-"));
+  try {
+    // ① 打真包（写到临时目录，不污染仓库）
+    const packed = spawnSync(`npm pack --pack-destination "${tmp}"`, { cwd: REPO, encoding: "utf8", shell: true });
+    t.eq(packed.status, 0, `npm pack 必须成功：${String(packed.stderr ?? "").slice(0, 200)}`);
+    const tgz = nodeFs.readdirSync(tmp).find((f) => f.endsWith(".tgz"));
+    t.eq(!!tgz, true, "必须产出 .tgz");
+
+    // ② 解成 tarball 的真实安装形态：app/node_modules/dsh-gokifu-compact
+    const app = nodePath.join(tmp, "app");
+    const mod = nodePath.join(app, "node_modules", "dsh-gokifu-compact");
+    // 先解到临时目录再把 `package/` 搬过去 —— 不用 --strip-components（Windows 下 tar 对 -C 的路径处理不稳）
+    const xdir = nodePath.join(tmp, "x");
+    nodeFs.mkdirSync(xdir, { recursive: true });
+    // tar 在 Windows 下对含反斜杠的绝对路径不稳：把 tgz 拷进解包目录后用**相对名**解
+    nodeFs.copyFileSync(nodePath.join(tmp, tgz), nodePath.join(xdir, "pkg.tgz"));
+    const untar = spawnSync("tar -xzf pkg.tgz", { cwd: xdir, encoding: "utf8", shell: true });
+    t.eq(untar.status, 0, `解包必须成功：${String(untar.stderr ?? "").slice(0, 200)}`);
+    const extracted = nodePath.join(xdir, "package");
+    t.eq(nodeFs.existsSync(nodePath.join(extracted, "package.json")), true, "tarball 里必须有 package/package.json");
+    nodeFs.mkdirSync(nodePath.dirname(mod), { recursive: true });
+    nodeFs.cpSync(extracted, mod, { recursive: true });
+
+    // ③ 在**只依赖这个包**的临时 app 里 import 子路径 —— 缺文件/缺 exports 会在这里炸
+    nodeFs.writeFileSync(nodePath.join(app, "package.json"), JSON.stringify({ name: "app", type: "module", version: "0.0.0" }), "utf8");
+    const probe = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", 'const g = await import("dsh-gokifu-compact/graph"); const p = await import("dsh-gokifu-compact/persist"); console.log(typeof g.fromJSON === "function" && typeof p.createPersistStore === "function" ? "OK" : "BAD");'],
+      { cwd: app, encoding: "utf8" },
+    );
+    t.eq(probe.status, 0, `tarball 形态下 import 必须成功：${String(probe.stderr ?? "").slice(0, 300)} stdout=${String(probe.stdout ?? "").slice(0, 120)}`);
+    t.includes(String(probe.stdout), "OK", `两个子路径都要拿到真实导出（实际输出：${JSON.stringify(String(probe.stdout ?? ""))}）`);
+  } finally {
+    nodeFs.rmSync(tmp, { recursive: true, force: true });
+  }
+};
+
+/**
+ * ★ C228：`npx dsh-gokifu-compact doctor` 曾经必 ENOENT —— doctor 那时在 `test/`（不在 `files` 白名单里），
+ * 打包后 CLI 找不到它（docs/方案-持续优化.md 的 B3 / 候选 C-19，1.9.1 迁进 `scripts/` 后修好）。
+ * 但**文档一直写着「⛔ 未修」**，没人复验。这里把修好之后必须成立的四件事钉住。
+ */
+tests["C228 打包后 doctor 必须可达：doctor 在 scripts/、files 含 scripts、旧位置不许复活"] = (t) => {
+  const repo = nodePath.join(HERE, "..");
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(repo, "package.json"), "utf8"));
+  // ① doctor 必须存在且就在 CLI 同目录（scripts/）
+  t.eq(nodeFs.existsSync(nodePath.join(repo, "scripts", "doctor.mjs")), true, "scripts/doctor.mjs 必须存在");
+  // ② 旧位置不许复活（复活 = 又回到「不发包 → 必 ENOENT」）
+  t.eq(nodeFs.existsSync(nodePath.join(repo, "test", "doctor.mjs")), false, "test/doctor.mjs 不许再出现（它不在 files 白名单里）");
+  // ③ files 必须覆盖 scripts/（否则 CLI 的 doctor 目标打不进包）
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  t.eq(files.includes("scripts"), true, `package.json 的 files 必须含 "scripts"（实际：${JSON.stringify(files)}）`);
+  // ④ CLI 必须真的把 doctor 路由到同目录（而不是别处的相对路径）
+  const cli = nodeFs.readFileSync(nodePath.join(repo, "scripts", "cli.mjs"), "utf8");
+  t.includes(cli, 'nodePath.join(HERE, "doctor.mjs")', "scripts/cli.mjs 必须从同目录解析 doctor.mjs");
+};
+
+tests["C301 测试跑完不许在 src/ 留下变异副本（engine-under-test）"] = (t) => {
+  // 注意：**不能**在这里直接断言"src/ 里没有副本" —— 全量跑时 engine-harness 可能在本条之后执行，
+  // 那一刻副本正当存在（顺序依赖的假红）。所以只验**机制**：清理逻辑真的挂在跑完之后。
+  const runner = nodeFs.readFileSync(nodePath.join(HERE, "run.mjs"), "utf8");
+  t.includes(runner, ".engine-under-test", "run.mjs 必须有清理逻辑");
+  t.includes(runner, "rmSync", "要用 rmSync 真删");
+  t.includes(runner, '"src"', "清理目标必须是 src/");
+
+  // 双保险：副本在 .gitignore 里（万一清理失败也不会被提交/打包）
+  const gi = nodeFs.readFileSync(nodePath.join(HERE, "..", ".gitignore"), "utf8");
+  t.includes(gi, ".engine-under-test", ".gitignore 必须覆盖变异副本");
+};
+
+tests["C308 新增的房间与知识库文档必须在打包白名单里（否则发了包但用户拿不到）"] = (t) => {
+  const pkg = JSON.parse(nodeFs.readFileSync(nodePath.join(HERE, "..", "package.json"), "utf8"));
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  t.eq(files.includes("src"), true, "files 必须包含 src（房间都在这里）");
+  t.eq(files.includes("docs"), true, "files 必须包含 docs（知识库在这里）");
+  // 排除规则不许误伤这两个目录（.engine-under-test* 那种排除是合理的，但别把目录整个排掉）
+  const excludes = files.filter((f) => f.startsWith("!"));
+  for (const bad of ["!src", "!src/rooms", "!docs", "!docs/knowledge"]) {
+    t.eq(excludes.includes(bad), false, `排除规则不许整目录排除：${bad}`);
+  }
+  // 逐文件过一遍：房间数与知识库文档数都不许为 0（防"目录改名后这条永远绿"）
+  const rooms = nodeFs.readdirSync(nodePath.join(HERE, "..", "src", "rooms")).filter((n) => n.endsWith(".mjs"));
+  const kb = nodeFs.readdirSync(nodePath.join(HERE, "..", "docs", "knowledge")).filter((n) => n.endsWith(".md"));
+  t.eq(rooms.length >= 19, true, `src/rooms 至少 19 个房间（现在 ${rooms.length}）`);
+  t.eq(kb.length >= 10, true, `docs/knowledge 至少 10 篇（现在 ${kb.length}）`);
+  // 关键新文件必须在（C306 的 profile-io、C304 的知识库条目）
+  t.eq(rooms.includes("profile-io.mjs"), true, "profile-io.mjs 必须存在（C306）");
+  t.eq(kb.some((n) => n.includes("思考模式")), true, "思考模式那条知识库必须在（C304）");
+};

@@ -89,6 +89,7 @@ export function createFsPort(fs = nodeFs) {
     existsSync: (p) => fs.existsSync(p),
     mkdirSync: (p, opts) => fs.mkdirSync(p, opts),
     rmSync: (p, opts) => fs.rmSync(p, opts),
+    readdirSync: (p) => fs.readdirSync(p),
   };
 }
 
@@ -160,10 +161,33 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
   }
 
   /**
+   * ★ C111 / C142 / C145：清掉「不在图里」的节点文档（陈旧 md）。
+   *
+   * 三条护栏（缺一不可）：
+   *   ① 只处理 `^n[0-9]+\.md$`，其它文件不碰；
+   *   ② **内存图不可信时不清**（节点表为空或 order 为空 —— graph.json 读不出时 engine 会建空图）；
+   *   ③ 失败静默（陈旧文档只是噪音，不该影响落盘）。
+   */
+  function pruneStaleNodeDocs(fsPort, nodesDir, graph) {
+    if (Object.keys(graph?.nodes ?? {}).length === 0) return;
+    if ((graph?.order ?? []).length === 0) return;
+    try {
+      for (const name of fsPort.readdirSync(nodesDir)) {
+        if (!/^n[0-9]+\.md$/.test(name)) continue;
+        const id = name.slice(0, -3);
+        if (graph.nodes[id]) continue;
+        fsPort.rmSync(nodePath.join(nodesDir, name), { force: true });
+      }
+    } catch {
+      /* 清理失败不影响落盘 */
+    }
+  }
+
+  /**
    * 落盘（三层树 + 增量帧）。写序见 `_ORDER`。
    * @returns {{ok:true, baseHash, wroteBaseline:boolean, wroteDelta:boolean} | {ok:false, error:string, dirtyKept:true}}
    */
-  function flush({ id, cwd } = {}, graph, { tree = false, full = false } = {}) {
+  function flush({ id, cwd } = {}, graph, { tree = false, full = false, repaired = false } = {}) {
     const key = String(id ?? "session");
     const p = sessionPaths(root, key);
     let wroteBaseline = false;
@@ -203,6 +227,11 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
           if (graph.nodes[nodeId]) port.writeFileSync(nodePath.join(p.nodesDir, `${nodeId}.md`), renderNodeMd(graph, nodeId), "utf8");
         }
         pending.clear();
+        // ★ C145（审查 P2）：`firstWrite` 也要自愈 —— 旧代码只在稳态分支清理，
+        //   于是「重启后的**第一次** tree 落盘」不清理陈旧 md（注释所宣称的自愈并不成立）。
+        // ★ C149（复审 P2 的延伸）：**repaired 时绝不清** —— 图刚因「读不出/版本不符」被重建，
+        //   内存里只有新建的少量节点，按「不在图里」删会把旧图真实的 nodes/*.md 全删。
+        if (tree && !repaired) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else if (tree || pending.size > 0) {
         port.mkdirSync(p.nodesDir, { recursive: true });
@@ -212,6 +241,15 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
           port.writeFileSync(nodePath.join(p.nodesDir, `${nodeId}.md`), renderNodeMd(graph, nodeId), "utf8");
         }
         pending.clear();
+        // ★ C111：`tree` 落盘时顺手**自愈**陈旧文档 —— 节点被回滚/合并删除后，它的 md 会一直留在盘上
+        //   （live 实测 94 个：id 全部紧邻 maxNode，是「写了又回滚」的残骸）。
+        //   只删 `n<数字>.md` 且当前图里没有这个 id 的文件；其它文件一律不碰。
+        // ★ C142（审查 P1-1）：内存图**不可信**时绝不清 ——
+        //   graph.json 读不出来时 engine 会静默建空图（只 warn），此时按「不在图里」删除
+        //   会把整个 nodes/ 清空（实测 3 个文档全删，而磁盘上的 graph.json 仍有它们）。
+        //   判据：节点表非空 **且** order 非空（正常图两者都非空）。
+        // ★ C149：repaired 时跳过（见下）
+        if (tree && !repaired) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
       } else {
         for (const nodeId of dirty.nodes) pending.add(nodeId);

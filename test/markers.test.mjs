@@ -81,7 +81,7 @@ tests["标记裸奔：只有 blocked 失败、没有成功路径时，图例必�
   if (!r.text.includes("[blocked:timeout]")) throw new Error(`ETIMEDOUT 没写成 blocked:timeout：\n${r.text}`);
   if (!r.text.includes("# markers:")) throw new Error(`标记出现了却没有图例（旧版 bug）：\n${r.text}`);
   if (!r.text.includes("blocked:permission =")) throw new Error(`图例没有解释 blocked:permission：\n${r.text}`);
-  if (!r.text.includes("retry when it changes")) throw new Error(`图例没说清什么条件变了能再试：\n${r.text}`);
+  if (!r.text.includes("the environment lacks a required permission")) throw new Error(`图例必须说清是什么被挡住了（陈述事实，不是建议）：\n${r.text}`);
 };
 
 tests["图例按用到的标记动态生成（没用到的不出现）"] = () => {
@@ -120,7 +120,7 @@ tests["dead 带重开锚点：retry-if 指向那条成功边（不是永久墓�
   const tags = failureTags(failureEdges(g).find((e) => e.id !== e0), t);
   if (!tags.some((x) => x === `dead retry-if:${e0}`)) throw new Error(`dead 没带重开锚点：${JSON.stringify(tags)}`);
   const r = renderLedger(g, { maxTokens: 500 });
-  if (!r.text.includes("retry only if retry-if breaks")) throw new Error(`图例没解释 retry-if：\n${r.text}`);
+  if (!r.text.includes("the tag names that edge")) throw new Error(`图例没解释 retry-if 指针（事实口径）：\n${r.text}`);
 };
 
 tests["TRACE：热清单指向真的三层树（不再是 v1.2.2 起就不再写的 graph.md）"] = () => {
@@ -195,7 +195,7 @@ tests["标记的 token 成本可控：图例不超过 10 行"] = () => {
 
 /** 胖夹具：小预算必然落到兜底档；失败原因是 EACCES ⇒ semantic 档标 `[blocked:permission]`。 */
 function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
   const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
   let cursor = u; // addUserNodeId 返回 id 字符串（u.id 是 undefined）
@@ -225,15 +225,17 @@ tests['L4/L5 兜底档：markers 三态仍生效，且标记不改变兜底裁�
   const sem = renderLedger(g, { maxTokens: 1000, markers: "semantic" });
   const terse = renderLedger(g, { maxTokens: 1000, markers: "terse" });
   const off = renderLedger(g, { maxTokens: 1000, markers: "off" });
+  // C52：同类失败时标记可提到一行汇总（`# all 10 failures: blocked:permission`），语义等价
+  const markerEither = (text, key) => text.includes(`[${key}]`) || (text.includes("# all ") && text.includes(key));
   for (const [name, r] of [["semantic", sem], ["terse", terse], ["off", off]]) {
     if (r.level !== 5) throw new Error(`markers=${name} 应落到 L5（兜底择优；L4 的 20 条更费），实际 L${r.level}`);
     if (r.shownFailures !== 10 || r.omittedEdges !== 30) {
       throw new Error(`markers=${name} 不许改变兜底列多少条：shown=${r.shownFailures} omitted=${r.omittedEdges}`);
     }
   }
-  if (!sem.text.includes("[blocked:permission]")) throw new Error(`semantic 兜底档应带原因：\n${sem.text}`);
+  if (!markerEither(sem.text, "blocked:permission")) throw new Error(`semantic 兜底档应带原因：\n${sem.text}`);
   if (!sem.text.includes("blocked:permission =")) throw new Error(`semantic 兜底档缺图例：\n${sem.text}`);
-  if (!terse.text.includes("[blocked]") || terse.text.includes("[blocked:")) throw new Error(`terse 兜底档只该写三态：\n${terse.text}`);
+  if (!markerEither(terse.text, "blocked") || terse.text.includes("[blocked:")) throw new Error(`terse 兜底档只该写三态：\n${terse.text}`);
   if (!terse.text.includes("# markers:")) throw new Error(`terse 兜底档也要给图例：\n${terse.text}`);
   if (/\[(blocked|dead|redundant|longer|novel|failed|unverified)/.test(off.text)) throw new Error(`off 兜底档不许有任何标记：\n${off.text}`);
   if (off.text.includes("# markers:")) throw new Error("off 兜底档不许有图例");
@@ -279,4 +281,40 @@ tests["S5 · TRACE recent 与标记/相对路径契约共存，且不泄漏绝�
   // 标记照旧（recent 段不能把失败标记挤掉）
   if (!r.text.includes("[blocked:permission]")) throw new Error(`recent 段挤掉了失败标记：\n${r.text}`);
   if (r.tokens > 500) throw new Error(`超预算：${r.tokens} > 500`);
+};
+
+tests["C51 L2+ 图例压成一行（无换行）；L0/L1 保持多行可读"] = (t) => {
+  const wide = renderLedger(multiBaselineGraph().g, { maxTokens: 5000 });
+  t.eq(wide.level <= 1, true, `宽预算应落在 L0/L1，实际 L${wide.level}`);
+  t.eq(wide.text.includes("# markers:"), true, "宽预算要有图例");
+  const NL = String.fromCharCode(10);
+  t.eq(wide.text.split(NL).some((l) => l.startsWith("#   ")), true, "L0/L1 图例必须是多行形式（好读）");
+  const tight = renderLedger(manyFailuresGraph(40).g, { maxTokens: 400 });
+  t.eq(tight.level >= 2, true, `紧预算应落到 L2+，实际 L${tight.level}`);
+  t.eq(tight.text.includes("# markers: "), true, "L2+ 图例必须压成一行");
+  t.eq(tight.text.split(NL).some((l) => l.startsWith("#   ")), false, "L2+ 不许再有多行图例");
+};
+
+tests["C52 同类失败：标记提到一行汇总（逐行不再重复）；混合类仍逐行标"] = (t) => {
+  const uniform = renderLedger(fallbackGraph(), { maxTokens: 1000 });
+  t.eq(uniform.text.includes("# all 10 failures: blocked:permission"), true, "同类失败应有汇总行：" + uniform.text.slice(0, 600));
+  t.eq(uniform.text.includes("[blocked:permission]"), false, "汇总之后逐行不许再重复同一标记");
+  t.eq(uniform.text.includes("blocked:permission = "), true, "图例仍要解释该标记（语义不丢）");
+
+  // 混合类：三类各一条（≥3 条、L2+），必须逐行标
+  const g = createGraph({ sessionId: "mixed-classes" });
+  const pad = "不要动 prod 配置，也不许绕过；".repeat(12);
+  const u = addUserNodeId(g, { seq: 1, text: "把构建跑通", constraints: [pad, pad, pad, pad] });
+  const mk = (i, snippet) => {
+    const e = addEdge(g, { from: u, intent: `第 ${i} 次`, action: `bash(cmd-${i})`, evidence: { start: 10 + i, end: 11 + i } });
+    settleEdge(g, e, { to: u, result: "failure", verify: { kind: "exit", summary: `exit ${i}` }, errorSnippet: snippet });
+  };
+  mk(1, "Error: EACCES: permission denied, open 'prod.yml'");
+  mk(2, "npm ERR! network timeout ETIMEDOUT");
+  mk(3, "AssertionError: expected 1 got 2");
+  const led = renderLedger(g, { maxTokens: 300 });
+  // 约束很长 ⇒ 压到 L2+，才进入「汇总判定」的适用区间
+  t.eq(led.level >= 2, true, `预算 300 应落 L2+，实际 L${led.level}`);
+  t.eq(led.text.includes("# all "), false, "混合类不许用汇总行冒充");
+  t.eq(led.text.includes("[blocked:permission]"), true, "混合类必须逐行标 blocked:permission");
 };

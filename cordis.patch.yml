@@ -82,8 +82,14 @@
           compaction: true
           toolResultPruner: true
         config:
+          # ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。
+          #   替换掉原来的 @deepseek-ai/dsh-compaction-basic —— 两者会抢同一个 ctx.compaction。
+          #   回滚：dsh-gokifu-compact revert   （恢复 .bak-before-gokifu-* 备份）
           - id: gokifu-compact
             name: 'dsh-gokifu-compact/engine'
+            config:
+              summarizationProvider: 'magpie' # 留空 = 跟随当前路由
+              summarizationModel: 'group/deepseek-v4.1-flash1017'  # 留空 = 跟随当前路由
           - id: command-compact
             name: '@deepseek-ai/dsh-command-compact'
           - id: tool-result-pruner

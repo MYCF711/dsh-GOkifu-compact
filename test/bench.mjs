@@ -170,7 +170,14 @@ const stats = {
   },
 };
 
-nodeFs.mkdirSync(OUT, { recursive: true });
-nodeFs.writeFileSync(nodePath.join(OUT, `bench-${N}.json`), JSON.stringify(stats, null, 2), "utf8");
-console.log(`\n已写入 evidence/bench-${N}.json`);
-console.log(`失败边 ${stats.failures} 条，热上下文 ${stats.ledgerTokens} tokens（丢边 ${stats.ledgerOmitted} 条）`);
+// ★ C85：测试脚本**默认不许写仓库**（C65 对 live-folds 立下的同一条纪律）。
+//   `evidence/bench-N.json` 是发布证据，只有显式 `--write` 才更新；否则每次跑门禁都会弄脏工作树。
+const writeEvidence = process.argv.includes("--write");
+if (writeEvidence) {
+  nodeFs.mkdirSync(OUT, { recursive: true });
+  nodeFs.writeFileSync(nodePath.join(OUT, `bench-${N}.json`), JSON.stringify(stats, null, 2), "utf8");
+  console.log("已写入 evidence/bench-" + N + ".json");
+} else {
+  console.log("（默认不写盘；要更新 evidence/bench-" + N + ".json 请加 --write）");
+}
+console.log(`失败边 ${stats.failures} 条，热上下文 ${stats.ledgerTokens} tokens（丢边 ${stats.ledgerOmitted} 条，档位 L${stats.ledgerLevel}）`);

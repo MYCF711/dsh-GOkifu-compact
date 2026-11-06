@@ -143,6 +143,23 @@ function refLatestGraph(home) {
     const g = JSON.parse(nodeFs.readFileSync(best.file, "utf8"));
     const marks = g.foldMarks ?? [];
     const failures = Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
+    // ★ C232：已修正的失败（同一条 action 后来又跑通）—— 与 src/ui.mjs 的 countResolvedFailures 同口径
+    const edgeList = Object.values(g.edges ?? {});
+    const okAt = new Map();
+    const endOf = (e) => (typeof e?.evidence === "number" ? e.evidence : Number.isFinite(e?.evidence?.end) ? e.evidence.end : NaN);
+    for (const e of edgeList) {
+      if (e?.result !== "success" || typeof e.action !== "string" || e.action === "") continue;
+      const at = endOf(e);
+      if (!Number.isFinite(at)) continue;
+      const prev = okAt.get(e.action);
+      if (prev === undefined || at > prev) okAt.set(e.action, at);
+    }
+    let resolvedFailures = 0;
+    for (const e of edgeList) {
+      if (e?.result !== "failure" || typeof e.action !== "string" || e.action === "") continue;
+      const at = okAt.get(e.action);
+      if (at !== undefined && Number.isFinite(endOf(e)) && at > endOf(e)) resolvedFailures += 1;
+    }
     return {
       session: best.dir,
       updatedAt: best.mtime,
@@ -152,6 +169,7 @@ function refLatestGraph(home) {
       lastFold: marks.length > 0 ? marks[marks.length - 1] : null,
       lastUsage: g.lastFoldUsage ?? null,
       failures,
+      resolvedFailures,
       nodes: Object.keys(g.nodes ?? {}).length,
       edges: Object.keys(g.edges ?? {}).length,
     };
@@ -167,10 +185,12 @@ function refTodayAggregate(home) {
   const from = start.getTime();
   let folds = 0;
   let shadowed = 0;
+  let costUsd = 0;
+  let costKnown = 0;
   const sessions = new Set();
   let totalSessions = 0;
   let totalFailures = 0;
-  if (!nodeFs.existsSync(root)) return { folds, shadowed, sessions: 0, totalSessions, totalFailures };
+  if (!nodeFs.existsSync(root)) return { folds, shadowed, sessions: 0, totalSessions, totalFailures, costUsd, costKnown };
   for (const d of nodeFs.readdirSync(root, { withFileTypes: true })) {
     if (!d.isDirectory()) continue;
     const file = nodePath.join(root, d.name, "graph.json");
@@ -183,13 +203,21 @@ function refTodayAggregate(home) {
         folds += marks.length;
         sessions.add(d.name);
         shadowed += marks.reduce((sum, m) => sum + (m.shadowedTokens ?? 0), 0);
+        // ★ C239：折叠成本估算（官方价目 × 真实 usage）
+        for (const m of marks) {
+          const input = Number(m?.usage?.inputTokens);
+          if (!Number.isFinite(input) || input < 0) continue;
+          const hit = Math.max(0, Math.min(input, Number(m?.usage?.cacheReadTokens) || 0));
+          costUsd += ((input - hit) * 0.15 + hit * 0.003 + Math.max(0, Number(m?.usage?.outputTokens) || 0) * 0.6) / 1e6;
+          costKnown += 1;
+        }
       }
       totalFailures += Object.values(g.edges ?? {}).filter((e) => e?.result === "failure").length;
     } catch {
       /* 坏图跳过 */
     }
   }
-  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures };
+  return { folds, shadowed, sessions: sessions.size, totalSessions, totalFailures, costUsd, costKnown };
 }
 
 export const tests = {};
@@ -392,9 +420,21 @@ tests["P4 · state.latest / state.today 与旧实现逐字段（含字段顺序�
     const wantLatest = JSON.stringify(refLatestGraph(home));
     const gotLatest = JSON.stringify(res.json.latest);
     if (gotLatest !== wantLatest) throw new Error(`latest 与旧实现不同：\n  旧: ${wantLatest}\n  新: ${gotLatest}`);
-    const wantToday = JSON.stringify(refTodayAggregate(home));
-    const gotToday = JSON.stringify(res.json.today);
-    if (gotToday !== wantToday) throw new Error(`today 与旧实现不同：\n  旧: ${wantToday}\n  新: ${gotToday}`);
+    // ★ C390：允许**追加**字段（如 truncated），但旧字段必须逐个且顺序一致。
+    const refToday = refTodayAggregate(home);
+    const gotToday = res.json.today;
+    const refKeys = Object.keys(refToday);
+    const gotKeys = Object.keys(gotToday);
+    for (const [i, key] of refKeys.entries()) {
+      if (gotKeys[i] !== key) throw new Error(`today 字段顺序变了：第 ${i} 个应为 ${key}，实际 ${gotKeys[i]}`);
+      if (JSON.stringify(gotToday[key]) !== JSON.stringify(refToday[key])) {
+        throw new Error(`today.${key} 与旧实现不同：旧 ${JSON.stringify(refToday[key])} / 新 ${JSON.stringify(gotToday[key])}`);
+      }
+    }
+    // 追加字段必须是数字（防止把未完成的东西潜进接口）
+    for (const key of gotKeys.slice(refKeys.length)) {
+      if (!Number.isFinite(gotToday[key])) throw new Error(`追加字段 today.${key} 应为数字，实际 ${JSON.stringify(gotToday[key])}`);
+    }
     // 连续两次（第二次全热）必须字节一致
     const again = await call(handler);
     if (again.raw !== res.raw) throw new Error("热路径输出与冷路径不逐字一致");

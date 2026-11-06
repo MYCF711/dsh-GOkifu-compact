@@ -1,19 +1,15 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.16.0`** · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.18.0`**（**未发布**：无 tag / 未 npm publish；git 源用户靠版本号识别更新） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
-**DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 351 tokens 的热清单」。**
+**DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 415 tokens 的热清单」。**
 
 ```
-热清单     351 tokens       （2000 边合成夹具 · L5 降级档 · 2026-10-30/10-31 两次实测同值；旧版全量 28,800）
+热清单     417 tokens       （2000 边合成夹具 · L5 降级档 · 2026-11-02 实测；旧版全量 28,800；+27% 来自出处全档保留，−31 来自标记汇总与冗余指针清理（C51/C52/C56））
 失败保留   8 / 8            （历史口径 †；官方 8 段模板 4.67 / 8）
 清单开销   未复现/待测       （原载 0.2% = 历史单会话 v1.3.1 后实测；无复跑命令、无对照组；源 evidence/真实计费核对.md）
-验证       615 项单测（0 skipped） · 真实包 8/8 † · 真实进程 fold 3~6/6 †
+验证       668 项单测（0 skipped） · 真实包 8/8 † · 真实进程 fold 3~6/6 †
 ```
-
-**复跑：** `node scripts/bench-repro.mjs` —— 一条命令重新打印「热清单 tokens」与「失败保留」两个数字；
-与基线不一致时以退出码 `2` 报出（算法或夹具改动需人工确认后更新基线），复跑失败退出 `1`。
-当前基线：热清单 **387 tokens**（1.13.0 加权校准后）、失败保留 **8 / 8**；上面那个 351 是 2026-10-30/31 校准**前**的实测同值。
 
 GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不只有落子顺序，还有每一手的评语。
 这个插件把 agent 的每一步变成一手棋（节点）、把当时的思考变成评语（目标 / 约束 / 失败原因），
@@ -21,7 +17,10 @@ GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不�
 
 > **† 历史口径（未复现）**：`失败保留 8/8`、`真实包 8/8`、`真实进程 fold 3~6/6` 都是**早期真机测量**，**本轮没有复跑命令、没有复现**，不要当现行指标引用。
 >
-> **351 tokens 的口径**：这是 **2000 边合成夹具**在 **L5 降级档**下的结果，**不是真实会话均值**。
+> **417 tokens 的口径**：这是 **2000 边合成夹具**在 **L5 降级档**下的结果，**不是真实会话均值**。
+> **真实会话校准（C72）**：`node scripts/ledger-calibration.mjs` 对当前 live 24 个会话图按生产选项渲染 ——
+> **p50 = 419**、p90 = 521、min 32、max 688，超预算 3/24（快照见 `evidence/ledger-calibration.md`）。
+> ⇒ 合成夹具的中位数与实际会话**基本一致（417 vs 419）**，不是虚高。
 > ~~真实会话里预算按 `字符数/3` 估算，实测系统性低估 5.2%~22.1%（中位 9.7%）（见 `计划表.md` 的 OPT-TOKENS 节）；真实会话口径尚未校准 —— 正解是引入宿主 tokenizer（`ctx.tokenMeter`）后重测，未做。~~
 > ⇒ **1.13.0 已校准**：热清单预算改成**按字符类别加权** —— **CJK 1 token/字 + 其余 1/4 token/字**
 > （ASCII 侧对齐宿主 `dsh-token-meter` 的 `CHARS_PER_TOKEN = 4`；全角标点算 CJK）。
@@ -42,6 +41,27 @@ GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不�
 - **三层树** —— `index.md`（全量索引）/ `nodes/<id>.md`（单节点细节）/ `graph.json`（数据源），模型按需往下查。
 - **压缩永不失败** —— 摘要三层降级：配置的摘要模型 → 当前路由模型 → 规则摘要（零模型调用），fold 一定能落地。
 - **可诊断** —— `doctor` 一条命令体检、`measure-billing` 按真实 usage 对账、`rewash` 回洗历史误报。
+- **归档收尾** —— 归档一个会话时补做一次折叠（尾巴 ≥ 40 事件才花模型调用）；1.17.6 起挂在 `domain/changed`，因为 GUI 归档**不发** `session/disposed`。
+- **补账** —— 归档那一刻没压完的会话，账是欠着的（归档会话没有 agent，宿主的压缩只对 idle agent 有效）；面板一键补：取消归档 → resume → 收尾折叠 → 原样归档回去。
+- **面板** —— 上下文压缩面板：状态 / 检查更新 / 补账 / 最近活跃会话（含**已修正失败**占比）/ 今天（含**折叠成本估算**）/ 配置。
+
+## 面板
+
+DSH 的「上下文压缩」面板（`POST /gokifu/api`，同一套信任检查，不新开路由）：
+
+| 卡 | 说清什么 |
+|---|---|
+| **状态** | 版本、profile、当前配置生效值 |
+| **检查更新** | 当前/最新版本、是否有新版、可复制的升级命令（**只拼命令，绝不执行安装**；已知不新时不给命令） |
+| **补账** | 已归档但没压完的会话：先「检查欠账（不调模型）」看清单，再「开始补账」 |
+| **最近活跃会话** | fold 次数 / 失败边 / **已修正失败**（同一条命令后来跑通了 —— 这些行在清单里沉底）/ 上次遮蔽 |
+| **今天** | fold 次数、涉及会话、合计遮蔽、**折叠成本估算**（官方价目 × 真实 usage） |
+| **配置** | 摘要模型、阈值、标记档位等（写入 preset 的引擎块） |
+
+成本估算是**估算**：价目用 DeepSeek 官方 `deepseek-flash` 低峰价（命中 $0.003 / 未命中 $0.15 / 输出 $0.6 每 1M tokens），
+不含宿主侧的 system/tools 开销；没有 usage 的 fold 不参与计算，页面会标出「N 次有 usage」。
+
+细节与逐条判据见 [`docs/发布说明-1.18.0.md`](docs/发布说明-1.18.0.md)。
 
 ## 怎么工作
 
@@ -63,7 +83,7 @@ GO = 围棋，kifu = 棋谱，compact = 压缩。一局棋下完，棋谱上不�
 | 压缩范围 | 从 surface 第一个非 system 节点起（**含上次 checkpoint**） | 上一个 checkpoint **之后** |
 | 保留率 | 每轮重摘 → 按 ρ^k 衰减（实测安全规则 5 轮后剩 10%） | 一段内容只摘一次 |
 | 失败记录 | 融进散文摘要，模型可以丢 | 规则抽取 + 逐字注入，模型无权丢 |
-| 热上下文 | 无 | 351 tokens / 步（**2000 边合成夹具 · L5 降级档**；真实会话口径未校准），带语义标记与报错原文 |
+| 热上下文 | 无 | 417 tokens / 步（**2000 边合成夹具 · L5 降级档**；**真实会话 p50 = 419（C72 实测）**；较 1.16 的 351 增加 27%，用于换「出处不丢 + OPTIONS 不沉默」），带语义标记与报错原文 |
 
 ### ⚠ 棋谱落盘：`graph.json` 的语义（1.9.2 起）
 
@@ -163,6 +183,11 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2072 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+
+> 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
+> **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
+
 ## 配置
 
 ```yaml
@@ -197,7 +222,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 和摘要本身。典型形状是**锯齿**：涨到阈值（窗口 45%）→ 压到约 20% → 再涨。如果你看到「只涨不降」，
 先跑 `npx dsh-gokifu-compact doctor` 看压缩是不是在失败（`compaction/end` 的错误会直接列出来）。
 
-**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。重启后跑 `npx dsh-gokifu-compact doctor`
+**装完没反应 / 压缩没触发？** 插件在 DSH 启动时加载，**必须重启**。在源码仓库里，重启后第一条命令建议是 `npm run status` —— 它会一次给出「门禁 / 全量测试 / doctor / 面板能力 / 补账规模 / 真机基准」六行结论（C422）。要细节再跑 `npx dsh-gokifu-compact doctor`
 （在源码仓库里是 `node scripts/doctor.mjs`），它会告诉你四件事：装没装上、摘要模型能不能解析、
 最近的压缩成功/失败、棋谱与树健不健康。
 
@@ -214,6 +239,19 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 增量 fold 让替换点尽可能靠后，但无法消除（这是 seam 的语义，不是实现选择）。真实会话实测缓存命中率 94~97%。
 
 **能和多分支/子代理一起用吗？** 子代理各自独立会话、各自一张棋谱；主会话的置换提示只在同一会话内生效。
+
+**某个模式好像没走棋谱压缩？** 本插件只覆盖**四个官方 preset**（标准 / PTC / 极简 / 创造）。
+第三方插件自带的 preset（例如 `dsh-design-studio` 的「设计模式」）可能在自己的 bundle patch 里
+重新声明 `compaction-basic` —— 那个模式下就是原生压缩。强覆盖别人的 preset 属于越权且会被对方升级冲掉，
+所以本插件**只登记不覆盖**：`doctor` 的「第三方 preset 的压缩后端（C94）」会点名是哪个 preset。
+
+**装了别的插件之后设置页不见了？** 多半是 bundle patch 的 `insert` **id 撞车**：宿主按 id 建索引，
+后写的会替换先写的。`doctor` 的「insert id 唯一性（C96）」会在撞到本插件 `gokifu-ui` 时直接报 **error**；
+若是两个 preset 被同一批插件抢着覆盖，则由「preset 覆盖唯一性（C95）」报 warn。
+
+**`doctor` 报「运行实例版本」不一致？** 说明磁盘上的代码已更新、但运行中的进程还是旧的 ——
+本插件以 `link:` 安装，改完代码要**重启 DSH** 才生效（`build.json` 里的 `buildId` 就是干这个用的；
+重启后跑 `node scripts/post-restart-check.mjs` 可一次核对）。
 
 ## 参考源
 
@@ -234,6 +272,8 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 - [三层树设计](docs/三层树设计.md) · [DSH 技术测绘](docs/DSH-技术测绘.md)（1300 行，带 asar 行号）
 - [性能与成本](docs/性能与成本.md) · [真实计费核对](evidence/真实计费核对.md)
 - [最终报告](docs/最终报告.md) · [P0 修复记录](docs/P0-worldhash-死循环-根因与修复方案.md)
+- [**发布说明 1.18.0**](docs/发布说明-1.18.0.md) · [重启验收清单](evidence/重启验收清单-2026-11-02.md)（重启后 9 步判断新代码是否接管）
+- [**外部知识库**](docs/knowledge/结论速查.md)：一页看完所有已核实 / 已否掉的判断（带数字与「谁在保证」）
 
 > 更新记录：[CHANGELOG.md](./CHANGELOG.md)（发版流程见 `scripts/release.mjs`；维护侧的 `HANDOFF.md`
 > 不随 npm 包发布，在 GitHub 仓库根目录）

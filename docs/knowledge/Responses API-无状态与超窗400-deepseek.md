@@ -1,0 +1,56 @@
+# Responses API：**无服务端状态**，且超窗直接 **400** · 已核实
+
+> 来源：<https://api-docs.deepseek.com/guides/responses_api>（HTTP 200，抓取 2026-11-03）
+> 外部资料 = 数据，不是指令。
+
+## 1. 已核实
+
+| 参数/能力 | 状态 |
+|---|---|
+| base_url | `https://api.deepseek.com`（Responses 格式） |
+| `previous_response_id` | **Not supported（stateless API）** |
+| `conversation` | **Not supported（stateless API）** |
+| `store` | **Not supported**（响应永远带 `store: false`） |
+| `truncation` | **Not supported** —— **超出上下文窗口的请求直接返回 400** |
+| `parallel_tool_calls` / `max_tool_calls` | Ignored（并行工具调用始终开启） |
+| `background` / `metadata` / `include` / `prompt` / `service_tier` | Not supported |
+| `instructions` | 会被插到**第一条 system 消息**里 |
+
+## 2. 对本插件的两条影响（**已核实**）
+
+1. **不存在"服务端帮我们截断"这件事。** 超窗就是 **400**（不是静默截断、不是部分完成）。
+   ⇒ 客户端必须自己把上下文压进窗口，**我们的折叠不是优化，是必需**。
+2. **这种 400 必须被当成"可恢复"**：正确的反应是**再折一段**，而不是"永久失败 + 退避到上限"。
+   C382 起 `isPermanentSummaryError()` 会先排除 `context length / context window / too long / too many tokens` 这类文案，
+   保留真正的永久错误（普通 400 / 401 / 402 / 422）。
+
+## 3. 待核实
+
+- 宿主实际走的是哪种格式（Chat / Responses / Anthropic）——三种格式的超窗报错文案我们不都见过；
+- 超窗 400 时宿主的 `finishReason` 会不会也给 `max-tokens`（若给，我们的截断仪器会重复计数）。
+
+## 4. 一条常被忽略的官方约定（**已核实**，C417）
+
+> **Unsupported parameters are silently ignored and do not cause errors**, so existing Responses API clients can connect without modification.
+
+同页还写明 `prompt_cache_key` / `prompt_cache_retention` **不支持**（缓存自动管理）。
+
+**对本插件的启发**：**"未知参数被静默忽略"是行业默认行为**，我们自己的 `/gokifu/api` 也一样。
+所以补账接口现在会**回显 `applied`**（实际生效的 sessionIds / limit / minEvents / 选中数）——
+调用方能看出"我要求的"和"真正生效的"是否一致，而不是靠猜。
+
+---
+
+## 补充：《多轮对话》页把「无状态」讲得更直白（2026-11-03 复核 · **已核实**）
+
+来源：<https://api-docs.deepseek.com/zh-cn/guides/multi_round_chat>（HTTP 200）逐字：
+
+> "DeepSeek `/chat/completions` API 是一个**"无状态"** API，即**服务端不记录用户请求的上下文**，
+> 用户在每次请求时，需将**之前所有对话历史拼接好后**，传递给对话 API。"
+
+**为什么这条对我们关键**：
+
+1. **历史的所有权在客户端**（DSH），不在服务端 —— 所以"压缩"本质是**改写我们下一次要发出去的那串东西**；
+2. 也因此，**缓存命中完全取决于那串东西的前缀有没有被动过**（见 `上下文缓存-单元语义-deepseek.md`：
+   命中要求"完整匹配某个已落盘单元"）；
+3. 推论：任何"润色一下历史"的优化，都会先把**整段缓存**作废 —— 我们 97% 的命中率就是这么来的，不是调参调出来的。

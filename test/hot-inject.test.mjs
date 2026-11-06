@@ -20,6 +20,10 @@ import {
   ledgerDigest,
   messageText,
 } from "../src/rooms/hot-inject.mjs";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 import { addUserNodeId, addEdge, addAgentNode, settleEdge, createGraph } from "./graph-fixtures.mjs";
 import { failureEdges, sha } from "../src/rooms/kifu-model.mjs";
 import { renderLedger } from "../src/rooms/ledger.mjs";
@@ -301,6 +305,9 @@ export const tests = {
     t.eq(stub?.source?.form, "ledger-stub", "占位 form");
     t.eq(messageText(stub), LEDGER_STUB_TEXT, "占位文案必须逐字一致");
     t.ok(LEDGER_STUB_TEXT.length < 200, "占位必须 <200 字符（幂等判据）");
+    // ★ C160：占位是**模型可见文本** —— 不许点名内部文件名/内部字段名（模型会当成可读路径去试）
+    t.eq(/graph\.json|foldMark|nodes\/|stateIndex|dirty/i.test(LEDGER_STUB_TEXT), false, `占位不许泄露内部实现名：${LEDGER_STUB_TEXT}`);
+    t.includes(LEDGER_STUB_TEXT, "<chess-ledger>", "仍要保留标签名，让模型知道被折叠的是哪类块");
   },
 };
 /* ═══════════ OPT-EMPTY（task-130）：零失败边也要有最小注入 ═══════════ */
@@ -329,11 +336,18 @@ Object.assign(tests, {
     const message = commitAppend(session, first);
     const text = messageText(message);
     t.includes(text, "<chess-ledger>", "仍用既有清单格式");
-    t.includes(text, "GOAL: 跑测试", "必须带目标");
+    // ★ C224：契约 ① 认的是 **ROOT USER**（不是 GOAL）——最小清单改成逐字给根目标，
+    //   与主清单一致；两者都渲染时 GOAL 只在「当前目标 ≠ 根目标」时出现。
+    // ★ C224：最小清单与主清单同口径 —— 根目标逐字给（契约 ①），当前目标与根目标不同时再补一行。
+    t.includes(text, "ROOT USER (verbatim): 把构建跑通", "必须逐字带根目标（契约 ①）");
+    t.includes(text, "GOAL: 跑测试", "当前目标与根目标不同时必须也给出它");
     t.includes(text, "CONSTRAINTS: 2", "必须带约束数量");
     t.includes(text, "NO_FAILED_ATTEMPTS_YET", "必须明说「还没有失败」");
+    // ★ C223：零失败会话占真实会话的约 26%，旧版最小清单**完全没有当前位置**（契约 ⑥ 违反）。
+    //   handoff-check 在 live 上抓到 2 个会话（5df02bf8 / 30140e4c）就是这个原因。
+    t.includes(text, "# path:", "最小清单也必须给出当前位置（契约 ⑥）");
     const lineCount = text.split("\n").length;
-    t.eq(lineCount <= 6, true, `极简注入必须短（实际 ${lineCount} 行）`);
+    t.eq(lineCount <= 7, true, `极简注入必须短（实际 ${lineCount} 行）`);
     // 第二步：同 digest 且清单还在 ⇒ 不重复注入（避免每步刷屏）
     const second = run(session, g, state);
     t.eq(second.action, "skip", "内容没变 ⇒ skip");
@@ -353,7 +367,12 @@ Object.assign(tests, {
     const g = graphWithFailure();
     const out = renderLedger(g, { maxTokens: 500 });
     t.eq(out.text.includes("NO_FAILED_ATTEMPTS_YET"), false, "有失败边时不许出现零失败行");
-    t.eq(sha(out.text), "c234c80ae19e5070caf2faedc2af4bd73240bfe3f26b60e9ae90ae22fac0bc72", "有失败边的清单必须逐字节不变（OPT-EMPTY 前的基线 sha）");
+    // ★ 2026-11-01 基线更新（handoff-check 在 live 语料上抓到）：失败边行必须**物理上一行**。
+    //   旧输出把多行 errorSnippet（`boom\n[exit code: 1]`）原样保留，一条边被拆成两行，
+    //   `(seq …)` 落到第二行 ⇒ 模型看到的是「一条边两行」，出处覆盖率指标也会误判成「渲染在砍 seq」。
+    //   现在 intent/reason 统一压成单行（换行→空格，字符数不变 186，sha 变）——这是**有意的字节变更**，
+    //   基线从 c234c80… 换成 a80735d…，理由记录在此，下一次改动请照此写清原因。
+    t.eq(sha(out.text), "a80735db778562028ef0fe1aa4a470ea0bd821dad222388d504bdbf7c0802ece", "有失败边的清单必须逐字节不变（单行失败边基线 sha，2026-11-01）");
     t.eq(out.text.length, 186, "字符数也必须不变");
   },
 
@@ -373,3 +392,264 @@ Object.assign(tests, {
     t.includes(text, "NO_FAILED_ATTEMPTS_YET", "补回的仍是零失败清单");
   },
 });
+
+tests["C90 坏图时注入必须降级为 skip(error:)，绝不把异常抛给宿主"] = (t) => {
+  // 图里有失败边（能走到渲染），但节点的 text 被塞成对象 —— 这正是历史上真实发生过的
+  // worldHash 对象污染：renderLedger 对它调 .slice() 抛 TypeError。注入必须降级。
+  const broken = graphWithFailure();
+  // 结构漂移：renderLedger 依赖 rootUserNodeIds（缺失时对 undefined 调 .map 抛 TypeError）
+  delete broken.rootUserNodeIds;
+  const result = run(makeSession(), broken, makeState());
+  t.eq(result.action, "skip", "坏图必须降级为 skip");
+  t.eq(String(result.reason).startsWith("error:"), true, `reason 必须是 error: 前缀（供统计识别）：${result.reason}`);
+  t.eq(result.decision.kind, "enter", "原 decision 必须原样返回（对话不中断）");
+};
+
+/* ───────────────────── C129：随机化不变量 ───────────────────── */
+
+/** 确定性 PRNG（mulberry32）。 */
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = a;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function graphWithNFailures(n) {
+  const g = createGraph({ sessionId: "prop", cwd: "D:/tmp/proj" });
+  const st = makeState();
+  observeEvent(g, userEvent("让测试变绿", 1), st);
+  for (let i = 0; i < n; i += 1) {
+    const seq = 10 + i * 4;
+    observeEvent(g, assistantEvent(`p${i}`, "bash", { command: `npm test --case=${i}` }, seq), st);
+    if (i === 0) {
+      observeEvent(g, resultEvent(`p${i}`, "AssertionError: boom", seq + 1, true), st);
+    } else {
+      // 失败边需要有终点，才不会被当成残留
+      observeEvent(g, resultEvent(`p${i}`, `ERR_${i}: unique failure ${i}`, seq + 1, true), st);
+    }
+  }
+  return g;
+}
+
+tests["C129 随机化不变量：任何输入都不崩，动作合法，注入的消息必须带 <chess-ledger>"] = (t) => {
+  const rand = rng(20261102);
+  for (let i = 0; i < 15; i += 1) {
+    const failures = Math.floor(rand() * 13); // 0..12
+    const g = graphWithNFailures(failures);
+    const session = makeSession();
+    const state = makeState();
+    const before = run(session, g, state);
+
+    t.eq(["append", "replace", "skip"].includes(before.action), true, `第 ${i + 1} 组（failures=${failures}）动作非法：${before.action}`);
+    if (before.action === "skip") {
+      t.eq(Array.isArray(before.decision.messages), true, `第 ${i + 1} 组 skip 时也必须返回 decision`);
+      continue;
+    }
+    const ledger = before.decision.messages.find((m) => m.source?.kind === "chess-context");
+    t.eq(!!ledger, true, `第 ${i + 1} 组注入后必须有一条 chess-context 消息`);
+    t.includes(messageText(ledger), "<chess-ledger>", `第 ${i + 1} 组注入的消息必须带 <chess-ledger> 骨架`);
+
+    // 提交后：再加失败边 + 推进事件，第二次决策也必须合法
+    commitAppend(session, before);
+    for (let k = 0; k < Math.floor(rand() * 4); k += 1) {
+      const seq = 400 + i * 10 + k * 2;
+      observeEvent(g, assistantEvent(`q${i}-${k}`, "bash", { command: `false ${k}` }, seq), state);
+      observeEvent(g, resultEvent(`q${i}-${k}`, `ERR_${i}_${k}: late`, seq + 1, true), state);
+    }
+    session.setSeq(session.seq + Math.floor(rand() * 60));
+    const after = run(session, g, state);
+    t.eq(["append", "replace", "skip"].includes(after.action), true, `第 ${i + 1} 组第二次动作非法：${after.action}`);
+    const ledgers = after.decision.messages.filter((m) => m.source?.kind === "chess-context");
+    t.eq(ledgers.length <= 2, true, `第 ${i + 1} 组决策里 chess-context 消息不该超过 2 条（实际 ${ledgers.length}）`);
+  }
+};
+
+tests["C130 历史清单清理的随机化不变量：只动旧 chess-context，别人的消息一条都不碰"] = (t) => {
+  const makeUserMessage = ({ content, source }) => ({ id: "stub", role: "user", content, source });
+  const rand = rng(778899);
+  let elidedTotal = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const session = makeSession();
+    const ledgerSeqs = [];
+    const otherSeqs = [];
+    const ledgerCount = Math.floor(rand() * 5); // 0..4 条历史清单
+    for (let k = 0; k < ledgerCount; k += 1) {
+      const long = rand() < 0.7;
+      const text = long ? "<chess-ledger>" + "x".repeat(300 + Math.floor(rand() * 400)) : LEDGER_STUB_TEXT;
+      ledgerSeqs.push(session.push({ content: [{ type: "text", text }], source: { kind: "chess-context", form: long ? "ledger" : "ledger-stub" } }));
+      // 中间夹一条普通用户消息
+      otherSeqs.push(session.push({ content: [{ type: "text", text: `普通消息 ${k}` }], source: { kind: "prompt" } }));
+    }
+    const before = [...session.surface.nodes];
+    const latestSeqBefore = ledgerSeqs.length > 0 ? ledgerSeqs[ledgerSeqs.length - 1] : null;
+    const latestTextBefore = latestSeqBefore === null ? null : messageText(session.eventAt(latestSeqBefore)?.data ?? {});
+    const elided = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
+    elidedTotal += elided;
+    const after = [...session.surface.nodes];
+
+    t.eq(after.length, before.length, `第 ${i + 1} 组 surface 长度必须不变（replace 不是 append）`);
+    for (const seq of otherSeqs) t.eq(after.includes(seq), true, `第 ${i + 1} 组普通消息 ${seq} 被误动了`);
+    // 非占位清单最多保留一条
+    const nonStub = after.filter((seq) => {
+      const ev = session.eventAt(seq);
+      const text = messageText(ev?.data ?? {});
+      return ev?.data?.source?.kind === "chess-context" && text.length > 200;
+    });
+    t.eq(nonStub.length <= 1, true, `第 ${i + 1} 组还有 ${nonStub.length} 条非占位清单（应该只剩最新一条）`);
+    // ★ C143（审查 P1-6）：**最新一条必须原样保留** —— 只断言「非占位 ≤1」的话，
+    //   全部替换成占位也能过（那份最新的清单就丢了）。
+    if (latestSeqBefore !== null) {
+      // 必须在**清理前**取原文，清理后逐字比对 —— 否则「先 stub 再断言长度」是循环论证
+      t.eq(after.includes(latestSeqBefore), true, `第 ${i + 1} 组最新一条清单（${latestSeqBefore}）必须仍在 surface 上`);
+      const latestTextAfter = messageText(session.eventAt(latestSeqBefore)?.data ?? {});
+      t.eq(latestTextAfter === latestTextBefore, true, `第 ${i + 1} 组最新一条清单必须逐字未变（清理前 ${latestTextBefore.length} 字符 → 之后 ${latestTextAfter.length}）`);
+    }
+    // 幂等：再跑一次不该再动
+    const again = elideLegacyLedgers(session, { createUserMessage: makeUserMessage });
+    t.eq(again, 0, `第 ${i + 1} 组第二次清理必须无事可做（实际 ${again}）`);
+  }
+  t.eq(elidedTotal > 0, true, "随机样本必须至少发生一次清理（否则判据空转）");
+};
+
+tests["C248 注入节流间隔可配：hotLedgerMinEvents 生效（默认 40 = 旧行为）"] = (t) => {
+  // 场景：刚注入过、只过了 10 个事件，且失败边没变多 ⇒ 默认配置下跳过（throttled-events）
+  const build = () => {
+    const g = graphWithFailure();
+    const st = makeState();
+    const session = makeSession({ id: "s-throttle", seq: 100 });
+    const seeded = run(session, g, { ...st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(g).length });
+    return { g, session, st, seeded };
+  };
+  const a = build();
+  t.eq(a.seeded.action, "skip", "默认配置（40 事件）下、只过 10 个事件 ⇒ 跳过");
+
+  const b = build();
+  const loose = run(b.session, b.g, { ...b.st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(b.g).length }, { config: { ...CONFIG, hotLedgerMinEvents: 5 } });
+  t.eq(loose.action !== "skip" || loose.reason !== "throttled-events", true, "把间隔改成 5 之后，10 个事件就不该再被节流挡下");
+
+  // 非法值不许把行为改成"每步都写"：0 / -1 / NaN ⇒ 回落到默认 40
+  const c = build();
+  const bad = run(c.session, c.g, { ...c.st, lastLedgerInjectSeq: 90, lastLedgerFailureCount: failureEdges(c.g).length }, { config: { ...CONFIG, hotLedgerMinEvents: 0 } });
+  t.eq(bad.reason, "throttled-events", "非法值（0）必须回落到默认 40，不许变成每步注入");
+};
+
+tests["C251 失败增量门槛可配：hotLedgerMinFailureDelta=0 时只按事件间隔节流"] = (t) => {
+  const g = graphWithFailure();
+  const st = makeState();
+  const session = makeSession({ id: "s-delta", seq: 200 });
+  // 每次都要新造一份（decideInjection 会更新 state，复用同一对象会让后面的用例看到前一次的结果）
+  const seed = () => ({ ...st, lastLedgerInjectSeq: 10, lastLedgerFailureCount: failureEdges(g).length });
+  const seeded = seed();
+  const byDefault = run(session, g, seeded);
+  t.eq(byDefault.reason, "throttled-failures", "默认（+5 条）⇒ 失败边没变多就被挡下");
+
+  const zero = run(session, g, seed(), { config: { ...CONFIG, hotLedgerMinFailureDelta: 0 } });
+  t.eq(zero.reason !== "throttled-failures", true, "设成 0 之后不该再被失败增量挡下");
+
+  // 非法值回落默认 5（负数 / NaN）
+  for (const bad of [-1, Number.NaN]) {
+    const r = run(session, g, seed(), { config: { ...CONFIG, hotLedgerMinFailureDelta: bad } });
+    t.eq(r.reason, "throttled-failures", `非法值 ${String(bad)} 必须回落到 5`);
+  }
+};
+
+tests["C335/C336 压力提示行：≥80% 才有，且只告知状态（不提示做不到的动作）"] = async (t) => {
+  const { pressureHintLine } = await import("../src/rooms/hot-inject.mjs");
+  t.eq(typeof pressureHintLine, "function", "必须导出 pressureHintLine");
+  t.eq(pressureHintLine(null), "", "没有压力 ⇒ 空串（一个字符都不加）");
+  t.eq(pressureHintLine(79), "", "79% 不加（阈值 80）");
+  t.eq(pressureHintLine(80).includes("# 压力 80%"), true, "80% 要出现");
+  const hot = pressureHintLine(87.4);
+  t.includes(hot, "# 压力 87%", "四舍五入到整数百分比");
+  t.includes(hot, "自动触发", "要说明会自动发生（别提示做不到的动作）");
+  t.eq(hot.includes("manual compact"), false, "不许提示模型没有的工具（C336）");
+  // 接线：注入路径必须真的用它（不许自己再拼一遍）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "hot-inject.mjs"), "utf8");
+  t.includes(src, "pressureHintLine(pressurePct)", "注入路径必须调用纯函数");
+};
+
+tests["C360 追加前要收缩历史：旧清单换成占位，常驻清单收敛到 1~2 份"] = (t) => {
+  const g = graphWithFailure();
+  const session = makeSession();
+  const state = {};
+  // 先正常注入一次，拿到一条真清单
+  const first = decideInjection({ session, graph: g, state, config: CONFIG, sessionDir: "D:/tmp/s", decision: makeDecision([{ id: "x" }]), payloadMessages: [{ id: "x" }], createUserMessage, onBudget: () => {}, onLog: () => {} });
+  if (first?.decision) commitAppend(session, first);
+
+  // 人为再塞两条"旧格式"清单（模拟历史残留：内容 >200 字，source 同类）
+  for (let i = 0; i < 2; i += 1) {
+    session.push(createUserMessage({ content: [{ type: "text", text: `<chess-ledger>\nROOT USER: ${"填充".repeat(120)}${i}\nCURRENT PATH: n1\n</chess-ledger>` }], source: { kind: "chess-context", form: "ledger" } }));
+  }
+  // 制造"清单被 fold 压掉"的情形：surface 上没有清单 ⇒ existing 为 null
+  session.surface.nodes = session.surface.nodes.filter((seq) => {
+    const ev = session.eventAt(seq);
+    return ev?.data?.source?.kind !== "chess-context";
+  });
+
+  const state2 = { ...state, lastLedgerDigest: "different-digest", lastLedgerFailureCount: 0, lastLedgerInjectSeq: -1000 };
+  const second = decideInjection({ session, graph: g, state: state2, config: CONFIG, sessionDir: "D:/tmp/s", decision: makeDecision([{ id: "y" }]), payloadMessages: [{ id: "y" }], createUserMessage, onBudget: () => {}, onLog: () => {} });
+  if (second?.decision) commitAppend(session, second);
+
+  const live = session.surface.nodes
+    .map((seq) => session.eventAt(seq))
+    .filter((ev) => ev?.type === "user/message" && ev?.data?.source?.kind === "chess-context")
+    .filter((ev) => !/已省略|占位|elided/.test(messageTextOf(ev)));
+  t.eq(live.length <= 2, true, `常驻真清单应 ≤2 份，实际 ${live.length}`);
+};
+
+tests["C563 限流先于渲染：被限流的那一次不许渲染（99% 的渲染是白做）"] = async (t) => {
+  // 真机：3,418 步里只写了 28 次（1%）⇒ 以前 99% 的渲染白做（最大会话 142.4ms → 优化后 ~25ms）。
+  const graph = graphWithFailure();
+  const session = makeSession();
+  let budgetCalls = 0;
+  const onBudget = () => {
+    budgetCalls += 1;
+  };
+  // 第一次：正常注入（会渲染）
+  const first = decideInjection({
+    session,
+    graph,
+    state: {},
+    config: CONFIG,
+    sessionDir: "D:/tmp/s",
+    decision: makeDecision([{ id: "x" }]),
+    payloadMessages: [{ id: "x" }],
+    createUserMessage,
+    onBudget,
+    onLog: () => {},
+  });
+  const afterFirst = budgetCalls;
+  // 第二次：事件间隔不够 ⇒ 应当**在渲染之前**就被挡掉
+  const second = decideInjection({
+    session,
+    graph,
+    state: { lastLedgerInjectSeq: session.seq - 1, lastLedgerFailureCount: 0, lastLedgerDigest: "zzz" },
+    config: { ...CONFIG, hotLedgerMinEvents: 100, hotLedgerMinFailureDelta: 50 },
+    sessionDir: "D:/tmp/s",
+    decision: makeDecision([{ id: "x" }]),
+    payloadMessages: [{ id: "x" }],
+    createUserMessage,
+    onBudget,
+    onLog: () => {},
+  });
+  t.eq(second.action, "skip", "第二次该被限流");
+  t.includes(second.reason, "throttled", "原因是限流");
+  t.eq(budgetCalls, afterFirst, "被限流的那一次**没有渲染**（onBudget 没被调用）");
+};
+
+tests["C564/C565 失败边一步只数一次（含 digest 也不再重算）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "src", "rooms", "hot-inject.mjs"), "utf8");
+  // decideInjection 里只允许一次 `failureEdges(graph)`（其余是 ledgerDigest 的兜底分支，调用方会传列表）
+  const decideAt = src.indexOf("export function decideInjection");
+  const body = src.slice(decideAt);
+  const calls = (body.match(/failureEdges\(graph\)/g) ?? []).length;
+  t.eq(calls, 1, `decideInjection 里只该数一次（实际 ${calls}）`);
+  t.includes(body, "const failureList = failureEdges(graph)", "要有统一列表");
+  t.includes(body, "failures: failureList", "digest 必须复用同一个列表");
+  t.includes(src, "export function ledgerDigest(graph, { foldFailures = 0, failures = null } = {})", "digest 要接受预计算列表（保留兜底）");
+};

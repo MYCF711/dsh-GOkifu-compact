@@ -137,6 +137,22 @@ export function hasSystemHead(eventAt, surfaceNodes) {
  * @param {(seq:number)=>boolean} [input.balancedAfter]
  * @returns {{range: {start:number,end:number,shadowedTokens:number}|null, reason: string, checkpointAtTail: boolean}}
  */
+/**
+ * ★ C189：区间方向自愈 —— `planFold` 按下标工作，而 surface 顺序**不保证按 seq 递增**
+ * （C187 在 live 上见过 tier-2 写出 `seqStart > seqEnd`）。
+ * 这个纯函数把反向区间换回来，并标记 `reversed` 供调用方记一行日志。
+ *
+ * @param {{start:number,end:number}|null} range
+ * @returns {{start:number,end:number,reversed?:true}|null}
+ */
+export function normalizeRange(range) {
+  if (range === null || range === undefined) return range;
+  const start = Number(range.start);
+  const end = Number(range.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= end) return range;
+  return { ...range, start: end, end: start, reversed: true };
+}
+
 export function planFold({ surfaceNodes, pricedNodes, eventAt, retainTokens, minFoldTokens, overflow = false, balancedBefore, balancedAfter }) {
   if (!Array.isArray(surfaceNodes) || surfaceNodes.length === 0) return { range: null, reason: "empty-surface", checkpointAtTail: false };
   const cp = nextSeqAfterLastCheckpoint(surfaceNodes, eventAt);

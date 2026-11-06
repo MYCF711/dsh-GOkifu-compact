@@ -60,7 +60,7 @@ function weakOnlyGraph({ failures = 10, sessionId = "c17-weak" } = {}) {
 
 /** 一条很长的中文根目标 —— 复现「大图把预算吃光」的形态（真实库里的 5 个 L5 超限图同型）。 */
 function fatRootGraph({ hops = 6, constraints = 10, sessionId = "c17-fat" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(6);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(6);
   const g = createGraph({ sessionId });
   const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 4 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉。`).join(" ")}` });
   let cursor = u;
@@ -228,7 +228,8 @@ tests["C17-2 预算紧张时路径行折叠而不是消失（折叠必须真的�
   const { g, pathIds } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-l3" });
   const fullLen = `CURRENT PATH: ${pathIds.map((id) => `${id}${g.nodes[id]?.kind === "user" ? "(user)" : ""}`).join(" → ")}`.length;
   // 预算 388 → 300：新口径下这个夹具的 L0 是 350 tokens（旧口径 >388），388 会直接落 L0、测不到折叠。
-  const r = renderLedger(g, { maxTokens: 300 });
+  // ★ C52（2026-11-02）：同类失败标记汇总后夹具整体便宜约 15–20 tok ⇒ 300 → 270 才落回 L3+
+  const r = renderLedger(g, { maxTokens: 270 });
   if (r.level < 3) throw new Error(`夹具应落在 L3+（降级档），实际 L${r.level} (${r.tokens} tokens)`);
   const cur = line(r.text, "CURRENT PATH:");
   const work = line(r.text, "WORKING:");
@@ -249,7 +250,8 @@ tests["C17-3 折叠后的行不许丢头尾：起点（user）与当前位置必
   //   这个 ASCII 为主的夹具变便宜了（路径行是节点 id ⇒ 4 字符/token，不再按 3 字符/token 高估），
   //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
   const { g, pathIds } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-fold" });
-  const r = renderLedger(g, { maxTokens: 300 });
+  // ★ C52：同上，300 → 270
+  const r = renderLedger(g, { maxTokens: 270 });
   const cur = line(r.text, "CURRENT PATH:");
   if (!cur || !cur.includes("… +")) throw new Error(`L${r.level} 的长路径没有折叠：${cur}`);
   const shown = idsIn(cur, "CURRENT PATH:");
@@ -346,6 +348,20 @@ tests["C17-6 L1–L5 档位语义不变：档位越高越省（tokens 单调不�
   if (seen.length < 3) throw new Error(`没有测到多档：${seen.join(" ")}`);
 };
 
+tests["C226 只有 1 个节点的路径也必须渲染（旧门槛 path.length>1 会整块丢掉路径）"] = (t) => {
+  // 事故：`renderLedger` 里路径块的门槛是 `if (path.length > 1)` —— 任何「只有当前位置、走不出链」的图
+  // （只有一个 agent 节点、或边还没接上）在**任何档位**都不出路径行。handoff-check 契约 ⑥ 在 live 上
+  // 稳定抓到 2 个会话（5df02bf8 / 30140e4c）报 FAIL，产品侧就是这里。
+  const g = createGraph({ sessionId: "fx-single-path" });
+  addUserNodeId(g, { seq: 1, text: "把构建修好" });
+  addAgentNode(g, { seq: 2, goal: "再试一次", worldHash: "W1", constraintHash: "C1" });
+  for (const level of [0, 1, 2, 3, 4, 5]) {
+    const out = renderLedger(g, { level, maxTokens: 500 });
+    const has = /CURRENT PATH|# path:|WORKING:/.test(out.text);
+    t.eq(has, true, `L${level} 必须给出当前位置（path 只有 1 个节点）`);
+  }
+};
+
 tests["C17-7 markers:off 不省掉路径（标记档位与路径档位互不影响）"] = () => {
   // 当前路径 ≠ 工作路径的夹具：两行本来就都该出现，markers:off 不许动它们
   const { g } = mixedGraph({ hops: 40, failures: 6, sessionId: "c17-off" });
@@ -381,7 +397,10 @@ tests["C17-8 没有工作路径时的退化：L3+ 说清「没有」，L0–L2 �
   //   同一预算下档位整体上移。**只改夹具预算/夹具规模，断言一字未动** —— 它们编码的是路径折叠契约，不是旧口径。
   // 预算 500 → 350，且判据从「必须等于 L3」改成「≥L3」（用例标题本来就写的是「L3+」）。
   //   新口径下这个夹具在 500 预算下直接装进 L0（362 tokens），测不到退化分支；350 才落兜底档。
-  const r = renderLedger(g, { maxTokens: 350 });
+  // ★ C52（2026-11-02）：同类失败标记提到一行汇总后，这个夹具整体便宜了约 20 tokens
+  //   （500 → 350 那次调整同理）—— 预算再收到 330 才落回 L3+，断言未动。
+  // ★ C52：330 → 280（夹具整体便宜约 20+ tok，宁可再收一点）
+  const r = renderLedger(g, { maxTokens: 280 });
   if (r.level < 3) throw new Error(`夹具应落在 L3+，实际 L${r.level}`);
   const none = line(r.text, "# WORKING:");
   if (!none) throw new Error(`L3 没有工作路径时应给一行说明：\n${r.text}`);

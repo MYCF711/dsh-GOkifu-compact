@@ -264,3 +264,55 @@ tests["三层文件树：单节点 md 含评语 / 入边 / 出边 / raw 链接"]
   if (!md.includes("## 出边")) throw new Error("缺出边");
   if (!md.includes("raw/ 已砍掉")) throw new Error("缺 raw 说明");
 };
+
+/* ─────────────── C132：随机合并后的图不变量 ─────────────── */
+
+tests["C132 随机合并后：图不变量必须仍成立（悬空边 / stateIndex 悬空 / order 不一致全为 0）"] = async () => {
+  const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, mergeNodeInto, validate } = await import("./graph-fixtures.mjs");
+  // 确定性 PRNG（mulberry32）
+  let seed = 909090;
+  const rand = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let x = seed;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+
+  for (let round = 1; round <= 8; round += 1) {
+    const g = createGraph({ sessionId: `c132-${round}` });
+    const u = addUserNodeId(g, { seq: 1, text: "把测试跑绿" });
+    let last = u;
+    const agents = [];
+    const N = 5 + Math.floor(rand() * 6); // 5..10
+    for (let i = 0; i < N; i += 1) {
+      const seq = 10 + i * 4;
+      const e = addEdge(g, { from: last, intent: `尝试 ${i}`, action: `bash(case${i})`, evidence: { start: seq, end: seq + 1 } });
+      const n = addAgentNode(g, { seq: seq + 2, goal: `目标 ${i}`, worldHash: `W${i}`, constraintHash: `C${i % 3}`, via: e }).id;
+      settleEdge(g, e, { to: n, result: "failure", verify: { kind: "exit", summary: `exit ${i}` }, errorSnippet: `ERR_${i}: boom` });
+      agents.push(n);
+      last = n;
+    }
+    // 随机合并 1..3 次（只合并 agent 节点）
+    const merges = 1 + Math.floor(rand() * 3);
+    for (let k = 0; k < merges; k += 1) {
+      const alive = agents.filter((id) => g.nodes[id]);
+      if (alive.length < 2) break;
+      const from = alive[Math.floor(rand() * alive.length)];
+      const into = alive[Math.floor(rand() * alive.length)];
+      if (from !== into) mergeNodeInto(g, from, into);
+    }
+
+    const problems = validate(g);
+    if (problems.length > 0) throw new Error(`第 ${round} 组合并后不变量被破坏：${problems.slice(0, 3).join("; ")}`);
+    const danglingIdx = Object.entries(g.stateIndex ?? {}).filter(([, id]) => !g.nodes[id]);
+    if (danglingIdx.length > 0) {
+      throw new Error(`第 ${round} 组 stateIndex 有悬空项：${JSON.stringify(danglingIdx.slice(0, 3))}`);
+    }
+    const orderSet = new Set(g.order);
+    const missingInOrder = Object.keys(g.nodes).filter((id) => !orderSet.has(id));
+    if (missingInOrder.length > 0) throw new Error(`第 ${round} 组 order 缺节点：${missingInOrder.slice(0, 3).join(",")}`);
+    const ghostsInOrder = g.order.filter((id) => !g.nodes[id]);
+    if (ghostsInOrder.length > 0) throw new Error(`第 ${round} 组 order 有幽灵节点：${ghostsInOrder.slice(0, 3).join(",")}`);
+  }
+};

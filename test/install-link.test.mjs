@@ -423,13 +423,14 @@ function verifyFixture(fixture, extra = {}) {
   return verifyInstall({ dshHome: fixture.home, profile: "desktop", preset: PRESET, ...extra });
 }
 
-tests["D1 正例：健康夹具必须 18/18 全绿（证明断言不是常量红）"] = (t) => {
+tests["D1 正例：健康夹具必须 19/19 全绿（证明断言不是常量红）"] = (t) => {
   const fixture = makeHome("d1");
   try {
     createDirLink(fixture.pkgSrc, linkDest(fixture.profileDir));
     const result = verifyFixture(fixture);
     const failedNames = result.checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.detail}`);
-    t.eq(result.checks.length, 18, "检查项数量");
+    // 19 = 原 18 项 + 「用户层 patch 不遮蔽压缩引擎」（2026-11-02 实机事故后新增）
+    t.eq(result.checks.length, 19, "检查项数量");
     t.eq(result.failed, 0, `健康夹具不该红：\n${failedNames.join("\n")}`);
   } finally {
     fixture.cleanup();

@@ -123,6 +123,8 @@ export const tests = {
     const react = {
       createElement: (...args) => ({ args }),
       useState: () => [undefined, () => {}],
+    // ★ C510：客户端用了 useRef（模型二级菜单）——假 React 必须也有，否则渲染类测试会炸
+    useRef: (initial) => ({ current: initial }),
       useEffect: () => {},
       useCallback: (fn) => fn,
       useMemo: (fn) => fn(),
@@ -199,4 +201,225 @@ tests["host 路由：POST /gokifu/api 返回 state（含 config/health/today）"
     if (prevHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = prevHome;
   }
+};
+
+tests["C232 面板的「已修正失败」与 doctor 同口径（同 action 后来跑通才算）"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+  const now = Date.now();
+  const edge = (over) => ({
+    id: "e1", from: "n1", to: "n2", intent: "x", action: "bash(npm test)", result: "failure",
+    evidence: { start: 1, end: 2 }, ts: now, ...over,
+  });
+  const g = {
+    nodes: { n1: {}, n2: {} },
+    edges: {
+      a: edge({ id: "a", action: "bash(npm test)", result: "failure", evidence: { start: 1, end: 2 } }),
+      b: edge({ id: "b", action: "bash(npm test)", result: "success", evidence: { start: 5, end: 6 } }),   // 后来跑通 ⇒ a 算已修正
+      c: edge({ id: "c", action: "bash(npm run lint)", result: "failure", evidence: { start: 7, end: 8 } }), // 没有后续 success ⇒ 不算
+      d: edge({ id: "d", action: "bash(npm test)", result: "success", evidence: { start: 3, end: 4 } }),   // 在 a 之前 ⇒ 不救 a
+    },
+  };
+  t.eq(uiMod.countResolvedFailures(g), 1, "只有 a 被后来的成功救回");
+  t.eq(uiMod.countResolvedFailures(null), 0, "坏输入不许抛，返回 0");
+  t.eq(uiMod.countResolvedFailures({ edges: {} }), 0, "空图返回 0");
+};
+
+tests["C239 折叠成本估算：价格口径（命中/未命中/输出）与「没数据不编 0」"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+  const est = uiMod.estimateFoldCostUsd;
+  // 官方价（低峰）：未命中 0.15 / 命中 0.003 / 输出 0.6 每 1M
+  t.eq(Math.abs(est({ inputTokens: 1_000_000, cacheReadTokens: 0, outputTokens: 0 }) - 0.15) < 1e-9, true, "100 万未命中 = $0.15");
+  t.eq(Math.abs(est({ inputTokens: 1_000_000, cacheReadTokens: 1_000_000, outputTokens: 0 }) - 0.003) < 1e-9, true, "100 万全命中 = $0.003");
+  t.eq(Math.abs(est({ inputTokens: 0, cacheReadTokens: 0, outputTokens: 1_000_000 }) - 0.6) < 1e-9, true, "100 万输出 = $0.6");
+  // 实测形态：input 231k（其中命中 16k）+ 输出 1k
+  const real = est({ inputTokens: 231443, cacheReadTokens: 16384, outputTokens: 1072 });
+  t.eq(real > 0.03 && real < 0.04, true, `一次真实 fold 应落在 3~4 美分（实际 ${real}）`);
+  t.eq(est(null), null, "没有 usage ⇒ null（页面显示 —，不许编 0）");
+  t.eq(est({ cacheReadTokens: 100 }), null, "缺 inputTokens ⇒ null");
+  t.eq(est({ inputTokens: 100, cacheReadTokens: 999 }), est({ inputTokens: 100, cacheReadTokens: 100 }), "命中数不许超过输入（夹紧）");
+};
+
+tests["C282 图缓存必须 LRU 淘汰，不许「满了就全清」（那是一次缓存雪崩）"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(HERE, "..", "src", "ui.mjs")).href);
+  t.eq(typeof uiMod.lruSet, "function", "必须导出 lruSet（可单测）");
+
+  // ① 超过上限只淘汰最久未用的一条，不是清空
+  const map = new Map();
+  for (let i = 0; i < 5; i += 1) uiMod.lruSet(map, `k${i}`, i, 3);
+  t.eq([...map.keys()], ["k2", "k3", "k4"], `插入 5 条上限 3 ⇒ 只留最近 3 条：${[...map.keys()]}`);
+
+  // ② 命中续命：被访问过的条目不该被后来的挤掉
+  uiMod.lruSet(map, "k2", 2, 3); // k2 变成最新
+  uiMod.lruSet(map, "k5", 5, 3); // 该淘汰 k3（最久未用）
+  t.eq([...map.keys()], ["k4", "k2", "k5"], `命中的条目必须续命：${[...map.keys()]}`);
+
+  // ③ 值被更新（同 key 覆盖）而不是重复插入
+  t.eq(map.get("k2"), 2, "同 key 覆盖值");
+  t.eq(map.size, 3, "size 不许超上限");
+
+  // ④ 接线断言：graphSummary 命中时必须调 lruSet（否则热条目会被冷条目挤掉）
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, "lruSet(GRAPH_CACHE, entry.file, cached)", "命中路径必须续命");
+  t.eq(src.includes("GRAPH_CACHE.clear()"), false, "不许再有「满了全清」");
+};
+
+tests["C345 折叠成本必须按**实际模型**计价：pro 比 flash 贵 3.3–4.4 倍"] = async (t) => {
+  const { estimateFoldCostUsd, priceForModel, PRICE_USD_PER_MTOK, MODEL_PRICES_USD_PER_MTOK } = await import("../src/ui.mjs");
+  const usage = { inputTokens: 1_000_000, cacheReadTokens: 500_000, outputTokens: 100_000 };
+
+  const flash = estimateFoldCostUsd(usage, "deepseek-flash");
+  const pro = estimateFoldCostUsd(usage, "deepseek-v4-pro");
+  t.eq(pro > flash, true, "pro 必须比 flash 贵");
+  // 手算 flash：(500k miss×0.15 + 500k hit×0.003 + 100k out×0.6)/1M = 0.075+0.0015+0.06
+  t.eq(Math.abs(flash - 0.1365) < 1e-9, true, `flash 手算应为 0.1365，实际 ${flash}`);
+  t.eq(Math.abs(pro - 0.539) < 1e-9, true, `pro 手算应为 0.539，实际 ${pro}`);
+
+  // 认不出 / 不传模型 ⇒ 回落 flash（下限估算），且要能看出"没匹配上"
+  t.eq(priceForModel("some-other-model").matched, false, "认不出必须标 matched=false");
+  t.eq(priceForModel(undefined).miss, PRICE_USD_PER_MTOK.miss, "不传模型回落 flash");
+  t.eq(priceForModel("deepseek-v4-pro").out, 1.98, "pro 输出价 1.98");
+  // 两张表都要有出处
+  t.eq(MODEL_PRICES_USD_PER_MTOK["deepseek-v4-pro"].miss, 0.66, "pro miss 0.66");
+};
+
+tests["C346 成本聚合必须按每个 fold 自己的模型计价（usage 里带了 model 才可能）"] = async (t) => {
+  const { estimateFoldCostUsd } = await import("../src/ui.mjs");
+  // 同一个 usage，除了 model 之外完全相同 —— 两条价格必须不同
+  const base = { inputTokens: 1_000_000, cacheReadTokens: 0, outputTokens: 0 };
+  const flash = estimateFoldCostUsd({ ...base, model: "deepseek-flash" });
+  const pro = estimateFoldCostUsd({ ...base, model: "deepseek-v4-pro" });
+  t.eq(Math.abs(flash - 0.15) < 1e-9, true, `flash miss 1M = 0.15，实际 ${flash}`);
+  t.eq(Math.abs(pro - 0.66) < 1e-9, true, `pro miss 1M = 0.66，实际 ${pro}`);
+  t.eq(pro > flash * 4, true, "pro 至少是 flash 的 4 倍（低报 4 倍就是这么来的）");
+
+  // 引擎必须把模型写进 usage（否则估价永远回落 flash）
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const engine = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
+  // ★ C398 起写法变了：先取局部变量再写进 usage（先清后读会永远 null）。
+  t.eq(engine.includes("model: summaryModel") || engine.includes("model: this._lastSummaryModel ?? null"), true, "usage 里必须写 model（C346/C398）");
+  t.eq(engine.includes("provider: summaryProvider") || engine.includes("provider: this._lastSummaryProvider ?? null"), true, "usage 里也要写 provider（C346/C398）");
+};
+
+tests["C361 真机 usage 的 inputTokens 是「未命中」：成本必须按 miss+hit+out 算"] = async (t) => {
+  const { estimateFoldCostUsd } = await import("../src/ui.mjs");
+  // 真机样本（会话文件里抓的）：inputTokens 只含未命中，total = miss + hit + out
+  const real = { inputTokens: 2158, outputTokens: 257, totalTokens: 21999, cacheReadTokens: 19584 };
+  const got = estimateFoldCostUsd(real, "deepseek-flash");
+  // 手算：(2158×0.15 + 19584×0.003 + 257×0.6)/1e6 = (323.7+58.752+154.2)/1e6
+  const want = (2158 * 0.15 + 19584 * 0.003 + 257 * 0.6) / 1e6;
+  t.eq(Math.abs(got - want) < 1e-9, true, `应得 ${want}，实际 ${got}`);
+
+  // 旧口径（input 含 hit，没有 totalTokens）不能被打破
+  const legacy = { inputTokens: 10000, outputTokens: 500, cacheReadTokens: 9000 };
+  const legacyCost = estimateFoldCostUsd(legacy, "deepseek-flash");
+  const legacyWant = (1000 * 0.15 + 9000 * 0.003 + 500 * 0.6) / 1e6;
+  t.eq(Math.abs(legacyCost - legacyWant) < 1e-9, true, `老口径应得 ${legacyWant}，实际 ${legacyCost}`);
+
+  // total 对不上（既不是 miss+hit+out）⇒ 退回老口径，不许瞎猜
+  const weird = { inputTokens: 1000, outputTokens: 10, totalTokens: 999999, cacheReadTokens: 400 };
+  const weirdCost = estimateFoldCostUsd(weird, "deepseek-flash");
+  const weirdWant = (600 * 0.15 + 400 * 0.003 + 10 * 0.6) / 1e6;
+  t.eq(Math.abs(weirdCost - weirdWant) < 1e-9, true, `total 不可信时退回老口径：${weirdWant} vs ${weirdCost}`);
+};
+
+tests["C372 路由自愈：ensureUiRoute 存在、无 webServer 时安全返回 false、引擎真的会调"] = async (t) => {
+  const ui = await import("../src/ui.mjs");
+  t.eq(typeof ui.ensureUiRoute, "function", "必须导出 ensureUiRoute");
+  // 没有 webServer 的进程（真机见过的"插件被加载进非 UI 进程"）⇒ 安全返回 false，不抛
+  t.eq(ui.ensureUiRoute({}), false, "没有 webServer 时返回 false");
+  t.eq(ui.ensureUiRoute(null), false, "null ctx 也不能抛");
+
+  // 说明：这里**不**用假 ctx 跑完整 apply —— apply 会读 profile/模型目录，
+  // 在夹具里必然抛错，测出来的只会是"apply 抛了"而不是"幂等"。幂等由模块级开关实现，
+  // 这里改为断言**接线**：引擎必须在 pre-step 里尝试自愈。
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const engine = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
+  t.includes(engine, "ensureUiRoute?.(this.ctx)", "引擎必须在 pre-step 尝试自愈（C372）");
+  const uiSrc = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(uiSrc, "let uiRouteRegistered = false", "必须有模块级幂等开关");
+  t.includes(uiSrc, "uiRouteRegistered = false;", "dispose 后必须重置开关（否则再也装不回来）");
+};
+
+tests["C380 初始化失败必须留一条兜底路由（面板要能回答「我为什么坏了」）"] = async (t) => {
+  const ui = await import("../src/ui.mjs");
+  t.eq(typeof ui.registerFallbackRoute, "function", "必须导出 registerFallbackRoute");
+
+  let registered = null;
+  const ctx = {
+    webServer: { register: (route) => { registered = route; return () => {}; } },
+    effect: (fn) => { fn(); },
+  };
+  t.eq(ui.registerFallbackRoute(ctx, new Error("boom")), true, "应当注册成功");
+  t.eq(!!registered, true, "必须真的调用了 register");
+  t.eq(registered.path, "/gokifu/api", "路径必须是面板的 /gokifu/api");
+  t.eq(registered.kind, "prefix", "用 prefix 匹配");
+
+  // 兜底路由的响应：500 + 错误摘要（人能看懂）
+  let code = null;
+  let body = "";
+  const res = { writeHead: (c) => { code = c; }, end: (b) => { body = b; } };
+  await registered.handler({ method: "POST" }, res);
+  t.eq(code, 500, "必须回 500（而不是 404/405）");
+  t.includes(body, "面板初始化失败", "要说明是初始化失败");
+  t.includes(body, "boom", "要带出原始错误摘要");
+
+  // 没有 webServer 的进程：安全返回 false
+  t.eq(ui.registerFallbackRoute({}, new Error("x")), false, "没有 webServer 不抛，返回 false");
+};
+
+tests["C396 没有 web 端口的进程不许覆盖心跳（真机：无服务进程把 56319 写成了 null）"] = async (t) => {
+  const nodeFs = await import("node:fs");
+  const nodePath = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "ui.mjs"), "utf8");
+  t.includes(src, 'payload?.state === "open" && (payload?.port === null', "必须在无端口时不写 open 心跳（C396）");
+  t.includes(src, "return;", "不写就要早退，不许落到 writeFileSync");
+};
+
+tests["C507 客户端用到的 React hook 必须都从 React 解构出来（否则运行时 ReferenceError）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  const m = /const \{([^}]*)\} = React;/.exec(src);
+  t.eq(m !== null, true, "必须有 React hook 解构行");
+  const declared = new Set((m?.[1] ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+  const used = new Set([...src.matchAll(/\b(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]));
+  // 本地自定义 hook（`function useX(...)` / `const useX = ...`）不是 React 的，别误报
+  const local = new Set([
+    ...[...src.matchAll(/function\s+(use[A-Z][A-Za-z]*)\s*\(/g)].map((x) => x[1]),
+    ...[...src.matchAll(/const\s+(use[A-Z][A-Za-z]*)\s*=/g)].map((x) => x[1]),
+  ]);
+  const missing = [...used].filter((name) => !declared.has(name) && !local.has(name));
+  // React.useXxx 形式不算（它自带命名空间）
+  t.eq(missing, [], `这些 hook 用了却没解构：${missing.join(", ")}`);
+};
+
+tests["C508 模型二级菜单：自绘弹层要能显示 provider 分组 + model 条目"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  t.includes(src, "function SummaryModelPicker", "必须有自绘的二级菜单组件（原生 optgroup 在深色主题下看不清）");
+  t.includes(src, "styles.pickerPop", "弹层样式");
+  t.includes(src, "styles.pickerGroup", "一级：provider 分组标题");
+  t.includes(src, "role: \"option\"", "二级：model 条目要能被读屏/测试识别");
+  t.includes(src, "h(SummaryModelPicker", "字段里接上它");
+  // 选模型时顺带定 provider —— 否则会写出「model 属于 A、provider 写着 B」的组合
+  t.includes(src, "onChange(item.value, { provider: group.provider })", "两级一起落盘");
+  t.includes(src, "document.addEventListener(\"mousedown\"", "点外面要能关（否则挡住下面的字段）");
+};
+
+tests["C511 两个摘要选择器必须同一套外壳与配色（不许一半原生一半自绘）"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
+  t.includes(src, "function PickerShell", "同一套外壳");
+  t.includes(src, "h(SummaryProviderPicker", "provider 也走自绘");
+  t.includes(src, "h(SummaryModelPicker", "model 走自绘");
+  // provider 字段不许再走原生 select 分支
+  t.eq(/field\.key === "summarizationProvider" && hasCatalog\) \{\s*\n\s*\/\/[^\n]*\n\s*control = h\(SummaryProviderPicker/.test(src), true, "provider 分支应直接渲染自绘选择器");
+  // 配色：高亮不用蓝色（官方主题色不是蓝），弹层用系统色跟随主题
+  t.eq(src.includes("rgba(59,130,246,0.22)"), false, "选中态不该再用蓝色");
+  t.includes(src, 'background: "Canvas"', "弹层用系统色，跟随宿主主题");
+  t.includes(src, "rgba(127,127,127,0.24)", "选中态用面板同一套中性灰");
 };

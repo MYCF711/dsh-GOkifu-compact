@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-11-01T20:20:36Z",
+  "home": "D:\\DeepSeek Harness\\home",
+  "budget": 500,
+  "sessions": 24,
+  "unreadable": 0,
+  "over": [
+    {
+      "session": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
+      "tokens": 641,
+      "over": 141,
+      "fallback": "over-budget",
+      "level": 3,
+      "unyieldingTokens": 300,
+      "shownFailures": 10,
+      "failureCount": 10,
+      "cheapestTokens": 641,
+      "reason": "irreducible"
+    },
+    {
+      "session": "c7b857f1-8f8b-4f1f-8eca-d53b3f54f55f",
+      "tokens": 537,
+      "over": 37,
+      "fallback": "over-budget",
+      "level": 3,
+      "unyieldingTokens": 503,
+      "shownFailures": 0,
+      "failureCount": 0,
+      "cheapestTokens": 537,
+      "reason": "floor"
+    }
+  ],
+  "counts": {
+    "within": 22,
+    "floor": 1,
+    "irreducible": 1,
+    "bug": 0
+  },
+  "trend": {
+    "previousAt": "2026-11-01T20:02:00Z",
+    "countsDelta": {
+      "floor": 1
+    },
+    "topSessionChanged": false,
+    "topSession": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7"
+  }
+}
