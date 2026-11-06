@@ -1,5 +1,5 @@
 {
- "total": 1716,
+ "total": 1720,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -56,7 +56,7 @@
   "doctor-silent-stop.test.mjs": 7,
   "doctor-switch.test.mjs": 3,
   "empty-response.test.mjs": 4,
-  "engine-harness.test.mjs": 114,
+  "engine-harness.test.mjs": 115,
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 21,
   "facts-prompt.test.mjs": 6,
@@ -82,7 +82,7 @@
   "graph-exemptions.test.mjs": 0,
   "graph-fixtures.test.mjs": 5,
   "graph-invariants.test.mjs": 1,
-  "handoff-check.test.mjs": 22,
+  "handoff-check.test.mjs": 24,
   "hot-inject.test.mjs": 9,
   "human-message.test.mjs": 15,
   "index-fingerprint.test.mjs": 2,
@@ -127,7 +127,7 @@
   "nul-byte.test.mjs": 6,
   "offline-cache.test.mjs": 13,
   "offline-finish.test.mjs": 4,
-  "offline-fold.test.mjs": 33,
+  "offline-fold.test.mjs": 34,
   "overbudget-report.test.mjs": 4,
   "p6c-preflight.test.mjs": 6,
   "pack-check.test.mjs": 3,
@@ -226,6 +226,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2067,
- "passedAt": "2026-11-06T07:04:47.472Z"
+ "passed": 2072,
+ "passedAt": "2026-11-06T08:34:01.395Z"
 }
