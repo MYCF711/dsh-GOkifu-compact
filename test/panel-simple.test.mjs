@@ -9,7 +9,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import nodeOs from "node:os";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_TREE } from "./panel-layout.test.mjs";
+import { DEFAULT_TREE, panelRenderer } from "./panel-layout.test.mjs";
 import { collectGraphFiles, latestFoldMarksFrom, FOLD_LIST_LIMIT } from "../src/ui.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -111,6 +111,40 @@ function assertSimpleOverview(tree) {
   };
 }
 
+function overviewSide(tree) {
+  const bodies = findAll(tree, (node) => node.props?.["data-overview-body"] === "true");
+  if (bodies.length !== 1) throw new Error(`总览主体应有 1 个，实际 ${bodies.length}`);
+  const sides = childrenOf(bodies[0]).filter((child) => findAll(child, (node) => node.props?.["data-backfill-subagent"] === "true").length === 1);
+  if (sides.length !== 1) throw new Error(`含补折卡的总览侧栏应有 1 个，实际 ${sides.length}`);
+  return sides[0];
+}
+
+function backfillCard(tree) {
+  const cards = childrenOf(overviewSide(tree)).filter((child) => findAll(child, (node) => node.props?.["data-backfill-subagent"] === "true").length === 1);
+  if (cards.length !== 1) throw new Error(`补折卡应有 1 个，实际 ${cards.length}`);
+  return cards[0];
+}
+
+/** 直接读取已执行函数组件后的 host 兄弟节点，不用源码文本位置冒充渲染顺序。 */
+function overviewDiagnosticOrder(tree) {
+  return childrenOf(overviewSide(tree)).map((child, index) => {
+    const text = textOf(child);
+    if (findAll(child, (node) => node.props?.["data-backfill-subagent"] === "true").length === 1) return "backfill";
+    if (text.startsWith("最近活跃会话：")) return "latest";
+    if (text.includes("检查更新：")) return "update";
+    if (text.includes("健康检查")) return "health";
+    throw new Error(`无法识别总览侧栏第 ${index} 个真实兄弟节点：${text}`);
+  });
+}
+
+function pickerButton(card, key) {
+  const wrappers = findAll(card, (node) => node.props?.[`data-backfill-${key}`] !== undefined);
+  if (wrappers.length !== 1) throw new Error(`补折 ${key} 选择器应有 1 个，实际 ${wrappers.length}`);
+  const buttons = findAll(wrappers[0], (node) => node.type === "button" && node.props?.["aria-haspopup"] === "listbox");
+  if (buttons.length !== 1) throw new Error(`补折 ${key} 弹层按钮应有 1 个，实际 ${buttons.length}`);
+  return buttons[0];
+}
+
 function assertHeightFits(result) {
   if (!(result.total <= result.availableHeight && result.fits === true)) {
     throw new Error(`总览超高：${result.total} > ${result.availableHeight}`);
@@ -208,5 +242,66 @@ export const tests = {
     t.throws(() => assertSimpleText(text.replace("健康检查", "")), "删掉健康检查必须红");
     t.throws(() => assertHeightFits({ total: 721, availableHeight: 720, fits: false }), "721/720 必须红");
     t.throws(() => assertFoldReadBudget(30, 30), "30 个图全读必须红");
+  },
+
+  "⑤ T89：补折真实兄弟顺序在最近活跃/更新之前，按钮 action 与模型绑定不变": async (t) => {
+    const models = { providers: [{ provider: "fixture", name: "Fixture", models: [{ id: "model-128k", name: "Model 128K", contextWindow: 128000 }] }] };
+    const panel = panelRenderer(undefined, undefined, null, null, models);
+    const order = overviewDiagnosticOrder(panel.runtime.tree());
+    console.log("=== T89 REAL OVERVIEW SIBLING ORDER ===");
+    console.log(JSON.stringify(order, null, 2));
+    t.eq(order, ["health", "backfill", "latest", "update"], "补折卡必须位于最近活跃会话与检查更新之前");
+
+    let card = backfillCard(panel.runtime.tree());
+    t.eq(findAll(card, (node) => node.props?.["data-backfill-provider"] === "summarizationProvider").length, 1, "provider 仍绑定 summarizationProvider");
+    t.eq(findAll(card, (node) => node.props?.["data-backfill-model"] === "summarizationModel").length, 1, "model 仍绑定 summarizationModel");
+
+    pickerButton(card, "provider").props.onClick();
+    panel.runtime.render(panel.T.Page);
+    card = backfillCard(panel.runtime.tree());
+    const providerOptions = findAll(card, (node) => node.type === "button" && node.props?.role === "option" && textOf(node).includes("Fixture · fixture"));
+    t.eq(providerOptions.length, 1, "provider 弹层仍列出目录项");
+    providerOptions[0].props.onClick();
+    panel.runtime.render(panel.T.Page);
+
+    card = backfillCard(panel.runtime.tree());
+    pickerButton(card, "model").props.onClick();
+    panel.runtime.render(panel.T.Page);
+    card = backfillCard(panel.runtime.tree());
+    const modelOptions = findAll(card, (node) => node.type === "button" && node.props?.role === "option" && textOf(node).includes("Model 128K"));
+    t.eq(modelOptions.length, 1, "model 弹层仍列出目录项");
+    modelOptions[0].props.onClick();
+    panel.runtime.render(panel.T.Page);
+
+    const previousFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url, body: JSON.parse(init.body) });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) };
+    };
+    try {
+      const tree = panel.runtime.tree();
+      card = backfillCard(tree);
+      const backfillButtons = findAll(card, (node) => node.type === "button" && node.props?.["data-backfill-subagent"] === "true");
+      const updateButtons = findAll(tree, (node) => node.type === "button" && textOf(node) === "重新检查");
+      t.eq(backfillButtons.length, 1, "补折按钮仍在原卡内");
+      t.eq(updateButtons.length, 1, "重新检查按钮仍在更新块内");
+      backfillButtons[0].props.onClick();
+      await new Promise((resolve) => setImmediate(resolve));
+      updateButtons[0].props.onClick();
+      await new Promise((resolve) => setImmediate(resolve));
+      t.eq(calls, [
+        { url: "/gokifu/api", body: { action: "backfill-subagent", summarizationProvider: "fixture", summarizationModel: "model-128k" } },
+        { url: "/gokifu/api", body: { action: "update", refresh: true } },
+      ], "移动后补折与更新按钮的真实请求动作及模型路由不得改变");
+    } finally {
+      if (previousFetch === undefined) delete globalThis.fetch;
+      else globalThis.fetch = previousFetch;
+    }
+
+    const loading = panelRenderer(null);
+    t.eq(overviewDiagnosticOrder(loading.runtime.tree()), ["health", "backfill", "latest", "update"], "空态也保持同一真实兄弟顺序");
+    t.includes(textOf(loading.runtime.tree()), "最近活跃会话：还没有棋谱", "最近活跃空态原文保留");
+    t.includes(textOf(backfillCard(loading.runtime.tree())), "—", "补折空态原文保留");
   },
 };
