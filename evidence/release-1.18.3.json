@@ -1,0 +1,29 @@
+{
+  "schema": "release-record-v1",
+  "version": "1.18.3",
+  "releasedAt": "2026-11-07T00:40:00+08:00",
+  "tag": "v1.18.3",
+  "commit": "926b44deae6d5df49dae48dea2520bc806865864",
+  "parent": "c1f1f6c24366731c2c2a5d300a17442387812231",
+  "registry": {
+    "latest": "1.18.3",
+    "tarball": "https://registry.npmjs.org/dsh-gokifu-compact/-/dsh-gokifu-compact-1.18.3.tgz",
+    "shasum": "a7352e04dea83b5fc0d66dd4153f5d67929d5534",
+    "files": 314,
+    "packedBytes": 2700000
+  },
+  "githubRelease": "https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.18.3",
+  "checks": {
+    "privacyPack": { "confirmed": 0, "review": 0, "files": 314 },
+    "tests": { "passed": 2128, "failed": 0, "skipped": 0 },
+    "boundary": 0,
+    "gate": "8/8",
+    "handoff": { "fail": 0, "warn": 265 },
+    "verifyRelease": "tag 树 664 文件 / 包内 314 文件逐个一致"
+  },
+  "notes": [
+    "从公开 c1f1f6c 建脱敏单提交快照，未推送私有本地历史",
+    "package 包含 docs/evidence 的脱敏版本；默认路径改为 DSH_HOME 派生",
+    "live 运行实例可能仍是旧构建，发布不声称已重启"
+  ]
+}
