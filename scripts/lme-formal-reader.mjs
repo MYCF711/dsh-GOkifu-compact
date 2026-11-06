@@ -17,7 +17,7 @@ import {
   makeReaderPayload,
   evaluateRun,
 } from "./lme-task50.mjs";
-import { buildMessages, normalizeReaderAnswer } from "./lme-pilot-reader.mjs";
+import { buildMessages, normalizeReaderAnswer, callTwoStep } from "./lme-pilot-reader.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = nodePath.join(HERE, "..", "evidence", "lme-task50-v2.fixtures.json");
@@ -69,7 +69,7 @@ export async function runFormal({ fixtures, log = console.log } = {}) {
       log(`[${index + 1}/50] ${item.id} ${arm}`);
       let call;
       try {
-        call = await callModel(payload);
+        call = VARIANT === "v3" ? await callTwoStep(payload) : await callModel(payload);
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }

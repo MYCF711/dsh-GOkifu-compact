@@ -7,7 +7,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectPilot, normalizeReaderAnswer, buildMessages, summarize, READER_PROMPTS } from "../scripts/lme-pilot-reader.mjs";
+import { selectPilot, normalizeReaderAnswer, buildMessages, buildTwoStepMessages, buildAnswerMessages, summarize, READER_PROMPTS } from "../scripts/lme-pilot-reader.mjs";
 import { assertReaderPayload, makeReaderPayload, TYPES } from "../scripts/lme-task50.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -82,5 +82,18 @@ tests["K27-P6 未知变体必须报错，不许静默回落"] = (t) => {
   } catch (error) {
     message = String(error?.message ?? error);
   }
-  t.eq(/unknown reader prompt variant/.test(message), true, "未知变体必须抛错");
+  t.eq(/unknown reader prompt variant|two-step/.test(message), true, "未知变体必须抛错");
+};
+
+tests["K27-P7 v3 两步协议：抽取只看上下文，回答只看 span"] = (t) => {
+  const payload = makeReaderPayload(selectPilot(FIXTURES.questions)[3], "compact");
+  const extract = buildTwoStepMessages(payload, { step: "extract" });
+  t.eq(extract[0].content, READER_PROMPTS.v3extract, "抽取系统提示");
+  t.eq(extract[1].content.includes(payload.context), true, "抽取看到上下文");
+  t.eq(extract[1].content.includes("Evidence span"), false, "抽取阶段没有 span");
+  const answer = buildAnswerMessages(payload, "span-fixture");
+  t.eq(answer[0].content, READER_PROMPTS.v3answer, "回答系统提示");
+  t.eq(answer[1].content.includes("span-fixture"), true, "回答只看 span");
+  t.eq(answer[1].content.includes(payload.context), false, "回答不再看完整上下文");
+  t.eq(READER_PROMPTS.v3answer.includes("Never substitute"), true, "弃答规则");
 };

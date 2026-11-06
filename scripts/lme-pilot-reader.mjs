@@ -24,6 +24,7 @@ import {
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FIXTURES = nodePath.join(HERE, "..", "evidence", "lme-task50.fixtures.json");
+const FIXTURES_PATH = process.env.LME_PILOT_FIXTURES ? nodePath.resolve(process.env.LME_PILOT_FIXTURES) : DEFAULT_FIXTURES;
 const DEFAULT_OUT = nodePath.join(HERE, "..", "evidence", "lme-pilot-reader-2026-11-07.json");
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
 const VARIANT = process.env.LME_READER_VARIANT || "v1";
@@ -64,9 +65,20 @@ export const READER_PROMPTS = Object.freeze({
     "For a list answer, output the exact ids in the order they appear, comma-separated. " +
     "If no span explicitly records the requested value, output exactly UNKNOWN. " +
     "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+  v3extract:
+    "You are an evidence extractor. Find the shortest verbatim span in the context that answers the question. " +
+    "Output only that span, exactly as written; no explanation, no quotes, no code fence. " +
+    "If no span answers it, output exactly NONE.",
+  v3answer:
+    "You are a strict answer writer. You receive a question and an evidence span. " +
+    "Output only the exact answer taken from the span; no explanation, no quotes, no code fence. " +
+    "For a list answer, output the exact ids in the order they appear, comma-separated. " +
+    "If the span is NONE or does not explicitly record the requested value, output exactly UNKNOWN. " +
+    "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
 });
 
 export function buildMessages(payload, { variant = "v1" } = {}) {
+  if (variant === "v3extract" || variant === "v3answer") throw new Error("v3 is a two-step variant; use buildTwoStepMessages");
   const system = READER_PROMPTS[variant];
   if (!system) throw new Error(`unknown reader prompt variant: ${variant}`);
   return [
@@ -78,30 +90,63 @@ export function buildMessages(payload, { variant = "v1" } = {}) {
   ];
 }
 
-async function callModel(payload) {
+export function buildTwoStepMessages(payload, { step }) {
+  if (step === "extract") {
+    return [
+      { role: "system", content: READER_PROMPTS.v3extract },
+      { role: "user", content: `Context:\n${payload.context}\n\nQuestion: ${payload.question}\n\nSpan:` },
+    ];
+  }
+  if (step === "answer") throw new Error("answer step requires a span; use buildAnswerMessages");
+  throw new Error(`unknown two-step: ${step}`);
+}
+
+export function buildAnswerMessages(payload, span) {
+  return [
+    { role: "system", content: READER_PROMPTS.v3answer },
+    { role: "user", content: `Question: ${payload.question}\n\nEvidence span:\n${span}\n\nAnswer:` },
+  ];
+}
+
+async function callChat(messages) {
   const started = Date.now();
   const response = await fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: buildMessages(payload, { variant: VARIANT }),
-      temperature: 0,
-      max_tokens: 2048,
-      stream: false,
-    }),
+    body: JSON.stringify({ model: MODEL, messages, temperature: 0, max_tokens: 2048, stream: false }),
     signal: AbortSignal.timeout(120_000),
   });
   const latencyMs = Date.now() - started;
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`reader HTTP ${response.status}: ${String(body?.error?.message ?? JSON.stringify(body)).slice(0, 300)}`);
   const choice = body?.choices?.[0] ?? {};
-  const raw = choice?.message?.content;
   return {
-    raw: raw ?? null,
+    raw: choice?.message?.content ?? null,
     finishReason: choice?.finish_reason ?? null,
     usage: body?.usage ?? null,
     latencyMs,
+  };
+}
+
+async function callModel(payload) {
+  return callChat(buildMessages(payload, { variant: VARIANT }));
+}
+
+/** v3：先抽 evidence span，再只根据 span 回答；两步都记录原始输出。 */
+export async function callTwoStep(payload) {
+  const first = await callChat(buildTwoStepMessages(payload, { step: "extract" }));
+  const span = String(first.raw ?? "").trim();
+  const second = await callChat(buildAnswerMessages(payload, span === "" ? "NONE" : span));
+  return {
+    raw: second.raw,
+    finishReason: second.finishReason,
+    usage: {
+      prompt_tokens: Number(first.usage?.prompt_tokens ?? 0) + Number(second.usage?.prompt_tokens ?? 0),
+      completion_tokens: Number(first.usage?.completion_tokens ?? 0) + Number(second.usage?.completion_tokens ?? 0),
+      total_tokens: Number(first.usage?.total_tokens ?? 0) + Number(second.usage?.total_tokens ?? 0),
+    },
+    latencyMs: first.latencyMs + second.latencyMs,
+    trace: { extractRaw: first.raw, span, answerRaw: second.raw, extractFinishReason: first.finishReason, answerFinishReason: second.finishReason },
   };
 }
 
@@ -117,12 +162,12 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       log(`[${index + 1}/${selected.length}] ${item.id} ${arm}`);
       let call;
       try {
-        call = await callModel(payload);
+        call = VARIANT === "v3" ? await callTwoStep(payload) : await callModel(payload);
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }
       const answer = normalizeReaderAnswer(call.raw);
-      const grade = gradeAnswer(item.answer, answer, item.grader);
+      const grade = gradeAnswer(item.answer, answer, item.grader, item.aliases ?? []);
       results.push({
         id: item.id,
         type: item.type,
@@ -135,6 +180,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
         finishReason: call.finishReason,
         usage: call.usage,
         latencyMs: call.latencyMs,
+        trace: call.trace ?? null,
         ...(call.error ? { error: call.error } : {}),
       });
     }
@@ -224,7 +270,7 @@ async function main(argv = process.argv.slice(2)) {
     console.log(JSON.stringify({ status: "NOT_RUN", note: "pilot reader requires --run (explicit 20 model calls)" }, null, 2));
     return 0;
   }
-  const fixtures = readJson(DEFAULT_FIXTURES);
+  const fixtures = readJson(FIXTURES_PATH);
   const report = await runPilot({ fixtures });
   if (write) {
     const out = process.env.LME_PILOT_OUT || DEFAULT_OUT;

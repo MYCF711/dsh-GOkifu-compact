@@ -594,6 +594,8 @@ v2 正式 50/50：100 次调用 0 错误，full **100%** / compact **88%** / Δ 
 
 提示词 v2 pilot（预注册 sha256 `8bb62108…`）：full **7/10** / compact **8/10**；full 退化、TR 输出证据 span 而非答案，**未放行正式 100 次**。负结果保留，下一步改两步抽取协议 v3。
 
+v3 两步协议 pilot（extract `9557a339…` / answer `ab2747b2…`，40 次 API 调用）：full **6/10** / compact **7/10**，低于放行线；不跑正式 200 次。两步反而放大抽取误差（KU 两臂 0/2），负结果保留。
+
 ### K-33 · 发布后自动验证
 
 `release.mjs --yes --npm` 在 publish/Release 之后自动跑 `release-post-verify.mjs`：轮询 `npm view <pkg>@<version> version` 直到传播完成，校验 `dist-tags.latest`、tarball 内 `## <version>` 段、`verify-release.mjs` 逐文件一致，以及 GitHub Release 非 draft/prerelease。任一失败非零退出，明确写「publish 已完成，不要重跑发布事务」。默认超时 180s、间隔 5s；纯判据 6 条单测，不连网络。

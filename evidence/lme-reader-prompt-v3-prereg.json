@@ -1,0 +1,31 @@
+{
+  "schema": "lme-reader-prompt-prereg-v1",
+  "variant": "v3",
+  "createdAt": "2026-11-06T18:15:23.133Z",
+  "model": "deepseek-v4.1-flash-1017",
+  "prompts": {
+    "extract": "You are an evidence extractor. Find the shortest verbatim span in the context that answers the question. Output only that span, exactly as written; no explanation, no quotes, no code fence. If no span answers it, output exactly NONE.",
+    "answer": "You are a strict answer writer. You receive a question and an evidence span. Output only the exact answer taken from the span; no explanation, no quotes, no code fence. For a list answer, output the exact ids in the order they appear, comma-separated. If the span is NONE or does not explicitly record the requested value, output exactly UNKNOWN. Never substitute a status word (untested, right-censored, pending) for UNKNOWN."
+  },
+  "promptSha256": {
+    "extract": "9557a339cf35bedc02bc71d9bf22f45f988779850f6239fd9acbf75983953077",
+    "answer": "ab2747b23ec8ae86fe1a1355d979a1484fe6b61cbe12d4011d7b2535090fe03a"
+  },
+  "selectionRule": "first 2 per type in frozen v2 fixture order",
+  "pilotIds": [
+    "IE-01",
+    "IE-02",
+    "MR-01",
+    "MR-02",
+    "KU-01",
+    "KU-02",
+    "TR-01",
+    "TR-02",
+    "ABS-01",
+    "ABS-02"
+  ],
+  "rationale": "v2 one-shot mixed extraction and answering: full dropped to 7/10 and TR answered with evidence spans. v3 separates extraction from answer generation; only prompt protocol changes.",
+  "changes": "prompt protocol only; fixtures/answers/thresholds/model unchanged",
+  "pilotGate": "run 40 calls; require full >= 8/10, compact >= 8/10, TR-01/TR-02 both arms correct, no callsWithError; else do not run formal 200.",
+  "formalPlan": "if pilot gate passes, run formal 50/50 (200 calls) and report PASS/FAIL against frozen thresholds."
+}
