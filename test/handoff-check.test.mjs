@@ -120,6 +120,16 @@ tests["H-13 ⑬fold边界：openAtEnd>0 ⇒ fail；=0 ⇒ ok；旧 fold 无 boun
   t.eq(legacy.level, "ok", "旧 fold 没有 boundary ⇒ 未采集（不失败）");
 };
 
+tests["T97 活跃会话：openAtEnd>0 降级为 warn，不阻断交接；非活跃仍 fail"] = (t) => {
+  const withMark = () =>
+    mkGraph({ foldMarks: [{ at: now, foldCount: 1, quality: quality(), boundary: { overlapping: 5, openAtEnd: 1, unsettled: 0 } }] });
+  const active = checkGraph(withMark(), { activeSession: true }).checks.find((c) => c.name.includes("⑬"));
+  t.eq(active.level, "warn", `活跃会话应 warn，实际 ${active.level}`);
+  t.includes(active.detail, "活动窗口", "必须说明为什么降级");
+  const inactive = checkGraph(withMark(), { activeSession: false }).checks.find((c) => c.name.includes("⑬"));
+  t.eq(inactive.level, "fail", "非活跃会话仍必须 fail");
+};
+
 tests["H-14 ①根目标：agent-only 会话不适用（ok）；有 user 节点却漏记 root 才是缺陷（warn）"] = (t) => {
   const agentOnly = mkGraph();
   agentOnly.nodes = { n2: agentOnly.nodes.n2 };
