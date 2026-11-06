@@ -14,11 +14,11 @@ const ROOT = nodePath.resolve(HERE, "..");
 
 export const tests = {};
 
-tests["C272 门禁清单：六道门一个都不能少，且每道门指向的脚本真实存在"] = (t) => {
-  // ★ C273：判分门 6 项 + 参考门 1 项（维护性卡在"需主人授权打 tag/发版"，不能当门禁红）
+tests["C272 门禁清单：七道判分门一个都不能少，且每道门指向的脚本真实存在"] = (t) => {
+  // ★ K-31：新增改动隐私审计是第 7 道判分门；只扫 --changed，不让历史材料把 gate 钉红。
   const judged = GATES.filter((g) => g.advisory !== true).map((g) => g.id).sort();
   const advisory = GATES.filter((g) => g.advisory === true).map((g) => g.id);
-  t.eq(judged, ["boundary", "changelog-index", "docs-index", "handoff", "pack", "test"], "判分门必须等于这六项");
+  t.eq(judged, ["boundary", "changelog-index", "docs-index", "handoff", "pack", "privacy", "test"], "判分门必须等于这七项");
   t.eq(advisory, ["release-notes", "maintenance", "field-reads", "duplicates", "restart"], "参考门 = 发布说明漂移（C355）+ 维护性（卡授权）+ 重启后核对（卡重启）+ 字段审计（需人判断）");
 
   for (const gate of GATES) {
@@ -34,6 +34,16 @@ tests["C272 门禁清单：六道门一个都不能少，且每道门指向的�
   for (const gate of GATES.filter((g) => g.advisory === true)) {
     t.eq(gate.optional === true, false, `${gate.id} 是参考门，不该同时是 optional（语义要分清）`);
   }
+};
+
+tests["K31 gate 默认以 --changed 运行永久隐私门，且 judged 先于全量测试"] = (t) => {
+  const privacy = GATES.find((g) => g.id === "privacy");
+  t.ok(privacy, "privacy 门必须存在");
+  t.eq(privacy.args, ["--changed"], "日常 gate 只扫相对 HEAD 的新增改动，不做全仓扫描");
+  t.eq(privacy.advisory === true, false, "新增泄露必须判红，不能降级 advisory");
+  t.ok(GATES.indexOf(privacy) < GATES.findIndex((g) => g.id === "test"), "便宜的隐私门应先于全量测试");
+  const cli = nodeFs.readFileSync(nodePath.join(ROOT, "scripts", "privacy-audit.mjs"), "utf8");
+  t.includes(cli, "const result = pack ? auditPack() : auditChanged()", "CLI 无参默认必须是 --changed");
 };
 
 tests["C272 package.json 暴露 gate 命令（不然没人知道有这条）"] = (t) => {

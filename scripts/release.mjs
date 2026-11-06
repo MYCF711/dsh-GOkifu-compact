@@ -119,6 +119,25 @@ if (testFileCheck.declared === null) {
   bad(testFileCheck.reason)
 }
 
+// ── K-31 完整发布面隐私门：必须先于 ls-remote/fetch/push/npm 等一切对外动作 ──
+// 失败时仍做纯本地检查以汇总问题，但远端网络检查也跳过，绝不「先看一眼远端再继续」。
+let privacyOk = false
+let privacyReport = ""
+try {
+  privacyReport = execFileSync(process.execPath, [join(ROOT, "scripts", "privacy-audit.mjs"), "--pack"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim()
+  privacyOk = true
+  note("完整 npm packlist 隐私审计通过（confirmed=0 / review=0）")
+} catch (error) {
+  // privacy-audit 的 stdout 只含 path:line ruleId status，不包含敏感原值；stderr 不透传。
+  privacyReport = String(error.stdout ?? "").trim()
+  bad("完整 npm packlist 隐私审计未通过（confirmed 或未处置 review）—— 已跳过所有远端网络检查与对外动作")
+}
+
 /**
  * 去掉 `> 起因：…` 那段 —— 它写给维护者，不进 Release 正文。
  * （UPDATING 四：一条一行说的是改了什么，`> 起因` 说的是为什么。用户感知不到后者。）
@@ -195,7 +214,7 @@ const gh = remoteCheck.ok ? remoteCheck.repo : null
 if (!remoteCheck.ok) bad(remoteCheck.reason)
 
 let behind = 0
-if (gh && branch) {
+if (gh && branch && privacyOk) {
   // ⑤/⑥ 远端可达：ls-remote 必须成功。失败 ⇒ 红（不许「跳过检查」继续发版）。
   if (!shOk("git ls-remote --heads origin")) {
     bad(
@@ -225,7 +244,7 @@ let tagExistsLocal = false
 let tagExistsRemote = false
 let tagCommitLocal = ""
 let tagCommitRemote = ""
-if (gh) {
+if (gh && privacyOk) {
   tagExistsLocal = shOk(`git rev-parse -q --verify refs/tags/${tag}`)
   // ⚠ 不能用 `refs/tags/x^{commit}`：Windows 上 execSync 走 cmd.exe，`^` 是转义字符 ⇒
   // 会被吃成 `refs/tags/x{commit}`，命令失败、脚本崩（2026-10-31 实测：tag 已存在时跑预演直接抛异常）。
@@ -289,6 +308,10 @@ const CHANGELOG_STEPS = [
 ]
 
 console.log(C.bold(`\n发布预演 · ${gh ? `${gh.owner}/${gh.repo}` : "(未知仓库)"} · ${tag}\n`))
+if (privacyReport) {
+  console.log(C.dim("隐私审计输出（只有 path:line / ruleId / status，不回显敏感原值）："))
+  console.log(C.dim(privacyReport.split("\n").map((line) => `  ${line}`).join("\n")))
+}
 console.log(C.dim("七步里这一步在做什么："))
 console.log(C.dim("  0 写 CHANGELOG → 1 bump → 2 pack 预演 → 3 提交 → 4 push →"))
 console.log(C.dim("  5 npm publish → 6 tag+Release → 7 四条验证"))
@@ -301,7 +324,7 @@ if (problems.length) {
   process.exit(1)
 }
 
-console.log(C.green("✓ 体检通过：版本 / CHANGELOG / 工作区 / 分支 / tag 都没问题\n"))
+console.log(C.green("✓ 体检通过：完整 packlist 隐私 / 版本 / CHANGELOG / 工作区 / 分支 / tag 都没问题\n"))
 for (const n of notes) console.log(C.yellow(`  ! ${n}`))
 
 // ── 计划 ─────────────────────────────────────────────────────────────
