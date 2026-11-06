@@ -2,7 +2,7 @@
  * panel-simple.test.mjs —— 简单总览与折痕读取预算。
  *
  * 不启动 DSH、不访问网络、不调模型。总览直接检查 panel-layout 执行出的真实 React host 树；
- * 折痕用 30 个临时 graph.json 证明只解析 mtime/ctime 最近的 20 个，而不是全量读取。
+ * 折痕用 30 个临时 graph.json 证明首次全量读取、按 foldMark.at 全局排序，第二次缓存不重复读。
  */
 
 import nodeFs from "node:fs";
@@ -153,8 +153,9 @@ function assertHeightFits(result) {
 }
 
 function assertFoldReadBudget(readCount, sessionCount) {
-  const expected = Math.min(FOLD_SOURCE_FILE_LIMIT, sessionCount);
-  if (readCount !== expected) throw new Error(`折痕读盘应为 ${expected}，实际 ${readCount}`);
+  if (readCount !== sessionCount) {
+    throw new Error(`折痕首次读盘应全量读取 ${sessionCount} 个图，实际 ${readCount}`);
+  }
   return true;
 }
 
@@ -223,6 +224,7 @@ export const tests = {
       console.log("=== FOLD READ RANGE ===");
       console.log(JSON.stringify({ sessionCount: scan.files.length, graphReads: reads.length, returned: marks.length }, null, 2));
       t.eq(scan.files.length, 30, "夹具必须真的有 30 个图");
+      t.eq(assertFoldReadBudget(reads.length, scan.files.length), true, "首次折痕取数必须全量读取 30 个图");
       t.eq(FOLD_LIST_LIMIT, 20, "折痕输出仍是最近 20 条");
       // 全量跨会话取数（按 foldMark.at 全局排序），**不是按 mtime 限量**。
       t.eq(marks.length <= 20, true, "折痕输出最多 20 条");
@@ -236,12 +238,22 @@ export const tests = {
     }
   },
 
-  "④ 失败分支真红：指标回流、缺健康卡、超高和全量读盘都必须被同一守卫拒绝"(t) {
+  "④ 失败分支真红：指标回流、缺健康卡、超高和漏读会话图都被拒绝"(t) {
     const text = textOf(DEFAULT_TREE);
     t.throws(() => assertSimpleText(`${text}\nfold 后总量 76,543 tok`), "活跃会话指标回流必须红");
     t.throws(() => assertSimpleText(text.replace("健康检查", "")), "删掉健康检查必须红");
     t.throws(() => assertHeightFits({ total: 721, availableHeight: 720, fits: false }), "721/720 必须红");
-    t.throws(() => assertFoldReadBudget(30, 30), "30 个图全读必须红");
+    let underReadError = null;
+    try {
+      assertFoldReadBudget(FOLD_LIST_LIMIT, 30);
+    } catch (error) {
+      underReadError = error;
+    }
+    t.eq(
+      { name: underReadError?.name, message: underReadError?.message },
+      { name: "Error", message: "折痕首次读盘应全量读取 30 个图，实际 20" },
+      "只读 20/30 个图必须因真实读数差异红，不得靠 ReferenceError 假绿",
+    );
   },
 
   "⑤ T89：补折真实兄弟顺序在最近活跃/更新之前，按钮 action 与模型绑定不变": async (t) => {
