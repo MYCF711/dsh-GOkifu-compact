@@ -582,13 +582,13 @@
 
 # 更新记录
 
-## 1.18.3-beta.1（2026-11-06，本地开发版）
+## 1.18.3（2026-11-06，稳定版）
 
-> 完整脱敏稳定版 1.18.2 公开后，本地下一轮开发线切换为 `1.18.3-beta.1`，避免与稳定版混用。
+> 1.18.3 是 1.18.2 之后的稳定版：收口 K-32 假阴性、handoff 活跃会话误判与历史 foldMark 保真修复；全量 2128/0、gate 8/8。
 
 ### T97 · handoff 活跃会话降级与 foldMark 保真修复
 
-`handoff-check` 按 `home/sessions` 索引识别活跃会话：活跃会话 ⑬ `openAtEnd>0` 降为 WARN，非活跃仍 FAIL。新增 `repair-foldmark-fidelity.mjs`，默认 dry-run，`--apply` 先备份再原子写回，把旧 archive-offline 摘要缺失的用户约束机械补回并重算 `constraintRecall`；活跃会话与无摘要旧折痕跳过。干跑：1 个历史 foldMark 补回 1 条约束，7 个活跃会话跳过；handoff 由 FAIL2 降到 FAIL1（只剩该历史项，尚未 apply）。
+`handoff-check` 按 `home/sessions` 索引识别活跃会话：活跃会话 ⑬ `openAtEnd>0` 降为 WARN，非活跃仍 FAIL。新增 `repair-foldmark-fidelity.mjs`，默认 dry-run，`--apply` 先备份再原子写回，把旧 archive-offline 摘要缺失的用户约束机械补回并重算 `constraintRecall`；活跃会话与无摘要旧折痕跳过。live 已 apply：1 个历史 foldMark 补回 1 条约束，7 个活跃会话跳过；handoff **FAIL 0 / WARN 265**。
 
 ### T96 · K-32 failure snippet 归一化修正
 
