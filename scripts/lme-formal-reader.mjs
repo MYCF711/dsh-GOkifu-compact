@@ -74,7 +74,7 @@ export async function runFormal({ fixtures, log = console.log } = {}) {
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }
-      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS });
+      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS, question: payload.question });
       pair[arm] = answer;
       calls.push({
         id: item.id,

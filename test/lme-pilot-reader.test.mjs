@@ -107,3 +107,11 @@ tests["K27-P8 v1n 数字校验：只把上下文中不存在的独立数字改�
   t.eq(postProcessAnswer("20", "retain-20", { mode: "v1n" }), "UNKNOWN", "词内数字不算独立 token");
   t.eq(postProcessAnswer("662", ctx), "662", "默认 none 不后处理");
 };
+
+tests["K27-P9 v1e 缺失实体守卫：问题点名 missing 时只能 UNKNOWN"] = (t) => {
+  const q = "未记录的 e-abs08-missing 当前属于 candidate 还是 residue？";
+  t.eq(postProcessAnswer("n-abs08-current", "", { mode: "v1e", question: q }), "UNKNOWN", "缺失实体必须弃答");
+  t.eq(postProcessAnswer("UNKNOWN", "", { mode: "v1e", question: q }), "UNKNOWN", "UNKNOWN 保持");
+  t.eq(postProcessAnswer("n-ie07-ok", "", { mode: "v1e", question: "later-ok 的目标节点是什么？" }), "n-ie07-ok", "非 missing 问题不改 id");
+  t.eq(postProcessAnswer("662", "visible seqs=661,663", { mode: "v1e", question: "e-abs07-missing 在哪个 seq？" }), "UNKNOWN", "v1e 同时保留数字校验");
+};

@@ -57,9 +57,13 @@ export function normalizeReaderAnswer(raw) {
  * v1n 确定性校验：纯数字答案必须是上下文中的独立 token；否则改成 UNKNOWN。
  * 只处理「数字编造/截断」，不改中文词、列表或 id。
  */
-export function postProcessAnswer(answer, context, { mode = POSTPROCESS } = {}) {
-  if (mode !== "v1n") return answer;
+export function postProcessAnswer(answer, context, { mode = POSTPROCESS, question = "" } = {}) {
   const text = String(answer ?? "");
+  // v1e：问题点名 missing/未记录实体时，任何非 UNKNOWN 答案都是越权回答。
+  if (mode === "v1e" && /(?:\bmissing\b|未记录|未出现|not recorded)/i.test(String(question ?? "")) && text.trim() !== "UNKNOWN") {
+    return "UNKNOWN";
+  }
+  if (mode !== "v1n" && mode !== "v1e") return answer;
   if (!/^\d+$/.test(text)) return answer;
   const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const present = new RegExp(`(?:^|[^0-9A-Za-z_-])${escaped}(?:$|[^0-9A-Za-z_-])`).test(String(context ?? ""));
@@ -186,7 +190,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       } catch (error) {
         call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
       }
-      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS });
+      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS, question: payload.question });
       const grade = gradeAnswer(item.answer, answer, item.grader, item.aliases ?? []);
       results.push({
         id: item.id,

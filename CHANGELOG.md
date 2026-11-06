@@ -598,7 +598,9 @@ v3 两步协议 pilot（extract `9557a339…` / answer `ab2747b2…`，40 次 AP
 
 换 reader 模型 `group/kimi-k3.1-pro`：v1 正式 50/50 full **96%** / compact **96%** / Δ0，仅 **abstention** 失败（ABS-07 compact 编造 662）；v1b 弃答规则把 abstention 修到 10/10，但 compact 退化到 **88%**（Δ-8%），仍 **FAIL**。kimi v1 是当前最接近 PASS 的一版；不再调提示词，下一步转向确定性答案抽取器或换 reader。
 
-v1n 数字 token 校验（预注册）：kimi v1 + v1n 正式 full **96%** / compact **94%** / Δ **-2%**，100 次 0 错误；四条门槛过，仍 **abstention FAIL**——ABS-08 compact 答上下文 id `n-abs08-current` 而非 UNKNOWN。v1n 修掉 662 编造但只到 94%，不采用；不把事后补 id 规则当 PASS。
+v1n 数字 token 校验（预注册）：kimi v1 + v1n 正式 full **96%** / compact **94%** / Δ **-2%**，100 次 0 错误；四条门槛过，仍 **abstention FAIL**——ABS-08 compact 答上下文 id `n-abs08-current` 而非 UNKNOWN。v1n 修掉 662 编造但只到 94%。
+
+v1e 缺失实体守卫（预注册，披露为看到 ABS-08 后的新实验）：问题点名 missing/未记录实体时，非 UNKNOWN 答案改为 UNKNOWN。kimi v1 + v1e 正式 100 次 0 错误，full **96%** / compact **94%** / Δ-2%，六条门槛全绿 **PASS**。这是带确定性后处理的 PASS，不是裸模型能力；报告已记 `postprocess: v1e`。
 
 ### K-33 · 发布后自动验证
 

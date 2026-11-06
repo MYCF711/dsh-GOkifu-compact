@@ -1,0 +1,20 @@
+{
+  "schema": "lme-reader-postprocess-prereg-v1e",
+  "createdAt": "2026-11-06T19:14:46.439Z",
+  "model": "group/kimi-k3.1-pro",
+  "promptVariant": "v1",
+  "postprocess": "v1e",
+  "rule": "If the question names a missing/未记录 entity, any answer other than UNKNOWN becomes UNKNOWN; v1n numeric-token guard also applies.",
+  "rationale": "v1n formal 96/94 still failed abstention because ABS-08 compact answered a context id while the question asked an unrecorded missing entity. v1e enforces the abstention semantics for missing-entity questions only.",
+  "affectedExpected": [
+    "ABS-08"
+  ],
+  "unaffectedExamples": [
+    "IE-07 n-ie07-ok",
+    "retain-20",
+    "before"
+  ],
+  "changes": "postprocess only; no fixture/threshold/model change",
+  "disclosure": "Designed after observing ABS-08 failure; this is a new pre-registered experiment, not a retroactive PASS.",
+  "plan": "run formal 50/50 100 calls on v2 fixtures with kimi v1 + v1e; report PASS/FAIL."
+}
