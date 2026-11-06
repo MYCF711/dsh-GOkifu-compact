@@ -9,6 +9,7 @@
  */
 
 import { checkGraph } from "../scripts/handoff-check.mjs";
+import { renderLedger } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
@@ -66,6 +67,32 @@ function quality(over = {}) {
 }
 
 const byName = (result, prefix) => result.checks.find((c) => c.name.startsWith(prefix));
+
+tests["C654 只有一条陈旧 result=failure/to=null：残留计数行与 ③ 都必须可见"] = (t) => {
+  const injectedNow = Date.now();
+  const graph = mkGraph();
+  graph.sessionId = "s-c654-residue-only";
+  graph.edges.e1.to = null;
+  graph.edges.e1.ts = injectedNow - 60 * 60 * 1000;
+
+  const ledger = renderLedger(graph, { now: injectedNow });
+  t.includes(ledger.text, "# 另有 1 条无终点残留（rewash 历史，未展开；全文 graph.json）", "只有残留时也必须输出既有计数行与 graph 指针");
+  t.notIncludes(ledger.text, "LEARNED", "residue 不许塞进 LEARNED");
+
+  const result = checkGraph(graph, { now: injectedNow });
+  const row = byName(result, "③");
+  t.eq(row.level, "ok", `只有 residue 时 ③ 应验收计数行：${row.detail}`);
+  t.includes(row.detail, "residue", "③ detail 必须明确区分 residue");
+  t.includes(row.detail, "1 条", "③ detail 必须给出残留条数");
+};
+
+tests["C654 对照：普通非残留失败仍必须进入 LEARNED 并通过 ③"] = (t) => {
+  const result = checkGraph(mkGraph(), { now });
+  t.includes(result.ledger.text, "LEARNED (1 failed attempts):", "普通失败边必须保留 LEARNED");
+  t.notIncludes(result.ledger.text, "无终点残留", "普通失败边不该被误分为 residue");
+  const row = byName(result, "③");
+  t.eq(row.level, "ok", `普通失败边有 LEARNED 时 ③ 应为 ok：${row.detail}`);
+};
 
 tests["H-12 只有 WORKING 行（当前路径===工作路径）也算「当前位置」—— 不许误报 FAIL"] = async (t) => {
   const { createGraph, addUserNodeId, addAgentNode, addEdge, settleEdge } = await import("./graph-fixtures.mjs");
