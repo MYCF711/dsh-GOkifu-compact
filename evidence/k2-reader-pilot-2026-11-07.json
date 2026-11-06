@@ -4,6 +4,18 @@
   "question": "列出上下文中的 Hindsight memory page 标题",
   "trials": [
     {
+      "sessionHash": "4e9cb0cbd3fe4ebb",
+      "task": "uname 值型工具结果",
+      "contextChars": {
+        "baseline": 25097,
+        "everyStep": 25452
+      },
+      "savedChars": -355,
+      "baselineCorrect": true,
+      "everyCorrect": true,
+      "note": "两臂均答 uname -s / MINGW64_NT-10.0-26200 / onlyStdout=true；工具结果仅 24 字符，everyStep 反而大 355 字符"
+    },
+    {
       "sessionHash": "0692b6e5bb18b7bb",
       "contextChars": {
         "baseline": 40686,
@@ -33,12 +45,12 @@
     }
   ],
   "aggregate": {
-    "trials": 2,
-    "baselineTitles": 14,
-    "everyTitles": 0,
+    "trials": 3,
     "regressions": 2,
-    "savedChars": 28739
+    "successes": 1,
+    "savedChars": 28384,
+    "note": "值型小结果两臂都对；2/2 检索标题型退化；K-2 必须按任务类型启用，不能默认全局开。"
   },
-  "verdict": "REJECT_FOR_TASK",
+  "verdict": "TASK_CONDITIONAL",
   "note": "2/2 独立小样本：everyStep 丢原始 tool/result 的 page 标题，reader 答 UNKNOWN；只说明该任务退化，不推广到全部场景。"
 }
