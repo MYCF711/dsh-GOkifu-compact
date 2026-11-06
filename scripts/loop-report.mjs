@@ -27,7 +27,7 @@ import { actionKeyOf } from "../src/rooms/loop-guard.mjs";
 
 /** 默认 home：优先环境变量，其次本机实际路径。 */
 export function defaultHome() {
-  return process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
+  return process.env.DSH_HOME ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
 }
 
 /**

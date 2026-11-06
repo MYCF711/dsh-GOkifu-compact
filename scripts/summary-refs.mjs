@@ -74,7 +74,7 @@ export function summarizeRefs(marks, { since = null } = {}) {
     out.unknown += unknown.length;
     out.later += later.length;
     out.earlier += earlier.length;
-    // ★ C482：**"跑过清洗"不等于"有 sanitizedIds 字段"**。真机 c0a5847a 那次
+    // ★ C482：**"跑过清洗"不等于"有 sanitizedIds 字段"**。真机 <SESSION_ID> 那次
     //   `sanitizedIds: 0` 但 quality 里还列出 20 个「更晚实体」—— 那是 range 为空、清洗空转。
     //   所以队列归属改成看 `sanitizeRan`；老 foldMark（没有该字段）单独记一栏"未确认"。
     // `sanitizedIds > 0` 本身就证明它跑过（真替换了东西），老记录也按这个算
@@ -162,7 +162,7 @@ function main(argv) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") ? argv[i + 1] : fallback;
   };
-  const home = get("home", process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home");
+  const home = get("home", process.env.DSH_HOME ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"));
   const sinceArg = get("since", null);
   const since = sinceArg === null ? null : Number(sinceArg);
   const sessionsRoot = path.join(home, "chess-context", "sessions");

@@ -5,7 +5,7 @@
  *   · `to=null` 5,567 条：5,564 条是 1.9.1 rewash 清自环时抹掉 `to` 的**历史残留**
  *     （已结算却没有终点 = 不可能），只有 3 条是陈旧 untested；
  *   · 268 条无终点失败边占全部失败边的 27.8%（热清单里 28% 的「失败」是结构性死胡同）；
- *   · 另有 214 条 `from` 悬空（全在 session-5acafe42，mergeNodeInto 老 bug）—— 另一类，不得混入。
+ *   · 另有 214 条 `from` 悬空（全在 <SESSION_ID>，mergeNodeInto 老 bug）—— 另一类，不得混入。
  *
  * 不变量：
  *   residue(e)        := e.to == null && (e.result !== "untested" || age > 10min)

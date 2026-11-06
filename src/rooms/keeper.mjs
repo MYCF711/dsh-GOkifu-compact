@@ -284,7 +284,7 @@ function machineOutputShare(body) {
  * 这条 user 消息是人打的字，还是系统/插件注入的上下文。
  *
  * ★ T38（2026-11-05）：`source.kind` 只说明「宿主把这条归到 user 轮」，**不说明它是人打的字**。
- *   真机反例（session-f7f835b1 seq 1179）：一条 **251,157 字符**的 LLM 错误 JSON
+ *   真机反例（<SESSION_ID> seq 1179）：一条 **251,157 字符**的 LLM 错误 JSON
  *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘上的请求体）宿主标的 `kind: "user"`，
  *   于是 `extractConstraints` 从里面抽出 40 条「约束」灌进事实块 —— 整块 36% 是系统提示词。
  *

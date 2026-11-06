@@ -41,7 +41,7 @@ import { presetsWithCompaction } from "../scripts/install.mjs";
 import { findShadowedUserPresets } from "../src/rooms/preset-format.mjs";
 
 export const PKG = "dsh-gokifu-compact";
-export const DEFAULT_DSH_HOME = "D:\\DeepSeek Harness\\home";
+export const DEFAULT_DSH_HOME = nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
 
 /* ═══════════════ 宿主版本闸的结构性判定（F1 · 2026-11-01） ═══════════════
  *

@@ -29,7 +29,7 @@
  * 用法：
  *   node scripts/reasoning-share-audit.mjs                     # 全量（真机 196 个会话 / 665 条 foldMark，约 40 秒）
  *   node scripts/reasoning-share-audit.mjs --limit=20           # 只看最近 20 个会话（冒烟）
- *   node scripts/reasoning-share-audit.mjs --session=8a73e06b   # 只看一个会话
+ *   node scripts/reasoning-share-audit.mjs --session=<SESSION_ID>   # 只看一个会话
  *   node scripts/reasoning-share-audit.mjs --recent=50          # 只取**最近 50 条 foldMark**（按 at 倒序）
  *   node scripts/reasoning-share-audit.mjs --json               # 机读
  *   DSH_HOME=... node scripts/reasoning-share-audit.mjs         # 换 home（与 doctor / graph-audit 同源）

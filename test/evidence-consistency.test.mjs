@@ -60,7 +60,7 @@ tests["C118-1 evidence/README 与 research §11.1 的数字必须与 live-folds.
 
 tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本会话折了几次）"] = (t) => {
   const doc = read("evidence/fold质量-多会话-2026-11-02.md");
-  // ★ C473：以前这里**写死了** session-00b50089 —— 它一旦掉出 top 榜（别的会话折得更多），
+  // ★ C473：以前这里**写死了** <SESSION_ID> —— 它一旦掉出 top 榜（别的会话折得更多），
   //   测试就从"验证数字一致"退化成"验证某个会话还在榜上"，直接抛 TypeError。
   //   判据改成：**top 榜里至少有一个会话的 fold 次数出现在逐会话表里**（这才是这条测试要守的东西）。
   const top = EVIDENCE.summary.bySession.top ?? [];

@@ -7,8 +7,8 @@
  *   · `closeout.folded: true` 但没有新增 mark ⇒ **假成功**（C531/C557 修的就是它）。
  *
  * 用法：
- *   node scripts/verify-archive.mjs --session 4f3cae10
- *   node scripts/verify-archive.mjs --session 4f3cae10 --json
+ *   node scripts/verify-archive.mjs --session <SESSION_ID>
+ *   node scripts/verify-archive.mjs --session <SESSION_ID> --json
  *
  * 退出码：0 = 真折了；1 = 没折/假成功；2 = 找不到会话
  */

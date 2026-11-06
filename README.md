@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.18.1`**（稳定候选，未发布；稳定版 1.18.0 已公开） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.18.2`**（完整脱敏稳定候选，未发布；稳定版 1.18.1 已公开） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 415 tokens 的热清单」。**
 
@@ -61,7 +61,7 @@ DSH 的「上下文压缩」面板（`POST /gokifu/api`，同一套信任检查�
 成本估算是**估算**：价目用 DeepSeek 官方 `deepseek-flash` 低峰价（命中 $0.003 / 未命中 $0.15 / 输出 $0.6 每 1M tokens），
 不含宿主侧的 system/tools 开销；没有 usage 的 fold 不参与计算，页面会标出「N 次有 usage」。
 
-细节与逐条判据见 [`docs/发布说明-1.18.0.md`](docs/发布说明-1.18.0.md)。
+细节与逐条判据见 [`docs/发布说明-1.18.2.md`](docs/发布说明-1.18.2.md)。
 
 ## 怎么工作
 
@@ -272,7 +272,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 - [三层树设计](docs/三层树设计.md) · [DSH 技术测绘](docs/DSH-技术测绘.md)（1300 行，带 asar 行号）
 - [性能与成本](docs/性能与成本.md) · [真实计费核对](evidence/真实计费核对.md)
 - [最终报告](docs/最终报告.md) · [P0 修复记录](docs/P0-worldhash-死循环-根因与修复方案.md)
-- [**发布说明 1.18.0**](docs/发布说明-1.18.0.md) · [重启验收清单](evidence/重启验收清单-2026-11-02.md)（重启后 9 步判断新代码是否接管）
+- [**发布说明 1.18.2**](docs/发布说明-1.18.2.md) · [重启验收清单](evidence/重启验收清单-2026-11-02.md)（重启后 9 步判断新代码是否接管）
 - [**外部知识库**](docs/knowledge/结论速查.md)：一页看完所有已核实 / 已否掉的判断（带数字与「谁在保证」）
 
 > 更新记录：[CHANGELOG.md](./CHANGELOG.md)（发版流程见 `scripts/release.mjs`；维护侧的 `HANDOFF.md`

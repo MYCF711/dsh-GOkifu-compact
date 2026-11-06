@@ -41,7 +41,7 @@
  *
  * 用法：
  *   node scripts/tail-gap-audit.mjs                       # 默认 --home $DSH_HOME
- *   node scripts/tail-gap-audit.mjs --home "D:/DeepSeek Harness/home"
+ *   node scripts/tail-gap-audit.mjs --home "<DSH_HOME_OR_INSTALL_DIR> Harness/home"
  *   node scripts/tail-gap-audit.mjs --min 40              # due 阈值（与 closeoutMinEvents 同义）
  *   node scripts/tail-gap-audit.mjs --tail 1000           # doctor 那条的「大尾巴」阈值
  *   node scripts/tail-gap-audit.mjs --json                # 机读

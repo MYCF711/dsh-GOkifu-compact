@@ -31,7 +31,7 @@ const { renderFacts, repairMissingFailures, repairFailuresInText, runOfflineFold
 
 /* ───────────────────────── 真机夹具（形状逐字来自 graph.json） ───────────────────────── */
 
-const DOCS = String.raw`D:\DeepSeek Harness\default-workspace\tmp\dsh-upgrade-0.2.2-rc.1`;
+const DOCS = String.raw`D:/fixture\default-workspace\tmp\dsh-upgrade-0.2.2-rc.1`;
 
 /** 造一条真机形状的失败边（动作是长 Windows 路径，错误是带引号 POSIX 路径 + 原因）。 */
 const failedEdit = (id, start, end) => ({

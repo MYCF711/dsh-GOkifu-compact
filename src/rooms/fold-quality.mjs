@@ -309,7 +309,7 @@ export function measureFoldQuality({
       };
     })()),
     modelConstraintRecall,
-    // ★ C528：**结构契约**。真机 8cc34e32 那次摘要撞了 max_tokens，停在 `grep -n "` 上，
+    // ★ C528：**结构契约**。真机 <SESSION_ID> 那次摘要撞了 max_tokens，停在 `grep -n "` 上，
     //   而当时的质量指标（约束/失败召回）**全是 1**，看起来完美 —— 因为后面的段落整段没写。
     //   这里补两项机器判据：缺哪些必备段落、结尾是不是干净收束。
     ...describeStructure(text, { expectFailures: failures.length > 0 }),

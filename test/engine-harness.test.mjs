@@ -598,7 +598,7 @@ tests["溢出自救：绕过阈值与增长门控"] = async () => {
   if (mark?.trigger !== "context-overflow") throw new Error(`溢出自救的 foldMark.trigger 必须是 context-overflow，实际 ${JSON.stringify(mark?.trigger)}`);
 };
 /**
- * ★ P0 死亡循环的端到端回归（2026-10-28 实机 session-5acafe42）。
+ * ★ P0 死亡循环的端到端回归（2026-10-28 实机 <SESSION_ID>）。
  *
  * 生产故障链：v1.3.4 把 worldstate.hash() 的 { hash, mode, files } 对象直接写进节点 →
  *   summarize() 里 renderFacts() 对对象调 .slice() → TypeError →
@@ -3193,7 +3193,7 @@ tests["C542 积压多时自动加量（否则 52 个欠账要追 26 小时）"] 
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
 };
 tests["C557 彩排：引擎不许假成功（folded:true 却没有 foldMark）"] = async (t) => {
-  // 真机：用户归档 4f3cae10 后，closeout 写 folded:1，而 foldMarks 是 0。
+  // 真机：用户归档 <SESSION_ID> 后，closeout 写 folded:1，而 foldMarks 是 0。
   // 彩排发现**单段路径**同样把"返回非空对象"当成"折了" —— 判据已改成看证据。
   const { Engine } = await load();
   // ★ C557：**别在 src/ 里建沙盒** —— `src/` 是打包目录，残留会触发 pack-check「无出处文件」。

@@ -69,7 +69,7 @@ const TICK_MINUTES = 10;
 /** 真机会话数（2026-11-05 06:5x 只读 `ls chess-context/sessions | wc -l` = 556）。 */
 const REAL_SESSIONS = 556;
 /** 真实 home（只读采样用；不存在就跳过）。 */
-const REAL_HOME = process.env.DSH_GOKIFU_REAL_HOME ?? "D:\\DeepSeek Harness\\home";
+const REAL_HOME = process.env.DSH_GOKIFU_REAL_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
 
 const problems = []; // 可修的错（决定退出码）
 const notes = []; // 本轮禁改、但要点名的东西

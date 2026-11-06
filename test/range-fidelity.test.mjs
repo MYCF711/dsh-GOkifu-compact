@@ -64,7 +64,7 @@ export const tests = {};
 const msg = (seq, text) => ({ type: "user/message", seq, data: { message: { content: [{ type: "text", text }] } } });
 
 /**
- * 真机形状的合成会话（尺寸抄自 `010c3b44`）：
+ * 真机形状的合成会话（尺寸抄自 `<SESSION_ID>`）：
  *   · seq 0–8 是 session / system 之类，**没有一条可摘要消息**（所以欠账区间 `[1,8]` 折不出东西）；
  *   · 第一条消息在 seq 9，最后一条在 `lastMessageSeq`；
  *   · 图里的节点从 seq 9 起（**全图没有 seq ≤ 8 的实体**）⇒ T35 的界取不到。
@@ -359,7 +359,7 @@ tests["T53 auditMark：真机形状（记录 8-8 / 摘要全 n? / 事件 9-501�
     text,
     events,
     graphMaxSeq: 499,
-    sessionId: "010c3b44-fixture",
+    sessionId: "<SESSION_ID>-fixture",
   });
   t.eq(row.recorded, { start: 8, end: 8 }, "记录区间");
   t.eq(row.span, 1, "跨度 1 个事件");

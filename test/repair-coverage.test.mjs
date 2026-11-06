@@ -35,7 +35,7 @@ const { applyOfflineFoldToGraph, repairFailuresInText, runOfflineFold } = offlin
 
 export const tests = {};
 
-/* ───────────────────── 真机夹具（`session-588e5f90` 的 archive-offline 折痕） ───────────────────── */
+/* ───────────────────── 真机夹具（`<SESSION_ID>` 的 archive-offline 折痕） ───────────────────── */
 /**
  * 那一条 mark 的形状（逐字来自 graph.json）：
  *   `seqStart=10 seqEnd=217` · `quality.failureRecall=0.75` · `expectedFailures=4` ·

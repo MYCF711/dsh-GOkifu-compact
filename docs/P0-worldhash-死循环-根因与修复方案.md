@@ -1,6 +1,6 @@
 # P0：思考死循环的根因与修复方案
 
-> 2026-10-28 · 依据：`session-5acafe42`（打造最强上下文压缩插件，13 个子智能体）实机日志 + 全量会话扫描
+> 2026-10-28 · 依据：`<SESSION_ID>`（打造最强上下文压缩插件，13 个子智能体）实机日志 + 全量会话扫描
 > 状态：**已实施，验证通过，等待重启生效**。补丁：`docs/P0-worldhash-死循环修复.patch`
 > （对 HEAD 干净应用；已落地到工作区）。验证记录与复跑命令见 **`evidence/P0-worldhash-修复验证.md`**。
 > ⚠ 该补丁对应 **v1.3.5** 时刻的工作区；v1.4.0 之后 `src/ledger.mjs` 等已继续演进，补丁不再能原样套用（P0 本身已并入主线）。
@@ -32,7 +32,7 @@
 - 239 个会话 **0 次**。
 - magpie `usage.jsonl`（17,318 条请求）里 34 条 `stuck in a loop`，**全部**是 `deepseek-v4.1-flash`（31 条）与 `sn-deepseek-v4-1-flash-1017`（5 条，同一模型换渠道名）。其他模型 0 条。
 
-### 2.2 故障会话 session-5acafe42 的实况
+### 2.2 故障会话 <SESSION_ID> 的实况
 
 | 指标 | 数值 |
 |---|---|
@@ -57,7 +57,7 @@
 
 ### 2.3 类型 bug 的直接证据
 
-`session-5acafe42/graph.json`（444,391 字节）：
+`<SESSION_ID>/graph.json`（444,391 字节）：
 
 - agent 节点 **211 个**
 - `worldHash` 是对象 `{hash, mode, files}` 的：**206 个（97.6%）**
@@ -175,7 +175,7 @@ renderFacts() 在 summarize() 前调用 → 抛 TypeError → compactRegion 事�
 - 全库 23 个棋谱回放（`node test/verify-graphs.mjs`）：1578 个 agent 节点、对象 worldHash **1279 → 0**、
   `stateIndex` **5 → 185 条**、`renderFacts`/`renderLedger` 全部不抛错、退出码 0
 - 变异自检：两层修复同时回滚 → 端到端回归**变红**（错误与实机同形）；只回滚 `fromJSON` 归一化 → 也变红
-- 真实日志独立核对：`session-5acafe42` 里 `compaction/start`/`end` 各 **226** 次、`error` **223** 次、
+- 真实日志独立核对：`<SESSION_ID>` 里 `compaction/start`/`end` 各 **226** 次、`error` **223** 次、
   其中 `latest?.worldHash?.slice is not a function` **139** 次 —— 与上面 §2.2 的分布逐项一致
 
 ### P0-B：部署生效（必须重启）

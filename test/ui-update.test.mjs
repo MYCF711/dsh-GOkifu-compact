@@ -449,7 +449,7 @@ tests["C234 backfillLines：dryRun 报清单、真跑报结果、失败只说原
     dryRun: true,
     scanned: 44,
     due: 2,
-    items: [{ sessionId: "session-0ef39d3a-72a0-42fb", tail: 13029 }, { sessionId: "session-1286ce28-dba8-448b", tail: 900 }],
+    items: [{ sessionId: "<SESSION_ID>", tail: 13029 }, { sessionId: "<SESSION_ID>", tail: 900 }],
   });
   t.includes(dry[0], "欠账 2 个会话", `首行给总数：${dry[0]}`);
   t.includes(dry[0], "扫了 44 个", `首行给扫描面：${dry[0]}`);

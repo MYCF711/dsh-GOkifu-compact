@@ -440,10 +440,10 @@ let objectHash = 0;
  * ★ C475：把会话 id 翻成**用户界面上看到的名字**。
  *
  * 由来（用户原话）：「你说的是你看到的编号，不是我这里看到的中文名」——
- * doctor 满屏 `session-b4664e8f…`，而用户界面上写的是「发布代码仓库并公开」。
+ * doctor 满屏 `<SESSION_ID>…`，而用户界面上写的是「发布代码仓库并公开」。
  * 报告要给人看，就得说人话；id 保留在括号里（排查时仍要能定位）。
  *
- * @param {string} sessionId 形如 `session-b4664e8f-…` 或目录名
+ * @param {string} sessionId 形如 `<SESSION_ID>-…` 或目录名
  * @param {Record<string,string>} titles 会话 id（可带或不带 `session-` 前缀）→ 标题
  * @returns {{label:string, title:string|null}}
  */
@@ -1321,7 +1321,7 @@ mark('C599 自动补账的结局');
 
 mark('C516 归档后还剩多少没折');
 /* ★ C516：**"归档了但没折完"要能被看见**。
-   真机（2026-11-04）：a09a4535 跑到 5,862 事件，最后一次折叠区间只到 1,874，尾巴 3,988 ——
+   真机（2026-11-04）：<SESSION_ID> 跑到 5,862 事件，最后一次折叠区间只到 1,874，尾巴 3,988 ——
    而它已经归档（closeout 有记录）。这类会话以前只能靠人临时写脚本才看得见。
    判据只认 foldMarks（`lastFoldSeq` 记的是"折时的会话 seq"，不是"折到哪"，别拿它算尾巴）。 */
 {
@@ -1777,7 +1777,7 @@ mark('C196 新鲜度');
         .sort((a, b) => b.n - a.n)[0];
       // ★ C543：这句话原来断言「缺口还没进欠账、要再做分段离线」—— **已经过期**。
       //   C519/C520 之后，`closeout.offlineUncoveredHead` 本身就是欠账（`debtOfGraph.gap`），
-      //   `backfill-plan` 里能看到它们（真机 f46d6330：tail 0 / 157k tok / 2 段）。
+      //   `backfill-plan` 里能看到它们（真机 <SESSION_ID>：tail 0 / 157k tok / 2 段）。
       parts.push(
         `**离线压缩还有缺口**：${withGap.length} 个会话的前段没压（最大 ${worst.n} 事件，${sessionLabel(worst.x.sessionId, wsTitles).label}）` +
           `—— 这些**已经进欠账**（gap），补账会从缺口起点继续（C519/C520/C522），不用另外安排`,
@@ -1811,7 +1811,7 @@ mark('C196 新鲜度');
         .join(" / ")}${missingCloseout.length > 3 ? " …" : ""}）` +
         ` —— 两条来路：① 1.17.6 之前收尾挂在 session/disposed 上，而 GUI 归档只写 workspace 域、不发该事件（C216）；` +
         `② 这些是**启动前就已归档**的老会话（历史归档不做收尾，C328）。` +
-        `**两者都会在补账时自己补上 closeout**（真机已验证：f46d6330 补账后出现 source=archive-offline）—— ` +
+        `**两者都会在补账时自己补上 closeout**（真机已验证：<SESSION_ID> 补账后出现 source=archive-offline）—— ` +
         `所以这一条是"待办进度"而不是"坏掉了"` +
         `${withCloseout.length > 0 ? `；另有 ${withCloseout.length} 个 closeout 是宿主退出/销毁时才补上的` : ""}` +
         outcomeSummary,
@@ -1876,7 +1876,7 @@ mark('C216 归档收尾');
    旧判据 `overflow > 0` 是**恒真**的：历史上只要有过一次自救，这条线就永久打红 ——
    而溢出自救是一次性事件，折叠成功即解除。真机（2026-11-05 01:38）：全历史 2 次
    context-overflow（11-03T06:19 / 11-04T01:36），这两个会话**之后都又 fold 过**
-   （226dbf4f 后续 19 次、d62a520c 后续 1 次，最近一次分别是 archive-offline / pressure）——
+   （<SESSION_ID> 后续 19 次、<SESSION_ID> 后续 1 次，最近一次分别是 archive-offline / pressure）——
    也就是说"压缩没跟上增长"这个结论**现在已经不成立**，但旧判据仍让它亮着。
    与 C551（"一个离群样本不该驱动调参"）/ C552（"那条旧记录会把这条线永久打红"）同族。
    现在：只有「该会话最近一次 fold 仍是 context-overflow」（= 自救之后没恢复）才 warn；
@@ -2066,7 +2066,7 @@ const recentFoldWindow = (marks) =>
 /* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ──
    ★ C604：**判级窗口改成「最近 10 次 fold」，与同族「fold 边界完整性」对齐**。
    旧判据把**全历史**的 liveUnsettled 求和：真机（2026-11-05 01:38）有一条
-   2026-11-03T06:57 的 `liveUnsettled=1`（session-c0a5847a 的第 10 次 fold），
+   2026-11-03T06:57 的 `liveUnsettled=1`（<SESSION_ID> 的第 10 次 fold），
    而它之后 20 多次 fold 全是 0 —— 这条警告却永远清不掉。
    悬空边是一次性事件：那一次 fold 之后要么被后续结算，要么就是一个已经过去的事实，
    **不可能被"再跑一次 doctor"修好**，所以「恒真」的判据只是噪音。

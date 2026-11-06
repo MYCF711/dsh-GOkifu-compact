@@ -1,7 +1,7 @@
 /**
  * worldHash 类型契约回归测试（P0，2026-10-28 实机故障）
  *
- * 事故现场：session-5acafe42 的 graph.json 里 206/267 个 agent 节点的 worldHash
+ * 事故现场：<SESSION_ID> 的 graph.json 里 206/267 个 agent 节点的 worldHash
  * 是 { hash, mode, files } 对象（worldstate.hash() 的返回值被直接写入）。
  * ledger.renderLedger() 里 `latest?.worldHash?.slice(0, 12)` 对对象抛
  *   "latest?.worldHash?.slice is not a function"

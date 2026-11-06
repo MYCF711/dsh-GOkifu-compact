@@ -181,7 +181,7 @@ export function audit({ home }) {
     const foldableSeqs = foldableInputSeqs(events);
     const typeSeqs = foldableTypeSeqs(events);
 
-    if (name.includes("010c3b44")) {
+    if (name.includes("<SESSION_ID>")) {
       const first = marks.find((m) => Number(m.seqStart) === 9 && Number(m.seqEnd) === 249);
       if (first !== undefined) t63 = { sessionId: name, ...replayGap(events, first, foldableSeqs, { rangeStart: 1, rangeEnd: 249 }) };
     }
@@ -307,8 +307,8 @@ export function render(result) {
   lines.push(`- 折痕数 × 单次成本：${result.money.virtual.marks} × ${usd(result.money.unit)} = **${usd(result.money.virtual.marks * result.money.unit)}**（单次成本 = 全库已知 usage 折痕均价；与上行逐条真实 usage 口径并列）。`);
   lines.push(`- 其中重复折叠金额：已知 ${usd(result.money.repeated.knownUsd)}；同法估算合计 ${usd(result.money.repeated.estimatedUsd)}；输入 ${result.money.repeated.inputTokens.toLocaleString("en-US")} token。`);
   lines.push("");
-  lines.push("## ④ T63 真机 010c3b44 复放");
-  if (result.t63 === null) lines.push("- 未找到 010c3b44 的首条 9-249 折痕。");
+  lines.push("## ④ T63 真机 <SESSION_ID> 复放");
+  if (result.t63 === null) lines.push("- 未找到 <SESSION_ID> 的首条 9-249 折痕。");
   else {
     const r = result.t63;
     lines.push(`- ${r.sessionId} · 请求区间 ${r.rangeStart}-${r.rangeEnd} · 实际覆盖 ${r.start}-${r.end} · 输入消息 ${r.messages} 条。`);

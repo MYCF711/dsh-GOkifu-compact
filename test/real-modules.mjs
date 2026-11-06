@@ -20,7 +20,7 @@ import { createRequire } from "node:module";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
-const ASAR = process.env.DSH_ASAR ?? "D:\\DeepSeek Harness\\resources\\app.asar";
+const ASAR = process.env.DSH_ASAR ?? "resources/app.asar";
 const WORK = nodePath.join(ROOT, "..", "..", "tmp", "dsh-gokifu-compact", "modules");
 
 const ROOTS = ["@deepseek-ai/dsh-compaction-basic"];

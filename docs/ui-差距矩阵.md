@@ -2,7 +2,7 @@
 
 > 审计对象：`lib/client.js`（React 浏览器半）与 `src/ui.mjs`（host 半）。
 >
-> 权威来源：只读 `D:/DeepSeek Harness/home/DSH-UI-official.md`、`dsh-ui-official/structure/**`、`dsh-ui-official/assets/**` 与 `LIBRARY-MANIFEST.json`。没有重新拆 asar/CSS，没有按截图自造层级。
+> 权威来源：只读 `<DSH_HOME_OR_INSTALL_DIR> Harness/home/DSH-UI-official.md`、`dsh-ui-official/structure/**`、`dsh-ui-official/assets/**` 与 `LIBRARY-MANIFEST.json`。没有重新拆 asar/CSS，没有按截图自造层级。
 >
 > 官方冻结基线：`0.2.1-rc.5`；asar SHA-256 `e1b6f25fa937da98086c3e77af77aa14791105963c4d337a1c42179d232c6915`；主库入口证据 `DSH-UI-official.md:35-48`。
 >

@@ -32,7 +32,7 @@
  *
  * 用法：
  *   node scripts/usage-shape-audit.mjs                 # 默认读 DSH_HOME（或下面那条默认路径）
- *   node scripts/usage-shape-audit.mjs --home=D:\DeepSeek Harness\home
+ *   node scripts/usage-shape-audit.mjs --home=<DSH_HOME_OR_INSTALL_DIR> Harness\home
  *   node scripts/usage-shape-audit.mjs --json          # 机器可读
  *   node scripts/usage-shape-audit.mjs --full          # 扫全部会话日志（慢）
  */
@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 import { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
 import { normalizeUsage } from "../src/rooms/offline-fold.mjs";
 
-const DEFAULT_HOME = "D:\\DeepSeek Harness\\home";
+const DEFAULT_HOME = nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
 
 /* ─────────────────────────── 基础工具 ─────────────────────────── */
 

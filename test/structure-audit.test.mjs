@@ -24,7 +24,7 @@ import { createGraph } from "./graph-fixtures.mjs";
 export const tests = {};
 
 /**
- * 真机形状的摘要正文（`034556eb-7047-48f5-b499-c34f112d9102` 的 `lastOfflineSummary`，
+ * 真机形状的摘要正文（`<SESSION_ID>` 的 `lastOfflineSummary`，
  * 标题一个不改、内容压短）：`## 已探明死路` 就是那个段。
  */
 const REAL_SHAPE = [
@@ -85,12 +85,12 @@ tests["C638 旧判据在真机形状上真红（对照：这不是「本来就�
 };
 
 tests["C638 真漏段仍然真红（别名不许把探针变恒绿）"] = (t) => {
-  // 真机 8cc34e32 的截断形状：后段整段没写
+  // 真机 <SESSION_ID> 的截断形状：后段整段没写
   const truncated = '## 目标\n- 把构建跑通\n## 棋谱\n- grep -n "';
   t.eq(describeStructure(truncated, { expectFailures: true }).sectionsMissing, ["死路"], "没有死路段 ⇒ 必须报缺（新旧都红）");
   t.eq(legacySectionsMissing(truncated, { expectFailures: true }), ["死路"], "对照：旧判据在这条上也是红的（真漏段）");
 
-  // 只补回了「约束（逐字）」的截断摘要（真机 4223dc9d 形状）
+  // 只补回了「约束（逐字）」的截断摘要（真机 <SESSION_ID> 形状）
   const repairOnly = "## 约束（逐字补充 · 离线压缩后自动补回，不许删）\n- 只读 home";
   t.eq(describeStructure(repairOnly, { expectFailures: true }).sectionsMissing, ["目标", "棋谱", "死路"], "只剩机械补回段 ⇒ 三段全缺");
 };

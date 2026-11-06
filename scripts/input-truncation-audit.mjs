@@ -22,7 +22,7 @@
  * 用法：
  *   node scripts/input-truncation-audit.mjs                # 全量（真机 ~520 个会话，1~2 分钟）
  *   node scripts/input-truncation-audit.mjs --limit 50     # 只扫前 50 个有 mark 的会话（冒烟用）
- *   node scripts/input-truncation-audit.mjs --session 8a73e06b
+ *   node scripts/input-truncation-audit.mjs --session <SESSION_ID>
  *   node scripts/input-truncation-audit.mjs --json         # 机读
  *   DSH_HOME=... node scripts/input-truncation-audit.mjs   # 换 home（与 doctor / graph-audit 同源）
  *

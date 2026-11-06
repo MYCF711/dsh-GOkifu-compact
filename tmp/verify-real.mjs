@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { fromJSON, toJSON } from "../src/graph.mjs";
 import { renderFacts } from "../src/ledger.mjs";
-const file = "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-b85b-4e06-845a-65428b43d7c0/graph.json";
+const file = "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions/<SESSION_ID>/graph.json";
 const raw = fs.readFileSync(file, "utf8");
 const before = JSON.parse(raw);
 const agents = Object.values(before.nodes).filter(n => n && n.kind === "agent");

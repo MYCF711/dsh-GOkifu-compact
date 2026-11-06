@@ -79,7 +79,7 @@ export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKEN
   }
   // ★ C520：**有前段缺口时，要压的是那个洞**（C519 之后 `tail` 可能已经是 0）。
   //   不处理的话：`closeoutExceedsLimit` 看到 tail=0 直接返回 null ⇒ 分段计划 0 段 ⇒
-  //   这类会话永远补不了（真机 session-00b50089：尾巴 0 事件、缺口 1,043k tok、0 段）。
+  //   这类会话永远补不了（真机 <SESSION_ID>：尾巴 0 事件、缺口 1,043k tok、0 段）。
   const gap = debt?.gap ?? null;
   const gapEvents = Number(gap?.events ?? 0);
   const tooBig = closeoutExceedsLimit(graph, maxTokens);
@@ -118,7 +118,7 @@ export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now 
     if (remaining <= 0) return { folded, stopped: "deadline", error: null };
     try {
       // ★ C531：**"调用了"不等于"折了"**。宿主 `compactRegion` 可能安静地什么都不做
-      //   （真机 1286ce28：closeout.folded=1，而 ledgerBudget 为 null、foldMarks 一条没多）。
+      //   （真机 <SESSION_ID>：closeout.folded=1，而 ledgerBudget 为 null、foldMarks 一条没多）。
       //   `fold` 返回 `{folded:false}` 就说明这一段是空转 ⇒ 不计入，并且停下来说明原因。
       const r = await fold(chunk.start, chunk.end, remaining);
       if (r !== null && r !== undefined && typeof r === "object" && r.folded === false) {

@@ -42,7 +42,7 @@
  *
  * 用法：
  *   node scripts/small-window-audit.mjs                    # 默认 --home $DSH_HOME
- *   node scripts/small-window-audit.mjs --home "D:/DeepSeek Harness/home"
+ *   node scripts/small-window-audit.mjs --home "<DSH_HOME_OR_INSTALL_DIR> Harness/home"
  *   node scripts/small-window-audit.mjs --small 20         # 「小窗口」阈值（默认 20）
  *   node scripts/small-window-audit.mjs --tiny 5           # 「极窄」阈值（默认 5）
  *   node scripts/small-window-audit.mjs --min 40           # 与 closeoutMinEvents 同义（默认 40）

@@ -2,7 +2,7 @@
  * version-path.test.mjs —— S10′：host 侧 `readVersion()` 在「含中文 / 空格 / % 号」的路径下必须读到真实版本
  *
  * 为什么单独立文件：这条缺陷的症状极轻（页面标题显示 `v?`），根因却是**路径解码**——
- * `new URL(import.meta.url).pathname` 得到的是百分号编码串（`/D:/%E4%B8%BB%E5%B7%A5…`），
+ * `new URL(import.meta.url).pathname` 得到的是百分号编码串（`/<LOCAL_WORKSPACE>`），
  * 在 Windows 上把盘符前的斜杠一剥，交给 `readFileSync` 就是 ENOENT；`readVersion()` 的
  * `catch` 把它吞成 `null`，页面 `v${state?.version ?? "?"}` 于是渲染成 `v?`。
  *
@@ -143,7 +143,7 @@ export const tests = {
 
   "file URL 转换：空格 / 非 ASCII / % 号经 fileURLToPath 还原；pathname 直读必失败（ASCII 对照组成功）": (t) => {
     // 对照组：纯 ASCII 路径 —— 旧表达式与 fileURLToPath 归一后必须等价。
-    // 只比转换结果、不要求该路径存在，因此不受本机 tmpdir 形态影响（本机 tmpdir 是 8.3 短名 ADMINI~1，
+    // 只比转换结果、不要求该路径存在，因此不受本机 tmpdir 形态影响（本机 tmpdir 是 8.3 短名 <LOCAL_USER~1>，
     // `~` 会被编码成 %7E —— 连「纯 ASCII 的临时目录」都会踩同一个坑，不能拿来当对照组）。
     const plain = "C:/s10p-ascii/plain/package.json";
     const plainUrl = pathToFileURL(plain);

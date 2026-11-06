@@ -17,7 +17,7 @@
  *      ⇒ 每一条合规摘要都被记成「合并」，合并率 100%，真合并被淹没；
  *   ④ **分母为 0 时给 null**：没有失败边的区间不是「100% 遵守」，也不是 0%。
  *
- * 另有两条**真机夹具**（`session-fdd814b1` 的 `e693—e698`、端到端读临时 home），
+ * 另有两条**真机夹具**（`<SESSION_ID>` 的 `e693—e698`、端到端读临时 home），
  * 保证口径在真数据形状上算得出来、且明细与汇总对得上。
  */
 import nodeFs from "node:fs";
@@ -140,7 +140,7 @@ tests["C645 切分点取较早的标题（约束补回段排在死路段之前�
 /* ─────────────────────── ② 区间合并（假阳守卫） ─────────────────────── */
 
 tests["C645 合规的「一行一条」不许被当成区间合并（`\\s*` 会把换行+列表符号当破折号）"] = (t) => {
-  // 真机形状（`session-8ef298d6` 的逐字片段）：断行**前面那个字符正好是个 id 引用**。
+  // 真机形状（`<SESSION_ID>` 的逐字片段）：断行**前面那个字符正好是个 id 引用**。
   //   `…↻2，↑later-ok:e117` ⏎ `- e164 \`bash(...\` → …`
   // 宽口径 `\s*` 会把「e117 + 换行 + `- ` + e164」读成区间 `e117–e164`（凭空吞掉 46 个 id）。
   const compliant = [
@@ -243,10 +243,10 @@ tests["C645 时间分桶：6h 边界与「一侧无样本」都不许编数"] = 
   t.eq(s.byTrigger[0].label, "archive-offline", "分组名");
 };
 
-/* ─────────────────────── ⑤ 真机夹具（fdd814b1） ─────────────────────── */
+/* ─────────────────────── ⑤ 真机夹具（<SESSION_ID>） ─────────────────────── */
 
-tests["C645 真机：session-fdd814b1 的 `e693—e698` 必须归因成「区间吞掉 4 个」"] = (t) => {
-  const g = createGraph({ sessionId: "session-fdd814b1", cwd: "E:/x" });
+tests["C645 真机：<SESSION_ID> 的 `e693—e698` 必须归因成「区间吞掉 4 个」"] = (t) => {
+  const g = createGraph({ sessionId: "<SESSION_ID>", cwd: "E:/x" });
   g.nodes = {
     n1: { id: "n1", kind: "user", seq: 1, turn: 1, text: "目标", constraints: [], ts: 1 },
     n2: { id: "n2", kind: "agent", seq: 5, turn: 1, text: "跑", ts: 2 },
@@ -261,7 +261,7 @@ tests["C645 真机：session-fdd814b1 的 `e693—e698` 必须归因成「区间
     "e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）。",
   ].join("\n");
   g.lastOfflineSummary = { at: 1, range: { start: 693, end: 698 }, text, model: "m" };
-  const row = markAdherence(g, markOf({ seqStart: 693, seqEnd: 698, summaryChars: text.length }), { index: 0, session: "session-fdd814b1" });
+  const row = markAdherence(g, markOf({ seqStart: 693, seqEnd: 698, summaryChars: text.length }), { index: 0, session: "<SESSION_ID>" });
   t.eq(row.edges, 6, "区间内 6 条失败边");
   t.eq(row.modelHit, 2, "逐字只命中首尾两个 id");
   t.eq(row.adherence, 2 / 6, "遵守率 0.333（真机 failureRecall 0.43 的口径差来自别的边）");

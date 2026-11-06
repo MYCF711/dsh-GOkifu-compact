@@ -22,7 +22,7 @@
  * 用法：
  *   node scripts/fold-loss-audit.mjs                          # 默认查 e694–e697（Lead 报的那 4 条）
  *   node scripts/fold-loss-audit.mjs --edges e3,e4            # 换目标边
- *   node scripts/fold-loss-audit.mjs --session fdd814b1       # 只看某个会话
+ *   node scripts/fold-loss-audit.mjs --session <SESSION_ID>       # 只看某个会话
  *   node scripts/fold-loss-audit.mjs --json                   # 机读
  *
  * 退出码：0 = 审计跑完（无论有没有命中）；1 = 一条都没命中（说明目标边/会话名给错了）。

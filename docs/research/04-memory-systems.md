@@ -56,7 +56,7 @@
 | OpenViking L0=256 / L1=4000、整句优先 | `docs/en/concepts/03-context-layers.md` L9–19 | ✅ 逐字；"Truncation prefers complete sentences … can retain the first complete sentence even when that sentence is longer" |
 | OpenViking 许可证 | `README.md` L339 | ✅ **AGPLv3** |
 | 三篇 arXiv 编号与标题 | `export.arxiv.org/api/query?id_list=…` | ✅ 2601.02553=SimpleMem v3；2507.03724=MemOS v4；2506.06326=Memory OS of AI Agent v1 |
-| 本机有无 Hindsight 插件源码 | 扫 `$DSH_HOME`=`D:\DeepSeek Harness\home`、`Desktop\resources\app.asar\dsh\` | ❌ **未找到**任何 `dsh.js` / `*hindsight*.mjs`；客户端实现细节**未核实**（配置语义只能从 `coding-agent.json` 的键与注释读） |
+| 本机有无 Hindsight 插件源码 | 扫 `$DSH_HOME`=`<DSH_HOME_OR_INSTALL_DIR> Harness\home`、`Desktop\resources\app.asar\dsh\` | ❌ **未找到**任何 `dsh.js` / `*hindsight*.mjs`；客户端实现细节**未核实**（配置语义只能从 `coding-agent.json` 的键与注释读） |
 
 **一处被复核推翻的说法**：任务书里「OpenViking = 目录递归检索」**不成立**。它是**全局向量检索 + 目录/类型/权限作约束**，文档逐字写了不递归。这对我们是正面的：**它也没把"顺目录一层层读"当检索手段**，与我们"不建检索层"不冲突——借的是分层披露的**形状**，不是它的检索实现。
 

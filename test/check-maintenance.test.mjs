@@ -31,7 +31,7 @@ function git(cwd, args) {
 
 /** 造一个「九项全过」的临时仓库：tag=version、CHANGELOG 有该版本、release.mjs 打 annotated tag、remote 合法。 */
 function makeFixture() {
-  // realpath：Windows 的 8.3 短名（ADMINI~1）会让 git 的 --show-toplevel 与 cwd 比不相等。
+  // realpath：Windows 的 8.3 短名（<LOCAL_USER~1>）会让 git 的 --show-toplevel 与 cwd 比不相等。
   const root = nodeFs.realpathSync.native(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-check-")));
   nodeFs.mkdirSync(nodePath.join(root, "src"), { recursive: true });
   nodeFs.mkdirSync(nodePath.join(root, "evidence"), { recursive: true });

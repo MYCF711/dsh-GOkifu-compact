@@ -73,7 +73,7 @@ function omissionLines(text) {
 export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now() } = {}) {
   // ★ C223：**用生产同一条分支**。hot-inject 对「零失败边」的会话走 renderMinimalLedger
   //   （26% 的真实会话），旧版这里一律 renderLedger ⇒ 检查的是一条产品根本不走的路
-  //   （实测 5df02bf8 / 30140e4c 因此误报 ⑥当前位置 FAIL）。
+  //   （实测 <SESSION_ID> / <SESSION_ID> 因此误报 ⑥当前位置 FAIL）。
   const zeroFailure = failureEdges(graph).length === 0;
   const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, { maxTokens, treeDir, traceRoot, now });
   const text = String(ledger.text ?? "");
@@ -132,7 +132,7 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
 
   // ⑤ 未验证声明：L0/L1 出完整列表；L2+ 出计数行（ed3e5b1 起）。**判据必须与 renderLedger 一致地排除 residue**
   //   —— 事实块（renderFacts）会列 residue 未验证边，而热清单按 P6-A 排除它们，直接把「facts 有 → ledger 必须有」
-  //   当判据会误报（P2-3，独立验证 2026-11-01：2fcebdc7 唯一未验证边是 residue）。
+  //   当判据会误报（P2-3，独立验证 2026-11-01：<SESSION_ID> 唯一未验证边是 residue）。
   const unverifiedEdges = edgeList.filter((e) => e?.result === "unverified" && !isDanglingResidue(e, { graph, now }));
   if (unverifiedEdges.length === 0) out.push(check("⑤未验证", "ok", "本会话没有（非残留的）未验证声明"));
   else if (text.includes("UNVERIFIED")) out.push(check("⑤未验证", "ok", `${unverifiedEdges.length} 条未验证声明仍在清单里`));
@@ -141,7 +141,7 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   // ⑥ 当前位置（只有当图里真的有路径时才要求 —— 没有 agent 节点的会话本来就没有路径可放）
   const factsHasPath = facts.includes("CURRENT_PATH:");
   // ★ C36.1：单独 WORKING 行（当前路径 === 工作路径时 ledger 只写这一行）也是「当前位置」。
-  //   旧判据只认 CURRENT PATH / # path: / # WORKING: —— live 会话因它误报 FAIL（实测 7520721a）。
+  //   旧判据只认 CURRENT PATH / # path: / # WORKING: —— live 会话因它误报 FAIL（实测 <SESSION_ID>）。
   const hasPath =
     text.includes("CURRENT PATH") || text.includes("# path:") || text.includes("# WORKING:") || /^WORKING:/m.test(text);
   out.push(

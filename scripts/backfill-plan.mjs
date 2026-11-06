@@ -205,7 +205,7 @@ export function debtAttemptState(graph) {
   if (note !== "") return { retried: true, note };
   const err = String(c.foldError ?? "");
   if (err !== "") return { retried: true, note: err.slice(0, 60) };
-  // ★ C479：分段收尾只折了 0/2 段、又没有 error 的情况（真机 c460d468 就是这种）
+  // ★ C479：分段收尾只折了 0/2 段、又没有 error 的情况（真机 <SESSION_ID> 就是这种）
   if (Number(c.chunkedChunks) > 0) {
     const folded = Number(c.chunkedFolded) || 0;
     const stopped = typeof c.chunkStopped === "string" ? `（${c.chunkStopped}）` : "";

@@ -31,7 +31,7 @@
  *   node scripts/structure-audit.mjs                    # 最近 10 条（有正文的）
  *   node scripts/structure-audit.mjs --limit=10
  *   node scripts/structure-audit.mjs --all              # 连正文未落盘的一起列（判定=无法判定）
- *   node scripts/structure-audit.mjs --session=d70b7c2f # 只看某个会话
+ *   node scripts/structure-audit.mjs --session=<SESSION_ID> # 只看某个会话
  *   node scripts/structure-audit.mjs --home D:/x/home   # 指定 home
  *   node scripts/structure-audit.mjs --json             # 机读
  *

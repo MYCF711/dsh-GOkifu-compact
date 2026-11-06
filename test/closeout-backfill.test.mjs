@@ -267,7 +267,7 @@ tests["C299 「折过了」要认分段收尾（closeout.chunkedFolded），否�
 };
 
 tests["C515 欠账必须按 foldMarks 算，不许按 lastFoldSeq —— 两者在真机上会差两千事件"] = async (t) => {
-  // 真机样本（a09a4535，2026-11-04）：会话跑到 5862，最后一次折叠**区间**只到 1874，
+  // 真机样本（<SESSION_ID>，2026-11-04）：会话跑到 5862，最后一次折叠**区间**只到 1874，
   // 而 `lastFoldSeq` 记的是「那次折叠时会话的 seq」= 3544。用 lastFoldSeq 算尾巴会漏掉 1670 个事件。
   const g = mkGraph({
     seqs: [1, 1874, 3544, 5862],
@@ -296,7 +296,7 @@ tests["C518 补账以图上的结局为准：调用成功 ≠ 真的折了"] = a
   const report = await runBackfill({
     items: [{ sessionId: "s1", tail: 100 }],
     resolveAgent: async () => ({ session: { id: "s1" } }),
-    // 引擎返回"成功"，但图上写的是失败 —— 真机 c460d468 的形状
+    // 引擎返回"成功"，但图上写的是失败 —— 真机 <SESSION_ID> 的形状
     closeout: async () => {
       calls.push("closeout");
       return { folded: true };

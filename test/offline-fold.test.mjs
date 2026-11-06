@@ -436,7 +436,7 @@ tests["C540 建议篇幅按输入规模给（固定 800–2500 在两端都不�
   t.includes(prompt, "按输入规模算出来的", "prompt 里要说明是算出来的");
 };
 
-tests["C555 no-op 必须能触发离线补折（真机 4f3cae10 就是空转）"] = async (t) => {
+tests["C555 no-op 必须能触发离线补折（真机 <SESSION_ID> 就是空转）"] = async (t) => {
   const m = await import("../src/rooms/offline-fold.mjs");
   const base = { closeout: null, tailEvents: 757, enabled: true, minEvents: 40 };
   t.eq(m.shouldTryOfflineFold({ ...base, reason: "no-op" }).go, true, "C531 的停止原因要算「放弃」");

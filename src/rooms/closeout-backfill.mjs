@@ -135,7 +135,7 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
   // ★ C519：**离线补折留下的"洞"也要算欠账**。
   //   离线补折是"从尾巴往前压"的：压完尾巴后 `foldMarks` 前进到 maxSeq，欠账数字变 0 ——
   //   但前段（head）那段**从来没被压过**，如果不记着它，这个洞就**永久消失**了
-  //   （真机 2026-11-04：8cc34e32 前段 8,000+ 事件就是这样被"折过去了"）。
+  //   （真机 2026-11-04：<SESSION_ID> 前段 8,000+ 事件就是这样被"折过去了"）。
   //   所以把 `closeout.offlineUncoveredHead` 当成**未结清的欠账**带出来。
   const gapEvents = Math.max(0, Number(graph?.closeout?.offlineUncoveredHead?.events ?? 0));
   // ★ C523：兼容两种历史写法（`from` 是新的，`start` 是脚本早期写的）—— 两种都要认，否则游标永远是 1
@@ -152,7 +152,7 @@ export function debtOfGraph(graph, { minEvents = DEFAULT_MIN_EVENTS } = {}) {
    *     `offlineUncoveredHead: {events: 5}`（前段 5 个事件没压）
    *     `offlineUncoveredTail: {events: 339}`（尾巴 339 个事件没压）
    *   而 `due` 只看了前者（5 < 40 ⇒ 不欠），于是后者永远补不到。
-   *   最刺眼的是 `19e24ef7` 那一类：尾巴 363 / 缺口 5 ⇒ 判"不欠"。
+   *   最刺眼的是 `<SESSION_ID>` 那一类：尾巴 363 / 缺口 5 ⇒ 判"不欠"。
    *
    *   本模块自己的另外两处口径都是**相加**的（`estTokens` 的 `tail + gapEvents`、
    *   `rankDebts` 的 `tail + gapEvents`、`closeout-plan` 的 `tooBig.tail + gapEvents`）——
@@ -251,7 +251,7 @@ export function rankDebts(items, { limit = DEFAULT_LIMIT } = {}) {
  * ★ C518：把「图上写的结局」翻译成补账记录里的字段。
  *
  * 为什么需要：`closeout()` 返回的是**调用结果**，而账本在图上。两者不一致时，
- * 界面上"成功了"会掩盖真实失败（真机 c460d468 就是这样）。这里以图为准。
+ * 界面上"成功了"会掩盖真实失败（真机 <SESSION_ID> 就是这样）。这里以图为准。
  *
  * @param {(sessionId: string) => object|null} readGraph
  * @param {string} sessionId
@@ -294,7 +294,7 @@ export async function runBackfill({
   closeout,
   /**
    * ★ C518：**读回图上的真实结局**。`closeout()` 的返回值是"调用成功"，
-   * 不等于"真的折了" —— 真机（2026-11-04 c460d468）面板报 `folded:1`，图上写的是
+   * 不等于"真的折了" —— 真机（2026-11-04 <SESSION_ID>）面板报 `folded:1`，图上写的是
    * `folded:0 / foldError:"start seq 496 not found in surface"`。
    * 给了这个函数就以图为准；不给就退回旧行为（调用方自己负责诚实）。
    * @type {((sessionId: string) => object|null) | undefined}

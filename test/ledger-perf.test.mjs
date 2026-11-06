@@ -1,7 +1,7 @@
 /**
  * ledger-perf.test.mjs —— 热清单渲染不许在大图上白烧时间（C561）
  *
- * 真机（c0a5847a，5,885 节点 / 6,010 边）：单次渲染 137.8ms，每步注入都付一次。
+ * 真机（<SESSION_ID>，5,885 节点 / 6,010 边）：单次渲染 137.8ms，每步注入都付一次。
  * 其中 **72.3ms 是 30 次 tewariAnalysis**（每条失败边一次可达性 BFS）。
  */
 import nodeFs from "node:fs";

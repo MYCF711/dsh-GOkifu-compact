@@ -63,7 +63,7 @@ tests["V02 单位成本：分母 0 必须是 null，不能造出 Infinity 或 $0
 };
 
 tests["V03 树路径只认带 sid 的 chess-context；裸 n1/graph.json 不算"] = (t) => {
-  const path = `D:/DeepSeek Harness/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
+  const path = `D:/fixture/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
   const refs = extractTreeRefs(`read ${path} and graph.json and n1`);
   t.eq(refs, [{ source: bareSessionId(SOURCE), asset: "nodes/n7.md" }]);
   t.eq(extractTreeRefs("read graph.json; grep n1"), []);
@@ -89,7 +89,7 @@ tests["V05 新会话 compaction/summary 复用旧摘要 = 真使用；同会话�
 };
 
 tests["V06 主动 read/grep：归档前与 asOf 后都排除；assistant/tool/call 双写去重"] = (t) => {
-  const path = `D:/DeepSeek Harness/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
+  const path = `D:/fixture/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
   const args = { file_path: path };
   const events = [
     call("read", args, { seq: 1, time: 500, id: "before" }),
@@ -103,13 +103,13 @@ tests["V06 主动 read/grep：归档前与 asOf 后都排除；assistant/tool/ca
 };
 
 tests["V07 graph.json 与 lastOfflineSummary 是主动信号；根树 grep 单列不乱归属"] = (t) => {
-  const graph = `D:/DeepSeek Harness/home/chess-context/sessions/${SOURCE}/graph.json`;
+  const graph = `D:/fixture/home/chess-context/sessions/${SOURCE}/graph.json`;
   const direct = scanSessionEvents([
     call("grep", { path: graph, pattern: "lastOfflineSummary" }, { id: "g1" }),
   ], { readerSessionId: READER, archive: archiveMap(), fingerprintIndex: new Map(), asOf: AS_OF });
   t.eq(direct.uses[0].subkinds, ["graphJson", "lastOfflineSummary"]);
   const root = scanSessionEvents([
-    call("grep", { path: "D:/DeepSeek Harness/home/chess-context/sessions", pattern: "lastOfflineSummary" }, { id: "g2" }),
+    call("grep", { path: "D:/fixture/home/chess-context/sessions", pattern: "lastOfflineSummary" }, { id: "g2" }),
   ], { readerSessionId: READER, archive: archiveMap(), fingerprintIndex: new Map(), asOf: AS_OF });
   t.eq(root.uses.length, 0);
   t.eq(root.unattributedActive, 1);
@@ -199,7 +199,7 @@ function writeFixtureHome() {
   const events = [
     { type: "compaction/summary", seq: 2, time: 2_000, data: { summary: UNIQUE_LINE } },
     { type: "user/message", seq: 3, time: 2_001, data: { source: { kind: "chess-context" }, content: [{ type: "text", text: UNIQUE_LINE }] } },
-    call("read", { file_path: `D:/DeepSeek Harness/home/chess-context/sessions/${SOURCE}/graph.json` }, { seq: 4, time: 2_002, id: "r1" }),
+    call("read", { file_path: `D:/fixture/home/chess-context/sessions/${SOURCE}/graph.json` }, { seq: 4, time: 2_002, id: "r1" }),
     call("hindsight_search_knowledge_pages", { query: "旧事实" }, { seq: 5, time: 2_003, id: "h1" }),
     { type: "tool/result", seq: 6, time: 2_004, data: { callId: "h1", content: [{ type: "text", text: UNIQUE_LINE }] } },
   ];
@@ -236,7 +236,7 @@ tests["V14 CLI 错误 home/未知参数返回 2，不静默拿别的 home 充数
 tests["V15 分段时序：两段之间读取可算第一段；第三段正文不许倒算到第一段"] = (t) => {
   const archives = archiveMap();
   archives.get(bareSessionId(SOURCE)).archiveAts = [1_000, 3_000];
-  const path = `D:/DeepSeek Harness/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
+  const path = `D:/fixture/home/chess-context/sessions/${SOURCE}/nodes/n7.md`;
   const between = scanSessionEvents([
     call("read", { file_path: path }, { time: 2_000, id: "between" }),
   ], { readerSessionId: READER, archive: archives, fingerprintIndex: new Map(), asOf: AS_OF });

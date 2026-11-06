@@ -1,7 +1,7 @@
 /**
  * fold-loss.test.mjs —— **「折叠后失败边消失」的守卫**（C607）
  *
- * 由来（真机，2026-11-04 19:00:57Z，`session-fdd814b1-9c44-4c7d-8777-862d456f21a4`
+ * 由来（真机，2026-11-04 19:00:57Z，`<SESSION_ID>`
  * 的 `foldMark #10`，`trigger=archive-offline`，区间 seq 3472-3705）：
  *   doctor 报「压缩保真度 · 丢失的失败边 — e694, e695, e696, e697」，
  *   而这 4 条边的 `evidence` 全都落在折叠区间**内**（3624-3628 / 3624-3630 / 3624-3632 / 3624-3634）。
@@ -34,8 +34,8 @@ const { buildOfflinePrompt, compactAction, renderFacts, repairMissingFailures, r
 export const tests = {};
 
 /* ───────────────────────── 真机夹具（逐字来自 graph.json） ───────────────────────── */
-const DOCS = String.raw`D:\DeepSeek Harness\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs`;
-const POSIX = "/d/DeepSeek Harness/default-workspace/projects/dsh/plugins/ptc-domain-presets/docs";
+const DOCS = String.raw`D:/fixture\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs`;
+const POSIX = "D:/fixture/default-workspace/projects/dsh/plugins/ptc-domain-presets/docs";
 
 /** 造一条真机形状的失败边（动作是长 Windows 路径，错误是带引号 POSIX 路径 + 原因）。 */
 const failedEdit = (id, file, start, end, to = "n462") => ({
@@ -186,7 +186,7 @@ tests["C607 事实块：动作里的文件名必须活过 80 字符截断（旧�
   }
   // 错误原文里真正有用的那半句（原因）也不许被切掉
   t.includes(facts, "file has not been read", "错误原因要留住（它才是「为什么失败」）");
-  t.eq(facts.includes(String.raw`D:\DeepSeek Harness`), false, "盘符与目录不该占满 80 字符的预算");
+  t.eq(facts.includes(String.raw`D:/fixture`), false, "盘符与目录不该占满 80 字符的预算");
   // 每条失败边仍然是**一行一条**（不许合并）
   for (const id of ["e693", "e694", "e695", "e696", "e697", "e698", "e699"]) {
     t.eq(facts.split("\n").filter((line) => line.startsWith(`- ${id} `)).length, 1, `${id} 必须单独一行`);

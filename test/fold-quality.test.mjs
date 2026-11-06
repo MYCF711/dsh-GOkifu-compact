@@ -291,7 +291,7 @@ tests["C528 结构契约：截断的摘要必须能被机器看出来（别只�
   t.eq(s1.sectionsMissing, [], "齐全的摘要不该报缺段");
   t.eq(s1.endedCleanly, true, "结尾干净");
 
-  // 真机 8cc34e32 的截断形状：停在 `grep -n "` 上，召回率却全是 1
+  // 真机 <SESSION_ID> 的截断形状：停在 `grep -n "` 上，召回率却全是 1
   const cut = "## 目标\n- 把构建跑通\n## 棋谱\n- grep -n \"";
   const s2 = m.describeStructure(cut, { expectFailures: true });
   t.eq(s2.sectionsMissing, ["死路"], "缺死路段");

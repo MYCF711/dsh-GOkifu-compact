@@ -26,13 +26,13 @@ node test/verify-install.mjs
 ### 2. 看一次真实会话的棋谱
 
 ```bash
-ls -lt "D:/DeepSeek Harness/home/chess-context/sessions" | head -3
+ls -lt "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions" | head -3
 ```
 
 挑最新那个目录，看 `graph.json`：
 
 ```bash
-node -e "const g=require('D:/DeepSeek Harness/home/chess-context/sessions/<目录>/graph.json'); console.log('节点',Object.keys(g.nodes).length,'边',Object.keys(g.edges).length,'fold',g.foldCount)"
+node -e "const g=require('<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions/<目录>/graph.json'); console.log('节点',Object.keys(g.nodes).length,'边',Object.keys(g.edges).length,'fold',g.foldCount)"
 ```
 
 期望：节点数 > 0、边数 > 0。

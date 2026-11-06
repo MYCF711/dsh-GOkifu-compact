@@ -18,145 +18,145 @@
   },
   "entries": [
     {
-      "session": "266d5133-dee8-46bf-a67b-2d50942fafdf",
+      "session": "<SESSION_ID>",
       "tokens": 419,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "2fcebdc7-bb7c-4645-82f2-5d1972496752",
+      "session": "<SESSION_ID>",
       "tokens": 32,
       "fallback": "none",
       "level": 0
     },
     {
-      "session": "3a50f4d2-8df2-4fc6-9a1d-6f69d16e594c",
+      "session": "<SESSION_ID>",
       "tokens": 459,
       "fallback": "none",
       "level": 1
     },
     {
-      "session": "5c4bf5c6-8ee2-4b31-bf91-07134464215e",
+      "session": "<SESSION_ID>",
       "tokens": 485,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "5df02bf8-3f49-4f5b-a376-4c1c69922bdc",
+      "session": "<SESSION_ID>",
       "tokens": 35,
       "fallback": "none",
       "level": 0
     },
     {
-      "session": "634616f8-65e6-4818-84a8-80f51e30e805",
+      "session": "<SESSION_ID>",
       "tokens": 341,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "74b9db26-99de-4105-964a-ced59b994551",
+      "session": "<SESSION_ID>",
       "tokens": 480,
       "fallback": "none",
       "level": 1
     },
     {
-      "session": "8ef298d6-036d-4a29-a1a6-3ec072ace1d9",
+      "session": "<SESSION_ID>",
       "tokens": 480,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "8fe881d1-a0ff-46f4-8613-de8f509d96a0",
+      "session": "<SESSION_ID>",
       "tokens": 521,
       "fallback": "over-budget",
       "level": 5
     },
     {
-      "session": "90c64a60-4ca1-418c-a664-7e58e44d3a41",
+      "session": "<SESSION_ID>",
       "tokens": 377,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "9d5551ed-3647-4e6e-862f-226859c3bb0c",
+      "session": "<SESSION_ID>",
       "tokens": 451,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "ae858f87-fc67-4db7-8021-9c49556de715",
+      "session": "<SESSION_ID>",
       "tokens": 477,
       "fallback": "none",
       "level": 2
     },
     {
-      "session": "bbdbb5a2-abf1-4ccf-89a0-6c949087a5de",
+      "session": "<SESSION_ID>",
       "tokens": 242,
       "fallback": "none",
       "level": 0
     },
     {
-      "session": "c7b857f1-8f8b-4f1f-8eca-d53b3f54f55f",
+      "session": "<SESSION_ID>",
       "tokens": 528,
       "fallback": "over-budget",
       "level": 3
     },
     {
-      "session": "f5f5f84a-fe54-4684-bd2f-ea663fdb2a9a",
+      "session": "<SESSION_ID>",
       "tokens": 183,
       "fallback": "none",
       "level": 0
     },
     {
-      "session": "fa84bf69-0e4b-422c-aed9-85b8c2462359",
+      "session": "<SESSION_ID>",
       "tokens": 419,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "session-00b50089-b7a1-4a5a-8d3f-c5775a7329a0",
+      "session": "<SESSION_ID>",
       "tokens": 395,
       "fallback": "none",
       "level": 5
     },
     {
-      "session": "session-1286ce28-dba8-448b-9827-e6ccacdf9806",
+      "session": "<SESSION_ID>",
       "tokens": 423,
       "fallback": "none",
       "level": 2
     },
     {
-      "session": "session-1e82afca-8be2-42f9-8186-2bd274e30342",
+      "session": "<SESSION_ID>",
       "tokens": 455,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "session-7520721a-fcb5-43ce-a37f-35265b33a417",
+      "session": "<SESSION_ID>",
       "tokens": 311,
       "fallback": "none",
       "level": 0
     },
     {
-      "session": "session-75e7347e-57b4-4487-ad2f-554f6581b710",
+      "session": "<SESSION_ID>",
       "tokens": 383,
       "fallback": "none",
       "level": 2
     },
     {
-      "session": "session-8cc34e32-c35d-41c1-90f4-f658dc7244d2",
+      "session": "<SESSION_ID>",
       "tokens": 468,
       "fallback": "none",
       "level": 3
     },
     {
-      "session": "session-a1aab8ef-8509-48fd-91c3-0379c7716104",
+      "session": "<SESSION_ID>",
       "tokens": 356,
       "fallback": "none",
       "level": 2
     },
     {
-      "session": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
+      "session": "<SESSION_ID>",
       "tokens": 688,
       "fallback": "over-budget",
       "level": 3

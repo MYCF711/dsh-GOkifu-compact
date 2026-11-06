@@ -48,14 +48,14 @@ node test/verify-graphs.mjs    # 23 个会话全健康，退出码 0
 
 - 每个会话的 `renderFacts()` 与 `renderLedger()` 都跑通（抛错 = 压缩 100% 失败，是本次事故的直接形态）
 - 重新序列化后**对象残留 0**（磁盘靠插件下次 `#flush` 写回，不需要手工迁移 23 个文件）
-- 事故会话 `session-5acafe42`：211 个 agent 节点 / 对象 206 → 0 / `stateIndex` 3 → 49 / `renderFacts` 输出 39,336 字符
+- 事故会话 `<SESSION_ID>`：211 个 agent 节点 / 对象 206 → 0 / `stateIndex` 3 → 49 / `renderFacts` 输出 39,336 字符
 
 ### 2.2 旧三层树重建（人读视图也一起治）
 
 事故会话的 `nodes/*.md` 里状态字段是 bug 的残影：`worldHash: [object Obje`、`constraintHash: pending`。
 
 ```bash
-node test/build-tree.mjs "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-..."
+node test/build-tree.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions/<SESSION_ID>-..."
 # built 267 nodes
 ```
 
@@ -79,7 +79,7 @@ node test/build-tree.mjs "D:/DeepSeek Harness/home/chess-context/sessions/sessio
 
 ## 三 · 真实日志独立核对（不是转述，是重新数的）
 
-### 3.1 故障会话 `session-5acafe42`（`session.v4.jsonl.zstd`，解压后 20,468,318 字节）
+### 3.1 故障会话 `<SESSION_ID>`（`session.v4.jsonl.zstd`，解压后 20,468,318 字节）
 
 | 项 | 数值 | 数法 |
 |---|---:|---|

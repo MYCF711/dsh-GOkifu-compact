@@ -344,7 +344,7 @@ Object.assign(tests, {
     t.includes(text, "CONSTRAINTS: 2", "必须带约束数量");
     t.includes(text, "NO_FAILED_ATTEMPTS_YET", "必须明说「还没有失败」");
     // ★ C223：零失败会话占真实会话的约 26%，旧版最小清单**完全没有当前位置**（契约 ⑥ 违反）。
-    //   handoff-check 在 live 上抓到 2 个会话（5df02bf8 / 30140e4c）就是这个原因。
+    //   handoff-check 在 live 上抓到 2 个会话（<SESSION_ID> / <SESSION_ID>）就是这个原因。
     t.includes(text, "# path:", "最小清单也必须给出当前位置（契约 ⑥）");
     const lineCount = text.split("\n").length;
     t.eq(lineCount <= 7, true, `极简注入必须短（实际 ${lineCount} 行）`);

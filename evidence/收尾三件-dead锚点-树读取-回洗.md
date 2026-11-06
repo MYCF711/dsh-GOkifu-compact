@@ -11,7 +11,7 @@
 `same_position` ⇒ `redundantVs` 非空）：
 
 ```
-- e389 "edit(file_path=/d/主工作…" → Error: cannot edit "/d/主… [dead retry-if:e384+1]
+- e389 "edit(file_path=<LOCAL_WORKSPACE>" → Error: cannot edit "<LOCAL_WORKSPACE> [dead retry-if:e384+1]
 ```
 
 图例同步：`dead = a working path avoids it — retry only if retry-if breaks`。
@@ -35,7 +35,7 @@ TRACE: <sessions>/<sid>/index.md  (per-node detail: nodes/<id>.md)
 
 | 样本 | 读了什么 | 结果 |
 |---|---|---|
-| 1 | `index.md`、`graph.md`、`nodes/n7.md`、`n88.md`、`n195.md` | 把 13 条被省略的失败做法**逐条重建**（e12 grep text:? → Cannot find module / e217 subagent 限流 / e268 /tmp 与 D:\tmp 错位 …） |
+| 1 | `index.md`、`graph.md`、`nodes/n7.md`、`n88.md`、`n195.md` | 把 13 条被省略的失败做法**逐条重建**（e12 grep text:? → Cannot find module / e217 subagent 限流 / e268 /tmp 与 <LOCAL_TEMP_DIR> 错位 …） |
 | 2 | `index.md`、`graph.json`、12 个 `nodes/*.md` | 同上 13 条，并**发现 index.md 已过期**（350 边/17 失败），改用 graph.json（447 边/23 失败）作权威 |
 
 两条都「不用我告诉它去哪」。**结论：清单给出的路径是决定性变量** —— 旧版给的是死指针
@@ -44,7 +44,7 @@ TRACE: <sessions>/<sid>/index.md  (per-node detail: nodes/<id>.md)
 **副作用（如实记录）**：`index.md` 只在「首次 flush / fold 之后」写，所以会话很长时它会**落后于 graph.json**。
 样本 2 自己发现了这点。两条路可选（都还没做）：把真源写进 TRACE 行，或提高树的刷新频率。
 
-## ④ 历史误报回洗（`session-5acafe42`）
+## ④ 历史误报回洗（`<SESSION_ID>`）
 
 **工具**：`test/rewash-graph.mjs <sessionDir> [--apply] [--force]`。默认 dry-run；写前备份
 `graph.json.bak-before-rewash-<ts>`；会话日志 2 分钟内还在写就**拒绝**执行（运行中的 `#flush` 会覆盖）。
@@ -75,7 +75,7 @@ e17 (write)     failure/text → failure/host-error + snippet 换成 "Error: can
 
 **复跑**：
 ```bash
-node test/rewash-graph.mjs "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-b85b-4e06-845a-65428b43d7c0"          # dry-run
+node test/rewash-graph.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions/<SESSION_ID>"          # dry-run
 node test/rewash-graph.mjs "…同上…" --apply   # 会再洗一遍（幂等：已洗过的 kind 不再是 text，自动跳过）
 ```
 

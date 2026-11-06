@@ -25,7 +25,30 @@ const SRC_DIR = nodePath.join(REPO, "src");
 const STUBS = nodePath.join(SRC_DIR, ".harness-stubs");
 const LLM_STUB = nodePath.join(STUBS, "stub-llm-test-instance.mjs");
 const ENGINE_COPY = nodePath.join(SRC_DIR, ".engine-under-test-test-instance.mjs");
-const REAL_SESSION = "010c3b44";
+
+/** 动态寻找 T64 所需的真机形状，避免把真实会话 ID 写进公开仓库。 */
+export function findFictitiousGapSession(home) {
+  const explicit = String(process.env.DSH_GOKIFU_TEST_SESSION ?? "").trim();
+  if (explicit !== "") return explicit;
+  for (const log of listSessionLogs(home)) {
+    try {
+      const events = readSessionEvents(log);
+      const leading = events.filter((event) => Number(event.seq) >= 1 && Number(event.seq) <= 8);
+      if (leading.length !== 8 || collectMessages(leading, { maxChars: Number.MAX_SAFE_INTEGER }).messages.length !== 0) continue;
+      const after = collectMessages(events, { maxChars: Number.MAX_SAFE_INTEGER, fromSeq: 9 }).messages;
+      if (after[0]?.seq === 9) return nodePath.basename(nodePath.dirname(log));
+    } catch {
+      // 坏日志跳过，继续找满足形状的真机样本。
+    }
+  }
+  return null;
+}
+
+function requiredRealSession(home) {
+  const found = findFictitiousGapSession(home);
+  if (found === null) throw new Error(`找不到 seq 1–8 全非消息、seq 9 首条可折的真机日志（home=${home}）`);
+  return found;
+}
 const TIMEOUT_MS = 240_000;
 
 const LLM_SOURCE = `export class LlmError extends Error {
@@ -327,7 +350,7 @@ export async function verifySmallWindows(options = {}) {
 
 export async function verifyFictitiousGap(options = {}) {
   return withIsolatedHome("t64", options, async ({ home, sourceHome }) => {
-    const staged = stageLog(sourceHome, REAL_SESSION, home);
+    const staged = stageLog(sourceHome, requiredRealSession(sourceHome), home);
     const events = readSessionEvents(staged.isolatedLog);
     const leading = events.filter((e) => Number(e.seq) >= 1 && Number(e.seq) <= 8);
     const leadingFoldable = collectMessages(leading, { maxChars: Number.MAX_SAFE_INTEGER }).messages.length;
@@ -370,7 +393,7 @@ export async function verifyFictitiousGap(options = {}) {
 
 export async function verifyTransportClassification(options = {}) {
   return withIsolatedHome("t66", options, async ({ home, sourceHome, register }) => {
-    const staged = stageLog(sourceHome, REAL_SESSION, home);
+    const staged = stageLog(sourceHome, requiredRealSession(sourceHome), home);
     const events = readSessionEvents(staged.isolatedLog);
     writeGraph(home, staged.sessionId, graphFromRealLog(staged.sessionId, events));
     const { harness } = await loadTestEngine();
@@ -413,7 +436,7 @@ export async function verifyTransportClassification(options = {}) {
 
 async function transportRetryCase(label, randomValues, expectedDelays, options) {
   return withIsolatedHome(label, options, async ({ home, sourceHome, register }) => {
-    const staged = stageLog(sourceHome, REAL_SESSION, home);
+    const staged = stageLog(sourceHome, requiredRealSession(sourceHome), home);
     const events = readSessionEvents(staged.isolatedLog);
     writeGraph(home, staged.sessionId, graphFromRealLog(staged.sessionId, events));
     const { harness } = await loadTestEngine();

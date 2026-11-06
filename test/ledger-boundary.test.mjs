@@ -304,7 +304,7 @@ tests["#4 重注入契约：根目标/约束/失败边/OPTIONS/未验证/出处 
  * 同时不允许泄漏绝对路径（P6a：会带出本机用户名/盘符，且白烧 token）。
  */
 
-const ABS_TREE = "D:\\DeepSeek Harness\\home\\chess-context\\sessions\\sess-abc";
+const ABS_TREE = "D:/fixture\\home\\chess-context\\sessions\\sess-abc";
 
 tests["J 热清单省略行：给出相对化的可解析位置，绝不泄漏绝对路径"] = (t) => {
   const now = Date.now();
@@ -315,7 +315,7 @@ tests["J 热清单省略行：给出相对化的可解析位置，绝不泄漏�
   t.includes(withDir.text, "omitted for budget", "有边被省略时必须出现省略行（沉默 = 断言没有）");
   t.includes(withDir.text, "sessions/sess-abc/graph.json", "省略行必须给出可解析的位置（相对化）");
   t.includes(withDir.text, "nodes/<id>.md", "还要给出逐节点文件的取法");
-  t.notIncludes(withDir.text, "D:\\DeepSeek Harness", "不许把绝对路径写进热清单");
+  t.notIncludes(withDir.text, "D:/fixture", "不许把绝对路径写进热清单");
   const bare = renderLedger(g, { now, maxTokens: 120, tailFailures: 1 });
   t.includes(bare.text, "graph.json", "没有 treeDir 时也必须留一个可解析指向（不许只剩泛称）");
 };
@@ -326,7 +326,7 @@ tests["K 摘要事实块省略行：同样带可解析位置（相对路径 + �
   const facts = renderFacts(g, { maxFailures: 2, headFailures: 1, treeDir: ABS_TREE, traceRoot: "sessions" });
   t.includes(facts, "FAILED_ATTEMPTS_OMITTED", "极端规模下必须显式声明「有失败边没列」");
   t.includes(facts, "sessions/sess-abc/graph.json", "省略行必须给出去哪查（相对化）");
-  t.notIncludes(facts, "D:\\DeepSeek Harness", "摘要事实块同样不许泄漏绝对路径");
+  t.notIncludes(facts, "D:/fixture", "摘要事实块同样不许泄漏绝对路径");
   const bare = renderFacts(g, { maxFailures: 2, headFailures: 1 });
   t.includes(bare, "graph.json", "无 treeDir 时退化为 graph.json，但仍有指向");
   t.includes(bare, "do not invent", "原有的「不许编造/合并」保真语义不能丢");

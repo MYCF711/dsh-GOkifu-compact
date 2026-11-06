@@ -1,12 +1,12 @@
 {
   "generatedAt": "2026-11-01T20:20:36Z",
-  "home": "D:\\DeepSeek Harness\\home",
+  "home": "<DSH_HOME_OR_INSTALL_DIR> Harness\\home",
   "budget": 500,
   "sessions": 24,
   "unreadable": 0,
   "over": [
     {
-      "session": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7",
+      "session": "<SESSION_ID>",
       "tokens": 641,
       "over": 141,
       "fallback": "over-budget",
@@ -18,7 +18,7 @@
       "reason": "irreducible"
     },
     {
-      "session": "c7b857f1-8f8b-4f1f-8eca-d53b3f54f55f",
+      "session": "<SESSION_ID>",
       "tokens": 537,
       "over": 37,
       "fallback": "over-budget",
@@ -42,6 +42,6 @@
       "floor": 1
     },
     "topSessionChanged": false,
-    "topSession": "session-d70b7c2f-c43e-41bd-8882-7dbfd6cafeb7"
+    "topSession": "<SESSION_ID>"
   }
 }

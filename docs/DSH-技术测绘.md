@@ -4,10 +4,10 @@
 > asar 根 `package.json` = `"version": "0.2.0-rc.2"`（`app.asar:/package.json`）；
 > 运行时清单 `app.asar:/dsh/package.json` = `"@deepseek-ai/dsh-desktop-runtime" 0.2.0-rc.2`，
 > 其 `dependencies` 里每个包（`@deepseek-ai/dsh`、`dsh-compaction`、`dsh-compaction-basic`…）都是 `0.2.0-rc.2`；
-> `D:\DeepSeek Harness\resources\runtime\versions.json` = `{"node":"24.18.1","pnpm":"11.7.0"}`。
+> `<DSH_HOME_OR_INSTALL_DIR> Harness\resources\runtime\versions.json` = `{"node":"24.18.1","pnpm":"11.7.0"}`。
 > 全文按 **0.2.0-rc.2** 取证。若实现时要写 peer 版本，必须写精确 `0.2.0-rc.2`（见 §9 陷阱 12）。
 
-> **取证方式**：所有源码结论来自对 `D:\DeepSeek Harness\resources\app.asar` 的只读导出。
+> **取证方式**：所有源码结论来自对 `<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar` 的只读导出。
 > 逐字引用的行号 = 包内 `lib/index.js` 的行号（导出件与 asar 内文件 `diff` 一致，已核）。
 > 导出件在 `<WORKSPACE>\tmp\context-plugin\asar-extract\`，复现命令见附录 A。
 > 材料清单里的 `tmp/context-plugin/docs/dsh-compaction.lib.index.js`（seam 175 行）与
@@ -26,7 +26,7 @@
 7. **不要在 `session/event` 监听器里调 `session.append`**：append 在广播期间置 `entry.appending = true`，重入直接抛错，而错误被 `invokeContainedSessionObservers` **吞成 logger.warn**（`dsh-session/lib/index.js:1441-1481`、`1228-1237`）。每步落账要么只写文件，要么用 `agent/pre-step` / `agent/turn-stopping` 这两个可 await 的钩子，要么 `queueMicrotask` 延后。
 8. **`agent/pre-step` 是「每步边界」唯一可安全落账的 durable 写点**：waterfall，入参 `{agent, messages, turn, step, signal}`，返回 `PreStepDecision = {kind:'reject'} | {kind:'enter', messages, startsRequestSeries?}`（api-catalog:5951、3764-3770）。官方自动压缩就挂在这里（basic:839-852）。
 9. **摘要必须严格更小**：`estimateMessage(checkpointMessage) >= shadowedRouteTokenCount` 直接抛 `summary is not smaller than the shadowed content`（basic:600-601）。想「压完反而更大」的路子在事务层就被拒。
-10. **`dsh plugin --profile desktop` 只有 Desktop 自带 CLI 能跑**：`manageDesktopProfile` 只有 `dsh-desktop-host/lib/cli.js:94` 传 true；普通 `dsh` 二进制的 `runCli()` 不传 → `rejectElectronProfile` 报 "profile desktop is managed exclusively by the Electron application"（`dsh/lib/bin.js:101/119/209`）。包装器在 `D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`。
+10. **`dsh plugin --profile desktop` 只有 Desktop 自带 CLI 能跑**：`manageDesktopProfile` 只有 `dsh-desktop-host/lib/cli.js:94` 传 true；普通 `dsh` 二进制的 `runCli()` 不传 → `rejectElectronProfile` 报 "profile desktop is managed exclusively by the Electron application"（`dsh/lib/bin.js:101/119/209`）。包装器在 `<DSH_HOME_OR_INSTALL_DIR> Harness\resources\runtime\cli\bin\dsh.cmd`。
 
 > **补充（比上面十条更阴的一条）**：自定义 session 事件类型写进日志 = 会话重启后**打不开**（fail-closed，§9 陷阱 19）。账本进 sidecar，别进日志。
 
@@ -212,7 +212,7 @@ if (this.store[key]) {
 | 层 | 做法 | 证据 |
 |---|---|---|
 | host 层那一行 | `- id: compaction-basic` + `disabled: true` | `dsh-web-app/cordis.patch.yml:509-510` 现成实例 |
-| **preset 内真正生效的那一行** | **profile patch 里整份重写 `preset-standard` 的 `config.plugins`**，在 `compaction` group 的 `config` 数组里：① 给 `compaction-basic` 加 `disabled: true`，或直接删掉该行；② 加你自己的行 `- id: chess-compaction  name: 'dsh-chess-context'` | `applyEntryPatches` 的 `buildMap` 只递归 `entry.group && Array.isArray(entry.config)`（`dsh-app-boot/lib/index.js:63-72`）；本机 profile 的实测记录见 `D:\DeepSeek Harness\home\profiles\desktop\cordis.patch.yml:314-342`（作者已踩过：`auto:false` 的 patch 从未生效） |
+| **preset 内真正生效的那一行** | **profile patch 里整份重写 `preset-standard` 的 `config.plugins`**，在 `compaction` group 的 `config` 数组里：① 给 `compaction-basic` 加 `disabled: true`，或直接删掉该行；② 加你自己的行 `- id: chess-compaction  name: 'dsh-chess-context'` | `applyEntryPatches` 的 `buildMap` 只递归 `entry.group && Array.isArray(entry.config)`（`dsh-app-boot/lib/index.js:63-72`）；本机 profile 的实测记录见 `<DSH_HOME_OR_INSTALL_DIR> Harness\home\profiles\desktop\cordis.patch.yml:314-342`（作者已踩过：`auto:false` 的 patch 从未生效） |
 | 只 disable 不新增 | 不行：`ctx.compaction` 缺失 → `/compact` 与自动压缩全失效（`dsh-compaction/README.zh.md:47`「如果未挂载后端，什么都不会压缩，`/compact` 也会失败」） | — |
 
 > **继承官方实现是允许且推荐的**：`dsh-compaction-basic` 默认导出 `BasicCompactionEngine`（basic:1027 `export { BasicCompactionEngine, BasicCompactionEngine as default }`）。你可以 `import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'` 后 `class Mine extends BasicCompactionEngine`，只挂 Mine 这一行 —— 不会出现两个服务，因为父类本身没被单独挂载。构造器里的 `if (this.config.auto) this._registerAutomaticCompaction()`（basic:827）是**动态派发**的，子类覆盖 `_registerAutomaticCompaction()` 即可整体替换自动触发逻辑；`summarize()` 是官方声明的唯一子类钩子（basic:889-903 注释）。
@@ -1026,13 +1026,13 @@ function summaryText(blocks) {
 - `package.json.dsh.profile.bundles` = **有序的 patch 层列表**，决定哪些组合包的 patch 被组合（`dsh-app-boot/README.zh.md:50`：「profile 位于 `$DSH_HOME/profiles/<name>`，由可安装组合包和自身 `cordis.patch.yml` 组成」）。
 - **两者都要**：只装进 dependencies 而不在 bundles 里的包，不会自动挂载（`listBundles` 明确把「未选中的普通依赖」排除在外，plugin-manager README:54）。
 - 组合包声明了 patch 才会被 `listBundles` 认出；没有 patch 的包只能靠 patch 里的 `- insert: [{name: '<pkg>'}]` 手工挂。
-- 本机实例：`D:\DeepSeek Harness\home\profiles\desktop\package.json` 的 `dsh.profile.bundles` 有 14 项（base、web-app、modsearch、better-sidebar、ego-browser、sovereign、personal-assistant-preset、agent-team-profile、comfy-bridge…），`dsh-gitbash-shell` 也在列且带自己的 `cordis.patch.yml`。
+- 本机实例：`<DSH_HOME_OR_INSTALL_DIR> Harness\home\profiles\desktop\package.json` 的 `dsh.profile.bundles` 有 14 项（base、web-app、modsearch、better-sidebar、ego-browser、sovereign、personal-assistant-preset、agent-team-profile、comfy-bridge…），`dsh-gitbash-shell` 也在列且带自己的 `cordis.patch.yml`。
 
 ### 7.4 `dsh plugin --profile desktop add <本地路径|tgz>` 支持吗？
 
 **支持，但有三个前提**：
 
-1. **必须用 Desktop 自带的 CLI 包装器**（`D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`），它 `ELECTRON_RUN_AS_NODE=1` 调 `app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js`，后者 `runCli({manageDesktopProfile:true, packageManager:{...pnpm...}})`（`dsh-desktop-host/lib/cli.js:91-108`）。PATH 里的普通 `dsh` 二进制 `runCli()` 不传该旗标 → `plugin` 子命令对 desktop profile 直接被 `rejectElectronProfile` 拒（`dsh/lib/bin.js:101/119/209`）。
+1. **必须用 Desktop 自带的 CLI 包装器**（`<DSH_HOME_OR_INSTALL_DIR> Harness\resources\runtime\cli\bin\dsh.cmd`），它 `ELECTRON_RUN_AS_NODE=1` 调 `app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js`，后者 `runCli({manageDesktopProfile:true, packageManager:{...pnpm...}})`（`dsh-desktop-host/lib/cli.js:91-108`）。PATH 里的普通 `dsh` 二进制 `runCli()` 不传该旗标 → `plugin` 子命令对 desktop profile 直接被 `rejectElectronProfile` 拒（`dsh/lib/bin.js:101/119/209`）。
 2. **路径会被锚定**：`anchorPathSpec` 只重写 `./x`、`../x`（可带 `file:`/`link:` 前缀）为基于调用者 cwd 的绝对路径；绝对路径与 `.tgz` 原样透传给 pnpm（`dsh-plugin-manager/lib/index.js:215-219`）。所以 `add D:\path\to\pkg`、`add ./pkg.tgz`、`add file:./pkg.tgz` 都行。
 3. **它只跑 pnpm，不改 bundles**：CLI 路径是 `runProfilePnpm(context, args, ...)`（`dsh/lib/plugin-BGnVfe_D.js:63-118`），内部 `execa(pnpm, [...args])`（plugin-manager:517-522），**没有任何 `writeProfileBundles`**。而 GUI/`plugin_manager` 工具的 `installBundle` 才会把新组合包追加进 `dsh.profile.bundles` 并默认启用（plugin-manager README:40、54）。
    ⇒ **CLI `add` 装依赖后，要么手改 `dsh.profile.bundles`（组合包形态），要么手改 `cordis.patch.yml` 插行（普通插件形态）。**
@@ -1137,7 +1137,7 @@ function summaryText(blocks) {
 改完必须核对（patch 打不中只 warn，不报错）：
 ```bash
 # 用 Desktop 包装器 dump 组合结果，确认 compaction group 里只剩你的行
-"/d/DeepSeek Harness/resources/runtime/cli/bin/dsh.cmd" --profile desktop --dump-config > <WORKSPACE>/tmp/dump.yml
+"<DSH_HOME_OR_INSTALL_DIR> Harness/resources/runtime/cli/bin/dsh.cmd" --profile desktop --dump-config > <WORKSPACE>/tmp/dump.yml
 ```
 
 > 注意 `--dump-config` 报告的是「配置出的组合」；被兼容性策略拒绝的行仍会出现（app-boot README:54）。
@@ -1148,17 +1148,17 @@ function summaryText(blocks) {
 
 ### 8.1 目录结构（实测）
 
-`D:\DeepSeek Harness\home\sessions\` 下：
+`<DSH_HOME_OR_INSTALL_DIR> Harness\home\sessions\` 下：
 
 ```
 sessions/
   _no-cwd/                                   # cwd 为 undefined 时
   --D-~4E3B~5DE5~4F5C~533A--/                # 项目目录（cwd 编码）
-    010861f0-bf08-4715-90a5-14136c375307/    # 会话目录（sessionId 编码）
+    <SESSION_ID>/    # 会话目录（sessionId 编码）
       session.v4.jsonl.zstd                  # 当前格式 generation 的日志文件
     ...
   --D-TCL~7535~89C6--/
-    session-6733565b-.../                    # 老 id 策略会带 session- 前缀
+    <SESSION_ID>-.../                    # 老 id 策略会带 session- 前缀
 ```
 
 命名规则（`dsh-session-persistence-jsonl/lib/index.js`）：
@@ -1265,24 +1265,24 @@ sessions/
 
 ```bash
 # 1) 列文件
-node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
+node <WORKSPACE>/archive/bili/read-asar.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar" --list
 
 # 2) 取单个文件
-node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" \
+node <WORKSPACE>/archive/bili/read-asar.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar" \
   "dsh/node_modules/@deepseek-ai/dsh-compaction-basic/lib/index.js"
 
 # 3) 全量扫事件名（agent/session）
-node <WORKSPACE>/tmp/context-plugin/scan-hooks.mjs "D:\DeepSeek Harness\resources\app.asar"
+node <WORKSPACE>/tmp/context-plugin/scan-hooks.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar"
 
 # 4) 全量扫 session.append 的事件类型
-node <WORKSPACE>/tmp/context-plugin/scan-append.mjs "D:\DeepSeek Harness\resources\app.asar"
+node <WORKSPACE>/tmp/context-plugin/scan-append.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar"
 
 # 5) 查某个词在哪出现过（带行号）
-node <WORKSPACE>/tmp/context-plugin/scan-word.mjs "D:\DeepSeek Harness\resources\app.asar" "applyEntryPatches"
+node <WORKSPACE>/tmp/context-plugin/scan-word.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar" "applyEntryPatches"
 
 # 6) 数 zstd 帧（不解压）
 node -e 'const b=require("fs").readFileSync(process.argv[1]);const m=Buffer.from([0x28,0xb5,0x2f,0xfd]);let i=-1,n=0;while((i=b.indexOf(m,i+1))!==-1)n++;console.log("frames~",n)' \
-  "/d/DeepSeek Harness/home/sessions/--D-~4E3B~5DE5~4F5C~533A--/010861f0-bf08-4715-90a5-14136c375307/session.v4.jsonl.zstd"
+  "<DSH_HOME_OR_INSTALL_DIR> Harness/home/sessions/--D-~4E3B~5DE5~4F5C~533A--/<SESSION_ID>/session.v4.jsonl.zstd"
 ```
 
 **关键 asar 路径速查**：

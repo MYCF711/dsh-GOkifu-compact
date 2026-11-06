@@ -143,7 +143,7 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
   这类「替用户预付」的行为**必须**有开关，且**默认关**（用户明确要用时再开）。
 
 ### 2.1 DSH 接缝
-- **不改 DSH 安装目录**（`D:\DeepSeek Harness\resources\`）。插件只经官方 **profile 通道**安装。
+- **不改 DSH 安装目录**（`<DSH_HOME_OR_INSTALL_DIR> Harness\resources\`）。插件只经官方 **profile 通道**安装。
 - **只有 R09（`src/engine.mjs`）可以 import `@deepseek-ai/*`**。其余任何文件 import 宿主包 ⇒ R-C 破，`engine-harness` 的 4 条 stub 也不再够用。
 - `cordis.patch.yml` 的 patch **打不中目标时只 warning 不报错**（dsh-app-boot）⇒ 改完必须用 `dsh --dump-config` 或启动日志核对。
 - 本插件**不使用 `section`**（`complete: true` 会吞掉其它段）。
@@ -261,7 +261,7 @@ node scripts/cli.mjs install --dry-run
 node scripts/check-maintenance.mjs
 
 # 从 asar 取官方包对照
-node <WORKSPACE>/archive/bili/read-asar.mjs "D:\DeepSeek Harness\resources\app.asar" --list
+node <WORKSPACE>/archive/bili/read-asar.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness\resources\app.asar" --list
 
 # 打包自检（test/·tmp/·harness 命中必须 0）
 npm pack --dry-run --json
@@ -372,7 +372,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | **真实 apply（未做）** | **对 live `sessions/**` 的 apply 从未执行** —— P6C-3 是隔离夹具（2 会话 × 5 边），不是真实 150 个会话。**需主人授权 + 停插件窗口 + 先 dry-run 对账** | `计划表.md` P6-C 节 |
 | **`allowedModels`** | **已移除 `gokifu` 条目**；现值只剩 `magpie / group/deepseek-v4.1-flash1017`（1 条，`cordis.patch.yml:583`） | 本节 `grep` 实测 |
 | **UI（M1/M2）** | **暂停**（主人指示：优先性能与功能，没人用的插件不需要 UI）⇒ `PROD-M2` 不排期 | `plan` task-5 / 迁移计划 §5.2 |
-| **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `session-893bfb9d`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
+| **热重载 L1 · profile 配置** | **确实会热重载，且运行中改可能让 host `exit(1)`**（15:00 已实测 · `<SESSION_ID>`）⇒ **运行中禁改 `profiles/*/cordis.patch.yml`** | `$DSH_HOME/AGENTS.md` 零·五 |
 | **热重载 L2 · 插件代码 / client bundle** | **未验证** —— **不得作为任何验收前提** | `docs/架构-迁移计划.md` §5.3 |
 | **运行期收益** | **未验证**（全部性能数字是离线夹具；真机 19387 未观测） | 贯穿 `计划表.md` 各节的「未验证」栏 |
 | **已发布版本** | **`1.11.0` —— npm 与 GitHub Release 都已到位**：npm `latest` = **1.11.0**、**`dist.shasum 3de92f1155a0b651e488923f5a6a19005f1b0205`**、**67 文件 / unpacked 1,373,541 B**；commit **`e9c812a`**、tag **`v1.11.0`**（⚠ **轻量 tag**，不是 annotated）、GitHub Release `v1.11.0`（`draft:false` / `prerelease:false`）。门禁 430/0 · `verify-install` 16/16。**包内 `package.json` / `README:3` = 1.11.0，与 npm 一致** | `计划表.md` 1.11.0 节 + `ws-release-1.11.0/REPORT.md`（107 行） |
@@ -439,7 +439,7 @@ AGENTS.md  本文件（不进包）
 7. **`cordis.patch.yml` patch 打不中只 warning** ⇒ 改完必须核对生效。
 8. **`run.mjs` 的 filter 是文件名子串** ⇒ 按房间名写命令会漏测（见 §3.2）。
 9. **恢复旧门面必须变红** —— A3-2 删掉的 8 个门面（`verifier` / `range` / `worldstate` / `graph` / `keeper` / `extract` / `ledger` / `summary-prompt`）**只要在 `src/` 顶层重新出现，或被任何文件 import，`rooms` 门禁必须立刻红**（`SRC_TOP_LEVEL_ALLOWED` + `DELETED_FACADES`）。**原因**：门面一复活，同一份实现就有了两个入口，「哪个才是真的」立刻无人能答 —— 这正是 A3 全部工作的意义。**新增房间同理：`src/rooms/` 下多一个未登记文件，C3 就必须红。**
-10. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
+10. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`<SESSION_ID>`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
 ---
 
 ## 17 · 自动化协作（watcher 唤醒时读这一节）
@@ -475,7 +475,7 @@ AGENTS.md  本文件（不进包）
 
 ## 19 · 插话：官方当前版独立实例适配与 PR（2026-11-06）
 
-- 当前官方 Windows nightly 仍为 `0.2.2-rc.1`。干净应用在 `D:/DeepSeek Harness/Desktop-0.2.2-rc.1`；本轮使用独立 `D:/DeepSeek Harness/home-0.2.2-rc.1`，不得写当前 `home` 或启停当前实例。
+- 当前官方 Windows nightly 仍为 `0.2.2-rc.1`。干净应用在 `<DSH_HOME_OR_INSTALL_DIR> Harness/Desktop-0.2.2-rc.1`；本轮使用独立 `<DSH_HOME_OR_INSTALL_DIR> Harness/home-0.2.2-rc.1`，不得写当前 `home` 或启停当前实例。
 - 当前 `src/engine.mjs` 正被会话持续修改，**由当前插件会话完成适配，根 Lead 不抢写**。旧 `tmp/dsh-upgrade-0.2.2-rc.1/gokifu-review/staged-v3` 已落后，禁止整文件覆盖当前实现；先等本文件与 engine 哈希稳定，再冻结验收基线。
 - 在独立 worktree/分支 `compat/dsh-0.2.2-rc.1` 做最小适配。先核对本地与远端版本/分叉，当前 main 与 origin 分叉很大，禁止把历史几百个提交或其他会话 dirty 文件带入 PR；禁止 `git add -A`、强推、直接推 main。
 - 每个启用 bundle 必须在独立 home 实际解析到 `package.json`，不能只复制 link；GOkifu 包要隔离复制或指向本任务 worktree，不能写回共享源。

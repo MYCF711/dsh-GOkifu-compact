@@ -27,8 +27,8 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.join(HERE, "..");
 const HOME = process.env.DSH_HOME ?? nodePath.join(os.homedir(), ".dsh");
-const DSH_EXE = process.env.DSH_EXE ?? "D:/DeepSeek Harness/DeepSeek Harness.exe";
-const CLI = "D:/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js";
+const DSH_EXE = process.env.DSH_EXE ?? "DeepSeek Harness.exe";
+const CLI = process.env.DSH_CLI ?? "resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js";
 const PROFILE = "headless";
 const LINK = nodePath.join(HOME, "profiles", PROFILE, "node_modules", "dsh-gokifu-compact");
 

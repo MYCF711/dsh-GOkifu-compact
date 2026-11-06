@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-10-28T12:56:14.215Z",
-  "session": "session-5acafe42-b85b-4e06-845a-65428b43d7c0",
+  "session": "<SESSION_ID>",
   "events": 2539,
   "frames": 1319,
   "v012": {
@@ -30,11 +30,11 @@
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
-      "Agent b3f3108b-f51a-4e94-be29-10ba3046dc9b sent a message:  ",
-      "Background subagent b3f3108b-f51a-4e94-be29-10ba3046dc9b fin",
+      "Agent <AGENT_ID> sent a message:  ",
+      "Background subagent <AGENT_ID> fin",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
-      "Agent 437ac6f5-c591-4a6b-bfbf-c676fc517f28 sent a message:  ",
-      "Background subagent 437ac6f5-c591-4a6b-bfbf-c676fc517f28 fin",
+      "Agent <AGENT_ID> sent a message:  ",
+      "Background subagent <AGENT_ID> fin",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",
       "<goal_round> Objective: \"（!!!不要吝啬token，提交最完美产品!!!）完善「棋谱式上下文压",

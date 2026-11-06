@@ -599,7 +599,7 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
   }
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
   // ★ C245：**over-budget 按成因归因**：超预算到底是「约束/根目标逐字保留那段就占了大半」，
-  //   还是「失败边等可压缩内容占大头」？实测（session-1e82afca，579 tok / 预算 500）：
+  //   还是「失败边等可压缩内容占大头」？实测（<SESSION_ID>，579 tok / 预算 500）：
   //   CONSTRAINTS 198 + markers 图例 43 + ROOT 19 ⇒ 不可裁部分已占 45%，失败边只有 230。
   //   这两类的处置完全不同：前者只能改预算或改约束长度，后者才有"再压一点"的空间。
   if (
@@ -1433,7 +1433,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         //   验证单要回答的正是这个问题，所以这里无论成功/失败/跳过都写回去。
         // ★ C514：**把 {id, cwd} 一起带下去**。归档后 `sessionRefs` 里那条引用会被删掉，
         //   原来的实现靠 sessionRefs 找 session 才能 flush —— 引用没了就**只改了内存、没落盘**，
-        //   于是"这次到底折了没有"在磁盘上永远看不到（真机 a09a4535 就是：closeout 里没有 folded）。
+        //   于是"这次到底折了没有"在磁盘上永远看不到（真机 <SESSION_ID> 就是：closeout 里没有 folded）。
         const ref = { id: sessionId, cwd: session.cwd };
         void this.#closeoutFold(session, source)
           .then((result) => this.#recordCloseoutOutcome(sessionId, ref, result, null))
@@ -1766,7 +1766,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryText = cleaned.text;
       this._lastSummarySanitized = cleaned.removed.length > 0 ? cleaned.removed : [];
       // ★ C482：`sanitizedIds: 0` 有两种截然不同的含义 ——「检查过，没毛病」与「根本没检查」。
-      //   真机 c0a5847a 那次：`sanitizedIds: 0`，但 quality 里仍列出 20 个「更晚实体」——
+      //   真机 <SESSION_ID> 那次：`sanitizedIds: 0`，但 quality 里仍列出 20 个「更晚实体」——
       //   说明那次 **range 是 null，清洗直接返回了原文本**（checked=0），却被记成 0 个改动。
       this._lastSummarySanitizeChecked = Number(cleaned.checked) || 0;
       // ★ C483：把**用的哪个 range** 也记下来。C482 只能看出"清洗没动手"，
@@ -2081,7 +2081,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             `还剩约 ${remaining} 事件；结束原因 ${stopped}${stopped === "deadline" ? `，已用满 ${limitMs}ms 预算` : ""} —— 装不下就再收一次）`,
         );
         void totalEnd;
-        // ★ C479：**分段没折完也要说清为什么**。真机 c460d468：`chunkedChunks: 2 / chunkedFolded: 0`，
+        // ★ C479：**分段没折完也要说清为什么**。真机 <SESSION_ID>：`chunkedChunks: 2 / chunkedFolded: 0`，
         //   而 closeout 里没有任何原因 —— 与 C474 修的"单段 null"是同一个洞，只是这条分支漏了。
         const chunkedResult = {
           tier: "chunked",
@@ -2090,7 +2090,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
           stopped: outcome.stopped ?? null,
           error: outcome.error === null || outcome.error === undefined ? null : String(outcome.error).slice(0, 300),
         };
-        // ★ C517：**一段都没折成**时试离线（真机 c460d468 就是这个形状：
+        // ★ C517：**一段都没折成**时试离线（真机 <SESSION_ID> 就是这个形状：
         //   chunkedChunks:2 / chunkedFolded:0 / foldError:"start seq 496 not found in surface"）。
         if (folded === 0 && (chunkedResult.error !== null || chunkedResult.stopped === "no-op")) {
           const offline = await this.#tryOfflineCloseout(target, chunkedResult.error ?? "no-op");
@@ -2133,7 +2133,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         if (offline !== null) return offline;
         return { tier: "single", skipped: "timeout" };
       }
-      // ★ C517：**折叠抛错也要试离线**。真机 c460d468：`compactRegion: start seq 496 not found in surface`
+      // ★ C517：**折叠抛错也要试离线**。真机 <SESSION_ID>：`compactRegion: start seq 496 not found in surface`
       //   —— 归档恢复后 surface 里没有这段，在线折叠永远失败；而离线补折读的是**日志**，正好能救。
       if (result !== null && result !== undefined && typeof result === "object" && typeof result.error === "string" && result.error !== "") {
         const offline = await this.#tryOfflineCloseout(target, result.error);
@@ -2506,7 +2506,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         }
       })();
       // ★ C579（重启后真机发现）：**活会话必须在排序之前就剔除**。
-      //   真机（2026-11-04 16:42 重启后第一次 tick）：欠账前 3 名（8a73e06b / 226dbf4f / 62bcb7d2）
+      //   真机（2026-11-04 16:42 重启后第一次 tick）：欠账前 3 名（<SESSION_ID> / <SESSION_ID> / <SESSION_ID>）
       //   全是**日志还在写**的活会话 ⇒ 每轮 3 个名额被它们占满、循环里 `continue` 掉 ⇒ **一次都没补成**，
       //   而机器越忙、尾巴越大的会话越容易被排到前面 —— 这是"永远补不动"的结构性原因。
       //   现在：先按「有日志 + 日志 >5 分钟没动」过滤，再排序取前 max 个。
@@ -2616,7 +2616,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             return null;
           }
         })();
-        // 活会话：宿主持有内存里的图，我们写会被覆盖（真机 8cc34e32 的血泪教训）
+        // 活会话：宿主持有内存里的图，我们写会被覆盖（真机 <SESSION_ID> 的血泪教训）
         if (logFile !== null) {
           try {
             if ((Date.now() - nodeFs.statSync(logFile).mtimeMs) / 60_000 < 5) continue;
@@ -2629,7 +2629,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         if (graph === null) continue;
         this.graphs.set(id, graph);
         // ★ C527：**一次 tick 里连续补**。大会话的缺口动辄上万事件，一次一段的话
-        //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
+        //   30 分钟补一段 ≈ 要补好几天（真机 <SESSION_ID>：缺口 1.04M tok ≈ 7 段）。
         //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
         // ★ C599：轮数 = max(保底轮数, 剩余预算 ÷ 实测段耗时)，天花板 8
         const roundsFloor = Math.max(1, Math.min(8, Number(process.env.DSH_GOKIFU_AUTO_BACKFILL_ROUNDS) || 3));
@@ -3006,7 +3006,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         maxChars: Number(this.chess.offlineMaxChars) || 60_000,
         maxChunks: 1,
         // ★ C522/C532：有前段缺口、**或者一次都没折过**时，必须**从头取**。
-        //   一次都没折过的会话如果先从尾巴开始，前段就永远补不上（真机 3a3fb03c：先折了 1981-2072，
+        //   一次都没折过的会话如果先从尾巴开始，前段就永远补不上（真机 <SESSION_ID>：先折了 1981-2072，
         //   前面 543-1980 悬着；虽然缺口被记下来了，但"第一段从中间开始"对人读也不友好）。
         fromHead: (debt.gap !== undefined && debt.gap !== null) || (Array.isArray(graph.foldMarks) ? graph.foldMarks.length : 0) === 0,
         callModel: foldCallModel,

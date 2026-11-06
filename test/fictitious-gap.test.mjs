@@ -10,6 +10,7 @@
 import { collectMessages, runOfflineFold } from "../src/rooms/offline-fold.mjs";
 import { findSessionLog, readSessionEvents } from "../src/rooms/zstd-log.mjs";
 import { resolveHome } from "../scripts/summary-usability-audit.mjs";
+import { findFictitiousGapSession } from "../scripts/test-instance-verify.mjs";
 
 export const tests = {};
 
@@ -81,10 +82,11 @@ tests["T64 ② 混合头部 3 条消息 + 5 个非消息：uncoveredHead = 3"] =
   t.eq(out.uncoveredTail, 0, "尾部两条消息都已覆盖");
 };
 
-tests["T64 ③ 真机复放 010c3b44：欠账区间 [1,8] 的缺口 8 → 0"] = async (t) => {
+tests["T64 ③ 真机复放 <SESSION_ID>：欠账区间 [1,8] 的缺口 8 → 0"] = async (t) => {
   const home = resolveHome();
-  const log = findSessionLog(home, "010c3b44");
-  if (log === null) throw new Error(`真机复放找不到 010c3b44 日志（home=${home}）`);
+  const needle = findFictitiousGapSession(home);
+  const log = needle === null ? null : findSessionLog(home, needle);
+  if (log === null) throw new Error(`真机复放找不到 seq 1–8 全非消息、seq 9 首条可折的日志（home=${home}）`);
   const events = readSessionEvents(log);
   const leading = events.filter((e) => Number(e.seq) >= 1 && Number(e.seq) <= 8);
   t.eq(leading.length, 8, "真机 seq 1–8 共 8 个事件");

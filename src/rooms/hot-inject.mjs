@@ -174,7 +174,7 @@ export function findLedgerNode(session) {
 /**
  * 清理历史遗留的热清单（P1-4 配套，一次性 pass）。
  *
- * v1.5.0 之前每个会话都**追加**清单、从不替换 —— 实测 session-5acafe42 的 surface 上
+ * v1.5.0 之前每个会话都**追加**清单、从不替换 —— 实测 <SESSION_ID> 的 surface 上
  * 还压着 44 条 / 295,255 字符 ≈ 9.8 万 token。surface 只支持 append/replace（不能删除节点），
  * 所以逐条**替换成一行占位**：内容已经过时（最新那条清单覆盖了同样的信息，全量轨迹在 graph.json），
  * 留着只是白占上下文。

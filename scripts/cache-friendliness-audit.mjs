@@ -11,7 +11,7 @@
  *   ① 被改写的那个位置**前面**已经缓存了多少 token（= 这次还能命中多少）；
  *   ② 那个位置**后面**还压着多少 token（= 这次得按 miss 价重读多少）。
  *
- * 这个脚本把两件事都从**真机会话日志**里量出来（只读，绝不写 `D:\DeepSeek Harness\home`），
+ * 这个脚本把两件事都从**真机会话日志**里量出来（只读，绝不写 `<DSH_HOME_OR_INSTALL_DIR> Harness\home`），
  * 并按「本轮注入动作」分组给出命中率与价格。
  *
  * ## 数据口径（都是本仓已核实的）
@@ -28,7 +28,7 @@
  * ## 用法
  *
  *   node scripts/cache-friendliness-audit.mjs                     # 扫 DSH_HOME 下所有插件会话
- *   node scripts/cache-friendliness-audit.mjs --session 8a73e06b  # 只看一个会话
+ *   node scripts/cache-friendliness-audit.mjs --session <SESSION_ID>  # 只看一个会话
  *   node scripts/cache-friendliness-audit.mjs --json              # 机器可读
  *   node scripts/cache-friendliness-audit.mjs --max-sessions 50   # 大 home 上先跑个样本
  *
@@ -543,7 +543,7 @@ export function listSessionFiles(home) {
  */
 export function scanHome(home, { session = null, maxSessions = Infinity, maxBytes = Infinity } = {}) {
   const all = listSessionFiles(home);
-  // 会话目录名形如 `session-8a73e06b-…`；用户给的通常是裸 id 前缀，两边都认。
+  // 会话目录名形如 `<SESSION_ID>-…`；用户给的通常是裸 id 前缀，两边都认。
   const picked = session === null ? all : all.filter((f) => f.session.startsWith(session) || f.session === `session-${session}` || f.session.includes(session));
   const sessions = [];
   let bytes = 0;
