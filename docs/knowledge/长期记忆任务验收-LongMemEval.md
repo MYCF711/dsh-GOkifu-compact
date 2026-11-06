@@ -199,3 +199,16 @@ id, type, events, foldPoints, question, answer, evidenceSeqs, grader, applicabil
 ## 6. 一句话蒸馏
 
 > LongMemEval 的可复用核心是“**按最终任务能力和分类型表现验收，并用中间证据指标定位问题**”；本仓应把它改造成冻结的过程续接问答，同时继续把 tokens/压缩比当成本指标，而不是质量结论。
+
+---
+
+## 7. 第一阶段落地状态（2026-11-06，T94）
+
+已落地：
+
+- `evidence/lme-task50.fixtures.json`：50 道冻结过程题，IE/MR/KU/TR/ABS 各 10，失败与更新形态 34 道；
+- `scripts/lme-task50.mjs --validate`：默认零模型调用，验证数据、五类覆盖与无泄漏；
+- `scripts/lme-task50.mjs --run <results.json>`：只对已有 full/compact 结果机械判分，输出总分、五类、95% 区间、逐题错因与 reader-limited；
+- `test/lme-task50.test.mjs`：13 条测试覆盖正确绿样本、分类退化、ABS 编造、both-wrong、未知 id、参数泄漏、缺题/重题和 CLI 退出码。
+
+**真实 reader 任务质量仍为 `NOT_RUN`。** 当前通过的是夹具与判分器，不是产品任务能力。下一阶段按 LongBench 外研建议预注册 10 题（五类各 2）× full/compact，共 20 次显式离线 reader 调用作 smoke；正式验收仍覆盖 50/50，不看结果换题或回调阈值。

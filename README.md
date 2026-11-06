@@ -183,7 +183,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2098 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2111 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
@@ -196,6 +196,15 @@ node scripts/privacy-audit.mjs --pack     # 发布前：扫完整 npm packlist�
 ```
 
 报告只给文件、行号、规则与分类，不回显敏感原值。`npm run gate` 已接入 `--changed`；`scripts/release.mjs` 会在任何远端动作前执行 `--pack`。
+
+**K-27 过程续接任务验收**：
+
+```bash
+node scripts/lme-task50.mjs --validate           # 50 道冻结题与无泄漏检查；默认零模型调用
+node scripts/lme-task50.mjs --run <results.json> # 只评已有 full/compact reader 结果
+```
+
+真实 reader 尚未运行，任务质量为 `NOT_RUN`；`--validate` 通过不代表压缩后任务能力通过。
 
 ## 配置
 
