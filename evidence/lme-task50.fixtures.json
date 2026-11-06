@@ -1,0 +1,745 @@
+{
+  "schema": "lme-task50-fixtures-v1",
+  "questions": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "question": "IE-01: 根据可见过程回答指定问题",
+      "answer": "e1021",
+      "evidenceSeqs": [
+        1021
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1021 step failed edit config-1.mjs; id=e1021\nseq=1022 later retry succeeded with same action\n[archive-only] seq=1920 unrelated private decoy IE-01",
+      "compactContext": "seq=1021 step failed edit config-1.mjs; id=e1021\nseq=1022 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "question": "IE-02: 根据可见过程回答指定问题",
+      "answer": "e1041",
+      "evidenceSeqs": [
+        1041
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1041 step failed edit config-2.mjs; id=e1041\nseq=1042 later retry succeeded with same action\n[archive-only] seq=1940 unrelated private decoy IE-02",
+      "compactContext": "seq=1041 step failed edit config-2.mjs; id=e1041\nseq=1042 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-03",
+      "type": "IE",
+      "question": "IE-03: 根据可见过程回答指定问题",
+      "answer": "e1061",
+      "evidenceSeqs": [
+        1061
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1061 step failed edit config-3.mjs; id=e1061\nseq=1062 later retry succeeded with same action\n[archive-only] seq=1960 unrelated private decoy IE-03",
+      "compactContext": "seq=1061 step failed edit config-3.mjs; id=e1061\nseq=1062 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-04",
+      "type": "IE",
+      "question": "IE-04: 根据可见过程回答指定问题",
+      "answer": "e1081",
+      "evidenceSeqs": [
+        1081
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1081 step failed edit config-4.mjs; id=e1081\nseq=1082 later retry succeeded with same action\n[archive-only] seq=1980 unrelated private decoy IE-04",
+      "compactContext": "seq=1081 step failed edit config-4.mjs; id=e1081\nseq=1082 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-05",
+      "type": "IE",
+      "question": "IE-05: 根据可见过程回答指定问题",
+      "answer": "e1101",
+      "evidenceSeqs": [
+        1101
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1101 step failed edit config-5.mjs; id=e1101\nseq=1102 later retry succeeded with same action\n[archive-only] seq=2000 unrelated private decoy IE-05",
+      "compactContext": "seq=1101 step failed edit config-5.mjs; id=e1101\nseq=1102 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-06",
+      "type": "IE",
+      "question": "IE-06: 根据可见过程回答指定问题",
+      "answer": "e1121",
+      "evidenceSeqs": [
+        1121
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1121 step failed edit config-6.mjs; id=e1121\nseq=1122 later retry succeeded with same action\n[archive-only] seq=2020 unrelated private decoy IE-06",
+      "compactContext": "seq=1121 step failed edit config-6.mjs; id=e1121\nseq=1122 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-07",
+      "type": "IE",
+      "question": "IE-07: 根据可见过程回答指定问题",
+      "answer": "e1141",
+      "evidenceSeqs": [
+        1141
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1141 step failed edit config-7.mjs; id=e1141\nseq=1142 later retry succeeded with same action\n[archive-only] seq=2040 unrelated private decoy IE-07",
+      "compactContext": "seq=1141 step failed edit config-7.mjs; id=e1141\nseq=1142 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-08",
+      "type": "IE",
+      "question": "IE-08: 根据可见过程回答指定问题",
+      "answer": "e1161",
+      "evidenceSeqs": [
+        1161
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1161 step failed edit config-8.mjs; id=e1161\nseq=1162 later retry succeeded with same action\n[archive-only] seq=2060 unrelated private decoy IE-08",
+      "compactContext": "seq=1161 step failed edit config-8.mjs; id=e1161\nseq=1162 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-09",
+      "type": "IE",
+      "question": "IE-09: 根据可见过程回答指定问题",
+      "answer": "e1181",
+      "evidenceSeqs": [
+        1181
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1181 step failed edit config-9.mjs; id=e1181\nseq=1182 later retry succeeded with same action\n[archive-only] seq=2080 unrelated private decoy IE-09",
+      "compactContext": "seq=1181 step failed edit config-9.mjs; id=e1181\nseq=1182 later retry succeeded with same action"
+    },
+    {
+      "id": "IE-10",
+      "type": "IE",
+      "question": "IE-10: 根据可见过程回答指定问题",
+      "answer": "e1201",
+      "evidenceSeqs": [
+        1201
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=1201 step failed edit config-10.mjs; id=e1201\nseq=1202 later retry succeeded with same action\n[archive-only] seq=2100 unrelated private decoy IE-10",
+      "compactContext": "seq=1201 step failed edit config-10.mjs; id=e1201\nseq=1202 later retry succeeded with same action"
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "question": "MR-01: 根据可见过程回答指定问题",
+      "answer": [
+        "e2021",
+        "e2022"
+      ],
+      "evidenceSeqs": [
+        2021,
+        2022
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2021 first failing check id=e2021\nseq=2022 second failing check id=e2022\n[archive-only] seq=2920 unrelated private decoy MR-01",
+      "compactContext": "seq=2021 first failing check id=e2021\nseq=2022 second failing check id=e2022"
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "question": "MR-02: 根据可见过程回答指定问题",
+      "answer": [
+        "e2041",
+        "e2042"
+      ],
+      "evidenceSeqs": [
+        2041,
+        2042
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2041 first failing check id=e2041\nseq=2042 second failing check id=e2042\n[archive-only] seq=2940 unrelated private decoy MR-02",
+      "compactContext": "seq=2041 first failing check id=e2041\nseq=2042 second failing check id=e2042"
+    },
+    {
+      "id": "MR-03",
+      "type": "MR",
+      "question": "MR-03: 根据可见过程回答指定问题",
+      "answer": [
+        "e2061",
+        "e2062"
+      ],
+      "evidenceSeqs": [
+        2061,
+        2062
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2061 first failing check id=e2061\nseq=2062 second failing check id=e2062\n[archive-only] seq=2960 unrelated private decoy MR-03",
+      "compactContext": "seq=2061 first failing check id=e2061\nseq=2062 second failing check id=e2062"
+    },
+    {
+      "id": "MR-04",
+      "type": "MR",
+      "question": "MR-04: 根据可见过程回答指定问题",
+      "answer": [
+        "e2081",
+        "e2082"
+      ],
+      "evidenceSeqs": [
+        2081,
+        2082
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2081 first failing check id=e2081\nseq=2082 second failing check id=e2082\n[archive-only] seq=2980 unrelated private decoy MR-04",
+      "compactContext": "seq=2081 first failing check id=e2081\nseq=2082 second failing check id=e2082"
+    },
+    {
+      "id": "MR-05",
+      "type": "MR",
+      "question": "MR-05: 根据可见过程回答指定问题",
+      "answer": [
+        "e2101",
+        "e2102"
+      ],
+      "evidenceSeqs": [
+        2101,
+        2102
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2101 first failing check id=e2101\nseq=2102 second failing check id=e2102\n[archive-only] seq=3000 unrelated private decoy MR-05",
+      "compactContext": "seq=2101 first failing check id=e2101\nseq=2102 second failing check id=e2102"
+    },
+    {
+      "id": "MR-06",
+      "type": "MR",
+      "question": "MR-06: 根据可见过程回答指定问题",
+      "answer": [
+        "e2121",
+        "e2122"
+      ],
+      "evidenceSeqs": [
+        2121,
+        2122
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2121 first failing check id=e2121\nseq=2122 second failing check id=e2122\n[archive-only] seq=3020 unrelated private decoy MR-06",
+      "compactContext": "seq=2121 first failing check id=e2121\nseq=2122 second failing check id=e2122"
+    },
+    {
+      "id": "MR-07",
+      "type": "MR",
+      "question": "MR-07: 根据可见过程回答指定问题",
+      "answer": [
+        "e2141",
+        "e2142"
+      ],
+      "evidenceSeqs": [
+        2141,
+        2142
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2141 first failing check id=e2141\nseq=2142 second failing check id=e2142\n[archive-only] seq=3040 unrelated private decoy MR-07",
+      "compactContext": "seq=2141 first failing check id=e2141\nseq=2142 second failing check id=e2142"
+    },
+    {
+      "id": "MR-08",
+      "type": "MR",
+      "question": "MR-08: 根据可见过程回答指定问题",
+      "answer": [
+        "e2161",
+        "e2162"
+      ],
+      "evidenceSeqs": [
+        2161,
+        2162
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2161 first failing check id=e2161\nseq=2162 second failing check id=e2162\n[archive-only] seq=3060 unrelated private decoy MR-08",
+      "compactContext": "seq=2161 first failing check id=e2161\nseq=2162 second failing check id=e2162"
+    },
+    {
+      "id": "MR-09",
+      "type": "MR",
+      "question": "MR-09: 根据可见过程回答指定问题",
+      "answer": [
+        "e2181",
+        "e2182"
+      ],
+      "evidenceSeqs": [
+        2181,
+        2182
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2181 first failing check id=e2181\nseq=2182 second failing check id=e2182\n[archive-only] seq=3080 unrelated private decoy MR-09",
+      "compactContext": "seq=2181 first failing check id=e2181\nseq=2182 second failing check id=e2182"
+    },
+    {
+      "id": "MR-10",
+      "type": "MR",
+      "question": "MR-10: 根据可见过程回答指定问题",
+      "answer": [
+        "e2201",
+        "e2202"
+      ],
+      "evidenceSeqs": [
+        2201,
+        2202
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=2201 first failing check id=e2201\nseq=2202 second failing check id=e2202\n[archive-only] seq=3100 unrelated private decoy MR-10",
+      "compactContext": "seq=2201 first failing check id=e2201\nseq=2202 second failing check id=e2202"
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "question": "KU-01: 根据可见过程回答指定问题",
+      "answer": [
+        "old-1",
+        "new-1"
+      ],
+      "evidenceSeqs": [
+        3021,
+        3022
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3021 previous setting old-1\nseq=3022 accepted replacement new-1\n[archive-only] seq=3920 unrelated private decoy KU-01",
+      "compactContext": "seq=3021 previous setting old-1\nseq=3022 accepted replacement new-1"
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "question": "KU-02: 根据可见过程回答指定问题",
+      "answer": [
+        "old-2",
+        "new-2"
+      ],
+      "evidenceSeqs": [
+        3041,
+        3042
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3041 previous setting old-2\nseq=3042 accepted replacement new-2\n[archive-only] seq=3940 unrelated private decoy KU-02",
+      "compactContext": "seq=3041 previous setting old-2\nseq=3042 accepted replacement new-2"
+    },
+    {
+      "id": "KU-03",
+      "type": "KU",
+      "question": "KU-03: 根据可见过程回答指定问题",
+      "answer": [
+        "old-3",
+        "new-3"
+      ],
+      "evidenceSeqs": [
+        3061,
+        3062
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3061 previous setting old-3\nseq=3062 accepted replacement new-3\n[archive-only] seq=3960 unrelated private decoy KU-03",
+      "compactContext": "seq=3061 previous setting old-3\nseq=3062 accepted replacement new-3"
+    },
+    {
+      "id": "KU-04",
+      "type": "KU",
+      "question": "KU-04: 根据可见过程回答指定问题",
+      "answer": [
+        "old-4",
+        "new-4"
+      ],
+      "evidenceSeqs": [
+        3081,
+        3082
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3081 previous setting old-4\nseq=3082 accepted replacement new-4\n[archive-only] seq=3980 unrelated private decoy KU-04",
+      "compactContext": "seq=3081 previous setting old-4\nseq=3082 accepted replacement new-4"
+    },
+    {
+      "id": "KU-05",
+      "type": "KU",
+      "question": "KU-05: 根据可见过程回答指定问题",
+      "answer": [
+        "old-5",
+        "new-5"
+      ],
+      "evidenceSeqs": [
+        3101,
+        3102
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3101 previous setting old-5\nseq=3102 accepted replacement new-5\n[archive-only] seq=4000 unrelated private decoy KU-05",
+      "compactContext": "seq=3101 previous setting old-5\nseq=3102 accepted replacement new-5"
+    },
+    {
+      "id": "KU-06",
+      "type": "KU",
+      "question": "KU-06: 根据可见过程回答指定问题",
+      "answer": [
+        "old-6",
+        "new-6"
+      ],
+      "evidenceSeqs": [
+        3121,
+        3122
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3121 previous setting old-6\nseq=3122 accepted replacement new-6\n[archive-only] seq=4020 unrelated private decoy KU-06",
+      "compactContext": "seq=3121 previous setting old-6\nseq=3122 accepted replacement new-6"
+    },
+    {
+      "id": "KU-07",
+      "type": "KU",
+      "question": "KU-07: 根据可见过程回答指定问题",
+      "answer": [
+        "old-7",
+        "new-7"
+      ],
+      "evidenceSeqs": [
+        3141,
+        3142
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3141 previous setting old-7\nseq=3142 accepted replacement new-7\n[archive-only] seq=4040 unrelated private decoy KU-07",
+      "compactContext": "seq=3141 previous setting old-7\nseq=3142 accepted replacement new-7"
+    },
+    {
+      "id": "KU-08",
+      "type": "KU",
+      "question": "KU-08: 根据可见过程回答指定问题",
+      "answer": [
+        "old-8",
+        "new-8"
+      ],
+      "evidenceSeqs": [
+        3161,
+        3162
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3161 previous setting old-8\nseq=3162 accepted replacement new-8\n[archive-only] seq=4060 unrelated private decoy KU-08",
+      "compactContext": "seq=3161 previous setting old-8\nseq=3162 accepted replacement new-8"
+    },
+    {
+      "id": "KU-09",
+      "type": "KU",
+      "question": "KU-09: 根据可见过程回答指定问题",
+      "answer": [
+        "old-9",
+        "new-9"
+      ],
+      "evidenceSeqs": [
+        3181,
+        3182
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3181 previous setting old-9\nseq=3182 accepted replacement new-9\n[archive-only] seq=4080 unrelated private decoy KU-09",
+      "compactContext": "seq=3181 previous setting old-9\nseq=3182 accepted replacement new-9"
+    },
+    {
+      "id": "KU-10",
+      "type": "KU",
+      "question": "KU-10: 根据可见过程回答指定问题",
+      "answer": [
+        "old-10",
+        "new-10"
+      ],
+      "evidenceSeqs": [
+        3201,
+        3202
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/update",
+      "fullContext": "seq=3201 previous setting old-10\nseq=3202 accepted replacement new-10\n[archive-only] seq=4100 unrelated private decoy KU-10",
+      "compactContext": "seq=3201 previous setting old-10\nseq=3202 accepted replacement new-10"
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "question": "TR-01: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4021,
+        4022
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4021 started at 10:00\nseq=4022 finished at 12:00 on the same day\n[archive-only] seq=4920 unrelated private decoy TR-01",
+      "compactContext": "seq=4021 started at 10:00\nseq=4022 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "question": "TR-02: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4041,
+        4042
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4041 started at 10:00\nseq=4042 finished at 12:00 on the same day\n[archive-only] seq=4940 unrelated private decoy TR-02",
+      "compactContext": "seq=4041 started at 10:00\nseq=4042 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-03",
+      "type": "TR",
+      "question": "TR-03: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4061,
+        4062
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4061 started at 10:00\nseq=4062 finished at 12:00 on the same day\n[archive-only] seq=4960 unrelated private decoy TR-03",
+      "compactContext": "seq=4061 started at 10:00\nseq=4062 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-04",
+      "type": "TR",
+      "question": "TR-04: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4081,
+        4082
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4081 started at 10:00\nseq=4082 finished at 12:00 on the same day\n[archive-only] seq=4980 unrelated private decoy TR-04",
+      "compactContext": "seq=4081 started at 10:00\nseq=4082 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-05",
+      "type": "TR",
+      "question": "TR-05: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4101,
+        4102
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4101 started at 10:00\nseq=4102 finished at 12:00 on the same day\n[archive-only] seq=5000 unrelated private decoy TR-05",
+      "compactContext": "seq=4101 started at 10:00\nseq=4102 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-06",
+      "type": "TR",
+      "question": "TR-06: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4121,
+        4122
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4121 started at 10:00\nseq=4122 finished at 12:00 on the same day\n[archive-only] seq=5020 unrelated private decoy TR-06",
+      "compactContext": "seq=4121 started at 10:00\nseq=4122 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-07",
+      "type": "TR",
+      "question": "TR-07: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4141,
+        4142
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4141 started at 10:00\nseq=4142 finished at 12:00 on the same day\n[archive-only] seq=5040 unrelated private decoy TR-07",
+      "compactContext": "seq=4141 started at 10:00\nseq=4142 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-08",
+      "type": "TR",
+      "question": "TR-08: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4161,
+        4162
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4161 started at 10:00\nseq=4162 finished at 12:00 on the same day\n[archive-only] seq=5060 unrelated private decoy TR-08",
+      "compactContext": "seq=4161 started at 10:00\nseq=4162 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-09",
+      "type": "TR",
+      "question": "TR-09: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4181,
+        4182
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4181 started at 10:00\nseq=4182 finished at 12:00 on the same day\n[archive-only] seq=5080 unrelated private decoy TR-09",
+      "compactContext": "seq=4181 started at 10:00\nseq=4182 finished at 12:00 on the same day"
+    },
+    {
+      "id": "TR-10",
+      "type": "TR",
+      "question": "TR-10: 根据可见过程回答指定问题",
+      "answer": "2 小时",
+      "evidenceSeqs": [
+        4201,
+        4202
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=4201 started at 10:00\nseq=4202 finished at 12:00 on the same day\n[archive-only] seq=5100 unrelated private decoy TR-10",
+      "compactContext": "seq=4201 started at 10:00\nseq=4202 finished at 12:00 on the same day"
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "question": "ABS-01: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5021
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5021 searched available process records; no matching event was present\n[archive-only] seq=5920 unrelated private decoy ABS-01",
+      "compactContext": "seq=5021 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "question": "ABS-02: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5041
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5041 searched available process records; no matching event was present\n[archive-only] seq=5940 unrelated private decoy ABS-02",
+      "compactContext": "seq=5041 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-03",
+      "type": "ABS",
+      "question": "ABS-03: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5061
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5061 searched available process records; no matching event was present\n[archive-only] seq=5960 unrelated private decoy ABS-03",
+      "compactContext": "seq=5061 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-04",
+      "type": "ABS",
+      "question": "ABS-04: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5081
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5081 searched available process records; no matching event was present\n[archive-only] seq=5980 unrelated private decoy ABS-04",
+      "compactContext": "seq=5081 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-05",
+      "type": "ABS",
+      "question": "ABS-05: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5101
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5101 searched available process records; no matching event was present\n[archive-only] seq=6000 unrelated private decoy ABS-05",
+      "compactContext": "seq=5101 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-06",
+      "type": "ABS",
+      "question": "ABS-06: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5121
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5121 searched available process records; no matching event was present\n[archive-only] seq=6020 unrelated private decoy ABS-06",
+      "compactContext": "seq=5121 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-07",
+      "type": "ABS",
+      "question": "ABS-07: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5141
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5141 searched available process records; no matching event was present\n[archive-only] seq=6040 unrelated private decoy ABS-07",
+      "compactContext": "seq=5141 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-08",
+      "type": "ABS",
+      "question": "ABS-08: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5161
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5161 searched available process records; no matching event was present\n[archive-only] seq=6060 unrelated private decoy ABS-08",
+      "compactContext": "seq=5161 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-09",
+      "type": "ABS",
+      "question": "ABS-09: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5181
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5181 searched available process records; no matching event was present\n[archive-only] seq=6080 unrelated private decoy ABS-09",
+      "compactContext": "seq=5181 searched available process records; no matching event was present"
+    },
+    {
+      "id": "ABS-10",
+      "type": "ABS",
+      "question": "ABS-10: 根据可见过程回答指定问题",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        5201
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=5201 searched available process records; no matching event was present\n[archive-only] seq=6100 unrelated private decoy ABS-10",
+      "compactContext": "seq=5201 searched available process records; no matching event was present"
+    }
+  ]
+}
