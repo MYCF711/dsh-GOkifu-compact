@@ -1,0 +1,24 @@
+{
+  "schema": "lme-reader-model-prereg-v1",
+  "createdAt": "2026-11-06T18:20:55.256Z",
+  "model": "group/kimi-k3.1-pro",
+  "promptVariant": "v1",
+  "promptSha256": "6b9c9679c0c6f62a38c4c7f7c477345a3869bc4caf86538f79398cb005877c46",
+  "selectionRule": "same first 2 per type in frozen v2 fixture order",
+  "pilotIds": [
+    "IE-01",
+    "IE-02",
+    "MR-01",
+    "MR-02",
+    "KU-01",
+    "KU-02",
+    "TR-01",
+    "TR-02",
+    "ABS-01",
+    "ABS-02"
+  ],
+  "rationale": "v1 formal FAIL and v2/v3 prompt variants failed on deepseek-v4.1-flash-1017; test whether failures are model-specific before changing protocol again.",
+  "changes": "reader model only; fixtures/answers/thresholds/prompt v1 unchanged",
+  "pilotGate": "full >= 8/10, compact >= 8/10, TR-01/TR-02 both arms correct, callsWithError=0; else do not run formal 100.",
+  "formalPlan": "if pilot gate passes, run formal 50/50 (100 calls) on v2 fixtures and report PASS/FAIL."
+}

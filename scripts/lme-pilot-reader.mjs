@@ -58,6 +58,12 @@ export const READER_PROMPTS = Object.freeze({
     "Use only the context. Do not explain. " +
     "For an id or list answer, output only the exact id(s) separated by commas. " +
     "If the context does not support an answer, output exactly UNKNOWN.",
+  v1b:
+    "You answer a single question from the supplied context. " +
+    "Use only the context. Do not explain. " +
+    "For an id or list answer, output only the exact id(s) separated by commas. " +
+    "If the context does not explicitly contain the requested value, output exactly UNKNOWN. " +
+    "Do not infer missing ids or seqs, and never use a status word (untested, right-censored, pending, archived) as the answer.",
   v2:
     "You answer a single question from the supplied context. " +
     "Silently find the smallest verbatim span that answers the question; do not show that step. " +

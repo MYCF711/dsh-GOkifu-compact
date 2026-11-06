@@ -1,0 +1,3684 @@
+{
+  "schema": "lme-formal-reader-v1",
+  "status": "SCORED",
+  "variant": "v1b",
+  "qualityGate": "FAIL",
+  "passed": false,
+  "model": "group/kimi-k3.1-pro",
+  "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+  "calls": 100,
+  "callsWithError": 0,
+  "usageTotals": {
+    "inputTokens": 23886,
+    "outputTokens": 22990,
+    "totalTokens": 46876,
+    "latencyMs": 816453
+  },
+  "byType": {
+    "IE": {
+      "total": 10,
+      "fullCorrect": 10,
+      "compactCorrect": 10,
+      "Acc_full": 1,
+      "Acc_compact": 1,
+      "Δtask": 0,
+      "ci95": {
+        "full": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "compact": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "delta": {
+          "low": 0,
+          "high": 0
+        }
+      },
+      "reader-limited": 0
+    },
+    "MR": {
+      "total": 10,
+      "fullCorrect": 10,
+      "compactCorrect": 8,
+      "Acc_full": 1,
+      "Acc_compact": 0.8,
+      "Δtask": -0.2,
+      "ci95": {
+        "full": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "compact": {
+          "low": 0.490162,
+          "high": 0.943318
+        },
+        "delta": {
+          "low": -0.461329,
+          "high": 0.061329
+        }
+      },
+      "reader-limited": 0
+    },
+    "KU": {
+      "total": 10,
+      "fullCorrect": 8,
+      "compactCorrect": 7,
+      "Acc_full": 0.8,
+      "Acc_compact": 0.7,
+      "Δtask": -0.1,
+      "ci95": {
+        "full": {
+          "low": 0.490162,
+          "high": 0.943318
+        },
+        "compact": {
+          "low": 0.396778,
+          "high": 0.892209
+        },
+        "delta": {
+          "low": -0.295996,
+          "high": 0.095996
+        }
+      },
+      "reader-limited": 2
+    },
+    "TR": {
+      "total": 10,
+      "fullCorrect": 10,
+      "compactCorrect": 9,
+      "Acc_full": 1,
+      "Acc_compact": 0.9,
+      "Δtask": -0.1,
+      "ci95": {
+        "full": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "compact": {
+          "low": 0.59585,
+          "high": 0.982124
+        },
+        "delta": {
+          "low": -0.295996,
+          "high": 0.095996
+        }
+      },
+      "reader-limited": 0
+    },
+    "ABS": {
+      "total": 10,
+      "fullCorrect": 10,
+      "compactCorrect": 10,
+      "Acc_full": 1,
+      "Acc_compact": 1,
+      "Δtask": 0,
+      "ci95": {
+        "full": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "compact": {
+          "low": 0.722467,
+          "high": 1
+        },
+        "delta": {
+          "low": 0,
+          "high": 0
+        }
+      },
+      "reader-limited": 0
+    }
+  },
+  "gates": {
+    "dataComplete": true,
+    "overallCompact": false,
+    "pairedDelta": false,
+    "perType": false,
+    "abstention": true,
+    "noUnknownProcessIds": true
+  },
+  "thresholds": {
+    "total": 50,
+    "perType": 10,
+    "compactAccuracy": 0.9,
+    "deltaTask": -0.05,
+    "typeCompactAccuracy": 0.8,
+    "typeDeltaTask": -0.1,
+    "absUnknown": 10,
+    "minFailureOrUpdate": 25
+  },
+  "resultErrors": [],
+  "unknownProcessIds": [],
+  "readerLimited": [
+    "KU-02",
+    "KU-10"
+  ],
+  "evaluation": {
+    "schema": "lme-task50-evaluation-v1",
+    "status": "SCORED",
+    "qualityGate": "FAIL",
+    "passed": false,
+    "total": 50,
+    "fullCorrect": 48,
+    "compactCorrect": 44,
+    "Acc_full": 0.96,
+    "Acc_compact": 0.88,
+    "Δtask": -0.08,
+    "ci95": {
+      "full": {
+        "low": 0.865399,
+        "high": 0.988961
+      },
+      "compact": {
+        "low": 0.761952,
+        "high": 0.943824
+      },
+      "delta": {
+        "low": -0.155961,
+        "high": -0.004039
+      }
+    },
+    "reader-limited": [
+      "KU-02",
+      "KU-10"
+    ],
+    "byType": {
+      "IE": {
+        "total": 10,
+        "fullCorrect": 10,
+        "compactCorrect": 10,
+        "Acc_full": 1,
+        "Acc_compact": 1,
+        "Δtask": 0,
+        "ci95": {
+          "full": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "compact": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "delta": {
+            "low": 0,
+            "high": 0
+          }
+        },
+        "reader-limited": 0
+      },
+      "MR": {
+        "total": 10,
+        "fullCorrect": 10,
+        "compactCorrect": 8,
+        "Acc_full": 1,
+        "Acc_compact": 0.8,
+        "Δtask": -0.2,
+        "ci95": {
+          "full": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "compact": {
+            "low": 0.490162,
+            "high": 0.943318
+          },
+          "delta": {
+            "low": -0.461329,
+            "high": 0.061329
+          }
+        },
+        "reader-limited": 0
+      },
+      "KU": {
+        "total": 10,
+        "fullCorrect": 8,
+        "compactCorrect": 7,
+        "Acc_full": 0.8,
+        "Acc_compact": 0.7,
+        "Δtask": -0.1,
+        "ci95": {
+          "full": {
+            "low": 0.490162,
+            "high": 0.943318
+          },
+          "compact": {
+            "low": 0.396778,
+            "high": 0.892209
+          },
+          "delta": {
+            "low": -0.295996,
+            "high": 0.095996
+          }
+        },
+        "reader-limited": 2
+      },
+      "TR": {
+        "total": 10,
+        "fullCorrect": 10,
+        "compactCorrect": 9,
+        "Acc_full": 1,
+        "Acc_compact": 0.9,
+        "Δtask": -0.1,
+        "ci95": {
+          "full": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "compact": {
+            "low": 0.59585,
+            "high": 0.982124
+          },
+          "delta": {
+            "low": -0.295996,
+            "high": 0.095996
+          }
+        },
+        "reader-limited": 0
+      },
+      "ABS": {
+        "total": 10,
+        "fullCorrect": 10,
+        "compactCorrect": 10,
+        "Acc_full": 1,
+        "Acc_compact": 1,
+        "Δtask": 0,
+        "ci95": {
+          "full": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "compact": {
+            "low": 0.722467,
+            "high": 1
+          },
+          "delta": {
+            "low": 0,
+            "high": 0
+          }
+        },
+        "reader-limited": 0
+      }
+    },
+    "ci95Method": "Wilson score 95% CI for each arm; normal 95% CI of paired per-item compact-full differences",
+    "thresholds": {
+      "total": 50,
+      "perType": 10,
+      "compactAccuracy": 0.9,
+      "deltaTask": -0.05,
+      "typeCompactAccuracy": 0.8,
+      "typeDeltaTask": -0.1,
+      "absUnknown": 10,
+      "minFailureOrUpdate": 25
+    },
+    "gates": {
+      "dataComplete": true,
+      "overallCompact": false,
+      "pairedDelta": false,
+      "perType": false,
+      "abstention": true,
+      "noUnknownProcessIds": true
+    },
+    "resultErrors": [],
+    "costs": {
+      "compressionRatio": "NOT_RUN",
+      "hotLedgerTokens": "NOT_RUN",
+      "readerLatencyMs": 816453,
+      "readerCost": "NOT_RUN"
+    },
+    "readerEvidence": "UNVERIFIED_INPUT_RESULTS",
+    "unknownProcessIds": [],
+    "items": [
+      {
+        "id": "IE-01",
+        "type": "IE",
+        "full": {
+          "answer": "n-ie01-root",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-ie01-root",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-02",
+        "type": "IE",
+        "full": {
+          "answer": "e-ie02-parse",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-ie02-parse",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-03",
+        "type": "IE",
+        "full": {
+          "answer": "checksum-mismatch",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "checksum-mismatch",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-04",
+        "type": "IE",
+        "full": {
+          "answer": "keep-ledger-byte-stable",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "keep-ledger-byte-stable",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-05",
+        "type": "IE",
+        "full": {
+          "answer": "n-ie05-stop",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-ie05-stop",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-06",
+        "type": "IE",
+        "full": {
+          "answer": "e-ie06-a,e-ie06-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-ie06-a,e-ie06-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-07",
+        "type": "IE",
+        "full": {
+          "answer": "n-ie07-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-ie07-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-08",
+        "type": "IE",
+        "full": {
+          "answer": "none",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "none",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-09",
+        "type": "IE",
+        "full": {
+          "answer": "preserve-failed-edges",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "preserve-failed-edges",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "IE-10",
+        "type": "IE",
+        "full": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-01",
+        "type": "MR",
+        "full": {
+          "answer": "e-mr01-a,e-mr01-b",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-mr01-a,e-mr01-b",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-02",
+        "type": "MR",
+        "full": {
+          "answer": "e-mr02-a,e-mr02-c",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": false,
+          "code": "set-mismatch",
+          "message": "missing=e-mr02-a|e-mr02-c; extra=UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": [
+          {
+            "arm": "compact",
+            "code": "set-mismatch",
+            "message": "missing=e-mr02-a|e-mr02-c; extra=UNKNOWN"
+          }
+        ]
+      },
+      {
+        "id": "MR-03",
+        "type": "MR",
+        "full": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-04",
+        "type": "MR",
+        "full": {
+          "answer": "3",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": [
+          {
+            "arm": "compact",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          }
+        ]
+      },
+      {
+        "id": "MR-05",
+        "type": "MR",
+        "full": {
+          "answer": "keep-failures,keep-root",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "keep-failures,keep-root",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-06",
+        "type": "MR",
+        "full": {
+          "answer": "n-mr06-mid,n-mr06-end",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-mr06-mid,n-mr06-end",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-07",
+        "type": "MR",
+        "full": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-08",
+        "type": "MR",
+        "full": {
+          "answer": "e-mr08-a,e-mr08-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-mr08-a,e-mr08-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-09",
+        "type": "MR",
+        "full": {
+          "answer": "fold-1",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "fold-1",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "MR-10",
+        "type": "MR",
+        "full": {
+          "answer": "2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-01",
+        "type": "KU",
+        "full": {
+          "answer": "later-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "later-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-02",
+        "type": "KU",
+        "full": {
+          "answer": "20",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "20",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "reader-limited": true,
+        "errors": [
+          {
+            "arm": "full",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          },
+          {
+            "arm": "compact",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          }
+        ]
+      },
+      {
+        "id": "KU-03",
+        "type": "KU",
+        "full": {
+          "answer": "candidate",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "candidate",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-04",
+        "type": "KU",
+        "full": {
+          "answer": "residue",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "residue",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-05",
+        "type": "KU",
+        "full": {
+          "answer": "e-ku05-old",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-ku05-old",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-06",
+        "type": "KU",
+        "full": {
+          "answer": "n-ku06-new",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-ku06-new",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-07",
+        "type": "KU",
+        "full": {
+          "answer": "e-ku07-a,e-ku07-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-ku07-a,e-ku07-b",
+          "correct": true,
+          "code": "ok",
+          "message": "set match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-08",
+        "type": "KU",
+        "full": {
+          "answer": "candidate",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "",
+          "correct": false,
+          "code": "missing-answer",
+          "message": "reader answer is missing",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": [
+          {
+            "arm": "compact",
+            "code": "missing-answer",
+            "message": "reader answer is missing"
+          }
+        ]
+      },
+      {
+        "id": "KU-09",
+        "type": "KU",
+        "full": {
+          "answer": "keep-old-summary",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "keep-old-summary",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "KU-10",
+        "type": "KU",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "reader-limited": true,
+        "errors": [
+          {
+            "arm": "full",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          },
+          {
+            "arm": "compact",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          }
+        ]
+      },
+      {
+        "id": "TR-01",
+        "type": "TR",
+        "full": {
+          "answer": "之前",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": false,
+          "code": "exact-mismatch",
+          "message": "trimmed, whitespace-normalized strings differ",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": [
+          {
+            "arm": "compact",
+            "code": "exact-mismatch",
+            "message": "trimmed, whitespace-normalized strings differ"
+          }
+        ]
+      },
+      {
+        "id": "TR-02",
+        "type": "TR",
+        "full": {
+          "answer": "之后",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "之后",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-03",
+        "type": "TR",
+        "full": {
+          "answer": "e-tr03-stale",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-tr03-stale",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-04",
+        "type": "TR",
+        "full": {
+          "answer": "n-tr04-current",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-tr04-current",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-05",
+        "type": "TR",
+        "full": {
+          "answer": "e-tr05-a,e-tr05-b,e-tr05-c",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-tr05-a,e-tr05-b,e-tr05-c",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-06",
+        "type": "TR",
+        "full": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "fold-2",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-07",
+        "type": "TR",
+        "full": {
+          "answer": "474",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "474",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-08",
+        "type": "TR",
+        "full": {
+          "answer": "e-tr08-first",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-tr08-first",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-09",
+        "type": "TR",
+        "full": {
+          "answer": "e-tr09-fresh",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "e-tr09-fresh",
+          "correct": true,
+          "code": "ok",
+          "message": "exact match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "TR-10",
+        "type": "TR",
+        "full": {
+          "answer": "n-tr10-root, e-tr10-fail, n-tr10-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "n-tr10-root,e-tr10-fail,n-tr10-ok",
+          "correct": true,
+          "code": "ok",
+          "message": "ordered list match",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-01",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-02",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-03",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-04",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-05",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-06",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-07",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-08",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-09",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      },
+      {
+        "id": "ABS-10",
+        "type": "ABS",
+        "full": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "compact": {
+          "answer": "UNKNOWN",
+          "correct": true,
+          "code": "ok",
+          "message": "exact UNKNOWN",
+          "unknownProcessIds": []
+        },
+        "reader-limited": false,
+        "errors": []
+      }
+    ]
+  },
+  "callsDetail": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "full",
+      "question": "根目标对应的节点 id 是什么？",
+      "contextChars": 128,
+      "raw": "n-ie01-root",
+      "answer": "n-ie01-root",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 215,
+        "completion_tokens_details": {
+          "reasoning_tokens": 212
+        },
+        "prompt_tokens": 234,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 449
+      },
+      "latencyMs": 7125
+    },
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "compact",
+      "question": "根目标对应的节点 id 是什么？",
+      "contextChars": 74,
+      "raw": "n-ie01-root",
+      "answer": "n-ie01-root",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 122,
+        "completion_tokens_details": {
+          "reasoning_tokens": 119
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 343
+      },
+      "latencyMs": 4326
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "full",
+      "question": "哪条边因 schema-mismatch 失败？",
+      "contextChars": 149,
+      "raw": "e-ie02-parse",
+      "answer": "e-ie02-parse",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 96,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        },
+        "prompt_tokens": 241,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 337
+      },
+      "latencyMs": 3853
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "compact",
+      "question": "哪条边因 schema-mismatch 失败？",
+      "contextChars": 74,
+      "raw": "e-ie02-parse",
+      "answer": "e-ie02-parse",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 123,
+        "completion_tokens_details": {
+          "reasoning_tokens": 119
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 344
+      },
+      "latencyMs": 4464
+    },
+    {
+      "id": "IE-03",
+      "type": "IE",
+      "arm": "full",
+      "question": "边 e-ie03-write 的已记录失败原因是什么？",
+      "contextChars": 134,
+      "raw": "checksum-mismatch",
+      "answer": "checksum-mismatch",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 99,
+        "completion_tokens_details": {
+          "reasoning_tokens": 94
+        },
+        "prompt_tokens": 244,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 343
+      },
+      "latencyMs": 3661
+    },
+    {
+      "id": "IE-03",
+      "type": "IE",
+      "arm": "compact",
+      "question": "边 e-ie03-write 的已记录失败原因是什么？",
+      "contextChars": 93,
+      "raw": "checksum-mismatch",
+      "answer": "checksum-mismatch",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 92,
+        "completion_tokens_details": {
+          "reasoning_tokens": 87
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 318
+      },
+      "latencyMs": 4223
+    },
+    {
+      "id": "IE-04",
+      "type": "IE",
+      "arm": "full",
+      "question": "已验证必须保持不变的约束标记是什么？",
+      "contextChars": 145,
+      "raw": "keep-ledger-byte-stable",
+      "answer": "keep-ledger-byte-stable",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 212,
+        "completion_tokens_details": {
+          "reasoning_tokens": 206
+        },
+        "prompt_tokens": 234,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 446
+      },
+      "latencyMs": 7974
+    },
+    {
+      "id": "IE-04",
+      "type": "IE",
+      "arm": "compact",
+      "question": "已验证必须保持不变的约束标记是什么？",
+      "contextChars": 75,
+      "raw": "keep-ledger-byte-stable",
+      "answer": "keep-ledger-byte-stable",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 118,
+        "completion_tokens_details": {
+          "reasoning_tokens": 112
+        },
+        "prompt_tokens": 216,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 334
+      },
+      "latencyMs": 4869
+    },
+    {
+      "id": "IE-05",
+      "type": "IE",
+      "arm": "full",
+      "question": "当前停点节点 id 是什么？",
+      "contextChars": 139,
+      "raw": "n-ie05-stop",
+      "answer": "n-ie05-stop",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 120,
+        "completion_tokens_details": {
+          "reasoning_tokens": 116
+        },
+        "prompt_tokens": 244,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 364
+      },
+      "latencyMs": 5511
+    },
+    {
+      "id": "IE-05",
+      "type": "IE",
+      "arm": "compact",
+      "question": "当前停点节点 id 是什么？",
+      "contextChars": 68,
+      "raw": "n-ie05-stop",
+      "answer": "n-ie05-stop",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 70,
+        "completion_tokens_details": {
+          "reasoning_tokens": 66
+        },
+        "prompt_tokens": 220,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 290
+      },
+      "latencyMs": 3625
+    },
+    {
+      "id": "IE-06",
+      "type": "IE",
+      "arm": "full",
+      "question": "已结算且仍失败的两条边 id 是哪些？",
+      "contextChars": 137,
+      "raw": "e-ie06-a,e-ie06-b",
+      "answer": "e-ie06-a,e-ie06-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 207,
+        "completion_tokens_details": {
+          "reasoning_tokens": 199
+        },
+        "prompt_tokens": 250,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 457
+      },
+      "latencyMs": 6286
+    },
+    {
+      "id": "IE-06",
+      "type": "IE",
+      "arm": "compact",
+      "question": "已结算且仍失败的两条边 id 是哪些？",
+      "contextChars": 88,
+      "raw": "e-ie06-a,e-ie06-b",
+      "answer": "e-ie06-a,e-ie06-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 137,
+        "completion_tokens_details": {
+          "reasoning_tokens": 132
+        },
+        "prompt_tokens": 231,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 368
+      },
+      "latencyMs": 5210
+    },
+    {
+      "id": "IE-07",
+      "type": "IE",
+      "arm": "full",
+      "question": "哪条成功路径的终点节点已验证？",
+      "contextChars": 136,
+      "raw": "n-ie07-ok",
+      "answer": "n-ie07-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 277,
+        "completion_tokens_details": {
+          "reasoning_tokens": 274
+        },
+        "prompt_tokens": 246,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 523
+      },
+      "latencyMs": 7317
+    },
+    {
+      "id": "IE-07",
+      "type": "IE",
+      "arm": "compact",
+      "question": "哪条成功路径的终点节点已验证？",
+      "contextChars": 74,
+      "raw": "n-ie07-ok",
+      "answer": "n-ie07-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 287,
+        "completion_tokens_details": {
+          "reasoning_tokens": 284
+        },
+        "prompt_tokens": 223,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 510
+      },
+      "latencyMs": 9224
+    },
+    {
+      "id": "IE-08",
+      "type": "IE",
+      "arm": "full",
+      "question": "该无失败片段中已记录的失败边集合是什么？",
+      "contextChars": 137,
+      "raw": "none",
+      "answer": "none",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 236,
+        "completion_tokens_details": {
+          "reasoning_tokens": 235
+        },
+        "prompt_tokens": 247,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 483
+      },
+      "latencyMs": 8422
+    },
+    {
+      "id": "IE-08",
+      "type": "IE",
+      "arm": "compact",
+      "question": "该无失败片段中已记录的失败边集合是什么？",
+      "contextChars": 63,
+      "raw": "none",
+      "answer": "none",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 262,
+        "completion_tokens_details": {
+          "reasoning_tokens": 261
+        },
+        "prompt_tokens": 219,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 481
+      },
+      "latencyMs": 10625
+    },
+    {
+      "id": "IE-09",
+      "type": "IE",
+      "arm": "full",
+      "question": "根事件给出的逐字约束标记是什么？",
+      "contextChars": 146,
+      "raw": "preserve-failed-edges",
+      "answer": "preserve-failed-edges",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 128,
+        "completion_tokens_details": {
+          "reasoning_tokens": 122
+        },
+        "prompt_tokens": 244,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 372
+      },
+      "latencyMs": 4124
+    },
+    {
+      "id": "IE-09",
+      "type": "IE",
+      "arm": "compact",
+      "question": "根事件给出的逐字约束标记是什么？",
+      "contextChars": 83,
+      "raw": "preserve-failed-edges",
+      "answer": "preserve-failed-edges",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 217,
+        "completion_tokens_details": {
+          "reasoning_tokens": 211
+        },
+        "prompt_tokens": 222,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 439
+      },
+      "latencyMs": 7350
+    },
+    {
+      "id": "IE-10",
+      "type": "IE",
+      "arm": "full",
+      "question": "最新 checkpoint 的 fold id 是什么？",
+      "contextChars": 139,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 92,
+        "completion_tokens_details": {
+          "reasoning_tokens": 90
+        },
+        "prompt_tokens": 247,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 339
+      },
+      "latencyMs": 3387
+    },
+    {
+      "id": "IE-10",
+      "type": "IE",
+      "arm": "compact",
+      "question": "最新 checkpoint 的 fold id 是什么？",
+      "contextChars": 59,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 116,
+        "completion_tokens_details": {
+          "reasoning_tokens": 114
+        },
+        "prompt_tokens": 219,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 335
+      },
+      "latencyMs": 3952
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "full",
+      "question": "跨两个 fold 形成成功路径的两条边，按先后排列是什么？",
+      "contextChars": 179,
+      "raw": "e-mr01-a,e-mr01-b",
+      "answer": "e-mr01-a,e-mr01-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 125,
+        "completion_tokens_details": {
+          "reasoning_tokens": 118
+        },
+        "prompt_tokens": 271,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 396
+      },
+      "latencyMs": 5679
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "compact",
+      "question": "跨两个 fold 形成成功路径的两条边，按先后排列是什么？",
+      "contextChars": 77,
+      "raw": "e-mr01-a,e-mr01-b",
+      "answer": "e-mr01-a,e-mr01-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 231,
+        "completion_tokens_details": {
+          "reasoning_tokens": 226
+        },
+        "prompt_tokens": 232,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 463
+      },
+      "latencyMs": 7205
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "full",
+      "question": "两个 fold 中最终标为 later-ok 的边 id 有哪些？",
+      "contextChars": 195,
+      "raw": "e-mr02-a,e-mr02-c",
+      "answer": "e-mr02-a,e-mr02-c",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 344,
+        "completion_tokens_details": {
+          "reasoning_tokens": 339
+        },
+        "prompt_tokens": 275,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 619
+      },
+      "latencyMs": 10033
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "compact",
+      "question": "两个 fold 中最终标为 later-ok 的边 id 有哪些？",
+      "contextChars": 74,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 1647,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1645
+        },
+        "prompt_tokens": 234,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1881
+      },
+      "latencyMs": 53401
+    },
+    {
+      "id": "MR-03",
+      "type": "MR",
+      "arm": "full",
+      "question": "fold-1 失败而 fold-2 验证成功的验证结果属于哪个 fold？",
+      "contextChars": 173,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 273,
+        "completion_tokens_details": {
+          "reasoning_tokens": 271
+        },
+        "prompt_tokens": 264,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 537
+      },
+      "latencyMs": 9482
+    },
+    {
+      "id": "MR-03",
+      "type": "MR",
+      "arm": "compact",
+      "question": "fold-1 失败而 fold-2 验证成功的验证结果属于哪个 fold？",
+      "contextChars": 62,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 152,
+        "completion_tokens_details": {
+          "reasoning_tokens": 150
+        },
+        "prompt_tokens": 227,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 379
+      },
+      "latencyMs": 5583
+    },
+    {
+      "id": "MR-04",
+      "type": "MR",
+      "arm": "full",
+      "question": "两个 fold 合计有多少条不同的已结算失败边？",
+      "contextChars": 165,
+      "raw": "3",
+      "answer": "3",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 289,
+        "completion_tokens_details": {
+          "reasoning_tokens": 288
+        },
+        "prompt_tokens": 260,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 549
+      },
+      "latencyMs": 9982
+    },
+    {
+      "id": "MR-04",
+      "type": "MR",
+      "arm": "compact",
+      "question": "两个 fold 合计有多少条不同的已结算失败边？",
+      "contextChars": 74,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 162,
+        "completion_tokens_details": {
+          "reasoning_tokens": 160
+        },
+        "prompt_tokens": 229,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 391
+      },
+      "latencyMs": 6528
+    },
+    {
+      "id": "MR-05",
+      "type": "MR",
+      "arm": "full",
+      "question": "两个 fold 都要求保留的约束标记有哪些？",
+      "contextChars": 187,
+      "raw": "keep-failures,keep-root",
+      "answer": "keep-failures,keep-root",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 224,
+        "completion_tokens_details": {
+          "reasoning_tokens": 219
+        },
+        "prompt_tokens": 256,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 480
+      },
+      "latencyMs": 7267
+    },
+    {
+      "id": "MR-05",
+      "type": "MR",
+      "arm": "compact",
+      "question": "两个 fold 都要求保留的约束标记有哪些？",
+      "contextChars": 92,
+      "raw": "keep-failures,keep-root",
+      "answer": "keep-failures,keep-root",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 122,
+        "completion_tokens_details": {
+          "reasoning_tokens": 116
+        },
+        "prompt_tokens": 225,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 347
+      },
+      "latencyMs": 4641
+    },
+    {
+      "id": "MR-06",
+      "type": "MR",
+      "arm": "full",
+      "question": "成功路径经过的验证节点按时间顺序是什么？",
+      "contextChars": 177,
+      "raw": "n-mr06-mid,n-mr06-end",
+      "answer": "n-mr06-mid,n-mr06-end",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 211,
+        "completion_tokens_details": {
+          "reasoning_tokens": 204
+        },
+        "prompt_tokens": 262,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 473
+      },
+      "latencyMs": 6248
+    },
+    {
+      "id": "MR-06",
+      "type": "MR",
+      "arm": "compact",
+      "question": "成功路径经过的验证节点按时间顺序是什么？",
+      "contextChars": 91,
+      "raw": "n-mr06-mid,n-mr06-end",
+      "answer": "n-mr06-mid,n-mr06-end",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 218,
+        "completion_tokens_details": {
+          "reasoning_tokens": 212
+        },
+        "prompt_tokens": 229,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 447
+      },
+      "latencyMs": 5895
+    },
+    {
+      "id": "MR-07",
+      "type": "MR",
+      "arm": "full",
+      "question": "第一次出现已验证成功的是哪个 fold？",
+      "contextChars": 142,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 395,
+        "completion_tokens_details": {
+          "reasoning_tokens": 394
+        },
+        "prompt_tokens": 244,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 639
+      },
+      "latencyMs": 14419
+    },
+    {
+      "id": "MR-07",
+      "type": "MR",
+      "arm": "compact",
+      "question": "第一次出现已验证成功的是哪个 fold？",
+      "contextChars": 68,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 131,
+        "completion_tokens_details": {
+          "reasoning_tokens": 129
+        },
+        "prompt_tokens": 219,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 350
+      },
+      "latencyMs": 5557
+    },
+    {
+      "id": "MR-08",
+      "type": "MR",
+      "arm": "full",
+      "question": "两个 fold 中仍为 candidate 的边 id 有哪些？",
+      "contextChars": 220,
+      "raw": "e-mr08-a,e-mr08-b",
+      "answer": "e-mr08-a,e-mr08-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 163,
+        "completion_tokens_details": {
+          "reasoning_tokens": 158
+        },
+        "prompt_tokens": 277,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 440
+      },
+      "latencyMs": 6384
+    },
+    {
+      "id": "MR-08",
+      "type": "MR",
+      "arm": "compact",
+      "question": "两个 fold 中仍为 candidate 的边 id 有哪些？",
+      "contextChars": 73,
+      "raw": "e-mr08-a,e-mr08-b",
+      "answer": "e-mr08-a,e-mr08-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 361,
+        "completion_tokens_details": {
+          "reasoning_tokens": 357
+        },
+        "prompt_tokens": 225,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 586
+      },
+      "latencyMs": 11741
+    },
+    {
+      "id": "MR-09",
+      "type": "MR",
+      "arm": "full",
+      "question": "已结算 residue 出现在哪个 fold？",
+      "contextChars": 218,
+      "raw": "fold-1",
+      "answer": "fold-1",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 298,
+        "completion_tokens_details": {
+          "reasoning_tokens": 296
+        },
+        "prompt_tokens": 269,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 567
+      },
+      "latencyMs": 11208
+    },
+    {
+      "id": "MR-09",
+      "type": "MR",
+      "arm": "compact",
+      "question": "已结算 residue 出现在哪个 fold？",
+      "contextChars": 81,
+      "raw": "fold-1",
+      "answer": "fold-1",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 140,
+        "completion_tokens_details": {
+          "reasoning_tokens": 138
+        },
+        "prompt_tokens": 222,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 362
+      },
+      "latencyMs": 4157
+    },
+    {
+      "id": "MR-10",
+      "type": "MR",
+      "arm": "full",
+      "question": "跨 fold 成功路径包含几条边？",
+      "contextChars": 184,
+      "raw": "2",
+      "answer": "2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 189,
+        "completion_tokens_details": {
+          "reasoning_tokens": 188
+        },
+        "prompt_tokens": 263,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 452
+      },
+      "latencyMs": 5336
+    },
+    {
+      "id": "MR-10",
+      "type": "MR",
+      "arm": "compact",
+      "question": "跨 fold 成功路径包含几条边？",
+      "contextChars": 60,
+      "raw": "2",
+      "answer": "2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 130,
+        "completion_tokens_details": {
+          "reasoning_tokens": 129
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 351
+      },
+      "latencyMs": 4466
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "full",
+      "question": "e-ku01-a 的最新结算状态是什么？",
+      "contextChars": 149,
+      "raw": "later-ok",
+      "answer": "later-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 168,
+        "completion_tokens_details": {
+          "reasoning_tokens": 166
+        },
+        "prompt_tokens": 251,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 419
+      },
+      "latencyMs": 6881
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "compact",
+      "question": "e-ku01-a 的最新结算状态是什么？",
+      "contextChars": 82,
+      "raw": "later-ok",
+      "answer": "later-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 683,
+        "completion_tokens_details": {
+          "reasoning_tokens": 681
+        },
+        "prompt_tokens": 223,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 906
+      },
+      "latencyMs": 20306
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "full",
+      "question": "新约束生效后，当前 retain 数值是什么？",
+      "contextChars": 149,
+      "raw": "20",
+      "answer": "20",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 207,
+        "completion_tokens_details": {
+          "reasoning_tokens": 206
+        },
+        "prompt_tokens": 251,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 458
+      },
+      "latencyMs": 7553
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "compact",
+      "question": "新约束生效后，当前 retain 数值是什么？",
+      "contextChars": 81,
+      "raw": "20",
+      "answer": "20",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 163,
+        "completion_tokens_details": {
+          "reasoning_tokens": 162
+        },
+        "prompt_tokens": 223,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 386
+      },
+      "latencyMs": 6213
+    },
+    {
+      "id": "KU-03",
+      "type": "KU",
+      "arm": "full",
+      "question": "陈旧但 untested 的 e-ku03-a 当前分类是什么？",
+      "contextChars": 131,
+      "raw": "candidate",
+      "answer": "candidate",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 113,
+        "completion_tokens_details": {
+          "reasoning_tokens": 110
+        },
+        "prompt_tokens": 248,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 361
+      },
+      "latencyMs": 5989
+    },
+    {
+      "id": "KU-03",
+      "type": "KU",
+      "arm": "compact",
+      "question": "陈旧但 untested 的 e-ku03-a 当前分类是什么？",
+      "contextChars": 72,
+      "raw": "candidate",
+      "answer": "candidate",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 689,
+        "completion_tokens_details": {
+          "reasoning_tokens": 687
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 915
+      },
+      "latencyMs": 22707
+    },
+    {
+      "id": "KU-04",
+      "type": "KU",
+      "arm": "full",
+      "question": "已结算且陈旧的 e-ku04-a 当前分类是什么？",
+      "contextChars": 128,
+      "raw": "residue",
+      "answer": "residue",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 162,
+        "completion_tokens_details": {
+          "reasoning_tokens": 160
+        },
+        "prompt_tokens": 246,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 408
+      },
+      "latencyMs": 5951
+    },
+    {
+      "id": "KU-04",
+      "type": "KU",
+      "arm": "compact",
+      "question": "已结算且陈旧的 e-ku04-a 当前分类是什么？",
+      "contextChars": 70,
+      "raw": "residue",
+      "answer": "residue",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 446,
+        "completion_tokens_details": {
+          "reasoning_tokens": 444
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 672
+      },
+      "latencyMs": 13963
+    },
+    {
+      "id": "KU-05",
+      "type": "KU",
+      "arm": "full",
+      "question": "哪条旧边已被 e-ku05-new 取代？",
+      "contextChars": 173,
+      "raw": "e-ku05-old",
+      "answer": "e-ku05-old",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 87,
+        "completion_tokens_details": {
+          "reasoning_tokens": 83
+        },
+        "prompt_tokens": 260,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 347
+      },
+      "latencyMs": 3255
+    },
+    {
+      "id": "KU-05",
+      "type": "KU",
+      "arm": "compact",
+      "question": "哪条旧边已被 e-ku05-new 取代？",
+      "contextChars": 73,
+      "raw": "e-ku05-old",
+      "answer": "e-ku05-old",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 85,
+        "completion_tokens_details": {
+          "reasoning_tokens": 81
+        },
+        "prompt_tokens": 228,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 313
+      },
+      "latencyMs": 4652
+    },
+    {
+      "id": "KU-06",
+      "type": "KU",
+      "arm": "full",
+      "question": "状态更新后当前续接节点是什么？",
+      "contextChars": 165,
+      "raw": "n-ku06-new",
+      "answer": "n-ku06-new",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 140,
+        "completion_tokens_details": {
+          "reasoning_tokens": 137
+        },
+        "prompt_tokens": 255,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 395
+      },
+      "latencyMs": 5963
+    },
+    {
+      "id": "KU-06",
+      "type": "KU",
+      "arm": "compact",
+      "question": "状态更新后当前续接节点是什么？",
+      "contextChars": 72,
+      "raw": "n-ku06-new",
+      "answer": "n-ku06-new",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 155,
+        "completion_tokens_details": {
+          "reasoning_tokens": 152
+        },
+        "prompt_tokens": 224,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 379
+      },
+      "latencyMs": 7022
+    },
+    {
+      "id": "KU-07",
+      "type": "KU",
+      "arm": "full",
+      "question": "哪些先前失败边后来被 later-ok 修正？",
+      "contextChars": 160,
+      "raw": "e-ku07-a,e-ku07-b",
+      "answer": "e-ku07-a,e-ku07-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 150,
+        "completion_tokens_details": {
+          "reasoning_tokens": 145
+        },
+        "prompt_tokens": 264,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 414
+      },
+      "latencyMs": 7198
+    },
+    {
+      "id": "KU-07",
+      "type": "KU",
+      "arm": "compact",
+      "question": "哪些先前失败边后来被 later-ok 修正？",
+      "contextChars": 82,
+      "raw": "e-ku07-a,e-ku07-b",
+      "answer": "e-ku07-a,e-ku07-b",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 108,
+        "completion_tokens_details": {
+          "reasoning_tokens": 102
+        },
+        "prompt_tokens": 229,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 337
+      },
+      "latencyMs": 8230
+    },
+    {
+      "id": "KU-08",
+      "type": "KU",
+      "arm": "full",
+      "question": "经过后续 fold 仍未结算的 e-ku08-a 应归为哪类？",
+      "contextChars": 201,
+      "raw": "candidate",
+      "answer": "candidate",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 181,
+        "completion_tokens_details": {
+          "reasoning_tokens": 179
+        },
+        "prompt_tokens": 273,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 454
+      },
+      "latencyMs": 7189
+    },
+    {
+      "id": "KU-08",
+      "type": "KU",
+      "arm": "compact",
+      "question": "经过后续 fold 仍未结算的 e-ku08-a 应归为哪类？",
+      "contextChars": 73,
+      "raw": null,
+      "answer": "",
+      "finishReason": "length",
+      "usage": {
+        "completion_tokens": 2048,
+        "completion_tokens_details": {
+          "reasoning_tokens": 2048
+        },
+        "prompt_tokens": 228,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 2276
+      },
+      "latencyMs": 74684
+    },
+    {
+      "id": "KU-09",
+      "type": "KU",
+      "arm": "full",
+      "question": "哪条旧约束已不再是当前约束？",
+      "contextChars": 168,
+      "raw": "keep-old-summary",
+      "answer": "keep-old-summary",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 190,
+        "completion_tokens_details": {
+          "reasoning_tokens": 186
+        },
+        "prompt_tokens": 245,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 435
+      },
+      "latencyMs": 7126
+    },
+    {
+      "id": "KU-09",
+      "type": "KU",
+      "arm": "compact",
+      "question": "哪条旧约束已不再是当前约束？",
+      "contextChars": 87,
+      "raw": "keep-old-summary",
+      "answer": "keep-old-summary",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 110,
+        "completion_tokens_details": {
+          "reasoning_tokens": 106
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 331
+      },
+      "latencyMs": 5116
+    },
+    {
+      "id": "KU-10",
+      "type": "KU",
+      "arm": "full",
+      "question": "右删失的 e-ku10-a 最新可观察状态是什么？",
+      "contextChars": 143,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 615,
+        "completion_tokens_details": {
+          "reasoning_tokens": 613
+        },
+        "prompt_tokens": 254,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 869
+      },
+      "latencyMs": 16722
+    },
+    {
+      "id": "KU-10",
+      "type": "KU",
+      "arm": "compact",
+      "question": "右删失的 e-ku10-a 最新可观察状态是什么？",
+      "contextChars": 79,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 913,
+        "completion_tokens_details": {
+          "reasoning_tokens": 911
+        },
+        "prompt_tokens": 230,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 1143
+      },
+      "latencyMs": 27233
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "full",
+      "question": "e-tr01-a 的失败发生在 later-ok 之前还是之后？",
+      "contextChars": 144,
+      "raw": "之前",
+      "answer": "之前",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 101,
+        "completion_tokens_details": {
+          "reasoning_tokens": 100
+        },
+        "prompt_tokens": 250,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 351
+      },
+      "latencyMs": 5557
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "compact",
+      "question": "e-tr01-a 的失败发生在 later-ok 之前还是之后？",
+      "contextChars": 79,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 450,
+        "completion_tokens_details": {
+          "reasoning_tokens": 448
+        },
+        "prompt_tokens": 227,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 677
+      },
+      "latencyMs": 13563
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "full",
+      "question": "checkpoint fold-2 出现在 e-tr02-a 失败之前还是之后？",
+      "contextChars": 139,
+      "raw": "之后",
+      "answer": "之后",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 123,
+        "completion_tokens_details": {
+          "reasoning_tokens": 122
+        },
+        "prompt_tokens": 247,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 370
+      },
+      "latencyMs": 5731
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "compact",
+      "question": "checkpoint fold-2 出现在 e-tr02-a 失败之前还是之后？",
+      "contextChars": 63,
+      "raw": "之后",
+      "answer": "之后",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 260,
+        "completion_tokens_details": {
+          "reasoning_tokens": 259
+        },
+        "prompt_tokens": 224,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 484
+      },
+      "latencyMs": 7762
+    },
+    {
+      "id": "TR-03",
+      "type": "TR",
+      "arm": "full",
+      "question": "哪条 untested 边已超过陈旧阈值并成为 candidate？",
+      "contextChars": 184,
+      "raw": "e-tr03-stale",
+      "answer": "e-tr03-stale",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 128,
+        "completion_tokens_details": {
+          "reasoning_tokens": 125
+        },
+        "prompt_tokens": 263,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 391
+      },
+      "latencyMs": 5168
+    },
+    {
+      "id": "TR-03",
+      "type": "TR",
+      "arm": "compact",
+      "question": "哪条 untested 边已超过陈旧阈值并成为 candidate？",
+      "contextChars": 89,
+      "raw": "e-tr03-stale",
+      "answer": "e-tr03-stale",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 121,
+        "completion_tokens_details": {
+          "reasoning_tokens": 117
+        },
+        "prompt_tokens": 233,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 354
+      },
+      "latencyMs": 4074
+    },
+    {
+      "id": "TR-04",
+      "type": "TR",
+      "arm": "full",
+      "question": "按最新已验证事件，当前应从哪个节点续接？",
+      "contextChars": 180,
+      "raw": "n-tr04-current",
+      "answer": "n-tr04-current",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 87,
+        "completion_tokens_details": {
+          "reasoning_tokens": 83
+        },
+        "prompt_tokens": 255,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 342
+      },
+      "latencyMs": 4459
+    },
+    {
+      "id": "TR-04",
+      "type": "TR",
+      "arm": "compact",
+      "question": "按最新已验证事件，当前应从哪个节点续接？",
+      "contextChars": 73,
+      "raw": "n-tr04-current",
+      "answer": "n-tr04-current",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 123,
+        "completion_tokens_details": {
+          "reasoning_tokens": 119
+        },
+        "prompt_tokens": 224,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 347
+      },
+      "latencyMs": 5917
+    },
+    {
+      "id": "TR-05",
+      "type": "TR",
+      "arm": "full",
+      "question": "三条过程事件按 seq 先后顺序如何排列？",
+      "contextChars": 212,
+      "raw": "e-tr05-a,e-tr05-b,e-tr05-c",
+      "answer": "e-tr05-a,e-tr05-b,e-tr05-c",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 221,
+        "completion_tokens_details": {
+          "reasoning_tokens": 214
+        },
+        "prompt_tokens": 273,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 494
+      },
+      "latencyMs": 7482
+    },
+    {
+      "id": "TR-05",
+      "type": "TR",
+      "arm": "compact",
+      "question": "三条过程事件按 seq 先后顺序如何排列？",
+      "contextChars": 72,
+      "raw": "e-tr05-a,e-tr05-b,e-tr05-c",
+      "answer": "e-tr05-a,e-tr05-b,e-tr05-c",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 258,
+        "completion_tokens_details": {
+          "reasoning_tokens": 251
+        },
+        "prompt_tokens": 227,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 485
+      },
+      "latencyMs": 9424
+    },
+    {
+      "id": "TR-06",
+      "type": "TR",
+      "arm": "full",
+      "question": "e-tr06-a 的 later-ok 落在哪个折叠边界？",
+      "contextChars": 170,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 397,
+        "completion_tokens_details": {
+          "reasoning_tokens": 395
+        },
+        "prompt_tokens": 259,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 656
+      },
+      "latencyMs": 13117
+    },
+    {
+      "id": "TR-06",
+      "type": "TR",
+      "arm": "compact",
+      "question": "e-tr06-a 的 later-ok 落在哪个折叠边界？",
+      "contextChars": 73,
+      "raw": "fold-2",
+      "answer": "fold-2",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 140,
+        "completion_tokens_details": {
+          "reasoning_tokens": 138
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 366
+      },
+      "latencyMs": 4883
+    },
+    {
+      "id": "TR-07",
+      "type": "TR",
+      "arm": "full",
+      "question": "最新可见事件的 seq 是多少？",
+      "contextChars": 146,
+      "raw": "474",
+      "answer": "474",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 110,
+        "completion_tokens_details": {
+          "reasoning_tokens": 109
+        },
+        "prompt_tokens": 246,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 356
+      },
+      "latencyMs": 4311
+    },
+    {
+      "id": "TR-07",
+      "type": "TR",
+      "arm": "compact",
+      "question": "最新可见事件的 seq 是多少？",
+      "contextChars": 61,
+      "raw": "474",
+      "answer": "474",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 68,
+        "completion_tokens_details": {
+          "reasoning_tokens": 67
+        },
+        "prompt_tokens": 216,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 284
+      },
+      "latencyMs": 2774
+    },
+    {
+      "id": "TR-08",
+      "type": "TR",
+      "arm": "full",
+      "question": "时间最早失败的边 id 是什么？",
+      "contextChars": 150,
+      "raw": "e-tr08-first",
+      "answer": "e-tr08-first",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 100,
+        "completion_tokens_details": {
+          "reasoning_tokens": 97
+        },
+        "prompt_tokens": 242,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 342
+      },
+      "latencyMs": 4791
+    },
+    {
+      "id": "TR-08",
+      "type": "TR",
+      "arm": "compact",
+      "question": "时间最早失败的边 id 是什么？",
+      "contextChars": 93,
+      "raw": "e-tr08-first",
+      "answer": "e-tr08-first",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 96,
+        "completion_tokens_details": {
+          "reasoning_tokens": 92
+        },
+        "prompt_tokens": 224,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 320
+      },
+      "latencyMs": 3952
+    },
+    {
+      "id": "TR-09",
+      "type": "TR",
+      "arm": "full",
+      "question": "两条 untested 边中哪条仍是 fresh-unsettled？",
+      "contextChars": 204,
+      "raw": "e-tr09-fresh",
+      "answer": "e-tr09-fresh",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 137,
+        "completion_tokens_details": {
+          "reasoning_tokens": 133
+        },
+        "prompt_tokens": 270,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 407
+      },
+      "latencyMs": 4702
+    },
+    {
+      "id": "TR-09",
+      "type": "TR",
+      "arm": "compact",
+      "question": "两条 untested 边中哪条仍是 fresh-unsettled？",
+      "contextChars": 73,
+      "raw": "e-tr09-fresh",
+      "answer": "e-tr09-fresh",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 120,
+        "completion_tokens_details": {
+          "reasoning_tokens": 117
+        },
+        "prompt_tokens": 225,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 345
+      },
+      "latencyMs": 4485
+    },
+    {
+      "id": "TR-10",
+      "type": "TR",
+      "arm": "full",
+      "question": "按发生顺序排列根节点、失败边、成功节点。",
+      "contextChars": 157,
+      "raw": "n-tr10-root, e-tr10-fail, n-tr10-ok",
+      "answer": "n-tr10-root, e-tr10-fail, n-tr10-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 152,
+        "completion_tokens_details": {
+          "reasoning_tokens": 141
+        },
+        "prompt_tokens": 255,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 407
+      },
+      "latencyMs": 6015
+    },
+    {
+      "id": "TR-10",
+      "type": "TR",
+      "arm": "compact",
+      "question": "按发生顺序排列根节点、失败边、成功节点。",
+      "contextChars": 84,
+      "raw": "n-tr10-root,e-tr10-fail,n-tr10-ok",
+      "answer": "n-tr10-root,e-tr10-fail,n-tr10-ok",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 161,
+        "completion_tokens_details": {
+          "reasoning_tokens": 151
+        },
+        "prompt_tokens": 233,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 394
+      },
+      "latencyMs": 5493
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "full",
+      "question": "边 e-abs01-missing 的验证结果是什么？",
+      "contextChars": 156,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 130,
+        "completion_tokens_details": {
+          "reasoning_tokens": 128
+        },
+        "prompt_tokens": 245,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 375
+      },
+      "latencyMs": 4782
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "边 e-abs01-missing 的验证结果是什么？",
+      "contextChars": 98,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 88,
+        "completion_tokens_details": {
+          "reasoning_tokens": 86
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 314
+      },
+      "latencyMs": 3757
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "full",
+      "question": "节点 n-abs02-missing 的成功路径是什么？",
+      "contextChars": 157,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 104,
+        "completion_tokens_details": {
+          "reasoning_tokens": 102
+        },
+        "prompt_tokens": 246,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 350
+      },
+      "latencyMs": 5552
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "节点 n-abs02-missing 的成功路径是什么？",
+      "contextChars": 74,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 130,
+        "completion_tokens_details": {
+          "reasoning_tokens": 128
+        },
+        "prompt_tokens": 219,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 349
+      },
+      "latencyMs": 4873
+    },
+    {
+      "id": "ABS-03",
+      "type": "ABS",
+      "arm": "full",
+      "question": "e-abs03-missing 是否已被 later-ok 修正？",
+      "contextChars": 154,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 148,
+        "completion_tokens_details": {
+          "reasoning_tokens": 146
+        },
+        "prompt_tokens": 249,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 397
+      },
+      "latencyMs": 6106
+    },
+    {
+      "id": "ABS-03",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "e-abs03-missing 是否已被 later-ok 修正？",
+      "contextChars": 82,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 161,
+        "completion_tokens_details": {
+          "reasoning_tokens": 159
+        },
+        "prompt_tokens": 223,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 384
+      },
+      "latencyMs": 6206
+    },
+    {
+      "id": "ABS-04",
+      "type": "ABS",
+      "arm": "full",
+      "question": "fold-3 的 checkpoint id 是什么？",
+      "contextChars": 148,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 161,
+        "completion_tokens_details": {
+          "reasoning_tokens": 159
+        },
+        "prompt_tokens": 242,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 403
+      },
+      "latencyMs": 6170
+    },
+    {
+      "id": "ABS-04",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "fold-3 的 checkpoint id 是什么？",
+      "contextChars": 77,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 106,
+        "completion_tokens_details": {
+          "reasoning_tokens": 104
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 327
+      },
+      "latencyMs": 4958
+    },
+    {
+      "id": "ABS-05",
+      "type": "ABS",
+      "arm": "full",
+      "question": "未记录的 keep-abs05-missing 约束内容是什么？",
+      "contextChars": 161,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 125,
+        "completion_tokens_details": {
+          "reasoning_tokens": 123
+        },
+        "prompt_tokens": 246,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 371
+      },
+      "latencyMs": 5498
+    },
+    {
+      "id": "ABS-05",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "未记录的 keep-abs05-missing 约束内容是什么？",
+      "contextChars": 84,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 95,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 316
+      },
+      "latencyMs": 3549
+    },
+    {
+      "id": "ABS-06",
+      "type": "ABS",
+      "arm": "full",
+      "question": "未记录的 e-abs06-missing 当前属于 candidate 还是 residue？",
+      "contextChars": 166,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 141,
+        "completion_tokens_details": {
+          "reasoning_tokens": 139
+        },
+        "prompt_tokens": 252,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 393
+      },
+      "latencyMs": 5293
+    },
+    {
+      "id": "ABS-06",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "未记录的 e-abs06-missing 当前属于 candidate 还是 residue？",
+      "contextChars": 101,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 147,
+        "completion_tokens_details": {
+          "reasoning_tokens": 145
+        },
+        "prompt_tokens": 229,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 376
+      },
+      "latencyMs": 4961
+    },
+    {
+      "id": "ABS-07",
+      "type": "ABS",
+      "arm": "full",
+      "question": "e-abs07-missing 发生在哪个 seq？",
+      "contextChars": 156,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 61,
+        "completion_tokens_details": {
+          "reasoning_tokens": 59
+        },
+        "prompt_tokens": 245,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 306
+      },
+      "latencyMs": 4139
+    },
+    {
+      "id": "ABS-07",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "e-abs07-missing 发生在哪个 seq？",
+      "contextChars": 80,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 131,
+        "completion_tokens_details": {
+          "reasoning_tokens": 129
+        },
+        "prompt_tokens": 223,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 354
+      },
+      "latencyMs": 5130
+    },
+    {
+      "id": "ABS-08",
+      "type": "ABS",
+      "arm": "full",
+      "question": "n-abs08-missing 的后续停点是什么？",
+      "contextChars": 142,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 202,
+        "completion_tokens_details": {
+          "reasoning_tokens": 200
+        },
+        "prompt_tokens": 242,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 444
+      },
+      "latencyMs": 5871
+    },
+    {
+      "id": "ABS-08",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "n-abs08-missing 的后续停点是什么？",
+      "contextChars": 82,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 385,
+        "completion_tokens_details": {
+          "reasoning_tokens": 383
+        },
+        "prompt_tokens": 221,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 606
+      },
+      "latencyMs": 11645
+    },
+    {
+      "id": "ABS-09",
+      "type": "ABS",
+      "arm": "full",
+      "question": "fold-2 中未出现的第四条成功边 id 是什么？",
+      "contextChars": 153,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 508,
+        "completion_tokens_details": {
+          "reasoning_tokens": 506
+        },
+        "prompt_tokens": 254,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 762
+      },
+      "latencyMs": 16884
+    },
+    {
+      "id": "ABS-09",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "fold-2 中未出现的第四条成功边 id 是什么？",
+      "contextChars": 93,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 102,
+        "completion_tokens_details": {
+          "reasoning_tokens": 100
+        },
+        "prompt_tokens": 228,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 330
+      },
+      "latencyMs": 4266
+    },
+    {
+      "id": "ABS-10",
+      "type": "ABS",
+      "arm": "full",
+      "question": "右删失窗口结束后 e-abs10-a 的最终验证结果是什么？",
+      "contextChars": 145,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 152,
+        "completion_tokens_details": {
+          "reasoning_tokens": 150
+        },
+        "prompt_tokens": 251,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 403
+      },
+      "latencyMs": 4469
+    },
+    {
+      "id": "ABS-10",
+      "type": "ABS",
+      "arm": "compact",
+      "question": "右删失窗口结束后 e-abs10-a 的最终验证结果是什么？",
+      "contextChars": 77,
+      "raw": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "finishReason": "stop",
+      "usage": {
+        "completion_tokens": 116,
+        "completion_tokens_details": {
+          "reasoning_tokens": 114
+        },
+        "prompt_tokens": 226,
+        "prompt_tokens_details": {
+          "cache_write_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 342
+      },
+      "latencyMs": 3991
+    }
+  ],
+  "note": "Formal v2 run. Aliases are pre-registered for TR-01/02 only; no post-hoc question changes."
+}

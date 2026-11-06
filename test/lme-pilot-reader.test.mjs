@@ -68,6 +68,7 @@ tests["K27-P4 汇总按臂/类型计数，错误保留但不改分母"] = (t) =>
 tests["K27-P5 提示词 v2 是独立预注册变体，v1 保持默认"] = (t) => {
   t.eq(READER_PROMPTS.v1.includes("Never substitute"), false, "v1 不含 v2 的弃答规则");
   t.eq(READER_PROMPTS.v2.includes("Never substitute a status word"), true, "v2 明确禁止用状态词代替 UNKNOWN");
+  t.eq(READER_PROMPTS.v1b.includes("Do not infer missing ids or seqs"), true, "v1b 禁止编造缺失 id/seq");
   const payload = makeReaderPayload(selectPilot(FIXTURES.questions)[0], "compact");
   t.eq(buildMessages(payload)[0].content, READER_PROMPTS.v1, "默认仍是 v1");
   t.eq(buildMessages(payload, { variant: "v2" })[0].content, READER_PROMPTS.v2, "显式 v2");

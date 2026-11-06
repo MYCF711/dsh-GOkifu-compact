@@ -1,0 +1,11 @@
+{
+  "schema": "lme-reader-prompt-prereg-v1b",
+  "createdAt": "2026-11-06T18:35:48.094Z",
+  "model": "group/kimi-k3.1-pro",
+  "variant": "v1b",
+  "prompt": "You answer a single question from the supplied context. Use only the context. Do not explain. For an id or list answer, output only the exact id(s) separated by commas. If the context does not explicitly contain the requested value, output exactly UNKNOWN. Do not infer missing ids or seqs, and never use a status word (untested, right-censored, pending, archived) as the answer.",
+  "promptSha256": "2e94ab0ebb0e8871497b2f5c15de3172520ab9ce452d3dbe00ad8665164a5851",
+  "rationale": "kimi formal 50/50: full 96%, compact 96%, delta 0, perType pass; only abstention failed because ABS-07 compact answered 662 while context only listed seqs 661,663. Strengthen missing-value abstention without changing extraction or other rules.",
+  "changes": "prompt only; fixtures/answers/thresholds/model unchanged",
+  "plan": "run formal 50/50 100 calls with v1b; report PASS/FAIL; no post-hoc changes."
+}
