@@ -187,7 +187,7 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
    * 落盘（三层树 + 增量帧）。写序见 `_ORDER`。
    * @returns {{ok:true, baseHash, wroteBaseline:boolean, wroteDelta:boolean} | {ok:false, error:string, dirtyKept:true}}
    */
-  function flush({ id, cwd } = {}, graph, { tree = false, full = false, repaired = false } = {}) {
+  function flush({ id, cwd } = {}, graph, { tree = false, full = false, closeout = false, repaired = false } = {}) {
     const key = String(id ?? "session");
     const p = sessionPaths(root, key);
     let wroteBaseline = false;
@@ -233,7 +233,8 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
         //   内存里只有新建的少量节点，按「不在图里」删会把旧图真实的 nodes/*.md 全删。
         if (tree && !repaired) pruneStaleNodeDocs(port, p.nodesDir, graph);
         step("nodes");
-      } else if (tree || pending.size > 0) {
+      } else if (tree || closeout || pending.size > 0) {
+        // closeout 后会话静止：pending 与本轮 dirty 都必须当次写出；普通 full 仍走原来的节流。
         port.mkdirSync(p.nodesDir, { recursive: true });
         const writeSet = new Set([...pending, ...dirty.nodes]);
         for (const nodeId of writeSet) {

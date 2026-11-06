@@ -1034,11 +1034,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     return st;
   }
 
-  #flush(session, { tree = false, full = false } = {}) {
+  #flush(session, { tree = false, full = false, closeout = false } = {}) {
     const g = this.#graph(session);
     // ★ A2-2 行为变更②：写序/字节全在 R01；失败返回 {ok:false} 且 **dirty 不清**，这里打一行 warn。
     // ★ C149：把「本会话的图是刚重建出来的」告诉落盘方 —— 那种图上做「按图清理」会删掉旧图的真实文档。
-    const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full, repaired: this.repairedGraphs.has(session.id) });
+    const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full, closeout, repaired: this.repairedGraphs.has(session.id) });
     if (!result.ok) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${result.error}`);
     }
@@ -1237,7 +1237,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const session = agent?.session;
     if (!session || typeof session.id !== "string") return { ok: false, error: "no session" };
     try {
-      this.#flush(session, { full: true });
+      this.#flush(session, { full: true, closeout: true });
     } catch {
       /* 落盘失败不阻塞收尾 */
     }
@@ -1377,7 +1377,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (prev && prev.source !== source && now - prev.at < 10_000) return;
     this.closedOutAt.set(session.id, { at: now, source });
     try {
-      this.#flush(session, { full: true });
+      this.#flush(session, { full: true, closeout: true });
     } catch {
       /* 落盘失败不阻塞归档 */
     }

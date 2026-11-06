@@ -1,9 +1,10 @@
 {
- "total": 1793,
+ "total": 1796,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
   "add-changelog.test.mjs": 4,
+  "archive-flush-md.test.mjs": 3,
   "archive-fold-gap.test.mjs": 3,
   "archive-fold.test.mjs": 8,
   "archive-quadrant.test.mjs": 40,
@@ -235,6 +236,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2149,
- "passedAt": "2026-11-06T21:26:56.210Z"
+ "passed": 2152,
+ "passedAt": "2026-11-06T23:53:43.538Z"
 }
