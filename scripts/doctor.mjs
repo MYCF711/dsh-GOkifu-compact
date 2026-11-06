@@ -19,8 +19,8 @@ import { decodeMultiFrameZstd } from "./session-scan.mjs";
 import { logCacheKey, summarizeLogEvents, replayLogStats } from "./log-stats.mjs";
 import { nodeDocStats } from "../src/rooms/node-docs.mjs";
 // ★ C607：「真缺失 / 在途」的判据**只有一份** —— 与 `repair-node-docs` 共用。
-//   doctor 自己是脚本（模块级执行、不能 import），所以纯函数落在 repair-node-docs.mjs 里；
-//   两边各写一套的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
+//   doctor 的 CLI 输出与退出码只在直接执行时生效；测试可以 import 这里的纯函数。
+//   两边各写一套判据的话，迟早出现「补写时跳过在途、体检却一直报缺」的死结。
 import { IN_FLIGHT_MS, splitMissingNodeDocs } from "./repair-node-docs.mjs";
 import { auditGraph, auditRawIndex, loadSessionGraph } from "./graph-audit.mjs";
 // ★ C639：C140 的「已标记 dangling」口径**只有一份** —— 标记由 `scripts/dangling-audit.mjs`
@@ -33,6 +33,7 @@ import { summarizeFoldEvidence } from "./instrument-audit.mjs";
 import { SUMMARY_TEXT_SINCE, summaryTextFor } from "./summary-persistence-audit.mjs";
 import nodePath from "node:path";
 import os from "node:os";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { GRAPH_VERSION, fromJSON, countResolvedFailures, isTruncatedFinish } from "../src/rooms/kifu-model.mjs";
 import { measureLedgerTimings } from "../src/rooms/ledger.mjs";
@@ -2574,17 +2575,20 @@ mark('C219 注入动作');
   }
 }
 
-/* ── 输出 ── */
+/* ── 输出（仅直接执行；import 纯函数时不得污染调用方的 stdout / exitCode） ── */
 const bad = checks.filter((c) => c.status === "error").length;
 const warn = checks.filter((c) => c.status === "warn").length;
-if (asJson) {
-  console.log(JSON.stringify({ checks, bad, warn }, null, 1));
-} else {
-  console.log("== dsh-gokifu-compact doctor ==");
-  for (const c of checks) {
-    const mark = c.status === "ok" ? "✓" : c.status === "warn" ? "!" : "✗";
-    console.log(`  ${mark} ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);
+const isDirectRun = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  if (asJson) {
+    console.log(JSON.stringify({ checks, bad, warn }, null, 1));
+  } else {
+    console.log("== dsh-gokifu-compact doctor ==");
+    for (const c of checks) {
+      const mark = c.status === "ok" ? "✓" : c.status === "warn" ? "!" : "✗";
+      console.log(`  ${mark} ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);
+    }
+    console.log(`\n${bad === 0 ? "✅" : "❌"} 错误 ${bad} / 警告 ${warn}`);
   }
-  console.log(`\n${bad === 0 ? "✅" : "❌"} 错误 ${bad} / 警告 ${warn}`);
+  process.exitCode = bad > 0 ? 1 : 0;
 }
-process.exitCode = bad > 0 ? 1 : 0;
