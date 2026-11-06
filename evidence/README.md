@@ -22,6 +22,7 @@
 | `k2-controlled-2026-11-06.json` | 受控 K-2 原始输出（`MAX_MB=5`、排除当前根会话、10 条） | 2026-11-06 | evaluated=10 / failureEdges=30 / constraints=32；baseline 2,025,951 tok → every-step 903,142 tok，saved **1,122,809**；failure/constraint 1→1；decision=CANDIDATE；无会话 id |
 | `handoff-repair-2026-11-06.json` | `repair-foldmark-fidelity.mjs` 干跑 + handoff 活跃会话修复 | 2026-11-06 | 干跑：1 个历史 foldMark 补回 1 条约束、7 个活跃会话跳过；handoff 由 FAIL2 降到 **FAIL1**（只剩该历史项，未 apply）；默认 dry-run/备份/重读 |
 | `release-1.18.3.json` | `node scripts/release.mjs --yes --npm` + `verify-release.mjs` | 2026-11-07 | 1.18.3：tag `v1.18.3` / commit `926b44d` / npm latest 1.18.3 / Release 非 draft；314 文件逐一致；privacy confirmed=0 review=0；全量 2128/0 |
+| `release-1.18.4.json` | 同上 + `release-post-verify.mjs` | 2026-11-07 | 1.18.4：tag `v1.18.4` / commit `44c8222` / npm latest 1.18.4 / Release 非 draft；157 文件逐一致；privacy confirmed=0 review=0；全量 2149/0；post-verify exit 0 |
 | `lme-task50.fixtures.json` | `node scripts/lme-task50.mjs --validate`（默认零模型调用） | 2026-11-06 | K-27 第一阶段：50 道冻结过程题，IE/MR/KU/TR/ABS 各 10；full/compact 配对机械判分与无泄漏检查；真实 reader 任务质量 **NOT_RUN**，不是已通过质量门 |
 | `lme-pilot-reader-2026-11-07.{json,md}` | `node scripts/lme-pilot-reader.mjs --run --write` | 2026-11-07 | K-27 预注册 10 题（五类各 2）× 两臂 20 次真实 reader；full **8/10**、compact **7/10**、Δ **-1**；TR 英文/中文判分口径与 KU-02 compact 抽取退化需正式前处理；正式 50/50 仍 **NOT_RUN** |
 | `lme-task50-v2.fixtures.json` | `node scripts/lme-task50.mjs --validate` + `test/lme-alias-grader.test.mjs` | 2026-11-07 | K-27 v2：只给 TR-01/02 增加“之前/之后”等价别名；题面/答案/grader/阈值/上下文逐字未改；exact 只接受显式声明别名 |

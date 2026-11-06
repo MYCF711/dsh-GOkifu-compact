@@ -1,0 +1,38 @@
+{
+  "schema": "release-record-v1",
+  "version": "1.18.4",
+  "releasedAt": "2026-11-06T22:04:09.856Z",
+  "tag": "v1.18.4",
+  "commit": "44c82224d12b3ca2db78992e7a8da25509fab5c7",
+  "registry": {
+    "latest": "1.18.4",
+    "tarball": "https://registry.npmjs.org/dsh-gokifu-compact/-/dsh-gokifu-compact-1.18.4.tgz",
+    "shasum": "ce94bc9b7c6e73d3fa5c8b481f18b5d45887e1d5",
+    "files": 157,
+    "packedBytes": 1200000
+  },
+  "githubRelease": "https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.18.4",
+  "checks": {
+    "privacyPack": {
+      "confirmed": 0,
+      "review": 0,
+      "files": 157
+    },
+    "tests": {
+      "passed": 2149,
+      "failed": 0,
+      "skipped": 0
+    },
+    "gate": "8/8",
+    "verifyRelease": "tag 树 706 文件 / 包内 157 文件逐个一致",
+    "postVerify": "exit 0",
+    "k27": "kimi v1+v1e 50/50 PASS (full 96 / compact 94)",
+    "k26": "12/12, 92 facts = 68 GOLD/19 REJECTED/5 PENDING",
+    "k2": "TASK_CONDITIONAL; baseline 4/4 vs everyStep 2/4"
+  },
+  "notes": [
+    "docs/evidence/CHANGELOG 不进 npm tarball，以通过完整 packlist 隐私门；公开 tag 仍包含完整文档",
+    "本地 main 与 1.18.3 发布线用 -s ours 合并，保留本地 1.18.4 树",
+    "live 运行实例仍是旧构建，发布不声称已重启"
+  ]
+}
