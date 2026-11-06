@@ -143,14 +143,17 @@ function makeRepo(remoteUrl, { version = "9.9.9" } = {}) {
     nodePath.join(dir, "CHANGELOG.md"),
     `# 更新记录\n\n## ${version} — 2026-10-31\n\n- fixture\n`,
   );
-  git(["add", "-A"]);
+  // K-31：release 在任何 remote 判断之前先跑真实 --pack；临时仓也放入同一份只读审计器。
+  nodeFs.mkdirSync(nodePath.join(dir, "scripts"), { recursive: true });
+  nodeFs.copyFileSync(nodePath.join(ROOT, "scripts", "privacy-audit.mjs"), nodePath.join(dir, "scripts", "privacy-audit.mjs"));
+  git(["add", "--", "package.json", "CHANGELOG.md", "scripts/privacy-audit.mjs"]);
   git(["commit", "-qm", "init"]);
   git(["remote", "add", "origin", remoteUrl]);
   return dir;
 }
 
-function runScript(dir) {
-  const r = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: "utf8", timeout: 60000 });
+function runScript(dir, { args = [], env = {} } = {}) {
+  const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: dir, encoding: "utf8", timeout: 60000, env: { ...process.env, ...env } });
   return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
@@ -194,6 +197,56 @@ t["RH-9 源码顺序：runTransaction(push,tag) → npm → Release，且失败�
   }
   if (!/if \(!gitTx\.ok\)/.test(src)) throw new Error("git 事务失败后必须有硬中止（if (!gitTx.ok)）");
   if (!/if \(!published\)/.test(src)) throw new Error("npm 失败后必须有硬中止（if (!published)），不能继续建 Release");
+};
+
+t["K31-REL-1 预演顺序：--pack 必须先于 ls-remote/fetch、push 事务与 npm 执行"] = () => {
+  const src = nodeFs.readFileSync(SCRIPT, "utf8");
+  const privacy = src.indexOf('privacy-audit.mjs"), "--pack"');
+  const remote = src.indexOf('shOk("git ls-remote --heads origin")');
+  const push = src.indexOf("runTransaction(");
+  const npm = src.indexOf("execSync(npmScript");
+  for (const [name, index] of [["privacy", privacy], ["remote", remote], ["push", push], ["npm", npm]]) {
+    if (index < 0) throw new Error(`找不到 ${name} 顺序锚点`);
+  }
+  if (!(privacy < remote && privacy < push && privacy < npm)) throw new Error(`隐私门必须在所有对外动作之前：${privacy}/${remote}/${push}/${npm}`);
+  if (!src.includes("if (gh && branch && privacyOk)")) throw new Error("隐私门红时必须跳过 ls-remote/fetch");
+  if (!src.includes("if (gh && privacyOk)")) throw new Error("隐私门红时必须跳过远端 tag 检查");
+};
+
+t["K31-REL-2 敏感 pack：dry-run 与 --yes 都在任何远端检查/push/npm 之前中止，且不回显秘密"] = () => {
+  const secret = ["k31", "release", "credential-9f8e7d6c"].join("-");
+  const dir = makeRepo("https://github.com/MYCF711/dsh-GOkifu-compact.git");
+  try {
+    nodeFs.writeFileSync(nodePath.join(dir, "secret.txt"), `api_key = "${secret}"\n`);
+    const git = (args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    git(["add", "--", "secret.txt"]);
+    git(["commit", "-qm", "sensitive fixture"]);
+    for (const args of [[], ["--yes", "--npm"]]) {
+      const trace = nodePath.join(dir, `git-trace-${args.length}.log`);
+      const { code, out } = runScript(dir, { args, env: { GIT_TRACE: trace } });
+      if (code !== 1) throw new Error(`敏感包必须 exit 1，实际 ${code}\n${out.slice(0, 500)}`);
+      if (!out.includes("secret.txt:1 P1-SECRET confirmed")) throw new Error(`应点名敏感文件与规则，不回显值：\n${out.slice(0, 500)}`);
+      if (out.includes(secret)) throw new Error("release 输出泄露了秘密原值");
+      if (!out.includes("已跳过所有远端网络检查与对外动作")) throw new Error("必须明确说明远端动作已跳过");
+      if (/\n\s*\d+\. (?:git push origin|npm (?:run publish:npm|publish))/.test(out)) throw new Error("失败预演不得进入 push/npm 计划或执行段");
+      const calls = nodeFs.existsSync(trace) ? nodeFs.readFileSync(trace, "utf8") : "";
+      if (/\b(?:ls-remote|fetch|push|tag)\b/.test(calls)) throw new Error(`隐私门失败后不得调用远端命令：\n${calls}`);
+    }
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+t["K31-REL-3 公开临时包先取得 privacy --pack 绿，再进入既有限 remote 体检"] = () => {
+  const dir = makeRepo("git+https://github.com/MYCF711/dsh-GOkifu-compact.git");
+  try {
+    const { code, out } = runScript(dir);
+    if (code !== 1) throw new Error(`坏 remote 仍应 exit 1，实际 ${code}`);
+    if (!out.includes("✅ privacy-audit pack: pass")) throw new Error(`公开包应先通过隐私门：\n${out.slice(0, 600)}`);
+    if (!out.includes("git+")) throw new Error("隐私绿之后应继续既有限 remote 检查");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
 };
 
 t["RH-10 源码：远端 tag 指向别的 commit 时只提示人工 force，不自动 force"] = () => {
