@@ -1,0 +1,33 @@
+{
+  "schema": "release-record-v1",
+  "version": "1.18.5",
+  "releasedAt": "2026-11-06T22:26:25.939Z",
+  "tag": "v1.18.5",
+  "commit": "f91dcbc898a2a16e52c9c15916c2c871ef207267",
+  "registry": {
+    "latest": "1.18.5",
+    "tarball": "https://registry.npmjs.org/dsh-gokifu-compact/-/dsh-gokifu-compact-1.18.5.tgz",
+    "shasum": "e239caf6a2e894b257810f848aeaf8a038474f92",
+    "files": 158
+  },
+  "githubRelease": "https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.18.5",
+  "checks": {
+    "privacyPack": {
+      "confirmed": 0,
+      "review": 0,
+      "files": 158
+    },
+    "tests": {
+      "passed": 2149,
+      "failed": 0,
+      "skipped": 0
+    },
+    "gate": "8/8",
+    "verifyRelease": "exit 0",
+    "postVerify": "exit 0"
+  },
+  "notes": [
+    "CHANGELOG 恢复进入 npm 包",
+    "文档与发布记录维护，不改压缩默认行为"
+  ]
+}
