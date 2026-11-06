@@ -30,7 +30,7 @@ const REQUIRED_KEYS = ["id", "type", "question", "answer", "evidenceSeqs", "grad
 const GRADERS = new Set(["exact", "set", "ordered", "UNKNOWN"]);
 const APPLICABILITY = /^task-process\/(?:failure|update|boundary|empty|right-censored|multi-fold)$/;
 const METADATA_KEY = /(?:["'](?:answer|evidenceSeqs|grader|applicability|fullContext|compactContext)["']\s*:|(?:^|\s)(?:answer|evidenceSeqs|grader|applicability|fullContext|compactContext)\s*[:=]|\bgold\b)/im;
-const PROCESS_ID = /\b[ne]-[a-z0-9]+(?:-[a-z0-9]+)*\b/g;
+const PROCESS_ID = /\b[ne](?:-[a-z0-9]+(?:-[a-z0-9]+)*|\d+)\b/g;
 const READER_KEYS = ["arm", "context", "id", "question"];
 
 function questionsOf(input) {
@@ -106,6 +106,7 @@ export function validateFixtures(input) {
   const errors = [];
   const questions = questionsOf(input);
   if (!Array.isArray(input) && input?.schema !== FIXTURE_SCHEMA) errors.push(`schema must be ${FIXTURE_SCHEMA}`);
+  if (!Array.isArray(input) && input?.frozen !== true) errors.push("fixtures must be explicitly frozen");
   if (!Array.isArray(questions)) return { ok: false, errors: [...errors, "questions must be an array"], total: 0, validated: 0, byType: {}, failureOrUpdate: 0, leaks: [] };
   if (questions.length !== THRESHOLDS.total) errors.push(`question count must be ${THRESHOLDS.total}; got ${questions.length}`);
   const byType = Object.fromEntries(TYPES.map((type) => [type, 0]));
@@ -194,7 +195,7 @@ export function assertReaderPayload(payload) {
 
 export function makeReaderPayload(item, arm) {
   if (!ARMS.includes(arm)) throw new Error(`unknown reader arm: ${arm}`);
-  const payload = { id: item.id, arm, question: item.question, context: item[`${arm}Context`] };
+  const payload = Object.freeze({ id: item.id, arm, question: item.question, context: item[`${arm}Context`] });
   assertReaderPayload(payload);
   return payload;
 }
@@ -282,6 +283,7 @@ function validateResults(run, questions) {
     }
     if (!expected.has(row.id)) errors.push(`results[${index}] has unknown id ${row.id}`);
     if (seen.has(row.id)) errors.push(`results contains duplicate id ${row.id}`);
+    for (const arm of ARMS) if (!Object.hasOwn(row, arm)) errors.push(`results ${row.id} missing ${arm} arm`);
     seen.add(row.id);
   }
   for (const id of ids) if (!seen.has(id)) errors.push(`results missing ${id}`);
@@ -314,7 +316,7 @@ export function evaluateRun(fixtures, run) {
     overallCompact: overall.Acc_compact >= THRESHOLDS.compactAccuracy - 1e-12,
     pairedDelta: overall["Δtask"] >= THRESHOLDS.deltaTask - 1e-12,
     perType: TYPES.every((type) => byType[type].Acc_compact >= THRESHOLDS.typeCompactAccuracy - 1e-12 && byType[type]["Δtask"] >= THRESHOLDS.typeDeltaTask - 1e-12),
-    abstention: byType.ABS.compactCorrect === THRESHOLDS.absUnknown && rows.filter((row) => row.type === "ABS").every((row) => row.compact.answer === "UNKNOWN"),
+    abstention: byType.ABS.compactCorrect === THRESHOLDS.absUnknown && rows.filter((row) => row.type === "ABS").every((row) => row.compact.correct),
     noUnknownProcessIds: unknownProcessIds.length === 0,
   };
   const passed = Object.values(gates).every(Boolean);
@@ -329,6 +331,8 @@ export function evaluateRun(fixtures, run) {
     thresholds: THRESHOLDS,
     gates,
     resultErrors,
+    costs: run.costs ?? { compressionRatio: "NOT_RUN", hotLedgerTokens: "NOT_RUN", readerLatencyMs: "NOT_RUN", readerCost: "NOT_RUN" },
+    readerEvidence: "UNVERIFIED_INPUT_RESULTS",
     unknownProcessIds,
     "reader-limited": rows.filter((row) => row["reader-limited"]).map((row) => row.id),
     items: rows,
@@ -342,7 +346,7 @@ function readJson(path) {
 export function main(argv = process.argv.slice(2)) {
   const validateOnly = argv.includes("--validate");
   const runIndex = argv.indexOf("--run");
-  if ((validateOnly && runIndex !== -1) || (runIndex !== -1 && (argv.length !== 2 || runIndex !== 0)) || (!validateOnly && runIndex === -1 && argv.length !== 0)) {
+  if ((validateOnly && (runIndex !== -1 || argv.length !== 1)) || (runIndex !== -1 && (argv.length !== 2 || runIndex !== 0)) || (!validateOnly && runIndex === -1 && argv.length !== 0)) {
     console.log(JSON.stringify({ status: "ERROR", qualityGate: "NOT_RUN", errors: ["usage: node scripts/lme-task50.mjs [--validate] or [--run <results.json>]"] }, null, 2));
     return 2;
   }
