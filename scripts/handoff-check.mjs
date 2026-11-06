@@ -45,6 +45,7 @@ import { check as consistencyCheck } from "./consistency-check.mjs";
 //   `loadSessionGraph is not defined`，被当成「图读不出」跳过，而 ERROR 分支**不进 fail/warn 统计**
 //   ⇒ 门禁显示「FAIL 0 / WARN 0」，实际上一个会话都没检查过（假绿）。教训同 C201。
 import { loadSessionGraph } from "./graph-audit.mjs";
+import { indexSessionLogs, isSessionActive } from "./session-activity.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -70,7 +71,7 @@ function omissionLines(text) {
 }
 
 /** 对一张图跑全部判据。 */
-export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now() } = {}) {
+export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now(), activeSession = false } = {}) {
   // ★ C223：**用生产同一条分支**。hot-inject 对「零失败边」的会话走 renderMinimalLedger
   //   （26% 的真实会话），旧版这里一律 renderLedger ⇒ 检查的是一条产品根本不走的路
   //   （实测 5df02bf8 / 30140e4c 因此误报 ⑥当前位置 FAIL）。
@@ -266,9 +267,10 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
       out.push(
         check(
           "⑬fold边界",
-          open > 0 ? "fail" : "ok",
+          open > 0 ? (activeSession ? "warn" : "fail") : "ok",
           open > 0
-            ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）`
+            ? `${open} 次 fold 的切点落在工具调用中间（摘要会引用区间外的结果）` +
+              (activeSession ? " · 当前会话仍在活动窗口内，fold 尚未收口；交接前必须复验" : "")
             : `${boundaryMarks.length} 次 fold 都切在 step 边界（openAtEnd=0）`,
         ),
       );
@@ -378,6 +380,7 @@ function main() {
     .filter((dir) => nodeFs.existsSync(nodePath.join(dir, "graph.json")));
 
   const reports = [];
+  const logIndex = indexSessionLogs(home);
   for (const dir of dirs) {
     let graph;
     try {
@@ -388,7 +391,10 @@ function main() {
       reports.push({ session: nodePath.basename(dir), error: String(error?.message ?? error), checks: [] });
       continue;
     }
-    reports.push({ session: nodePath.basename(dir), result: checkGraph(graph, { treeDir: dir }) });
+    reports.push({
+      session: nodePath.basename(dir),
+      result: checkGraph(graph, { treeDir: dir, activeSession: isSessionActive(dir, { logIndex }) }),
+    });
   }
 
   // ★ C203：把 C200 的「磁盘↔证据」三方核对接进门禁 —— 此前它只是单独一条命令，容易忘跑。

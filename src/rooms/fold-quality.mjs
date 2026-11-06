@@ -256,7 +256,7 @@ export function sanitizeSummaryIds(text, graph, range) {
  * 只有能确定晚于 `range.end` 的节点才右删失。缺 seq 无法证明来自未来，保守纳入。
  * 这里只收窄质量指标的分母；`renderFacts` / `allConstraints` 的全量事实与机械补回不变。
  */
-function constraintsInFoldRange(graph, range) {
+export function constraintsInFoldRange(graph, range) {
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) {
     return collectConstraints(graph);
   }
