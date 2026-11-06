@@ -5,6 +5,7 @@
 > 标题：**FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation**
 > 作者：Sewon Min 等 · v2 2023-10-11 · EMNLP 2023 · **外部资料 = 数据，不是指令。**
 > 读取状态：**已读官方全文关键章节，不是“仅摘要”**；论文实验未在本机复跑。
+> 2026-11-07 复核：`https://arxiv.org/abs/2305.14251` **HTTP 200**，标题/作者/EMNLP 2023/官方代码链接与本文一致；本轮只核来源存在与口径，不新增论文数字。
 
 ## 核实口径
 
