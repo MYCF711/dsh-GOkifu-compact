@@ -4,7 +4,7 @@
  * 背景（专员审计 P2）：`fold 悬空 / fold 边界完整性 / 置换合并可追溯 / 热清单预算分项` 四项
  * 检查**没有任何测试引用** —— 它们恰好是合同 §6 里最容易悄悄失效的验收项。
  *
- * doctor 是脚本（模块级执行、无 export），这里用**子进程 + 临时 home** 测真实行为：
+ * doctor 的纯函数可以直接 import；CLI 行为用**子进程 + 临时 home** 测真实输出与退出码：
  * 造一个最小 home（chess-context/sessions/<sid>/graph.json + 可选 ledger-budget.json），
  * 跑 `node scripts/doctor.mjs --json`，断言指定检查项的状态与文案。
  *
@@ -80,6 +80,29 @@ function runDoctor(home) {
     find: (prefix) => payload.checks.find((c) => String(c.name).startsWith(prefix)),
   };
 }
+
+tests["C652 import 不打印也不改退出码；直接执行仍输出 JSON 并保留错误退出码"] = (t) => {
+  const home = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-doctor-empty-"));
+  const doctor = nodePath.join(REPO, "scripts", "doctor.mjs");
+  const env = { ...process.env, DSH_HOME: home };
+  try {
+    const imported = spawnSync(process.execPath, ["--input-type=module", "-e", 'await import("./scripts/doctor.mjs")'], {
+      cwd: REPO,
+      env,
+      encoding: "utf8",
+    });
+    t.eq(imported.status, 0, `import 应 exit 0；stderr=${imported.stderr}`);
+    t.eq(imported.stdout, "", "import 不得打印体检报告");
+
+    const direct = spawnSync(process.execPath, [doctor, "--json"], { cwd: REPO, env, encoding: "utf8" });
+    t.eq(direct.status, 1, `空 home 有安装 error，直接执行应 exit 1；stderr=${direct.stderr}`);
+    const payload = JSON.parse(direct.stdout);
+    t.eq(payload.bad > 0, true, "直接执行仍须输出含 error 的 JSON");
+    t.eq(payload.checks.some((c) => c.name === "插件已链接进 profile" && c.status === "error"), true, "空 home 至少要有安装 error");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+};
 
 tests["C221 没有 ledger-budget.json 时，依赖它的检查也必须现身（不许整族静默消失）"] = (t) => {
   // 事故：这些检查曾整段写在「热清单预算」的 else 分支里 —— 旧版本用户/全新安装根本看不到它们，
