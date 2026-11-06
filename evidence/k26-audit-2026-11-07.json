@@ -1,14 +1,9 @@
 {
   "schema": "k26-audit-v1",
-  "createdAt": "2026-11-06T21:16:36.695Z",
-  "reviewed": 8,
+  "createdAt": "2026-11-06T21:27:22.118Z",
+  "reviewed": 12,
   "totalSamples": 12,
-  "remaining": [
-    1,
-    2,
-    3,
-    4
-  ],
+  "remaining": [],
   "samples": [
     {
       "index": 0,
@@ -16,6 +11,38 @@
       "facts": 4,
       "gold": 3,
       "rejected": 1,
+      "pending": 0
+    },
+    {
+      "index": 1,
+      "sampleId": "8c678f2713ab",
+      "facts": 8,
+      "gold": 4,
+      "rejected": 1,
+      "pending": 3
+    },
+    {
+      "index": 2,
+      "sampleId": "168afea37985",
+      "facts": 8,
+      "gold": 7,
+      "rejected": 1,
+      "pending": 0
+    },
+    {
+      "index": 3,
+      "sampleId": "bf76bd58e088",
+      "facts": 8,
+      "gold": 6,
+      "rejected": 2,
+      "pending": 0
+    },
+    {
+      "index": 4,
+      "sampleId": "742abd40bb51",
+      "facts": 8,
+      "gold": 5,
+      "rejected": 3,
       "pending": 0
     },
     {
@@ -76,10 +103,15 @@
     }
   ],
   "totals": {
-    "facts": 60,
-    "gold": 46,
-    "rejected": 12,
-    "pending": 2
+    "facts": 92,
+    "gold": 68,
+    "rejected": 19,
+    "pending": 5
   },
-  "note": "8/12 独立审稿；不含摘要/quote/会话 id。整体 precision 仍未汇总，剩 4 份。"
+  "precision": {
+    "adjudicated": 0.7816091954022989,
+    "allFacts": 0.7391304347826086,
+    "pendingExcluded": true
+  },
+  "note": "12/12 独立审稿；不含摘要/quote/会话 id；PENDING 未裁决，主 precision 按已裁决事实计算，另报全事实口径。"
 }

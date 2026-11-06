@@ -34,7 +34,7 @@
 | `lme-reader-postprocess-v1n-prereg.json` + `lme-formal-reader-kimi-v1n-2026-11-07.{json,md}` | `LME_READER_MODEL=group/kimi-k3.1-pro LME_READER_VARIANT=v1 LME_READER_POSTPROCESS=v1n node scripts/lme-formal-reader.mjs --run --write` | 2026-11-07 | kimi v1n 正式：full **96%** / compact **94%** / Δ **-2%**；修掉 662 编造，但 ABS-08 仍答上下文 id；**FAIL**，不采用 |
 | `lme-reader-postprocess-v1e-prereg.json` + `lme-formal-reader-kimi-v1e-2026-11-07.{json,md}` | `LME_READER_MODEL=group/kimi-k3.1-pro LME_READER_VARIANT=v1 LME_READER_POSTPROCESS=v1e node scripts/lme-formal-reader.mjs --run --write` | 2026-11-07 | kimi v1e 正式：full **96%** / compact **94%** / Δ **-2%**，六门槛全绿 **PASS**；带确定性后处理，不是裸模型能力 |
 | `k26-samples-2026-11-07.json` | 只读样本清单（无正文） | 2026-11-07 | K-26 主会话专选 12 份（339 候选、排除 327 子代理）；只含样本 ID/字符数/摘要哈希；coverage 12/12 37/37，precision 待 4 份 |
-| `k26-audit-2026-11-07.json` | K-26 已审 8/12 聚合（无正文） | 2026-11-07 | 60 条 = **46 GOLD + 12 REJECTED + 2 PENDING**；剩 index 1–4；整体 precision 尚未汇总 |
+| `k26-audit-2026-11-07.json` | K-26 12/12 聚合（无正文） | 2026-11-07 | 92 条 = **68 GOLD + 19 REJECTED + 5 PENDING**；precision 73.9%–78.2%；coverage 37/37 不等于事实正确 |
 | `k2-reader-pilot-2026-11-07.json` | K-2 定向 reader 三样本边界 | 2026-11-07 | 值型小结果两臂都对；2/2 检索标题型退化（baseline 14 标题 vs everyStep 0）；**TASK_CONDITIONAL**，不能默认全局开 |
 | `k2-reader-expand-2026-11-07.json` | K-2 reader 扩样（2 会话/4 题） | 2026-11-07 | baseline 4/4，everyStep 2/4；**2/4 退化**；成功工具结果里的值会丢，失败边/约束安全；共省 30,026 字符 |
 | `ledger-calibration.json` / `.md` | `node scripts/ledger-calibration.mjs --write`（默认只打印） | 2026-11-01T20:50Z | budget=500、24 会话：**p50 = 419** / p90 = 521 / min 32 / max 688；超预算 3/24；档位 L3=11 L0=5 L2=4 L5=2 L1=2 —— 与合成夹具 417 基本一致，证明 bench 不是虚高 |
