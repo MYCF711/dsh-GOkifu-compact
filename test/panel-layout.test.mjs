@@ -196,9 +196,10 @@ function fixture(overrides = {}) {
   };
 }
 
-function panelRenderer(state = fixture(), source = SOURCE, draftOverrides = null, update = null) {
+export function panelRenderer(state = fixture(), source = SOURCE, draftOverrides = null, update = null, models = undefined) {
   const loaded = loadClient(source);
   const seeded = [state, state === null ? {} : { ...state.config, ...(draftOverrides ?? {}) }];
+  if (models !== undefined) seeded[6] = models;
   if (update !== null) seeded[8] = update;
   loaded.runtime.seed("Page", seeded);
   loaded.runtime.render(loaded.T.Page);
