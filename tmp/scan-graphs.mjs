@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-const root = "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions";
+const root = "D:/DeepSeek Harness/home/chess-context/sessions";
 let total=0, objNodes=0, latestObj=0, files=0, noLatest=0;
 for(const d of fs.readdirSync(root,{withFileTypes:true})){
   if(!d.isDirectory()) continue;

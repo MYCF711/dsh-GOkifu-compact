@@ -79,7 +79,7 @@ export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKEN
   }
   // ★ C520：**有前段缺口时，要压的是那个洞**（C519 之后 `tail` 可能已经是 0）。
   //   不处理的话：`closeoutExceedsLimit` 看到 tail=0 直接返回 null ⇒ 分段计划 0 段 ⇒
-  //   这类会话永远补不了（真机 <SESSION_ID>：尾巴 0 事件、缺口 1,043k tok、0 段）。
+  //   这类会话永远补不了（真机 <redacted>：尾巴 0 事件、缺口 1,043k tok、0 段）。
   const gap = debt?.gap ?? null;
   const gapEvents = Number(gap?.events ?? 0);
   const tooBig = closeoutExceedsLimit(graph, maxTokens);
@@ -118,7 +118,7 @@ export async function runChunkedCloseout({ chunks = [], deadline = 0, fold, now 
     if (remaining <= 0) return { folded, stopped: "deadline", error: null };
     try {
       // ★ C531：**"调用了"不等于"折了"**。宿主 `compactRegion` 可能安静地什么都不做
-      //   （真机 <SESSION_ID>：closeout.folded=1，而 ledgerBudget 为 null、foldMarks 一条没多）。
+      //   （真机 1286ce28：closeout.folded=1，而 ledgerBudget 为 null、foldMarks 一条没多）。
       //   `fold` 返回 `{folded:false}` 就说明这一段是空转 ⇒ 不计入，并且停下来说明原因。
       const r = await fold(chunk.start, chunk.end, remaining);
       if (r !== null && r !== undefined && typeof r === "object" && r.folded === false) {
@@ -185,7 +185,7 @@ export function recentFoldP90(marks, window = 20) {
  * ★ C466：收尾折叠的**结局**怎么写回 `closeout`（纯函数，好测）。
  *
  * 由来（2026-11-03 真机验证单）：两次归档都记下了 `closeout`（source=archive、尾巴 7706 / 1069 事件），
- * 但 `foldMarks` 是 0、日志里只有 `compaction/start` 没有 `end`，另一次是上游 400 ——
+ * 但 `foldMarks` 是 0、日志里只有 `compaction/start` 没有 `end`，另一次是上游 400 —— 
  * **"折了没有 / 失败了没有"在图上看不出来**，只能人去翻日志。这个函数把三种结局都写清楚：
  *
  *   · 折成功（分段）⇒ `folded = 段数`，并带 `chunkedChunks`；

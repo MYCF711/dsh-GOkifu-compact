@@ -5,8 +5,8 @@
  * 默认只读；唯一写入是用户显式给出的 --out。不会重启 DSH、不会调用模型。
  *
  *   node scripts/restart-checklist.mjs
- *   node scripts/restart-checklist.mjs --out /tmp/restart-checklist.md
- *   node scripts/restart-checklist.mjs --verify /tmp/restart-checklist.md
+ *   node scripts/restart-checklist.mjs --out <workspace>
+ *   node scripts/restart-checklist.mjs --verify <workspace>
  *
  * 退出码：0 = 当前无待生效修复 / 验收全绿；1 = 有待生效修复 / 验收失败；2 = 输入不足或参数错误。
  *
@@ -38,7 +38,7 @@ function displayCommand(args) {
   return ["node", ...args].map((part) => (/^[A-Za-z0-9_./:=+-]+$/.test(part) ? part : `'${String(part).replaceAll("'", `'"'"'`)}'`)).join(" ");
 }
 
-/** Git Bash 的 /tmp、/d/... 不是 Windows Node 能直接理解的绝对路径。 */
+/** Git Bash 的 /tmp、<workspace> 不是 Windows Node 能直接理解的绝对路径。 */
 export function resolveUserPath(value, { platform = process.platform, convert = null } = {}) {
   const raw = String(value ?? "");
   if (platform === "win32" && /^\/(?:[A-Za-z](?:\/|$)|tmp(?:\/|$))/.test(raw)) {

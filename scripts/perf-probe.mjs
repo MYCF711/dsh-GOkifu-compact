@@ -6,7 +6,7 @@
  * 重启前跑一次、重启后跑一次，同一口径对比。
  *
  * 用法：
- *   node scripts/perf-probe.mjs                 # 默认 127.0.0.1:<LOCAL_SERVICE_PORT>
+ *   node scripts/perf-probe.mjs                 # 默认 127.0.0.1:64349
  *   node scripts/perf-probe.mjs --port 64349 --rounds 5
  *   node scripts/perf-probe.mjs --json
  *

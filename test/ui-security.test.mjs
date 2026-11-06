@@ -52,10 +52,10 @@ const SAMPLE = [
 /** 带疑似密钥的样例（模拟 M2 把 key 写进 preset 之后的形态）。 */
 const SECRET_SAMPLE = SAMPLE.replace(
   "                  summarizationModel: ''",
-  "                  summarizationModel: ''\n                  summarizationApiKey: '<REDACTED_KEY>'",
+  "                  summarizationModel: ''\n                  summarizationApiKey: 'sk-abcdefghijklmnop0123456789'",
 );
 
-const FAKE_KEY = "<REDACTED_KEY>";
+const FAKE_KEY = "sk-abcdefghijklmnop0123456789";
 const PRESET_NAME = "cordis.patch.yml";
 const BACKUP_MARK = ".bak-before-ui-";
 
@@ -364,7 +364,7 @@ tests["A2 · 密钥识别不误判 Tokens 类数字键（防正则过宽）"] = 
     const numeric = ["headroomTokens: 65536", "hotLedgerMaxTokens: 500", "minFoldTokens: 8000", "maxTokens: 8192", "growthFloorTokens: 40000", "tier2After: 8", "thresholdRatio: 0.45", "hotLedgerMarkers: semantic", "hotLedgerReplace: true"].join("\n");
     const hits = uiMod.findSecretLike(numeric);
     if (hits.length !== 0) throw new Error(`把普通数字键误判成密钥：${hits.join(",")}`);
-    if (uiMod.findSecretLike("summarizationApiKey: '<REDACTED_KEY>'").length === 0) throw new Error("漏判 summarizationApiKey");
+    if (uiMod.findSecretLike("summarizationApiKey: 'sk-abcdefghijklmnop'").length === 0) throw new Error("漏判 summarizationApiKey");
     if (uiMod.findSecretLike("apiToken: abc123").length === 0) throw new Error("漏判 apiToken");
     if (uiMod.findSecretLike("summarizationApiKey: ''").length !== 0) throw new Error("空值不该算密钥");
   });

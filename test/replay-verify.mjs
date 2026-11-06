@@ -20,7 +20,7 @@ import { renderLedger } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const OUT = nodePath.join(HERE, "..", "evidence");
-const DSH_HOME = process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
+const DSH_HOME = process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
 const SESSIONS = nodePath.join(DSH_HOME, "sessions");
 
 /* ── 找最新会话日志 ── */

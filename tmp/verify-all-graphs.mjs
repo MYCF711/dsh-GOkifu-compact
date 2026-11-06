@@ -3,7 +3,7 @@ import path from "node:path";
 import { fromJSON, toJSON } from "../src/graph.mjs";
 import { renderFacts } from "../src/ledger.mjs";
 
-const root = "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions";
+const root = "D:/DeepSeek Harness/home/chess-context/sessions";
 const rows = [];
 let totalObjBefore = 0, totalObjAfter = 0, totalAgent = 0;
 let totalIdxBefore = 0, totalIdxAfter = 0, errors = 0;

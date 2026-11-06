@@ -54,7 +54,7 @@ tests["C474 「没折」必须带原因：foldNote 要能区分'没内容'与'�
   t.eq(legacy.foldNote, "nothing-to-fold", "没有原因时保持旧文案");
 };
 
-tests["C479 分段收尾没折完也要留原因（真机 <SESSION_ID>：0/2 段、无任何原因）"] = (t) => {
+tests["C479 分段收尾没折完也要留原因（真机 c460d468：0/2 段、无任何原因）"] = (t) => {
   const partial = applyCloseoutOutcome({ source: "archive" }, { tier: "chunked", folded: 0, chunks: 2, stopped: "deadline", error: null }, null);
   t.eq(partial.folded, 0, "0 段折成");
   t.eq(partial.chunkedChunks, 2, "计划 2 段");

@@ -25,7 +25,7 @@
  *
  * 用法：
  *   node scripts/make-preset.mjs                     # 默认 dry-run，只打印将写什么（不落盘）
- *   node scripts/make-preset.mjs --write             # 真的写到 --out（默认 <repo>/tmp/preset-bundle）
+ *   node scripts/make-preset.mjs --write             # 真的写到 --out（默认 <repo><workspace>
  *   node scripts/make-preset.mjs --out <dir> --id gokifu --name 'gokifu 压缩'
  *   node scripts/make-preset.mjs --asar <path> --version 0.2.1-rc.5
  *
@@ -53,13 +53,9 @@ export const DEFAULT_OUT = nodePath.join(REPO_DIR, "tmp", "preset-bundle");
 export const INNER_OFFICIAL_PRESET = "dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml";
 /** 宿主版本来源（asar 内的 dsh/package.json）。 */
 export const INNER_HOST_PKG = "dsh/package.json";
-/** 默认 asar 候选（从 DSH_HOME 推导安装根，不写死任何机器路径）。 */
-const DSH_HOME = nodePath.resolve(process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"));
-export const ASAR_CANDIDATES = [
-  process.env.DSH_APP_ASAR,
-  nodePath.join(DSH_HOME, "..", "Desktop", "resources", "app.asar"),
-  nodePath.join(DSH_HOME, "..", "resources", "app.asar"),
-].filter((value) => typeof value === "string" && value !== "");
+/** 默认 asar 候选（新版装在这里；旧路径留一个兜底）。 */
+const DSH_ROOT = process.env.DSH_HOME ? nodePath.dirname(process.env.DSH_HOME) : process.env.USERPROFILE ?? "";
+export const ASAR_CANDIDATES = [nodePath.join(DSH_ROOT, "Desktop", "resources", "app.asar"), nodePath.join(DSH_ROOT, "resources", "app.asar")];
 /** 要换进去的引擎行（**必须是 `/engine` 子路径**，理由见文件头）。 */
 export const ENGINE_ROW = { id: "gokifu-compact", name: "dsh-gokifu-compact/engine" };
 /** preset 声明行的 name（新版 agent preset 的固定形态）。 */
@@ -497,7 +493,7 @@ export const USAGE = `dsh-gokifu-compact make-preset —— 从当前宿主读�
   --id <presetId>      preset id（默认 gokifu；生成的 insert 行 id 是 preset-<id>）
   --name <displayName> preset 显示名（默认 = id）
   --order <n>          覆盖官方 preset 的 order（默认沿用官方值）
-  --asar <path>        宿主 app.asar 路径（默认自动找 <DSH_HOME_OR_INSTALL_DIR> Harness\\Desktop\\resources\\app.asar）
+  --asar <path>        宿主 app.asar 路径（默认自动找 ）
   --version <x.y.z>    写进生成物的宿主版本（默认从 asar 内 dsh/package.json 读）
   --help, -h           显示本帮助
 

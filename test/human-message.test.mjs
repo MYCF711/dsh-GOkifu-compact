@@ -3,7 +3,7 @@
  *
  * 事故（2026-11-05 真机审计 `scripts/human-message-audit.mjs`）：
  *
- *   <SESSION_ID> seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
+ *   session-f7f835b1 seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
  *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘上的请求体），宿主标的 `source.kind = "user"`。
  *   `isHumanMessage` 只看 `source.kind` ⇒ 当成「人打的字」⇒ `extractConstraints` 抽出
  *   **40 条「约束」** ⇒ 渲染进 `## 约束（一条都不许丢）`，整块 36% 是系统提示词。
@@ -35,7 +35,7 @@ const msg = (text, kind = "user") => ({ source: { kind }, content: [{ type: "tex
 const legacyIsHuman = (message) => ["user", "prompt", "human"].includes(String(message?.source?.kind ?? ""));
 
 /**
- * 真机夹具 ①：<SESSION_ID> seq 1179（**251,157 字符**，此处按原文截断）。
+ * 真机夹具 ①：session-f7f835b1 seq 1179（**251,157 字符**，此处按原文截断）。
  *
  * 结构：`{错误信封}` + 用户一句「还是有问题」+ `{完整请求体，尾部被截断}`。
  * 两个特征都必须吃住：**开头的信封**（判据的形状）与**尾部的截断 JSON**（覆盖率算机器）。
@@ -52,7 +52,7 @@ const LLM_ERROR_JSON = String.raw`{
 {"model":"group/deepseek-v4.1-flash1017","messages":[{"role":"developer","content":"Runtime: DeepSeek Harness.\n\n\nYou are a general-purpose agent powered by the group/deepseek-v4.1-flash1017 model.\n\n# 团队与分工\n\n本会话可能挂载了团队（Lead + 若干 teammate）与子代理。它们和你共享同一工作目录和文件系统，任何一方的改动立刻对其他人可见。\n\n- **默认外派**：只要子任务不依赖我刚积累的上下文，就派出去；只有必须在本会话连续处理的（需要全局取舍、要和用户来回、依赖刚读到的内容）才自己留。\n- **派给谁**：一次性调研/实现/验证 → 子代理；需要专长、需要持续协作、或它的上下文更合适 → 团队成员。\n- 任务书写死：目标、边界（能改哪些文件）、验收标准、产出路径。含糊的任务回来还得回炉。\n- 写作用域按文件切开，任务板上记下各自负责的路径；有依赖就用任务依赖排顺序。\n- **同时派，不要排队**：有 2 个以上互不依赖的块就一起派出去；有前后依赖才串行。别为了并行而并行——拆完还要有人合并、有人验收。\n- Lead 收尾前必须等所有必需成员完成，并自己跑一遍最终验证。\n`;
 
 /**
- * 真机夹具 ②：<SESSION_ID> seq 8（1,950 字符，此处按原文截断）——
+ * 真机夹具 ②：session-ed98c462 seq 8（1,950 字符，此处按原文截断）——
  * OpenAI `choices` 响应 + `error` 信封，末尾跟用户一句「找报错根因」。
  */
 const OPENAI_CHOICES_JSON = String.raw`{
@@ -68,7 +68,7 @@ const OPENAI_CHOICES_JSON = String.raw`{
       "type": "tool_call",
       "id": "call_00_z1rr38xzri7hes8q2iw7q9tq",
       "name": "bash",
-      "arguments": "{\"command\": \"cd D:/fixture/default-workspace && node scripts/archive.mjs --dry-run 2>&1 | head -3\"}"
+      "arguments": "{\"command\": \"cd /d/DeepSeek Harness/default-workspace && node scripts/archive.mjs --dry-run 2>&1 | head -3\"}"
     }
   ],
   "error": {
@@ -79,13 +79,13 @@ const OPENAI_CHOICES_JSON = String.raw`{
 }
 找报错根因`;
 
-/** 真机夹具 ③：<SESSION_ID> seq 1431（937 字符，原文）—— pnpm 安装回执 + V8 栈帧。 */
-const PNPM_RECEIPT = String.raw`[WARN] The store at <USER_HOME>\AppData\Local\pnpm\store\v11 is not used because packages cannot be hard linked from it into this project. Using the store at <PNPM_STORE_DIR> instead. Set storeDir to choose the store.
+/** 真机夹具 ③：session-ee0d63a9 seq 1431（937 字符，原文）—— pnpm 安装回执 + V8 栈帧。 */
+const PNPM_RECEIPT = String.raw`[WARN] The store at C:\Users\Administrator\AppData\Local\pnpm\store\v11 is not used because packages cannot be hard linked from it into this project. Using the store at D:\.pnpm-store\v11 instead. Set storeDir to choose the store.
 ✓ Lockfile passes supply-chain policies (verified 54s ago)
 Progress: resolved 1, reused 0, downloaded 0, added 0
 [UNABLE_TO_GET_ISSUER_CERT_LOCALLY] unable to get local issuer certificate
 
-This error happened while installing a direct dependency of D:/fixture\home\profiles\desktop
+This error happened while installing a direct dependency of D:\DeepSeek Harness\home\profiles\desktop
 
 Error: unable to get local issuer certificate
     at TLSSocket.onConnectSecure (node:internal/tls/wrap:1775:34)

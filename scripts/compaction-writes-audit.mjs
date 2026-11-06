@@ -31,7 +31,7 @@
  * ## 用法
  *
  *   node scripts/compaction-writes-audit.mjs                 # 扫 DSH_HOME 下全部会话
- *   node scripts/compaction-writes-audit.mjs --session <SESSION_ID>
+ *   node scripts/compaction-writes-audit.mjs --session 8a73e06b
  *   node scripts/compaction-writes-audit.mjs --limit 8       # 明细打印条数（默认 6）
  *   node scripts/compaction-writes-audit.mjs --max-sessions 50
  *   node scripts/compaction-writes-audit.mjs --json          # 机读

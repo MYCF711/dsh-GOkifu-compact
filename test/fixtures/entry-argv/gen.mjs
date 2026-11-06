@@ -17,7 +17,7 @@ import nodePath from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const REPO = "<WORKSPACE>/projects/dsh-chess-context";
+const REPO = "D:/主工作区/projects/dsh-chess-context";
 const OUT = nodePath.join(REPO, "test", "fixtures", "entry-argv");
 const git = (rev) => execFileSync("git", ["-C", REPO, "show", rev], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
 

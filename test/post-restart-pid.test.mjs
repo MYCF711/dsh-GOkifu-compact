@@ -69,11 +69,11 @@ tests["C338 端口属主与心跳 pid 对不上时要说清楚（多进程环境
 
   // Windows netstat 真实片段（注意首列是协议名，本地地址在第 2 列，pid 在末列）
   const sample = [
-    "  TCP    127.0.0.1:65000        0.0.0.0:0              LISTENING       24944",
+    "  TCP    127.0.0.1:64349        0.0.0.0:0              LISTENING       24944",
     "  TCP    127.0.0.1:60037        0.0.0.0:0              LISTENING       10048",
-    "  TCP    127.0.0.1:65000        127.0.0.1:52000        ESTABLISHED     24944",
+    "  TCP    127.0.0.1:64349        127.0.0.1:52000        ESTABLISHED     24944",
   ].join("\n");
-  t.eq(mod.listeningPidOf(sample, 65000), 24944, "要挑出监听该端口的 pid");
+  t.eq(mod.listeningPidOf(sample, 64349), 24944, "要挑出监听该端口的 pid");
   t.eq(mod.listeningPidOf(sample, 60037), 10048, "另一个端口也要对");
   t.eq(mod.listeningPidOf(sample, 12345), null, "没有就 null");
   // 只认 LISTENING（ESTABLISHED 那行不许算）
@@ -181,11 +181,11 @@ tests["C409/C410 参数级探针 + 端口自动发现（心跳被覆盖时也能
   // ① listeningPorts：从 netstat 文本取监听端口
   const netstat = [
     "  TCP    127.0.0.1:56319        0.0.0.0:0              LISTENING       37108",
-    "  TCP    127.0.0.1:65000        0.0.0.0:0              LISTENING       24944",
+    "  TCP    127.0.0.1:64349        0.0.0.0:0              LISTENING       24944",
     "  TCP    127.0.0.1:56319        127.0.0.1:52000        ESTABLISHED     37108",
     "  TCP    [::1]:8080             [::]:0                 LISTENING       777",
   ].join("\n");
-  t.eq(mod.listeningPorts(netstat), [8080, 56319, 65000], "去重 + 只认 LISTENING + 升序");
+  t.eq(mod.listeningPorts(netstat), [8080, 56319, 64349], "去重 + 只认 LISTENING + 升序");
 
   // ② sessionIdsProbe：400 = 支持；200+dryRun = 不支持；其它 = 未知
   t.eq(mod.sessionIdsProbe({ status: 400, json: { error: "指定的 sessionIds 都不在待补清单里" } }), "supported", "400 说明参数被识别");

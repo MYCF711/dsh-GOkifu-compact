@@ -29,7 +29,7 @@ import { weakKindOf } from "./verify.mjs";
  *   · `to=null` 5,567 条：unverified 4,815 + success 481 + failure 268 + untested 3；
  *   · 5,564 条是 1.9.1 rewash 清自环时把 `to` 抹掉的**历史残留**（已结算却无终点 = 不可能）；
  *   · 3 条 untested 也是 18 小时前的陈旧 in-flight 残留；
- *   · 另有 214 条 `from` 悬空（全在 <SESSION_ID>，mergeNodeInto 老 bug）——**另一类**，
+ *   · 另有 214 条 `from` 悬空（全在 <redacted>，mergeNodeInto 老 bug）——**另一类**，
  *     判据必须以 `to == null` 开头，绝不能写成「任一端为空」（会误删）。
  *
  * 不变量（报告 §2，P6C-1 起四类）：
@@ -243,7 +243,7 @@ export function traceRelativeDir(treeDir, root = "") {
   const p = String(treeDir ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
   const m = /(?:^|\/)sessions\/([^/]+)$/.exec(p);
   let sid = m ? m[1] : (p.split("/").filter(Boolean).at(-1) ?? "");
-  // 盘符本身不是会话名（`treeDir = "<LOCAL_DRIVE_ROOT>"` ⇒ 最后一段是 "D:"）——不许把 "D:" 印成相对路径。
+  // 盘符本身不是会话名（`treeDir = "<workspace>"` ⇒ 最后一段是 "D:"）——不许把 "D:" 印成相对路径。
   if (/^[A-Za-z]:$/.test(sid) || sid.includes(":")) sid = "";
   if (!sid) return root || ".";
   return root ? `${root}/${sid}` : sid;
@@ -260,7 +260,7 @@ export function traceRelativeDir(treeDir, root = "") {
  *   · **不新增 IO**：只用已经算好的 `path`（`currentPath` 返回的节点对象）与节点自带字段；
  *   · 短语取 agent 的 `goal` / user 的 `text`，截 {@link TRACE_PHRASE_CHARS} 字符；
  *   · **绝对路径必须打码**：P6a 的硬约束是 TRACE 行不泄漏盘符/用户名，而 goal 里完全可能写着
- *     `D:/repo/x.mjs` —— 这里把盘符路径 / `/Users/` / `/d/` / `/home/` 一律换成 `…`；
+ *     `<workspace>` —— 这里把盘符路径 / `/Users/` / `<workspace> / `/home/` 一律换成 `…`；
  *   · 路径为空 ⇒ 返回空串，TRACE 行逐字不变（「无路径时保持现状」）；
  *   · 路径短于 3 个节点时按实际个数给，不补齐。
  */
@@ -501,7 +501,7 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
  * 背景（实测）：渲染链原本是 `path.length > 1 && level <= 2` —— **L3 起整块路径段不渲染**。
  * S2a 的 `WORKING:` 行让 3 个会话多出 28~46 tokens，从 L2 掉到 L3，于是「为了显示工作路径」
  * 反而把路径（连同工作位置）一起挤没了：
- *   <SESSION_ID> L2=453 → L3=376 / <SESSION_ID> L2=438 → L3=356 / <SESSION_ID> L2=489 → L3=394。
+ *   <redacted> L2=453 → L3=376 / <redacted> L2=438 → L3=356 / <redacted> L2=489 → L3=394。
  *
  * 修法：**按档位决定路径行的形态 —— 越高越省，而不是越高越没有。**
  *   · `full` —— L0–L2：与 1.9.1 **逐字相同**（不省一个字符，行为不变）。
@@ -566,7 +566,7 @@ function pathDigestLine(ids) {
  * 按**剩余预算**（字符）把两条路径行折到装得下。L3(`head`) / L4-L5(`n1`) 都用它。
  *
  * `budget` = `maxTokens × 3 - 已用字符 - 余量`。为什么按剩余预算而不是固定配比：
- * 实测 <SESSION_ID> 的 CURRENT PATH 有 158 个节点，各砍一半仍超预算（整条 708 tokens）；
+ * 实测 <redacted> 的 CURRENT PATH 有 158 个节点，各砍一半仍超预算（整条 708 tokens）；
  * 按剩余预算折才有上界。
  *
  * 规则：
@@ -884,7 +884,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   //   旧版放在档位循环里，2000 边时要跑 6 档 × 30 条 BFS（实测渲染 4.9 → 7.5ms）；
   //   旧旧版更糟：显示条数 >30 时一条都不算 ⇒ 大会话里手割标记全丢。
   const tewariMap = new Map();
-  // ★ C561：**大图上别为 30 条边各跑一次 BFS**。真机（<SESSION_ID>，5,885 节点 / 6,010 边）：
+  // ★ C561：**大图上别为 30 条边各跑一次 BFS**。真机（c0a5847a，5,885 节点 / 6,010 边）：
   //   单次渲染 137.8ms，其中 **72.3ms 是 30 次 tewariAnalysis**（每条一次可达性 BFS）。
   //   深会话的清单本来就大幅截断，手割标记只对**最近**几条有意义 ⇒ 大图只算 8 条。
   const tewariCap = Object.keys(g.edges ?? {}).length > 3000 ? 8 : 30;
@@ -950,7 +950,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     const extra = Number(g.nodes[id]?.transpositions);
     return Number.isFinite(extra) && extra >= 1 ? `×${extra + 1}` : "";
   };
-  // ★ C562：**标签按 id 记忆一次**。真机（<SESSION_ID>）路径长 **846**，而标签会被 4 个档位各算一遍
+  // ★ C562：**标签按 id 记忆一次**。真机（c0a5847a）路径长 **846**，而标签会被 4 个档位各算一遍
   //   ⇒ 3,400 次字符串拼接，占单次渲染 41.5% 的采样（profile 里 `foldIds` 是头号热点）。
   //   同一 id 在同一次渲染里标签恒定，缓存后各档位复用。
   const labelCache = new Map();
@@ -1030,7 +1030,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       lines.push(`⚠ 上次 fold 未回收足够空间（连续 ${g.foldThrash} 次 fold 间隔 < 30 事件）`);
     }
     // ★ C-17 rev6：L3+ 的 root 裁剪从 180 收到 168 —— 给「最小路径行」预留 12 字符。
-    //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 <SESSION_ID> HEAD=497/1490 字符）
+    //   不这么做时，1.9.1 在 L3 恰好用满预算的会话（如 5b38b355 HEAD=497/1490 字符）
     //   只要多一行 `# path: n185` 就 501，成为唯一一个「新增超预算」。路径信息优先于
     //   root 尾部 12 个字符（root 本来就已被 clip，且 L0–L2 逐字不变）。
     // C44：这两段（根目标 + 约束）**任何档位都只能 clip、不能删** —— 单独记下它们的 token 数，
@@ -1058,7 +1058,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
     //   这样路径行的预算能扣掉它的**真实长度**。
     //   旧写法只扣 header/root/constraints ⇒ pathBudget 恒 ≈ 1360 字符 ⇒ L3 把整条 177 节点路径
-    //   原样塞进去（<SESSION_ID> 一图 331→742 tokens）。实测 500 预算下超预算会话 7 → 25，全是这条。
+    //   原样塞进去（e3820651 一图 331→742 tokens）。实测 500 预算下超预算会话 7 → 25，全是这条。
     //   先算后扣 ⇒ 折出来的路径行才是「整条清单真的装得下」，而不是「路径自己装得下」。
     let shown = failures;
     let omitted = 0;
@@ -1085,7 +1085,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
       // ★ P6a（2026-10-30）：TRACE 只给**相对路径**（`sessions/<sid>/index.md`）。
-      //   旧版把 `treeDir` 的绝对路径整条写进去（`<DSH_HOME_OR_INSTALL_DIR> Harness\home\chess-context\sessions\<sid>`，
+      //   旧版把 `treeDir` 的绝对路径整条写进去（`<workspace> Harness\home\chess-context\sessions\<sid>`，
       //   实测 137.7 字符/行）——既把本机用户名/盘符泄漏给模型，又白烧 token（生产口径 94/133 个会话
       //   带 TRACE 行，平均 +45 token）。相对路径对模型足够定位（会话根 = DSH_HOME/chess-context），
       //   且 `traceRoot` 可配置（默认 "sessions"）。
@@ -1174,7 +1174,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       //   CURRENT GOAL / weak 图例 / `# WORKING: none` / 置换提示 / `</chess-ledger>`。
       //   第一版只扣了 header 那几行 ⇒ pathBudget 恒 ≈ maxTokens×3 ⇒「整条路径放得下就原样」，
       //   于是 L3 把 n1→…→n177 共 1064 字符原样塞进去：实测 500 预算下超预算会话 7 → 25
-      //   （verifier 复验抓到；<SESSION_ID> 331→742、6f90bd1d 453→810 …）。
+      //   （verifier 复验抓到；e3820651 331→742、6f90bd1d 453→810 …）。
       //   现在 `prePathUnits` 是**精确的加权单位数**（W-A：4 单位 = 1 token，CJK 4 单位/字），
       //   `available` 才是路径行真正能用的额度。
       // ★ C448：goal 常常为空（真机 0.3%）⇒ 兜底最近一条 user 原话（否则这行等于不存在）
@@ -1217,7 +1217,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // 再减 2：`actual = prePath + path − suffix − 1`，而 fitPaths 只看行长度、
       // 不含每行换行（最多 2 行）—— 不扣这 2 个字符就会稳定超 1~2 字符（实测 501 tokens 就是这么来的）。
       // ★ rev6：额度 = min(固定 150 字符, 真实剩余)，并且**这 150 字符要含 weak 图例与行尾后缀** ——
-      //   它们都由路径块引起，不能只算路径行本身。实测漏算时单会话净增 90 token（<SESSION_ID> 346→436：
+      //   它们都由路径块引起，不能只算路径行本身。实测漏算时单会话净增 90 token（04538c62 346→436：
       //   路径行 159 字符 + 图例 109 字符），直接突破「≤50 token/会话」的硬额度。
       const legendChars = workingWeak > 0 ? WEAK_LEGEND.length + 1 : 0;
       const quota = Math.max(0, PATH_QUOTA_CHARS - suffixChars - legendChars - 2);
@@ -1251,7 +1251,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         }
         // ★ 最后兜底（C-17 第四轮修）：正文（root/约束/失败边）本身已经把预算吃满时，任何带路径的形态
         //   都可能装不下。**但 L3+ 绝不允许静默省略路径**（verifier 实测有 19 个会话一行路径都没有，
-        //   其中 <SESSION_ID> pathLen=134、<SESSION_ID> 211、<SESSION_ID> 151）——至少必须给出一行「当前位置」。
+        //   其中 06698df9 pathLen=134、195ca61a 211、c4e44fab 151）——至少必须给出一行「当前位置」。
         //   阶梯：`# path: current <cur> working <work>` → `# path: current <cur>` → `# path: <cur>`。
         //   ★ 这一档不挂 `[weak k/n]`：标记必须与图例同行，图例（~108 字符）在这个预算下放不下；
         //     要么「标记 + 图例」一起有，要么都没有 —— 不许让标记裸奔。
@@ -1272,7 +1272,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       }
       // ★ C-17 修（2026-10-30）：WORKING 可能被**并进** CURRENT PATH（同尾 ⇒ fitPaths 规则 1，
       //   workingLine 返回 null）。旧写法直接 `${folded.workingLine}${summary}${weakTag}` ⇒
-      //   实测 <SESSION_ID> 输出一行字面量 `null [weak 1/1]`：
+      //   实测 <redacted> 输出一行字面量 `null [weak 1/1]`：
       //   既印了 "null"，又把「工作位置」藏了。现在把摘要与 weak 标记挂到**合并后的那一行**上。
       const mergedIntoCurrent = workingIds !== null && folded.workingLine === null;
       // 最小形态/整块省略时，摘要与 weak 标记必须一起压掉（否则标记裸奔、或又超预算）
@@ -1411,7 +1411,7 @@ export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {
   // ★ C223：零失败边的会话占真实会话的约 26%，而旧版最小清单**完全没有当前位置** ——
   //   模型只拿到「目标 + 约束个数 + 没有失败」，不知道自己在哪一步、手里那条工作路径是什么。
   //   契约 ⑥（图有路径 ⇒ 清单必须有当前位置）在这里被违反了：handoff-check 在 live 上抓到 2 个会话
-  //   （<SESSION_ID> / <SESSION_ID>）。补一行和主清单同形态的 `# path:`（头尾折叠，宽度由 pathDigestLine 控制）。
+  //   （5df02bf8 / 30140e4c）。补一行和主清单同形态的 `# path:`（头尾折叠，宽度由 pathDigestLine 控制）。
   const minimalPathIds = latest ? currentPath(g, latest.id).map((n) => n.id) : [];
   if (minimalPathIds.length > 0) lines.push(pathDigestLine(minimalPathIds));
   // ★ C224：契约 ④/⑤ 认的是 OPTIONS / UNVERIFIED 两个词。零失败**不等于**没有其它问题边 ——

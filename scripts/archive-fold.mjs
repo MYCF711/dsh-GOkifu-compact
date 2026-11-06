@@ -16,8 +16,8 @@
  *   ③ 重开会话时要不要把它注入回去，是下一步的事（本脚本只负责"压出来 + 记账"）。
  *
  * 用法：
- *   node scripts/archive-fold.mjs --session <SESSION_ID>            # 干跑：只打印将要发的输入
- *   node scripts/archive-fold.mjs --session <SESSION_ID> --write    # 真调模型并写回棋谱
+ *   node scripts/archive-fold.mjs --session aa52f421            # 干跑：只打印将要发的输入
+ *   node scripts/archive-fold.mjs --session aa52f421 --write    # 真调模型并写回棋谱
  *   node scripts/archive-fold.mjs --due --limit 2 --write       # 只补最旧的 2 个欠账
  */
 import fs from "node:fs";
@@ -215,7 +215,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const { graph } = loadSessionGraph(graphFile);
     const debt = debtOfGraph(graph);
     const logFile = findLogFile(home, dir);
-    // ★ C523：**活着的会话不要用脚本写**。真机教训（<SESSION_ID>）：脚本写完，宿主那边把内存里的图
+    // ★ C523：**活着的会话不要用脚本写**。真机教训（8cc34e32）：脚本写完，宿主那边把内存里的图
     //   一 flush 就覆盖回去了 —— 钱花了、什么都没留下。判据看日志 mtime：5 分钟内有写入就算活着。
     if (write && logFile !== null && logFile !== undefined) {
       try {
@@ -314,7 +314,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
         console.log(`  ↻ 被推理吃光（finish=length），放大到 ${bigger} 重试一次`);
         result = await callModelSafe({ baseUrl, apiKey, model, prompt, maxTokens: bigger, timeoutMs: Number(get("timeout", 180_000)) });
       } else if (result.finish === "length" && Number(result.usage?.reasoning_tokens ?? 0) > 0) {
-        // ★ C576：**推理吃掉了大半预算，正文被截断**。真机（2026-11-06 <SESSION_ID>）：
+        // ★ C576：**推理吃掉了大半预算，正文被截断**。真机（2026-11-06 fdd814b1）：
         //   `completion 8192 = reasoning 5372 + 正文 ~2820` —— 摘要正好撞顶被切，
         //   而"文本非空"让旧逻辑以为成功了。有 reasoning 时按它的实测值补足预算重试。
         const need = Math.min(32_768, maxTokensArg + Math.ceil(Number(result.usage.reasoning_tokens) * 1.2));

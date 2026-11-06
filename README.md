@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.18.2`**（完整脱敏稳定候选，未发布；稳定版 1.18.1 已公开） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.18.3`**（稳定版；上一稳定版 1.18.2） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 415 tokens 的热清单」。**
 
@@ -61,7 +61,7 @@ DSH 的「上下文压缩」面板（`POST /gokifu/api`，同一套信任检查�
 成本估算是**估算**：价目用 DeepSeek 官方 `deepseek-flash` 低峰价（命中 $0.003 / 未命中 $0.15 / 输出 $0.6 每 1M tokens），
 不含宿主侧的 system/tools 开销；没有 usage 的 fold 不参与计算，页面会标出「N 次有 usage」。
 
-细节与逐条判据见 [`docs/发布说明-1.18.2.md`](docs/发布说明-1.18.2.md)。
+细节与逐条判据见 [`docs/发布说明-1.18.0.md`](docs/发布说明-1.18.0.md)。
 
 ## 怎么工作
 
@@ -183,10 +183,45 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2073 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2128 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
+
+**隐私审计（K-31）**：
+
+```bash
+node scripts/privacy-audit.mjs --changed  # 日常：只扫相对 HEAD 的新增行与未跟踪文件
+node scripts/privacy-audit.mjs --pack     # 发布前：扫完整 npm packlist；confirmed/review 均阻断
+```
+
+报告只给文件、行号、规则与分类，不回显敏感原值。`npm run gate` 已接入 `--changed`；`scripts/release.mjs` 会在任何远端动作前执行 `--pack`。
+
+**K-27 过程续接任务验收**：
+
+```bash
+node scripts/lme-task50.mjs --validate           # 50 道冻结题与无泄漏检查；默认零模型调用
+node scripts/lme-task50.mjs --run <results.json> # 只评已有 full/compact reader 结果
+```
+
+真实 reader 尚未运行，任务质量为 `NOT_RUN`；`--validate` 通过不代表压缩后任务能力通过。
+
+**K-2 工具结果清理离线 A/B**：
+
+```bash
+node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json
+```
+
+只读比较原始工具结果与 every-step + 生产 facts 重注入，不改默认行为。旧 10 会话曾判 **REJECT**，但那是 raw/norm 空白差异造成的假阴性；T96 修正判据后，P2 的 **285/285** 条失败 snippet 都在 facts 里，受控 10 会话重跑为 **CANDIDATE**（省约 112 万 tokens，failure/constraint 均 1→1）。仍**不默认开启**，需 shadow / 真实 reader 验证。
+
+**历史 foldMark 保真修复**：
+
+```bash
+node scripts/repair-foldmark-fidelity.mjs          # 干跑，只报需修会话
+node scripts/repair-foldmark-fidelity.mjs --apply  # 备份后原子写回，写后重读
+```
+
+只修旧 fold 摘要里缺失的用户约束；活跃会话自动跳过，默认 dry-run。先记 `foldMark.seqStart > seqEnd` 的反序修复是另一个脚本 `repair-foldmarks.mjs`。
 
 ## 配置
 
@@ -272,7 +307,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 - [三层树设计](docs/三层树设计.md) · [DSH 技术测绘](docs/DSH-技术测绘.md)（1300 行，带 asar 行号）
 - [性能与成本](docs/性能与成本.md) · [真实计费核对](evidence/真实计费核对.md)
 - [最终报告](docs/最终报告.md) · [P0 修复记录](docs/P0-worldhash-死循环-根因与修复方案.md)
-- [**发布说明 1.18.2**](docs/发布说明-1.18.2.md) · [重启验收清单](evidence/重启验收清单-2026-11-02.md)（重启后 9 步判断新代码是否接管）
+- [**发布说明 1.18.0**](docs/发布说明-1.18.0.md) · [重启验收清单](evidence/重启验收清单-2026-11-02.md)（重启后 9 步判断新代码是否接管）
 - [**外部知识库**](docs/knowledge/结论速查.md)：一页看完所有已核实 / 已否掉的判断（带数字与「谁在保证」）
 
 > 更新记录：[CHANGELOG.md](./CHANGELOG.md)（发版流程见 `scripts/release.mjs`；维护侧的 `HANDOFF.md`

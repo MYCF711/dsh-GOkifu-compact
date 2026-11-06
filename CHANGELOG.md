@@ -582,13 +582,41 @@
 
 # 更新记录
 
-## 1.18.2（2026-11-06）
+## 1.18.3（2026-11-06，稳定版）
 
-### T91 · 完整脱敏与可执行性复核
+> 1.18.3 是 1.18.2 之后的稳定版：收口 K-32 假阴性、handoff 活跃会话误判与历史 foldMark 保真修复；全量 2128/0、gate 8/8。
 
-按完整审计口径清理真实 session/agent 标识、历史真实端点、姓名/法律上下文与本机路径；Git 与 npm 的 `confirmed_sensitive` 均为 0。功能默认回环端点明确列为公开配置，真实工具改用通用 home/ASAR 解析，测试使用显式 synthetic 路径与合法合成端口，避免把占位符写进可执行代码。
+### T97 · handoff 活跃会话降级与 foldMark 保真修复
 
-## 1.18.1（2026-11-06）
+`handoff-check` 按 `home/sessions` 索引识别活跃会话：活跃会话 ⑬ `openAtEnd>0` 降为 WARN，非活跃仍 FAIL。新增 `repair-foldmark-fidelity.mjs`，默认 dry-run，`--apply` 先备份再原子写回，把旧 archive-offline 摘要缺失的用户约束机械补回并重算 `constraintRecall`；活跃会话与无摘要旧折痕跳过。live 已 apply：1 个历史 foldMark 补回 1 条约束，7 个活跃会话跳过；handoff **FAIL 0 / WARN 265**。
+
+### T96 · K-32 failure snippet 归一化修正
+
+`isRememberedByGraph` 改为对正文与 snippet 使用同一空白归一化，再比对前 60 字符；新增 CRLF/连续空格真红用例。修正后 P2 的 285 条 snippet raw 缺 14、归一化后缺 0；受控 K-2 10 会话为 CANDIDATE（省约 1,122,809 tok，failure/constraint 1→1）。旧的 K-2 REJECT 是假阴性，保留为 SUPERSEDED；仍不默认开启每步清理。
+
+### T95 · K-2 工具结果每步清理离线 A/B
+
+新增只读 `tool-result-prune-ab.mjs`，比较原始工具结果与 every-step + 生产 `renderFacts` 重注入。10 个真实会话、774 条失败边、50 条约束：可省约 7,222,723 估算 tokens，但 failureRecall 从 80.23% 降到 77.26%，constraintRecall 保持 1。结论 **REJECT**（**已被 T96 标为假阴性/SUPERSEDED**），不修改默认剪枝行为；9 条真红/新绿测试守住判据。
+
+### T94 · K-27 冻结续接问答与 full/compact 配对判分器
+
+新增 50 道过程续接夹具，IE/MR/KU/TR/ABS 各 10，失败与更新形态 34 道。`lme-task50.mjs --validate` 默认零模型调用，只验夹具与无泄漏；`--run` 对已有 reader 结果机械判分，保留 reader-limited 与全部分母。真实 reader 尚未运行，任务质量仍为 `NOT_RUN`，不把合成结果当产品跑分。
+
+### T93 · K-29 / K-31 核心功能收尾
+
+K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删失，缺 seq 保守纳入，生产补回逻辑不变。K-31 新增永久只读隐私审计：日常 gate 扫新增行，release 在任何远端动作前扫完整 npm packlist，confirmed/review 阻断且不回显敏感原值；真实泄漏与公开示例经 1.18.2 干净树反向校准。
+
+### T92 · K-30 折痕预算守卫改为真实行为断言
+
+旧失败分支靠未定义 `FOLD_SOURCE_FILE_LIMIT` 的 ReferenceError 假绿。新守卫要求首次读盘数等于会话图数，30/30 正向通过，20/30 漏读给精确普通 Error；展示上限 20 与源文件读取预算分离，第二次缓存仍零重复读。
+
+## 1.18.2-beta.1（2026-11-06，本地开发版）
+
+> 稳定版 1.18.1 公开后，本地下一轮开发线切换为 `1.18.2-beta.1`，避免与稳定版混用。
+
+## 1.18.1-beta.1（2026-11-06，本地开发版）
+
+> 稳定版 1.18.0 公开后，本地开发线切换为 `1.18.1-beta.1`。后续修复先在此版本验收，再推下一个稳定版。
 
 ### T90 · 输入裁切不再误报为压缩出错
 
@@ -1095,7 +1123,7 @@ node test/run.mjs → 1371 passed, 0 failed
 
 ### 一、发现：默认模型已经换成 kimi，单段要 169 秒
 
-干跑同一段（`<SESSION_ID>`）：
+干跑同一段（`226dbf4f`）：
 
 ```
 模型 group/kimi-k3.1-pro · 估价 $0.0020（低谷）
@@ -1150,7 +1178,7 @@ node scripts/backfill-state.mjs → 还没有状态文件（本版未重启，�
 
 ```
 21:37 后折了: 0 段
-前五名：<SESSION_ID>(gap 10158) · <SESSION_ID>(gap 4591) · <SESSION_ID>(tail 3432) · <SESSION_ID>(3323) · <SESSION_ID>(3156)
+前五名：226dbf4f(gap 10158) · 32a78774(gap 4591) · b8a92777(tail 3432) · c0a5847a(3323) · fdd814b1(3156)
 每一条：due true · go false · already-folded
 ```
 
@@ -1175,11 +1203,11 @@ if (closeout?.folded > 0 && hasMarks !== false && stillDue !== true) return { go
 ### 三、修完立刻复验（同一批会话）
 
 ```
-<SESSION_ID> · due true · go true (会尝试)
-<SESSION_ID> · due true · go true
-<SESSION_ID> · due true · go true
-<SESSION_ID> · due true · go true
-<SESSION_ID> · due true · go true
+1e82afca · due true · go true (会尝试)
+8a73e06b · due true · go true
+226dbf4f · due true · go true
+62bcb7d2 · due true · go true
+32a78774 · due true · go true
 ```
 
 ### 四、验证
@@ -1407,9 +1435,9 @@ node test/run.mjs → 1361 passed, 0 failed
 而真机明明是**新代码**在跑：
 
 ```
-19:57:20  <SESSION_ID>  · 11,257 字符 · cached 16,384 · reasoning 0（C578 生效）
-19:57:25  <SESSION_ID>  ·  2,647 字符
-19:57:30  <SESSION_ID>  ·  2,468 字符
+19:57:20  <redacted>  · 11,257 字符 · cached 16,384 · reasoning 0（C578 生效）
+19:57:25  <redacted>  ·  2,647 字符
+19:57:30  <redacted>  ·  2,468 字符
 ```
 
 ### 二、根因：判据要求的字段从来没被写过
@@ -1586,9 +1614,9 @@ node scripts/boundary-audit.mjs → ✅ 0 条
 tick 的逻辑是「排序 → 取前 3 → 循环里跳过活会话」。真机前三名是：
 
 ```
-<SESSION_ID>  日志 0.0 分钟前  ⇒ 活会话，跳过
-<SESSION_ID>  日志 0.1 分钟前  ⇒ 活会话，跳过
-<SESSION_ID>  日志 1.0 分钟前  ⇒ 活会话，跳过
+8a73e06b  日志 0.0 分钟前  ⇒ 活会话，跳过
+226dbf4f  日志 0.1 分钟前  ⇒ 活会话，跳过
+62bcb7d2  日志 1.0 分钟前  ⇒ 活会话，跳过
 ```
 
 **名额在循环开始前就用掉了**，三个全被 `continue` 掉 ⇒ 一次都没补成。
@@ -1600,7 +1628,7 @@ tick 的逻辑是「排序 → 取前 3 → 循环里跳过活会话」。真机
 
 ```
 修复后：候选 42 · 活会话剔除 8
-  → <SESSION_ID>  → <SESSION_ID>  → <SESSION_ID>
+  → <redacted>  → <redacted>  → <redacted>
 ```
 
 跳过时写一行日志「跳过 N 个活会话（日志还在写，写了会被宿主覆盖）」——
@@ -1675,10 +1703,10 @@ node scripts/boundary-audit.mjs → ✅ 0 条
 
 | 会话 | prompt | cached | 命中率 |
 |---|---|---|---|
-| <SESSION_ID> | 9,565 | **9,216** | 96% |
-| <SESSION_ID> | 5,574 | **5,120** | 92% |
-| <SESSION_ID> 第 1 段 | 6,623 | 0 | 0% |
-| <SESSION_ID> 第 2 段 | 7,187 | 0 | 0% |
+| 32a78774 | 9,565 | **9,216** | 96% |
+| a9f16ff0 | 5,574 | **5,120** | 92% |
+| fdd814b1 第 1 段 | 6,623 | 0 | 0% |
+| fdd814b1 第 2 段 | 7,187 | 0 | 0% |
 
 **结论**：
 1. 缓存命中**是常态**（跨轮共享"提示词 + 硬事实"前缀）——此前「折叠缓存命中 7%」的判断是错的；
@@ -1695,7 +1723,7 @@ node scripts/boundary-audit.mjs → ✅ 0 条
 - 截断判据改成**看实测**：`finish === "length"` 且 `usage.reasoning_tokens > 0` ⇒ 按实测值补足预算重试一次（上限 32,768）；
 - 同时传官方支持的 `reasoning_effort: "low"`（官方端点生效，忽略它的上游也无害）。
 
-真机验证（`<SESSION_ID>`，故意把预算压到 2000）：
+真机验证（`a9f16ff0`，故意把预算压到 2000）：
 
 ```
 ↻ 被推理吃光（finish=length），放大到 17000 重试一次
@@ -1980,7 +2008,7 @@ node scripts/boundary-audit.mjs → ✅ 0 条
 ### 一、`node scripts/verify-archive.mjs --session <id>`
 
 ```
-✅ 真折了 · <SESSION_ID>
+✅ 真折了 · <redacted>
   · 收尾记录：有 · foldMarks 1（离线 1）
   · 最近一条：archive-offline seq 9-63 · 3959 字符
   · 欠账：尾巴 689 · 缺口 8 · due=false
@@ -2025,7 +2053,7 @@ node test/run.mjs → 1341 passed, 0 failed
 1. **正常流程**：归档 → `#closeout` → `#closeoutFold`（分段 / 单段 / 离线兜底）→ `foldMark` 落账；
 2. **三条命令**：`status --fast`（有没有在动）/ `last-summary --session`（压出来能读吗）/ `doctor`（整体健康）；
 3. **两种真机故障形状**：假成功（`folded:1` 但 `foldMarks:0`）、空转不转离线（`no-op` 没进白名单）；
-4. **真机样本**：<SESSION_ID> 的前后对照。
+4. **真机样本**：4f3cae10 的前后对照。
 
 ### 二、核心判据就一句
 
@@ -2063,11 +2091,11 @@ node scripts/last-summary.mjs --full         # 列表时也不截断
 
 ```
 ======================================================================
-<SESSION_ID>-… · 2026/11/4 10:41:51 · 3959 字符 · trustoken/deepseek-flash
+4f3cae10-… · 2026/11/4 10:41:51 · 3959 字符 · trustoken/deepseek-flash
 质量：约束召回 1 · 未知 id 0 · 缺段 无 · 结尾干净 true
 ----------------------------------------------------------------------
 ## 目标
-- 在 `<DSH_HOME_OR_INSTALL_DIR> Harness/default-workspace/DSH-GO` 中 …
+- 在 `<workspace> Harness/default-workspace/DSH-GO` 中 …
 ## 棋谱（状态节点）
 - **n1** 读 `tool_lazy.go` 与跑 `git status` → 确认现有实现位置 …
 ```
@@ -2495,7 +2523,7 @@ node test/run.mjs → 1325 passed, 0 failed
 
 ### C544 · no-op 根本没接上离线补折（C531 的延伸坑）
 
-**验证你归档的 `<SESSION_ID>` 时，在新代码里发现一个自己刚埋的坑：整条链根本不会触发。**
+**验证你归档的 `4f3cae10` 时，在新代码里发现一个自己刚埋的坑：整条链根本不会触发。**
 
 ### 一、真机证据（归档那一刻）
 
@@ -2924,7 +2952,7 @@ node test/run.mjs → 1313 passed, 0 failed（新增 stale-claims 3 条）
 
 ### 一、验证：「归档了没有 closeout」会不会自己补上？
 
-挑 `<SESSION_ID>`（日志 1,821 分钟没动，属于历史归档），补一次：
+挑 `f46d6330`（日志 1,821 分钟没动，属于历史归档），补一次：
 
 ```
 补账前：closeout 不存在
@@ -2943,7 +2971,7 @@ doctor 原文：
 
 **两句都过期了**：
 - C519 之后 `offlineUncoveredHead` **就是欠账**（`debtOfGraph.gap`）；
-- 分段离线 C520/C522 已经做了 —— `backfill-plan` 里 `<SESSION_ID>` 明明白白：`tail 0 · 157k tok · 2 段`。
+- 分段离线 C520/C522 已经做了 —— `backfill-plan` 里 `f46d6330` 明明白白：`tail 0 · 157k tok · 2 段`。
 
 改成："这些**已经进欠账**（gap），补账会从缺口起点继续（C519/C520/C522），不用另外安排"。
 
@@ -3267,7 +3295,7 @@ node test/run.mjs → 1301 passed, 0 failed
 
 **这轮用脚本真跑了一次离线补折，把整条链验证了一遍 —— 顺带发现第一段折错了位置。**
 
-### 一、真机验证（<SESSION_ID>，这个会话归档时 `compactRegion` 报过 `not found in surface`）
+### 一、真机验证（3a3fb03c，这个会话归档时 `compactRegion` 报过 `not found in surface`）
 
 ```
 段 1981-2072（欠账区间 543-2072，前段 543-1980 未覆盖 1438 事件）
@@ -3295,7 +3323,7 @@ node test/run.mjs → 1299 passed, 0 failed
 
 ### C522 · 空转不算折叠：compactRegion 调用成功 ≠ 真的折了
 
-**真机 `<SESSION_ID>`：`closeout.folded: 1`，可 `ledgerBudget` 是 null、`foldMarks` 一条没多、`checkpointSeq` 都没动。**
+**真机 `1286ce28`：`closeout.folded: 1`，可 `ledgerBudget` 是 null、`foldMarks` 一条没多、`checkpointSeq` 都没动。**
 
 ### 一、机制
 
@@ -3330,7 +3358,7 @@ node test/run.mjs → 1298 passed, 0 failed
 ```
 近 3 小时有 closeout 的会话：61
   -9cef-48  08:20  folded: 1   （再看 foldMarks —— 一条都没多）
-  <SESSION_ID>  07:44  folded: 1
+  c460d468  07:44  folded: 1
 ```
 
 也就是说：**每次都在花一次模型调用重做同一件事，账上还写着"折了"。**
@@ -3396,7 +3424,7 @@ node test/run.mjs → 1296 passed, 0 failed
 
 ### 一、为什么召回率骗人
 
-真机 `<SESSION_ID>`：摘要撞了 `max_tokens`，停在 `grep -n "` 上，而后面的段落整段没写 ——
+真机 `8cc34e32`：摘要撞了 `max_tokens`，停在 `grep -n "` 上，而后面的段落整段没写 ——
 `constraintRecall = 1`、`failureRecall = 1`，**看起来完美**。因为被截掉的部分里没有约束，只有结构。
 
 ### 二、改法（C528）：给质量指标加「结构契约」
@@ -3430,7 +3458,7 @@ node test/run.mjs → 1295 passed, 0 failed
 ### 一、算术
 
 ```
-<SESSION_ID>：缺口 1.04M tok ≈ 7 段
+00b50089：缺口 1.04M tok ≈ 7 段
 每 30 分钟补 1 段 ⇒ 3.5 小时
 ```
 而 51 个欠账里像它这样的不止一个。
@@ -3522,7 +3550,7 @@ node test/run.mjs → 1292 passed, 0 failed
 
 ### 一、怎么发现的
 
-对 `<SESSION_ID>` 跑脚本写回 → 脚本报 `✓ 已写回`；去图上查 → **`closeout` 整个字段都没了**。
+对 `8cc34e32` 跑脚本写回 → 脚本报 `✓ 已写回`；去图上查 → **`closeout` 整个字段都没了**。
 
 原因：那个会话**还活着**（tail 从 8,327 长到 9,228）。脚本写的是磁盘文件，
 而宿主手里握着内存里的图，下一次 flush 直接把它盖回去。
@@ -3592,7 +3620,7 @@ node test/run.mjs → 1289 passed, 0 failed（离线折叠 18 条）
 - **两份预算**：工具行最多占 40%，文本行吃剩下的 —— 免得工具把用户诉求挤掉；
 - 没有工具行时不预留（小预算下仍按老行为）。
 
-### 二、真机验证（`<SESSION_ID>`，真模型）
+### 二、真机验证（`8cc34e32`，真模型）
 
 ```
 输入：41 条（13,596 字符，其中工具行 68 条）· ≈6,237 tok · $0.0006
@@ -3621,7 +3649,7 @@ node test/run.mjs → 1286 passed, 0 failed（离线折叠 15 条）
 | 位置 | 症状 | 真机 |
 |---|---|---|
 | `rankDebts` | 只按 `tail` 排 ⇒ `tail=0` 的缺口会话永远排最后 | 需要的会话排不进前 N |
-| `planChunkedCloseout` | `closeoutExceedsLimit` 看 tail=0 直接返回 null ⇒ **0 段** | `<SESSION_ID>`：尾巴 0 事件、缺口 **1,043k tok**、**0 段** |
+| `planChunkedCloseout` | `closeoutExceedsLimit` 看 tail=0 直接返回 null ⇒ **0 段** | `<redacted>`：尾巴 0 事件、缺口 **1,043k tok**、**0 段** |
 
 ### 二、改法（C520）
 
@@ -3633,8 +3661,8 @@ node test/run.mjs → 1286 passed, 0 failed（离线折叠 15 条）
 
 ```
 补账计划：77 个欠账
-  · <SESSION_ID>  尾巴 0 事件 · 1043k tok · **6 段**   ← 之前是 0 段
-  · <SESSION_ID>  尾巴 8914 事件 · 1022k tok · 6 段
+  · <redacted>  尾巴 0 事件 · 1043k tok · **6 段**   ← 之前是 0 段
+  · <redacted>  尾巴 8914 事件 · 1022k tok · 6 段
 ```
 
 ### 四、验证
@@ -3738,7 +3766,7 @@ node test/run.mjs → 1281 passed, 0 failed
 ### 一、真机本次结果
 
 ```
-补一个会话 <SESSION_ID>（尾巴 1531）→ 面板补账 1 秒返回 folded:1
+补一个会话 c460d468（尾巴 1531）→ 面板补账 1 秒返回 folded:1
 但图里写的是：
 closeout: { "folded": 0, "chunkedChunks": 2, "chunkedFolded": 0,
             "chunkStopped": "error",
@@ -3778,7 +3806,7 @@ node test/run.mjs → 1278 passed, 0 failed
 
 ```
 ! 归档后剩余的未折尾巴 — 23 个会话归档时仍有 ≥1000 事件未折（合计 64,562）
-  <SESSION_ID>(24472) · <SESSION_ID>(7706) · <SESSION_ID>(3988) · <SESSION_ID>(2794) · <SESSION_ID>(2412) …
+  00b50089(24472) · 858445da(7706) · a09a4535(3988) · d62a520c(2794) · a9f16ff0(2412) …
 ```
 
 ### 一、为什么以前看不见
@@ -3789,7 +3817,7 @@ node test/run.mjs → 1278 passed, 0 failed
 ### 二、判据（踩过的坑写进注释）
 
 尾巴只认 `foldMarks`：`lastFoldSeq` 记的是「那次折叠**时**会话的 seq」，
-不是「折到哪」—— 真机 `<SESSION_ID>` 上这两个值差了 **1,670** 个事件。
+不是「折到哪」—— 真机 `a09a4535` 上这两个值差了 **1,670** 个事件。
 
 ### 三、文案说清楚该怎么办
 
@@ -3811,14 +3839,14 @@ doctor 新增一条：! 归档后剩余的未折尾巴
 
 ```
 尾巴事件数 中位 0 / 75% 0 / 90% 1720
-尾巴最长的几个：<SESSION_ID> · 折 2 次 · 总 5862 · 尾巴 3988
-                 <SESSION_ID> · 折 2 次 · 总 5711 · 尾巴 2794
-                 <SESSION_ID> · 折 1 次 · 总 2781 · 尾巴 2412
+尾巴最长的几个：a09a4535 · 折 2 次 · 总 5862 · 尾巴 3988
+                 d62a520c · 折 2 次 · 总 5711 · 尾巴 2794
+                 a9f16ff0 · 折 1 次 · 总 2781 · 尾巴 2412
 ```
 
 ### 二、发现：`lastFoldSeq` 和 `foldMarks` 差 1670 个事件
 
-真机 `<SESSION_ID>`：
+真机 `a09a4535`：
 
 | 字段 | 值 | 含义 |
 |---|---|---|
@@ -3918,7 +3946,7 @@ if (session !== undefined) this.#flush(session, { full: true });   // ← 引用
 ```
 
 根因：它**只读 patch**，而 magpie 的模型目录是**运行时**给的，patch 里本来就没有。
-现在 patch 里没有就问一次 `http://127.0.0.1:<MODEL_GATEWAY_PORT>/v1/models`（5s 上限、失败当读不到）。
+现在 patch 里没有就问一次 `http://127.0.0.1:3425/v1/models`（5s 上限、失败当读不到）。
 
 真机验证：`✓ 摘要模型在 provider 的模型表里 — magpie/group/deepseek-v4.1-flash1017`
 —— 这也顺带证明**你在面板里选的那个模型确实存下来了**。
@@ -4061,8 +4089,8 @@ node test/run.mjs → 1270 passed, 0 failed（UI 131）
 
 | 会话 | 段 | 摘要 | 耗时 | 约束召回 | 备注 |
 |---|---|---|---|---|---|
-| `<SESSION_ID>` | 19305–19897 | 4,855 字符 | 19.0s | **1** | 无补回 |
-| `<SESSION_ID>` | 34423–35183 | 4,652 字符 | 10.7s | **1** | **自动补回 5 条约束** |
+| `8cc34e32` | 19305–19897 | 4,855 字符 | 19.0s | **1** | 无补回 |
+| `c0a5847a` | 34423–35183 | 4,652 字符 | 10.7s | **1** | **自动补回 5 条约束** |
 
 两者都 `partial: true`（前段还有 8k+ / 3.9k 事件没压）——**"压了"不等于"压完"**，这正是要的诚实。
 
@@ -4145,7 +4173,7 @@ applyOfflineFoldToGraph(graph, result, meta) → { marksAdded, partial }
 ### 三、用真棋谱演了一遍（只在内存，没落盘）
 
 ```
-<SESSION_ID>: marks 1 → 2 · partial: true · closeout.source: archive-offline
+aa52f421: marks 1 → 2 · partial: true · closeout.source: archive-offline
 ```
 
 ### 四、外部知识（①）
@@ -4323,7 +4351,7 @@ node test/run.mjs → 1258 passed, 0 failed
 
 ### C492 · 分段离线压缩：大尾巴不能只压尾巴（partial 语义）
 
-**C491 记下的缺口（`<SESSION_ID>` 前段 12,359 事件没压）说明「只压尾部」对大会话不够用。**
+**C491 记下的缺口（`00b50089` 前段 12,359 事件没压）说明「只压尾部」对大会话不够用。**
 
 ### 一、做了 `--chunks N`
 
@@ -4354,15 +4382,15 @@ node test/run.mjs → 1258 passed, 0 failed
 
 | 会话 | 段 | 摘要 | 耗时 |
 |---|---|---|---|
-| `<SESSION_ID>` | 1–1045 | 2,207 字符 | 8.0s |
-| `<SESSION_ID>` | 1–175 | 3,112 字符 | 17.1s |
-| `<SESSION_ID>` | 1–811 | 3,847 字符 | 10.9s |
-| `<SESSION_ID>` | 23803–24472 | 4,125 字符 | 17.1s |
-| `<SESSION_ID>` | 18644–19339 | 4,329 字符 | 12.3s |
+| `aa52f421` | 1–1045 | 2,207 字符 | 8.0s |
+| `0dcbcff0` | 1–175 | 3,112 字符 | 17.1s |
+| `266d5133` | 1–811 | 3,847 字符 | 10.9s |
+| `00b50089` | 23803–24472 | 4,125 字符 | 17.1s |
+| `8cc34e32` | 18644–19339 | 4,329 字符 | 12.3s |
 
 ### 一、仪器的这一红很值钱
 
-`压缩保真度 constraintRecall min=0.167` —— `<SESSION_ID>` 那次摘要把 **6 条约束压丢了 5 条**
+`压缩保真度 constraintRecall min=0.167` —— `8cc34e32` 那次摘要把 **6 条约束压丢了 5 条**
 （"不要粉色大象"这种原文被当普通句子压掉）。
 
 ⇒ **离线摘要同样会丢硬事实，而且专挑最不能丢的丢。**
@@ -4486,7 +4514,7 @@ Anthropic 原文："Writing to the cache costs 25% more … cached content … c
 ### 二、好消息：账没有丢
 
 ```js
-debtOfGraph(<SESSION_ID>) → { tail: 1045, closedOut: false, folded: false, due: true }
+debtOfGraph(aa52f421) → { tail: 1045, closedOut: false, folded: false, due: true }
 ```
 
 ⇒ C476/C477 生效：这笔账**回到了欠账里**，重开该会话时会补。以前它会因为"有 closeout"被永久跳过。
@@ -4507,7 +4535,7 @@ debtOfGraph(<SESSION_ID>) → { tail: 1045, closedOut: false, folded: false, due
 
 ### 四、顺带确认
 
-`<SESSION_ID>`（11:36 归档，重启前）的 closeout 是 `chunkedChunks:3 / chunkedFolded:0` —— **没有** `chunkStopped`，
+`5e4ee30c`（11:36 归档，重启前）的 closeout 是 `chunkedChunks:3 / chunkedFolded:0` —— **没有** `chunkStopped`，
 说明 C479 确实要等新代码碰到下一次分段收尾才能验证。
 
 ### C486 · 降级路径比正常路径贵 13 倍：规则摘要要截断
@@ -4646,8 +4674,8 @@ node test/run.mjs  → 1243 passed, 0 failed   （守卫自己先红了一次，
 ### 三、真机数字（4 份日志）
 
 ```
-· <SESSION_ID>  工具结果 1879k 字符 ≈ 564k tok（占 18.5%）· 可清上限 1833k 字符 ≈ 550k tok
-· <SESSION_ID>  工具结果 2114k 字符 ≈ 634k tok（占 29.1%）· 可清上限 2078k 字符 ≈ 623k tok
+· 8a73e06b  工具结果 1879k 字符 ≈ 564k tok（占 18.5%）· 可清上限 1833k 字符 ≈ 550k tok
+· 8cc34e32  工具结果 2114k 字符 ≈ 634k tok（占 29.1%）· 可清上限 2078k 字符 ≈ 623k tok
 ```
 
 ### 四、教训
@@ -4666,7 +4694,7 @@ node test/run.mjs  → 1243 passed, 0 failed   （守卫自己先红了一次，
 | `sanitizedIds: 0` | 检查过，没毛病 | ✅ 正常 |
 | `sanitizedIds: 0` | **根本没检查**（range 为空，清洗立即返回原文本） | ✅ 就是这次 |
 
-真机那条（`<SESSION_ID>`，10:03:38，range 29553–30495）：quality 里列了 `n4230…n4249` 共 **20 个"更晚实体"**，
+真机那条（`c0a5847a`，10:03:38，range 29553–30495）：quality 里列了 `n4230…n4249` 共 **20 个"更晚实体"**，
 而这些节点 seq 都是 33062+ —— **如果清洗真以这个 range 跑过，它们必然被替换**。所以它是空转。
 
 ### 二、改法（C482）
@@ -4707,9 +4735,9 @@ node test/run.mjs  → 1243 passed, 0 failed   （守卫自己先红了一次，
 ### 二、真机结果（8 份日志）
 
 ```
-· <SESSION_ID>  工具结果 1865k 字符（占 18.5%）· 已被图记住 45k · 可清上限 1820k（97.6%）
-· <SESSION_ID>  工具结果 4008k 字符（占 32.0%）· 已被图记住 134k · 可清上限 3874k（96.7%）
-· <SESSION_ID>  工具结果 809k 字符（占 44.9%）· 已被图记住 3k · 可清上限 806k（99.6%）
+· 8a73e06b  工具结果 1865k 字符（占 18.5%）· 已被图记住 45k · 可清上限 1820k（97.6%）
+· 1e82afca  工具结果 4008k 字符（占 32.0%）· 已被图记住 134k · 可清上限 3874k（96.7%）
+· 62bcb7d2  工具结果 809k 字符（占 44.9%）· 已被图记住 3k · 可清上限 806k（99.6%）
 · cd5e8448  工具结果 87k 字符（占 76.6%）· 已被图记住 0k · 可清上限 87k（100%）
 中位：工具结果占上下文 **44.9%**，其中可安全清掉 **99.0%**（≈ 上下文总量的 **44.5%**）
 ```
@@ -4820,7 +4848,7 @@ C474 单段 / C479 分段；再往前是 C476 账本 / C477 引擎。
   （其中 2 个是**归档时试过但没折成**的 —— 处置顺序与"从没试过"不同：先看 closeout 里的原因，再补）
 ```
 
-真机现在正好 **2 个**：`<SESSION_ID>`（`nothing-to-fold`）、`<SESSION_ID>`（未知原因）。
+真机现在正好 **2 个**：`b4664e8f`（`nothing-to-fold`）、`c460d468`（未知原因）。
 
 ### 三、测试
 
@@ -4873,7 +4901,7 @@ Kubernetes Job 文档（<https://kubernetes.io/docs/concepts/workloads/controlle
 ### 一、证据
 
 ```
-debtOfGraph(<SESSION_ID>) → { tail: 1205, closedOut: true, folded: false, due: false }
+debtOfGraph(b4664e8f) → { tail: 1205, closedOut: true, folded: false, due: false }
 ```
 
 判据原文：`closedOut = graph.closeout !== undefined`。
@@ -4910,13 +4938,13 @@ debtOfGraph(<SESSION_ID>) → { tail: 1205, closedOut: true, folded: false, due:
 
 ### C475 · doctor 报会话改用界面上的中文名（保留短 id）
 
-**用户一句「你说的是你看到的编号，不是我这里看到的中文名」，把一件被我忽略很久的事说透了：报告是给人看的，但满屏都是 `<SESSION_ID>…`。**
+**用户一句「你说的是你看到的编号，不是我这里看到的中文名」，把一件被我忽略很久的事说透了：报告是给人看的，但满屏都是 `<redacted>…`。**
 
 ### 一、改法（C475）
 
 `sessionLabel()`：从 `home/storages/workspace.json` 的 `tables.workspaces[*]` 建「会话 → 工作区标题」映射。
 
-- 报告里写 `「发布代码仓库并公开」（<SESSION_ID>）` —— **名字在前，短 id 在后**；
+- 报告里写 `「发布代码仓库并公开」（b4664e8f）` —— **名字在前，短 id 在后**；
 - 读不到表 ⇒ 退回 id（**不许因此让 doctor 失败**）；
 - 带不带 `session-` 前缀都能查。
 
@@ -4924,7 +4952,7 @@ debtOfGraph(<SESSION_ID>) → { tail: 1205, closedOut: true, folded: false, due:
 
 ```
 ! 归档收尾（closeout） — 24 个会话已归档、留下棋谱，却一条 closeout 都没有
-  （「吃白饭的大肥鱼」（<SESSION_ID>） / 「反代」（<SESSION_ID>） / …）
+  （「吃白饭的大肥鱼」（00b50089） / 「反代」（03bc3e53） / …）
 ```
 
 「折叠失败分类」那行也同样换成名字。
@@ -5003,7 +5031,7 @@ C118-2 就红；要绿灯只能**手改文档** —— 而"下次记得手改"�
 
 | 守卫 | 原来 | 现在 |
 |---|---|---|
-| C118-2 | 写死 `<SESSION_ID>` 必须在 top 榜里 | 只要**top 榜里有任一 fold 次数能对上表**（守的是"表来自数据"） |
+| C118-2 | 写死 `<redacted>` 必须在 top 榜里 | 只要**top 榜里有任一 fold 次数能对上表**（守的是"表来自数据"） |
 | C393 | 写死 `due 49` | 必须是 `due <数字>`（守的是"有真实数字"，不是那个数） |
 | C424 | 要"重启后三步" | 保留（这条守的是**可执行性**，确实该在） |
 
@@ -5025,8 +5053,8 @@ C118-2 就红；要绿灯只能**手改文档** —— 而"下次记得手改"�
 
 | 会话 | 时间 | `sanitizedIds` | `outOfRangeLater` | `unknownIds` |
 |---|---|---|---|---|
-| <SESSION_ID> | 08:47:49 | **10** | **0** | 0 |
-| <SESSION_ID> | 08:49:36 | **6** | **0** | 0 |
+| 226dbf4f | 08:47:49 | **10** | **0** | 0 |
+| c0a5847a | 08:49:36 | **6** | **0** | 0 |
 
 对照组（修复前那 7 条折叠）：**7 条全带「更晚实体」**，共 84 个 id。
 
@@ -5197,7 +5225,7 @@ C459（mtime）、C460（占比）、C469（时间基线）、C471（最后一�
 
 **上一轮复验时看到的那条 `400`，这一轮查清楚了：不是我们的错，而且分类还把最该报警的那一类吞掉了。**
 
-### 一、现场（`<SESSION_ID>`，2026-11-03）
+### 一、现场（`858445da`，2026-11-03）
 
 ```
 START   05:38:28  compactionId=785fcb99
@@ -5247,8 +5275,8 @@ END-ERR 05:38:30  error = 400 … "WPS 灵犀 Lingxi: WPS 灵犀上游返回 400
 
 | 会话 | `closeout.source` | 尾巴事件数 |
 |---|---|---|
-| `<SESSION_ID>` | **archive** | 1069 |
-| `<SESSION_ID>` | **archive** | 7706 |
+| `bd0161a1` | **archive** | 1069 |
+| `858445da` | **archive** | 7706 |
 
 11-02 那次是 `undefined`。⇒ **C216 挂的 `domain/changed` 在真机上真的跑起来了。**
 doctor 自己的口径也印证：`来源 unknown=43 / disposed=10 / **archive=7**`。
@@ -5258,8 +5286,8 @@ doctor 自己的口径也印证：`来源 unknown=43 / disposed=10 / **archive=7
 | 证据 | 值 | 含义 |
 |---|---|---|
 | `foldMarks` | **0** | 没有任何折叠记录 |
-| `<SESSION_ID>` 日志 | `compaction` **1 条**、`summary` 0、`end` 0 | **启动了、没结束** |
-| `<SESSION_ID>` 最近一次 fold | **400**，正文含 **"WPS 灵犀 Lingxi"** | 请求**根本没到 DeepSeek**，被路由到别的上游 |
+| `bd0161a1` 日志 | `compaction` **1 条**、`summary` 0、`end` 0 | **启动了、没结束** |
+| `858445da` 最近一次 fold | **400**，正文含 **"WPS 灵犀 Lingxi"** | 请求**根本没到 DeepSeek**，被路由到别的上游 |
 
 ⇒ `closeout` 只记了"归档那一刻"，**没记"折了没有 / 为什么没折"** —— 而这正是验证单要回答的问题。
 
@@ -5517,7 +5545,7 @@ doctor 要扫最近 24 份会话日志（C218 的时间窗）。旧写法是**�
 把那两个会话打开，只看一件事：**最新节点 id 在不在 `index.md` 里**。
 
 ```
-<SESSION_ID> 节点 2467 · 最新节点 n2467 · index 里有它吗：true
+00b50089 节点 2467 · 最新节点 n2467 · index 里有它吗：true
 be4fc599 节点   72 · 最新节点 n72   · index 里有它吗：true
 ```
 
@@ -5565,7 +5593,7 @@ C455 已经把「只能引用事实块里出现过的 id / 不许顺着编号往
 
 - 图里**存在**且位置**不晚于**折叠区间 ⇒ 保留；
 - 图里没有 / 晚于区间 ⇒ 换成 `n?` / `e?`，并把原 id 记进 `removed`；
-- **不是独立 id 的片段不动**（`/tmp/n99e2.json`、`xn9y` 这类）；
+- **不是独立 id 的片段不动**（`<workspace>`、`xn9y` 这类）；
 - `range` 为空 ⇒ **原样返回**（判不了"晚不晚"就不动，也不虚报清洗数）。
 
 ### 可观测
@@ -6010,9 +6038,9 @@ C444 的循环判据每步都要遍历全库边并排序（`Object.values(edges)
 
 | 会话 | 连击 | 动作 | 结果 |
 |---|---|---|---|
-| `<SESSION_ID>` | 6 | `edit(file_path=/tmp/lingxi-repo/index.mjs)` | **success × 6** |
-| `<SESSION_ID>` | 5 | `edit(file_path=…/README.md)` | **success × 5** |
-| `<SESSION_ID>` | 5 | `edit(file_path=…/src/engine.mjs)` | **success × 5** |
+| `ed98c462` | 6 | `edit(file_path=<workspace>` | **success × 6** |
+| `25af318d` | 5 | `edit(file_path=…/README.md)` | **success × 5** |
+| `8a73e06b` | 5 | `edit(file_path=…/src/engine.mjs)` | **success × 5** |
 
 **全是真的在改代码。** 根因在 `actionSummary`：它只取 2 个关键参数，`edit` 就只剩 `file_path` ——
 同一文件的每次不同编辑产出**逐字相同**的动作串。拿它当循环判据，等于把正常编辑判成死循环。
@@ -6097,7 +6125,7 @@ C444 把 `loopFoldCount++` / `lastLoopFoldSeq = seq` 写在**触发那一刻**�
 
 ### 一、日志里看到的
 
-那个会话（`<SESSION_ID>`，DSH-GO 工作区，本地 12:24 结束）共 **503 步**，末尾是这样的：
+那个会话（`02fa485f`，DSH-GO 工作区，本地 12:24 结束）共 **503 步**，末尾是这样的：
 
 ```
 步骤 3–10：连续 8 次 bash(...)，文本产出全空，多数 reasoning 长度 0–1
@@ -6404,7 +6432,7 @@ goal 200 轮上限到了。本轮不做新功能，只把「交付了什么、�
 HANDOFF 之前只说"唯一待办 = 补账"，但**重启之后具体做什么、怎么确认生效**，还得人自己拼。
 既然重启是唯一剩下的动作，就应该把它写成**照抄即可**的三步。
 
-- **⏭ 重启后的三步**：① `npm run status` ② `accept-after-restart.mjs` ③ `backfill-one.mjs --session <SESSION_ID> --dry`（先演后跑）；
+- **⏭ 重启后的三步**：① `npm run status` ② `accept-after-restart.mjs` ③ `backfill-one.mjs --session e78cc233 --dry`（先演后跑）；
 - **🔜 应该新出现的东西**：`today.truncated` / `update.relation` / `foldMark.usage.model` / `finishReason` / `measuredBefore` /
   doctor「折叠证据字段」从 `0 0 0` 变非 0 / 面板认识 `sessionIds`——**逐项点名字段**，否则"生效没生效"无法判断；
 - 守卫 `live-bench` C424：必须有三步、必须含三条命令、必须列出应新增字段与参数级能力。
@@ -6475,7 +6503,7 @@ HANDOFF 之前只说"唯一待办 = 补账"，但**重启之后具体做什么�
 基准文档（`docs/真机基准-自动生成.md`）一直在报"有多少欠账、多少钱"，但**没回答"从哪个开始"**。
 
 - 新增第五节「**从哪开始（验证通道用最小的）**」：列出**尾巴最小的三个会话**（与补账默认的 tail 降序相反）；
-- 真机当前：`<SESSION_ID>(93) / <SESSION_ID>(167) / <SESSION_ID>(179)` —— 这几个跑一遍只要一两段；
+- 真机当前：`e78cc233(93) / e5eb8531(167) / 3a50f4d2(179)` —— 这几个跑一遍只要一两段；
 - 守卫 `live-bench` C419：必须有第五节、必须有"尾巴事件"列、**渲染器要能被假数据驱动**（防写死）；
 - 顺手修一个崩溃：`debt.smallest` 为 `undefined` 时（旧夹具）会 `Cannot read properties of undefined`，改成 `Array.isArray` 判断。
 
@@ -6552,7 +6580,7 @@ C408 让补账可以指定会话，但**计划工具只按 tail 降序列前 12 
 于是"先拿一个小会话验证通道"时，得自己去 dryRun 清单里翻最小的那个。
 
 - `backfill-plan` 现在同时列出**最小的 3 个**（并标注"适合先验证通道"）；
-- 真机：`<SESSION_ID>(tail 93) / <SESSION_ID>(tail 167) / <SESSION_ID>(tail 179)` —— 这几个跑一遍只要一两段、几分钱；
+- 真机：`e78cc233(tail 93) / e5eb8531(tail 167) / 3a50f4d2(tail 179)` —— 这几个跑一遍只要一两段、几分钱；
 - 测试 `backfill-plan` C414：必须打印、必须说明用途、必须与默认排序**相反**（tail 升序）。
 
 **教训**：**同一份清单要按两种顺序各看一次** —— 先补最大的（决策效率）与先补最小的（验证成本）是两个不同的需求。
@@ -6634,8 +6662,8 @@ C361 从真机样本反推出「宿主 `inputTokens` 是未命中」，但那是
 - `dryRun` 与真补**都用筛选后的清单**；指定了但一个都没命中 ⇒ **400 + 明确报错**（不许静默跑全部）；
 - 测试 `ui-backfill` C408：必须读 `sessionIds`、必须用 `picked`、未命中必须报错、注释要写清默认排序的动机。
 
-真机待补清单（现在）：`due 48`、默认取前 20；**最小的三个**是 `<SESSION_ID>(tail 999) / <SESSION_ID>(1094) / <SESSION_ID>(1115)`。
-有了 `sessionIds`，下次可以先拿 `<SESSION_ID>` 跑通一遍（约 1 段、冷缓存一两美分），确认「取消归档→resume→折→归档回去」这条链，再放开全量。
+真机待补清单（现在）：`due 48`、默认取前 20；**最小的三个**是 `e336b9dd(tail 999) / 90c64a60(1094) / f7f835b1(1115)`。
+有了 `sessionIds`，下次可以先拿 `e336b9dd` 跑通一遍（约 1 段、冷缓存一两美分），确认「取消归档→resume→折→归档回去」这条链，再放开全量。
 
 **教训**：**"只能按默认顺序来"会让"先做小验证"这件事变得不可能** —— 而小验证恰恰是省钱的唯一办法。
 
@@ -6658,7 +6686,7 @@ A29/C392 已核实「图片每张 ≤1024 token，且不进我们的文本估算
 - CLI 输出多一行（仅当有图）：`图片块 106 个 ⇒ 上限约 108,544 token（每张 ≤1024，C392）—— 这部分不进我们的文本估算`；
 - 测试 `session-scan` C406：计数、上限、空输入、无图。
 
-真机实测（<SESSION_ID>）：**106 个图片块 / 上限 108,544 token** —— 与 k-22 的 ~276k 差距仍有 2 倍以上，进一步确认图片不是那个差的主因。
+真机实测（<redacted>）：**106 个图片块 / 上限 108,544 token** —— 与 k-22 的 ~276k 差距仍有 2 倍以上，进一步确认图片不是那个差的主因。
 
 **教训**：一句结论只有变成**可复跑的命令**，才算真的进了工具箱。
 
@@ -6751,7 +6779,7 @@ C398/C400 修完后，还得能回答"它生效了吗"。doctor 新增一行：�
 
 ### C398 · 真机新折叠暴露：model 为 null、finishReason 字段缺失
 
-重启后第一次 pressure 折叠（`<SESSION_ID>`，8.7s）用了模型（route=magpie/deepseek-v4.1-flash1017），但 `usage.model = null`、`finishReason` 字段根本不存在。
+重启后第一次 pressure 折叠（`<redacted>`，8.7s）用了模型（route=magpie/deepseek-v4.1-flash1017），但 `usage.model = null`、`finishReason` 字段根本不存在。
 
 - **model null**：清零语句在**构造 foldMark 之前**就把 `_lastSummaryModel` 置 undefined（与 C321 同类）；
 - **finishReason 缺失**：C321 只把它加到了 `recordFoldMark`（手动/外部那条路），自动路径从未写。
@@ -6811,7 +6839,7 @@ C398/C400 修完后，还得能回答"它生效了吗"。doctor 新增一行：�
 
 ### C391 · 归档收尾真机验证：信号通了，但「归档即折叠」做不到
 
-真机（`<SESSION_ID>`）：`closeout.source = "archive"` ✅、`eventsSinceLastFold = 1720` ✅；
+真机（`<redacted>`）：`closeout.source = "archive"` ✅、`eventsSinceLastFold = 1720` ✅；
 但 **无** `trigger:"archive"` foldMark、**无** `chunkedFolded`、**无** `externalFolds`。
 
 原因（已核实）：归档会话没有 agent，宿主压缩只对 idle agent 生效 ⇒ 折叠跑不了；正确通道是**补账**。
@@ -7075,9 +7103,9 @@ K-22：配置阈值应 450k，实测 prompt 峰 799,847，但 foldMark 只记 `s
 
 | 会话 | 请求 | 中位 / max | 明显回落 |
 |---|---|---|---|
-| <SESSION_ID> | 4,030 | 354,280 / **799,847** | **18** |
-| <SESSION_ID> | 3,387 | 351,640 / 799,799 | **12** |
-| <SESSION_ID> | 2,433 | 324,317 / 449,915 | **7** |
+| 1e82afca | 4,030 | 354,280 / **799,847** | **18** |
+| 00b50089 | 3,387 | 351,640 / 799,799 | **12** |
+| 8a73e06b | 2,433 | 324,317 / 449,915 | **7** |
 
 ⇒ 锯齿成立（升到 35–80 万再被砍下来）；max 逼近 800k 说明阈值把上限压在 1M 窗口内。
 没有折叠的话 4,030 次请求早超窗口。
@@ -7375,7 +7403,7 @@ C342 点出真机 3 个会话超过 6 段。这轮把"该怎么办"算出来：
 C340 给出"约 13 轮 / $1.55"只是总数，真要动手还是不知道该先点谁。
 
 - `planRounds()`：按段数从大到小**贪心装箱**，每轮 ≤6 段。真机前几轮：
-  `第 1 轮 <SESSION_ID>`、`第 2 轮 <SESSION_ID>`、`第 3 轮 <SESSION_ID>` …；
+  `第 1 轮 <redacted>`、`第 2 轮 <redacted>`、`第 3 轮 <redacted>` …；
 - 大尾巴独占一轮先补（立刻看到进展），小尾巴自然拼进同一轮 ⇒ 批次数接近最少；
 - 测试 C341：不超上限 / 最大独占 / 3+3 合成一轮 / **一个不丢** / 轮次连续 / 空输入。
 
@@ -8136,7 +8164,7 @@ earlier 只作说明；③ doctor **没方向就说"没采集"**，不许断言"
 
 ### C279 · 修掉那条「永远红一条」的 legacy foldMark：FAIL 1 → 0
 
-`handoff-check FAIL 1` / `graph-audit 不自洽 1` 长期挂在同一处：`<SESSION_ID>` 的
+`handoff-check FAIL 1` / `graph-audit 不自洽 1` 长期挂在同一处：`<redacted>` 的
 `foldMarks[9] seqStart=17596 > seqEnd=7629`（tier2 合并区间反）。生成侧 C187 已修，但旧记录还在磁盘上。
 
 一个判据天天红、原因永远一样 ⇒ 被训练成噪声，真回归时没人看。
@@ -8497,7 +8525,7 @@ C249 把总表做成了生成物，但它只在仓库里有用 —— 装好包�
 
 ### C245 · 超预算按**成因**归因（约束占大头 vs 内容占大头）
 
-先量了超预算最多的那个会话（`<SESSION_ID>`，579 tok / 预算 500）：**CONSTRAINTS 逐字 198**（最长一条 77）、
+先量了超预算最多的那个会话（`<redacted>`，579 tok / 预算 500）：**CONSTRAINTS 逐字 198**（最长一条 77）、
 失败边 230、markers 图例 43、ROOT 19 —— **不可裁部分已占 45%**。
 
 **先试过"少列几条失败边换预算"，被 5 条契约测试当场拦下**（含「连 L5 都超预算时也必须给完整清单」）
@@ -8644,7 +8672,7 @@ README 此前**一字未提** 1.17.2 的头号能力（归档收尾）和 1.17.6
 `doctor` 那条警告原来只说「`graph-audit --repair-foldmarks` 可清理」—— 但**运行实例手里有内存态**，
 它下一次落盘会把内存里的旧记录写回去，清理等于白做。
 
-**实测证据**（<SESSION_ID>）：`graph.json.bak-1793590040806`（03:26）与当前 `graph.json`（07:23，
+**实测证据**（<redacted>）：`graph.json.bak-1793590040806`（03:26）与当前 `graph.json`（07:23，
 运行实例写的）里**同一条反向记录都在**（`foldMarks[9]`：`17596 > 7629`），且 delta 已压成 0 字节
 ⇒ 清理过也会被写回。提示改成「可清理，但**必须先退出 DSH**」。
 
@@ -8668,7 +8696,7 @@ C230/C231 把「已修正的失败」变成了可数的指标与可排序的行�
 **做法**：渲染前对 `shown` 做**稳定排序**（未修正在前、已修正沉底）。一条都不删 ——
 选择逻辑、省略行、seq 覆盖、`↑later-ok` 标记全部不动，只换顺序。
 
-**验证**（`<SESSION_ID>`，25 条失败 / 14 条已修正）：前 6 行全是未修正边，4 行 `↑later-ok` 沉底；
+**验证**（`<redacted>`，25 条失败 / 14 条已修正）：前 6 行全是未修正边，4 行 `↑later-ok` 沉底；
 bench 失败保留仍 **8/8**；回归 `test/ledger-boundary.test.mjs` C231。
 
 ### C230 · K-6 的第一个指标：抗干扰度（已修正失败占比）
@@ -8676,7 +8704,7 @@ bench 失败保留仍 **8/8**；回归 `test/ledger-boundary.test.mjs` C231。
 K-6（热清单干扰项治理）一直缺指标，于是先建一个**可证明**的，而不是靠感觉挑行：
 数「同一条 `action` 后来又跑通了、却仍留在 LEARNED 里」的失败边占比。
 
-**实测 live**：**43/306 = 14%**；占比 >50% 的会话 2 个（`<SESSION_ID>` 4/5、`<SESSION_ID>` 14/25）。
+**实测 live**：**43/306 = 14%**；占比 >50% 的会话 2 个（`266d5133` 4/5、`8fe881d1` 14/25）。
 ⇒ 结论：**全局 14% 不值得全局过滤**（契约也要求不丢失败记忆），但个别会话值得；
 下一轮方向改成「**清单内部排序**」（把已修正的挪到段末/折叠成一行），不是删行。
 
@@ -8718,7 +8746,7 @@ doctor 在 `scripts/`、`files` 含 `scripts`、CLI 从同目录解析、**旧�
 **修法**：`LEARNED` 段补一行
 `# 另有 N 条无终点残留（rewash 历史，未展开；全文 graph.json）`；没有残留时零成本不出现。
 
-**验证**：live 44 个会话中 1 个出现这行（`<SESSION_ID>`，36 失败 + 1 残留）；超预算会话数不变（4）。
+**验证**：live 44 个会话中 1 个出现这行（`<redacted>`，36 失败 + 1 残留）；超预算会话数不变（4）。
 回归：`test/ledger-boundary.test.mjs` C227（有残留必出、无残留不许出）。
 
 **判据（以后照这个查）**：任何被过滤/截断的集合，输出里必须有一行「还有多少、去哪看」。
@@ -8727,7 +8755,7 @@ doctor 在 `scripts/`、`files` 含 `scripts`、CLI 从同目录解析、**旧�
 
 **根因**：`renderLedger` 里路径块的门槛写的是 `if (path.length > 1)` ——
 `path` 只有 1 个节点时（只有一个 agent 节点、或边还没接上），整块路径渲染被跳过，
-**L0–L5 全部没有当前位置**。`handoff-check` 在 live 上稳定抓到 `<SESSION_ID>` / `<SESSION_ID>` 两个会话，
+**L0–L5 全部没有当前位置**。`handoff-check` 在 live 上稳定抓到 `5df02bf8` / `30140e4c` 两个会话，
 产品侧就是这一行。C224 只修了「零失败会话走最小清单」那条分支，主清单这条一直没修到。
 
 **修法**：门槛 `> 1` → `> 0`（1 节点路径走既有的阶梯：`CURRENT PATH: n3` / `# path: current n3` / `# path: n3`）。
@@ -8772,7 +8800,7 @@ C223 往最小清单加了 `# path:`，C224 又加了 `ROOT USER` / `OPTIONS` / 
 **缺陷**：约 **26%** 的真实会话没有任何失败边，这些会话在生产里走 `renderMinimalLedger`，
 而它只输出三行：`GOAL` / `CONSTRAINTS: N` / `NO_FAILED_ATTEMPTS_YET` ——
 **模型完全不知道自己在哪一步、工作路径是什么**。`handoff-check` 在 live 上稳定抓到 2 个会话
-（`<SESSION_ID>` / `<SESSION_ID>`）报 ⑥当前位置 FAIL，就是它。
+（`5df02bf8` / `30140e4c`）报 ⑥当前位置 FAIL，就是它。
 
 **为什么之前没发现**：contract ⑥ 的检查器用 `renderLedger` 渲染，而这条路径对零失败会话
 **根本不是产品走的那条**（`hot-inject` 按 `failureEdges(graph).length === 0` 分叉）。
@@ -8864,7 +8892,7 @@ cache prefix unit**。我们往 surface 注入热清单有两条路：`append`�
 **先按时间窗**（窗口内写入过的都看）→ **兜底最新 6 份**（安静期不能显示"什么都没有"）→
 **上限 24 份**（每份都要解 zstd，不能无限）。
 
-**实测当日**：116 份日志，旧规则 6 份 / 新规则 7 份（多看到子代理会话 `<SESSION_ID>`，49 分钟前写的）；
+**实测当日**：116 份日志，旧规则 6 份 / 新规则 7 份（多看到子代理会话 `19df136e`，49 分钟前写的）；
 差异小是因为当刻只有 7 份在 1 小时内写过 —— 结构性盲区已消除，不是运气。
 
 **测试**：`test/log-window.test.mjs` 4 条（窗口优先 / 安静期兜底 / 上限 / 坏输入不抛）。
@@ -8948,7 +8976,7 @@ C183 把「重放 delta」接进手工门禁时漏了 `import { loadSessionGraph
 **怎么发现的**：C186 的 `after-restart.mjs` 一跑，doctor 立刻报
 
 ```
-✗ 棋谱结构自洽（C140） — 1/27 个会话不自洽：<SESSION_ID>: foldMarks[9] seqStart>seqEnd
+✗ 棋谱结构自洽（C140） — 1/27 个会话不自洽：<redacted>: foldMarks[9] seqStart>seqEnd
 ```
 
 核对那份 foldMark：`seqStart=17596 / seqEnd=7629`，`trigger=tier2` —— 是**本会话第 9 条 foldMark**。
@@ -8975,7 +9003,7 @@ const end = cps[1];     // 可能是 7629  ⇒ 区间反了
 而每次都是**人肉比对数字**才发现的。`scripts/consistency-check.mjs` 把那次比对变成命令：
 
 ```bash
-DSH_HOME="<DSH_HOME_OR_INSTALL_DIR> Harness\home" node scripts/consistency-check.mjs   # 或 --json
+DSH_HOME="<workspace> Harness\home" node scripts/consistency-check.mjs   # 或 --json
 ```
 
 | 检查 | 内容 |
@@ -9104,7 +9132,7 @@ node scripts/probe-compaction-wiring.mjs --json   # 机读
 ### C212 · 真机事故：手动 `/compact` 抛「Receiver must be an instance of class …」
 
 **发现**：doctor 的「最近的压缩尝试（1h）」报 **成功 0 / 失败 1** —— 05:15:43Z 的
-`<SESSION_ID>` 手动压缩失败：
+`<redacted>` 手动压缩失败：
 
 ```json
 {"type":"compaction/end","data":{"sourceCommandId":"cmd-…","turn":null,
@@ -9367,7 +9395,7 @@ C206 采到真机样本后，三处「⏳」全部过期，改掉（否则读者
    放进 `summary.external` 并在 `--write` 的 JSON 里落盘；终端输出加一行「外部折叠（宿主直调）」。
 
 **live 复核**：证据从 **25 → 26 次**（与 after-restart 一致），覆盖率 `quality 21/26`、`closure 21/26`，
-`trigger` 分布 `pressure=19 / tier2=2`；逐会话表已按新数据重算（`<SESSION_ID>` 由 1 变 2）。
+`trigger` 分布 `pressure=19 / tier2=2`；逐会话表已按新数据重算（`1286ce28` 由 1 变 2）。
 
 **测试 C199**：只把 foldMark 放进 delta 帧（基线为空）⇒ `collectLiveFolds` 必须数到 1 条；
 `ledger-budget.json` 里 `externalFolds=3` ⇒ `summary.external.folds === 3`。
@@ -9434,7 +9462,7 @@ doctor 新增一行「**fold 压力（token / 阈值）**」：
 **live 首跑（一项刺眼的数据）**：
 
 ```
-<SESSION_ID>: +13,326 事件（10 次 fold，最近 2026-11-02T03:20:51Z） · <SESSION_ID>: +3,659 · <SESSION_ID>: +3,390
+<redacted>: +13,326 事件（10 次 fold，最近 2026-11-02T03:20:51Z） · <redacted>: +3,659 · <redacted>: +3,390
 ```
 
 **本会话自上次 fold 之后已增长 13,326 个事件** —— 期间上下文明显在涨（本会话正是那串很长的 checkpoint 对话），
@@ -9608,7 +9636,7 @@ throttled-failures=62 / throttled-events=26 / no-ledger=1 · TRACE 为预算降�
 整份增量**再也回放不了** —— doctor 立刻从「节点文档齐全 ✓」变成
 
 ```
-! 节点文档与棋谱一致（C110） — … 1 个会话的 delta 无法完整回放：<SESSION_ID>: delta 尾部残帧
+! 节点文档与棋谱一致（C110） — … 1 个会话的 delta 无法完整回放：<redacted>: delta 尾部残帧
 ```
 
 **恢复**：备份就在同目录（`graph.json.bak-1793590040806`），`cp` 回去后 doctor 立刻回到
@@ -9633,7 +9661,7 @@ throttled-failures=62 / throttled-events=26 / no-ledger=1 · TRACE 为预算降�
 「少跑一步」「看错数字」。本轮把它收成一次调用，**只读、进程内、几秒出结论**：
 
 ```bash
-DSH_HOME="<DSH_HOME_OR_INSTALL_DIR> Harness\home" node scripts/after-restart.mjs
+DSH_HOME="<workspace> Harness\home" node scripts/after-restart.mjs
 # 或 --json
 ```
 
@@ -9716,8 +9744,8 @@ C183/C184 把「读图」收敛到 `loadSessionGraph` 之后，做了一次**交
 
 | 会话 | 真实情况 | 结论 |
 |---|---|---|
-| `<SESSION_ID>` | 基线 `graph.json` 里确实 0 节点，但**节点在 delta 里**（重放后 1 个节点） | **假警报**：`verify-graphs` 只读基线，不重放 delta |
-| `<SESSION_ID>` | 重放后仍 0 节点 —— 是一个**没有用户消息的临时会话**，留了 2 条 `untested/unverified` 边，两端都是 `null` | **判据过宽**：边没有端点可归属，就谈不上「不可回溯」 |
+| `5df02bf8` | 基线 `graph.json` 里确实 0 节点，但**节点在 delta 里**（重放后 1 个节点） | **假警报**：`verify-graphs` 只读基线，不重放 delta |
+| `2fcebdc7` | 重放后仍 0 节点 —— 是一个**没有用户消息的临时会话**，留了 2 条 `untested/unverified` 边，两端都是 `null` | **判据过宽**：边没有端点可归属，就谈不上「不可回溯」 |
 
 **两处修法**：
 
@@ -9968,7 +9996,7 @@ C167 已经把调研文纳入；总览这份还靠人工复核 —— 下一次�
 | 前提 | 证据 | 结论 |
 |---|---|---|
 | ① profile 里是链接还是副本 | `lstatSync(...).isSymbolicLink() === true`，指向 `…\repos\dsh-GOkifu-compact`，`package.json` 版本 **1.17.1** | **链接** ⇒ 重启加载仓库当前代码 |
-| ② `compaction-basic` 会不会盖住引擎 | 机器级层 `<DSH_HOME_OR_INSTALL_DIR> Harness/home/cordis.patch.yml` 重新声明 `preset-standard`，`compaction` 组成员为 **`gokifu-compact`（`dsh-gokifu-compact/engine`）** + `tool-result-pruner` | `basic` **不在有效成员里** ⇒ 引擎被接管 |
+| ② `compaction-basic` 会不会盖住引擎 | 机器级层 `<workspace> Harness/home/cordis.patch.yml` 重新声明 `preset-standard`，`compaction` 组成员为 **`gokifu-compact`（`dsh-gokifu-compact/engine`）** + `tool-result-pruner` | `basic` **不在有效成员里** ⇒ 引擎被接管 |
 
 **两个易误读点**（写给下一次的我）：
 
@@ -10391,7 +10419,7 @@ npm view dsh-gokifu-compact dist-tags --json  ⇒  { "latest": "1.16.0" }
 
 ### C147 · live 证据刷新：第 20 次 fold（本会话 seq 11528–13485）
 
-**新增 1 次真实 fold**：本会话 `<SESSION_ID>`，seq **11528–13485**，`pressure` 触发，**c=1 / f=1 / openAtEnd=0**
+**新增 1 次真实 fold**：本会话 `<redacted>`，seq **11528–13485**，`pressure` 触发，**c=1 / f=1 / openAtEnd=0**
 —— 它正是当前上下文里这段棋谱摘要的来源（本会话第 6 次 fold）。
 
 **刷新后口径（四处同步）**：
@@ -10414,10 +10442,10 @@ npm view dsh-gokifu-compact dist-tags --json  ⇒  { "latest": "1.16.0" }
 **现象**：C143 让 doctor 重放 delta 之后，live 立刻出现一条新告警 —— 而且它**不是数据问题**：
 
 ```
-! 节点文档与棋谱一致（C110） — 1 个节点缺 nodes/<id>.md：<SESSION_ID>…:1
+! 节点文档与棋谱一致（C110） — 1 个节点缺 nodes/<id>.md：e1da6d06…:1
 ```
 
-`<SESSION_ID>` 是**仍在运行的会话**（一个子代理），`n22` 是它**刚创建**的节点。
+`e1da6d06` 是**仍在运行的会话**（一个子代理），`n22` 是它**刚创建**的节点。
 `nodes/*.md` 是**节流写出**的（dirty 攒进 pending，下一次落盘才写），所以活跃会话里
 「节点已进图、md 还没写」是**正常中间态**。补写后再看，它又变成了下一个新节点 —— 正是这个特征暴露了误判。
 
@@ -10459,7 +10487,7 @@ C111 的自愈清理只写在**稳态**分支里 ⇒ 「重启后的**第一次*
 ### C144 · 补写缺失的节点文档（`graph-audit --repair`，只增不删）
 
 **背景**：C143 修好「delta 重放」口径后，doctor 立刻暴露 **2 个真实缺失**的 `nodes/<id>.md`
-（`<SESSION_ID>` 的 `n1`、`<SESSION_ID>` 的 `n78`）。它们是 C142 那个 P0 的历史受害者：
+（`5df02bf8` 的 `n1`、`9d5551ed` 的 `n78`）。它们是 C142 那个 P0 的历史受害者：
 回滚清掉 dirty ⇒ 该节点的 md 永远没被写出来，而 `graph.json` + `delta` 里它有。
 
 **为什么可以补**：`nodes/<id>.md` 是**派生视图**（`renderNodeMd(graph, id)` 的确定性输出），
@@ -10473,7 +10501,7 @@ C111 的自愈清理只写在**稳态**分支里 ⇒ 「重启后的**第一次*
 **测试 C144**：只写 n1.md + 放一个陈旧 `n999.md` ⇒ 真跑补写全部节点、**保留** `n999.md`、
 内容来自图、第二次无事可做、补写后体检干净；dry-run 不写盘。
 
-**live 执行**：补写 **2 个**（`<SESSION_ID>/n1`、`<SESSION_ID>/n78`）⇒ doctor 从 **5 警回到 4 警**，
+**live 执行**：补写 **2 个**（`5df02bf8/n1`、`9d5551ed/n78`）⇒ doctor 从 **5 警回到 4 警**，
 C110 变成「25 个会话的节点文档齐全」。
 
 **文档**：`docs/落盘与回滚不变量.md` 新增「出问题时的处置」表（补写 / 体检 / 口径核对三条），
@@ -10486,7 +10514,7 @@ C110 变成「25 个会话的节点文档齐全」。
 运行时 `kifu-persist.load()` 会「基线 + 重放 delta」，而体检脚本直接 `JSON.parse(graph.json)`。
 后果两个方向都错：
 
-- **假绿**：真实缺失的节点文档报「缺失 0」（审查者实测 `<SESSION_ID>` 缺 `nodes/n1.md`、`<SESSION_ID>` 缺 `nodes/n78.md`）；
+- **假绿**：真实缺失的节点文档报「缺失 0」（审查者实测 `5df02bf8` 缺 `nodes/n1.md`、`9d5551ed` 缺 `nodes/n78.md`）；
 - **误报**：把「只在 delta 里、其实还活着」的 md 记成「陈旧」（6 个会话、6–32 个）。
 
 修法：新增 `loadSessionGraph(graphFile)`（`graph-audit.mjs`）—— 读基线 + `decodeDeltaFrames` + `applyDelta`，
@@ -10496,7 +10524,7 @@ doctor 的 3.3b（节点文档）与 3.3c（结构自洽）都改用它。测试
 **副作用（这是好事）**：doctor 立刻从 4 警变 **5 警** —— 多出来的正是上面那两个**真实缺失**的节点文档：
 
 ```
-! 节点文档与棋谱一致（C110） — 2 个节点缺 nodes/<id>.md（… <SESSION_ID>:1 / <SESSION_ID>:1）
+! 节点文档与棋谱一致（C110） — 2 个节点缺 nodes/<id>.md（… 5df02bf8:1 / 9d5551ed:1）
 ```
 
 **P1-5：规则降级路径不清 `route/usage`（伪造的账）**
@@ -10987,7 +11015,7 @@ Error: tier-2 失败后 _lastSummaryText 必须清空，实际 "STALE-SUMMARY-FR
 
 ### C115 · live 证据补采：第 19 次 fold（本会话 seq 9802–11525）
 
-**本轮新增 1 次 fold**：本会话 `<SESSION_ID>`，seq **9802–11525**，`pressure` 触发，
+**本轮新增 1 次 fold**：本会话 `<redacted>`，seq **9802–11525**，`pressure` 触发，
 **c=1 / f=1 / openAtEnd=0** —— 它正是当前上下文里这段棋谱摘要的来源（第 5 次 fold 本会话）。
 
 **刷新后口径（四处同步）**：
@@ -11219,7 +11247,7 @@ engine 的 `restore()` 改用它；并加静态判据禁止再出现裸 `Object.
 
 ### C103 · 闭包链检查：一次「看着像重复折叠」的 live 异常，查清是正常的
 
-**异常长相**：`<SESSION_ID>` 的三次 fold 区间是 `4391–4873` / `4876–8547` / **`7272–8862`** ——
+**异常长相**：`<redacted>` 的三次 fold 区间是 `4391–4873` / `4876–8547` / **`7272–8862`** ——
 第三次起点（7272）比第二次终点（8547）**更早**，看起来像「把已折过的区间又折了一遍」（白花成本 + 摘要可能失真）。
 
 **查清**：第三次 fold 的 `closure.firstNode` 是 **n117**，第二次的 `closure.lastNode` 是 **n116** ⇒
@@ -11240,10 +11268,10 @@ engine 的 `restore()` 改用它；并加静态判据禁止再出现裸 `Object.
 
 **本轮采集**：自上次快照后新增 **2 次 fold**：
 
-- `<SESSION_ID>`（seq 2171–3166，`pressure`，c=1/f=1）
-- **本会话 `<SESSION_ID>`（seq 7930–9799，`pressure`，c=1/f=1）** —— 它就是**当前上下文里这段棋谱摘要的来源**
+- `<redacted>`（seq 2171–3166，`pressure`，c=1/f=1）
+- **本会话 `<redacted>`（seq 7930–9799，`pressure`，c=1/f=1）** —— 它就是**当前上下文里这段棋谱摘要的来源**
 
-**刷新**：`live-folds.{json,md}`（16→**18** 次）、逐会话质量快照（<SESSION_ID> 升到 4 次、本会话升到 4 次）、
+**刷新**：`live-folds.{json,md}`（16→**18** 次）、逐会话质量快照（8cc34e32 升到 4 次、本会话升到 4 次）、
 `evidence/README.md`、`docs/research/00` §11.1、`docs/发布就绪` §3 —— 数字统一为
 **18 次 fold / 7 会话 / quality 14 次召回全 1 / boundary 11 次 openAtEnd 全 0 / thrash 0**。
 
@@ -11414,7 +11442,7 @@ dsh-design-studio:preset-design —— 那些模式下不经过棋谱压缩（�
 
 - **永不抛**；返回值必须是**输入的子串**（禁止凭空造字符 —— 这是「不许猜」的机器判据）；
 - 正则元字符路径（`a+b(c).mjs` / `x[1].md` / `a{1,2}.mjs` / `a|b.mjs`）**必须精确解析**；
-- 带引号+空格（`"D:/my docs/x[1].md"`）精确；空格路径在下一个 `key=` 处截断；
+- 带引号+空格（`"<workspace> docs/x[1].md"`）精确；空格路径在下一个 `key=` 处截断；
 - 截断形状给前缀；空值/无路径键/非工具调用 ⇒ `null`（**不猜**）。
 
 **结果**：3 组全绿 —— 解析器当前是健壮的（这一轮没抓到 bug，但把「不许猜」变成了可回归的判据）。
@@ -11669,7 +11697,7 @@ C65 已经给 `live-folds` 立过同一条纪律（**诊断/测试脚本默认�
 
 ### C76 · live 证据补采：新增第 7 个会话（16 次 fold）并刷新三处口径
 
-**本轮采集**：自上次快照后新增 **1 次 fold** —— `<SESSION_ID>`（seq 9–208，`pressure`，
+**本轮采集**：自上次快照后新增 **1 次 fold** —— `634616f8`（seq 9–208，`pressure`，
 quality c=1/f=1，closure + boundary 齐全，`openAtEnd=0`）。
 
 **刷新**：
@@ -11780,7 +11808,7 @@ README 的「未校准」改为实测值并注明来源命令。
 | 带 closure 的 fold | 11（均有节点/边计数与首尾 id） |
 | `foldThrash` | **0** |
 
-`<SESSION_ID>` 的 1 次 fold 无任何新字段 —— 明确记为**升级前旧 fold**（字段是 C10/C24/C31 才加的），
+`<redacted>` 的 1 次 fold 无任何新字段 —— 明确记为**升级前旧 fold**（字段是 C10/C24/C31 才加的），
 不是失败样本；剩下少数「有 fold 无 quality」同理。
 
 同时把 `scripts/post-restart-check.mjs`（C69）写进合同 §6 的验收流程。
@@ -11889,7 +11917,7 @@ doctor 的「fold 悬空 / 边界完整性 / 分项占用 / 置换合并」四�
 
 - `handoff-check` 读不存在的 `ledger.maxTokens` ⇒ 预算分母恒为 500；改读 `budgetMax`，并加 H-11 用例；
 - `overbudget-report` 未按生产形状渲染（缺 `treeDir`）⇒ 贴边界会话少算约 4%（实测 641 vs 666）；
-  现按生产选项渲染，live 复算：<SESSION_ID> **666/500**、floor/irreducible 3 例、**bug=0**；
+  现按生产选项渲染，live 复算：d70b7c2f **666/500**、floor/irreducible 3 例、**bug=0**；
 - `doctor`「fold 悬空」把「未采集」报 `ok` → 改 `warn`（与同文件纪律一致）；
 - `boundary-audit` 补两条规则：**`directive-short`**（别重复/别再试…）与 **`memory-restore-advice`**
   （需要时…回读 / when needed read back），B-8 用例含「纯事实不假红」反向断言；
@@ -11906,7 +11934,7 @@ doctor 四项检查（悬空/边界/分项占用/置换合并）仍缺专门测�
 ### C63 · 修正 C57 的假阳性：`reducible?` 改为「所选不是最省尝试」的**裁决 bug** 判据
 
 **问题（上线一小时内就被 live 抓到）**：C57 用 `shownFailures < failureCount` 猜「还有更省形态」，
-于是 `<SESSION_ID>`（L5、已省略 11 条失败、只超 3 tok）被判成 `reducible?` —— 但 **L5 本身就是最省的一份**，
+于是 `<redacted>`（L5、已省略 11 条失败、只超 3 tok）被判成 `reducible?` —— 但 **L5 本身就是最省的一份**，
 再省只能删内容。这条诊断会天天喊狼来了。
 
 **做法**：
@@ -11996,7 +12024,7 @@ doctor 四项检查（悬空/边界/分项占用/置换合并）仍缺专门测�
 （`trendOverBudget`：构成增删、头号来源是否变化）。每小时跑一次时，直接回答「超预算的构成变了没有」。
 
 **live 首快照**：`2026-11-01T20:02Z`，budget=500、23 会话 → `within=22 / irreducible=1 / reducible?=0`，
-唯一超限 `<SESSION_ID>`（641/500，失败边 10/10 已列全）。trend 首次写入 = 「无旧快照」。
+唯一超限 `<redacted>`（641/500，失败边 10/10 已列全）。trend 首次写入 = 「无旧快照」。
 
 证据：`evidence/over-budget-snapshot.{json,md}`（已登记到 `evidence/README.md`）。
 
@@ -12016,7 +12044,7 @@ doctor 四项检查（悬空/边界/分项占用/置换合并）仍缺专门测�
 - 输出按超出量降序的清单 + 一句「即期快照 ≠ 累计计数」的提醒；永远退出码 0（诊断不该让流水线红）。
 
 **live 首跑**：23 个会话 → `within=22 / irreducible=1 / floor=0 / reducible?=0`，
-唯一超限是 `<SESSION_ID>`（641/500，失败边 10/10 已列全）—— **没有一类是渲染 bug**。
+唯一超限是 `<redacted>`（641/500，失败边 10/10 已列全）—— **没有一类是渲染 bug**。
 
 测试：新增 `overbudget-report.test.mjs` 3 例（三态判定 / 三会话归因与排序 / 空 home 不抛）；
 合同 §6 的验收流程补上这条命令。
@@ -12152,7 +12180,7 @@ live 最常见的是另一种：**失败边已经全部列出**（7 条长原因
 ### C48 · over-budget 按会话归因（聚合比例 ≠ 系统性问题）
 
 **现象**：live 聚合 `over-budget 178 / 911（19.5%）`、maxOver 191 —— 已到 C41 写下的重评阈值附近。
-但离线复现 22 张 live 图（预算 500）**只有 1 张超**：`<SESSION_ID>`，649/500。
+但离线复现 22 张 live 图（预算 500）**只有 1 张超**：`<redacted>`，649/500。
 它的结构是「unyielding ≈300 tok（root+约束）+ 7 条很长失败原因（1180 字符）」——
 失败边只有 7 条（≤10），L4/L5 与 L3 同文，再降只能删失败边（违反「诚实超限 > 静默省略」）。
 
@@ -12277,7 +12305,7 @@ live 里 bash 成功大多没有退出码标记，会落进 `unverified`，所�
 
 **现象**：重启后 `ledger-budget.json` 出现 **over-budget 19/263（7.2%）**，最大超 117 tokens。
 
-**归因**（离线 19 张 live 图，`maxTokens=500`）：只有 1/19 超（`<SESSION_ID>`，574/500）。
+**归因**（离线 19 张 live 图，`maxTokens=500`）：只有 1/19 超（`d70b7c2f`，574/500）。
 超限来自**不可再裁的结构** —— 根目标 clip 后 168 字符 + 约束（逐字，丢一条任务就变）+ 最少失败边
 + 标记图例 4 行；这几项的**下限**在个别会话里已经 > 500 tokens。
 
@@ -12336,7 +12364,7 @@ live 效果：`handoff-check` **WARN 8 → 7**（agent-only 会话不再误报�
 
 ### C36.1 · handoff-check ⑥ 误报修复：单独 `WORKING:` 行也是「当前位置」
 
-**发现**：C36 收尾跑门禁时出现 **FAIL 1**（会话 `<SESSION_ID>`，⑥当前位置）——离线复现后确认是**检查器的锅**：
+**发现**：C36 收尾跑门禁时出现 **FAIL 1**（会话 `7520721a`，⑥当前位置）——离线复现后确认是**检查器的锅**：
 当前路径 === 工作路径时，ledger 只写一行 `WORKING: user → n21 → n22`（省 20–40 tokens 的既定行为），
 而 ⑥ 只认 `CURRENT PATH` / `# path:` / `# WORKING:` 三种字面 ⇒ 把合法渲染判成 FAIL。
 
@@ -12418,7 +12446,7 @@ JSON 往返）；`core` 既有合并测试照旧通过（结构语义没动）�
 
 ### C32 · 研究收口（G-2 负结论）+ 真实链路字段 gate
 
-**① G-2 `derivable` 负结论（不适用）**：离线渲染 live 图（`<SESSION_ID>`，210 节点/228 边）并逐段核对
+**① G-2 `derivable` 负结论（不适用）**：离线渲染 live 图（`<redacted>`，210 节点/228 边）并逐段核对
 `renderLedger` 的注入内容 —— 热清单只有失败原因/约束原文/未验证状态/路径，摘要指令只有
 ROOT+CONSTRAINTS+FAILED_ATTEMPTS，**两处都没有可再取的「工具输出体」** ⇒ 没有"先降级"的落点，
 强加字段会变成无消费者的死数据。证据：`evidence/热清单内容普查-2026-11-02.md`；
@@ -12513,7 +12541,7 @@ CLI 写盘与 dry-run / 空 home 不抛）。
 **重启实测（2026-11-02 02:36，真机）**：主人重启后（新进程、新端口 56006）
 `/gokifu/api` 报 **version 1.17.1**；`doctor` **0 错误 / 1 警告**（「用户层 patch 不遮蔽压缩引擎」= ✓
 「已被机器级层接管」）；`verify-install` **19/19 全部通过**；`chess-context/sessions/` 恢复写入
-（新目录 `<SESSION_ID>…` 02:36:14）。⇒ 机器级层方案在真机上接管成功。
+（新目录 `<redacted>…` 02:36:14）。⇒ 机器级层方案在真机上接管成功。
 
 测试：`test/user-patch-heal.test.mjs` 9 用例（只换成员 / persona 逐字保留 / 空 home 生成合法 entry list /
 已有 home 内容保留并备份 / 幂等 / 已是引擎不复制 / 真写盘 / 无用户层不凭空造 / 与检测器口径一致）。
@@ -12574,7 +12602,7 @@ CLI 写盘与 dry-run / 空 home 不抛）。
    并防御 `provenanceMin<1` 但 `provenanceLow` 缺失/为 0 的跨版本混写（P3-1）。
 2. **P2-2 UNVERIFIED L2+ 计数行无回归测试**（删掉整行全量仍全绿）⇒ 新增 `test/unverified-tier.test.mjs`：
    9 档预算逐一断言「有未验证边就不许沉默」「L0/L1 完整列表 + L2+ 计数行」「没有就别加假计数」「residue 不算」。
-3. **P2-3 handoff-check ⑤ 假 warn**（`<SESSION_ID>` 的未验证边是 residue：facts 会列、热清单按 P6-A 排除）
+3. **P2-3 handoff-check ⑤ 假 warn**（`2fcebdc7` 的未验证边是 residue：facts 会列、热清单按 P6-A 排除）
    ⇒ 判据改为与 `renderLedger` 一致地排除 residue，并移除过时注释（P3-5）。修后 live = **FAIL 0 / WARN 3**。
 
 ### C6 · 保真度 L1 接进 fold 与 doctor（`fold-quality.mjs`）
@@ -12973,7 +13001,7 @@ cordis.patch.yml 里「换成 `dsh-gokifu-compact/engine`」的覆盖又盖回�
    usage:{inputTokens:16595, outputTokens:934}}` ⇒ **压缩事件确实走 GOkifu 的棋谱摘要**，不是官方 8 段模板。
 
 6. **官方安装流程**：干净 profile（只含 `dsh-base` + `dsh-web-app`）跑
-   `dsh plugin --profile installprobe add <WORKSPACE>/repos/dsh-GOkifu-compact` —— 依赖自动写入、
+   `dsh plugin --profile installprobe add <workspace>` —— 依赖自动写入、
    **`dsh.profile.bundles` 自动追加本包**，随后 `--dump-config` 里四个 preset 行全部带引擎行。
    GUI 插件市场点「安装」走的是同一条通道，所以「一键安装、无需手改 YAML」成立。
 
@@ -13559,7 +13587,7 @@ profile 叫 `web`，插件明明装好、也进了 `dsh.profile.bundles`，healt
 记录：延迟中位 / usage / 失败数 / 摘要长度 / **四章节完整度**（目标·死路·已验证事实·原始坐标）。
 `--dry-run` 只读图不发请求；不给 `--session` 时自动挑「失败边最多」的真实会话。
 
-**真跑一组**（`evidence/compare-models.json`，session `<SESSION_ID>…`，9 条失败边、facts 1830 tok，`maxTokens=8192`，repeat 3）
+**真跑一组**（`evidence/compare-models.json`，session `<redacted>…`，9 条失败边、facts 1830 tok，`maxTokens=8192`，repeat 3）
 
 | 模型 | 成功 | 延迟中位 | 摘要中位 | 四章节 | usage 中位 |
 |---|---|---|---|---|---|
@@ -13988,7 +14016,7 @@ profile 叫 `web`，插件明明装好、也进了 `dsh.profile.bundles`，healt
 
 **未验证**
 
-- `real-fold-trigger` 依赖**真实模型**（走 magpie `127.0.0.1:<MODEL_GATEWAY_PORT>`）与已提取的模块目录；缺依赖时它会 **exit 2（未运行）**，
+- `real-fold-trigger` 依赖**真实模型**（走 magpie `127.0.0.1:3425`）与已提取的模块目录；缺依赖时它会 **exit 2（未运行）**，
   这是有意的语义 —— 但也就意味着**它在别的机器上可能根本不跑**，不能当「任何环境都能复现」的证据。
 - `all.mjs` 的「超时必红」用 300s 默认超时，**没有真的等满 300s 去验证**（用的是注入假 `exec` 的单测）。
 
@@ -14094,8 +14122,8 @@ P6C-14（多会话混判：按会话去重，逐个点名）。
 
 | 导出 | 作用 |
 |---|---|
-| `parseRepo(url)` | 只认 scp 式 `git@github.com:o/r(.git)`、`ssh://git@github.com/o/r`、`https://github.com/o/r`；`git+*`、`file://`、非 GitHub、空 → `null` |
-| `classifyRemote(url)` | **先判 scheme 再判仓库**；`git+…` 直接拒，并给出可执行的修法（`git remote set-url origin git@github.com:<owner>/<repo>.git`） |
+| `parseRepo(url)` | 只认 scp 式 `<redacted>:o/r(.git)`、`ssh://<redacted>/o/r`、`https://github.com/o/r`；`git+*`、`file://`、非 GitHub、空 → `null` |
+| `classifyRemote(url)` | **先判 scheme 再判仓库**；`git+…` 直接拒，并给出可执行的修法（`git remote set-url origin <redacted>:<owner>/<repo>.git`） |
 | `runTransaction(steps)` | 顺序执行 + **首步失败即中止**，返回 `{ok, done, failed, error, aborted}` |
 
 **`scripts/release.mjs` 体检从 5 项增到 8 项**
@@ -14476,7 +14504,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
 
 ### P6a · `TRACE:` 行绝对路径改相对，回收 avg +17 tok/图
 
-- `TRACE:` 从 `<DSH_HOME_OR_INSTALL_DIR> Harness\home\chess-context\sessions\<sid>/index.md …`（137.7 字符）
+- `TRACE:` 从 `<workspace> Harness\home\chess-context\sessions\<sid>/index.md …`（137.7 字符）
   改成 `sessions/<sid>/index.md`（57.5 字符），`traceRoot` 可配置（默认无前缀，生产传 `sessions`）
 - 生产口径 133 图：avg **445.08 → 429.64（−15.44 tok/图）**；over500 **24 → 18**；max **905 → 878**；
   逐会话 85 便宜 / 7 变贵（5 个是 TRACE 变短后落进更低档位、列了更多内容）/ 41 不变；
@@ -14490,7 +14518,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
 - 判定：`residue := to==null && age>10min`；**`live_unsettled`（untested 且 ≤10 分钟）必须保留可见**
   —— 这是 Lead 批准的**更保守**口径（keeper 先 settle 结果、`step/end` 才回填 `to`，
   按字面公式会把刚结算的新鲜失败当场隐藏）
-- `from` 悬空 **214 条**（全在 `<SESSION_ID>`，`mergeNodeInto` 老 bug）单独标记，不混入 `to=null` residue
+- `from` 悬空 **214 条**（全在 `5acafe42`，`mergeNodeInto` 老 bug）单独标记，不混入 `to=null` residue
 - 实测（133 图）：热清单**无终点失败边 158 → 0**；avg **−18.98**；over500 **17 → 17**；max **878 → 878**；
   全库 `residue 5,566 / liveUnsettled 1 / fromBroken 214`
 - `renderFacts` **仍列全部失败边**（失败记忆不丢），新增 `DANGLING_RESIDUE: N` / `FROM_DANGLING: 214` /
@@ -14588,7 +14616,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
   实测用 HEAD 版本与本版对同一份冻结夹具（132 张 `graph.json`）跑文本与 JSON 两种默认模式，
   **stdout / stderr 逐字节一致（`cmp` 无差异）、退出码一致**
 - 为什么不设默认门禁：全库 `--strict` 下 **15 / 132 张图红** —— 2 张历史自环坍缩图
-  （`<SESSION_ID>…` 509/628 = 81.1%、`<SESSION_ID>…` 115/153 = 75.2%）+ 13 张旧版节点
+  （`<redacted>…` 509/628 = 81.1%、`<redacted>…` 115/153 = 75.2%）+ 13 张旧版节点
   冻结造成的高 ratio（13 张全部 >8，最高 530 边 / 23 节点 = **23.04**）。这 13 张不可修（`to` 不可知、节点冻结不可逆），
   设默认会永久红 ⇒ 保留阈值 8、`--strict` 保持可选
 - `test/graph-exemptions.mjs`（新）+ `test/fixtures/history-exemptions.json`：**显式、可审计、可过期的
@@ -14637,7 +14665,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
 ### 版本号在中文路径下读成 `v?`（S10′）
 
 `src/ui.mjs` 的 `HERE` 用 `new URL(import.meta.url).pathname` —— 得到的是**百分号编码串**
-（`/<WORKSPACE>/…`），Windows 上交给 `readFileSync` 直接 ENOENT，
+（`/<workspace>`），Windows 上交给 `readFileSync` 直接 ENOENT，
 被 `readVersion()` 的 `catch` 吞成 `null` ⇒ 页面标题渲染成 `v?`。改用 `fileURLToPath`（Node 官方解码入口，
 空格 `%20`、中文、`%7E` 一并还原）。测试用**派生值**而不是字面量：
 ① 当前真实中文路径读到的版本 === `package.json` 的 `version`；② 模块搬到「空格 + 非 ASCII」目录后读到的是那份
@@ -14657,7 +14685,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
 |---|---|---|
 | ① | `Host` 必须存在、合法、且为回环（`127/8` / `::1` / `localhost` / `*.localhost`） | 防 DNS rebinding —— 那种情况下 `Origin == Host == evil.example` 也自洽，只比同源挡不住。`webServer` 绑 `0.0.0.0` 时自动放开，其它非回环主机走 `DSH_GOKIFU_ALLOWED_HOSTS` 显式放行 |
 | ② | 带 `Origin` ⇒ 必须与 `Host` 同协议 + 同主机 + 同端口 | 浏览器 POST 必带 `Origin` |
-| ③ | 带 `Sec-Fetch-Site` ⇒ 只允许 `same-origin` / `none`，**`same-site` 也拒** | 实测本机 `127.0.0.1:<UI_ORIGIN_PORT> → 127.0.0.1:<UI_TARGET_PORT>` 的来源报的是 `same-site` 而不是 `cross-site`，只拒 `cross-site` 会漏 |
+| ③ | 带 `Sec-Fetch-Site` ⇒ 只允许 `same-origin` / `none`，**`same-site` 也拒** | 实测本机 `127.0.0.1:19401 → 127.0.0.1:19400` 的来源报的是 `same-site` 而不是 `cross-site`，只拒 `cross-site` 会漏 |
 | ④ | `content-type` 必须是 `application/json`（允许 `; charset=`） | HTML 表单发不出 JSON ⇒ 非 JSON 一律 415 |
 | ⑤ | **缺 `Origin` ⇒ 允许，但 `Host` 必须回环** | 浏览器对 POST 一定带 `Origin`，缺它只可能是 curl / node / 本项目测试；这条是回归护栏，不能把本机工具一起拒掉 |
 
@@ -14677,7 +14705,7 @@ README 新增「graph.json 契约（外部工具必读）」一节，含三条�
 
 热清单渲染的热点在 `tewariAnalysis`：一次 `renderLedger` 会在每个档位各算一遍手割，全库一轮调用
 3,523 次而必要只有约 800 次；置换提示对每条路径做 `Object.values(g.edges).some(...)`，是 O(path×E)。
-「无缓存」的代价实测是 **234ms/次**（`<SESSION_ID>`，158 节点路径）。
+「无缓存」的代价实测是 **234ms/次**（`<redacted>`，158 节点路径）。
 
 - 每张图维护 `tewariIndex`（`byFrom` 邻接表 + 每节点可达集 + 失败边结论缓存），挂在 WeakMap / 非枚举
   Symbol 上，**不进 `graph.json`**；缓存键 = 结构修订号 + `updatedAt` + 边/节点数 + `to`/`from` 数字和
@@ -14783,7 +14811,7 @@ state/save/未知 action）
 
 ### 真机首折实测 + 三处收尾修复
 
-- **GUI 里第一次真实 fold 成功**（重启后第一轮触发，`<SESSION_ID>`）：
+- **GUI 里第一次真实 fold 成功**（重启后第一轮触发，`<redacted>`）：
   遮蔽 seq 9–3167 / **440,847 tok** → 摘要 2 块 4.2K 字符（输入 629,184 / 输出 2,902 tok，`magpie/group/deepseek-v4.1-flash1017`）；
   surface 节点 1391 → 373，对话消息从 ~574K 降到 ~157K（面板 81% → 约 16%），热清单仍只有 1 条（就地替换生效）
 - **修 `graph.checkpointSeq` 记错**：原来写「被遮蔽区间起点」（fold 后已不在 surface 上，实机一直是 9），
@@ -14817,7 +14845,7 @@ state/save/未知 action）
 
 **P0 修复：压缩 226 次只成功 3 次的根因**
 - `worldHash` 类型契约（对象 → 字符串）+ `fromJSON` 加载边界自愈历史脏数据 + `stateIndex` 重建
-- 实机 `<SESSION_ID>`：139 次 `worldHash?.slice is not a function`、223/226 次压缩失败；修后全库 1,279 个对象字段归零
+- 实机 `<redacted>`：139 次 `worldHash?.slice is not a function`、223/226 次压缩失败；修后全库 1,279 个对象字段归零
 
 **热清单（给模型看的那一小块）**
 - 标记自带语义：`blocked:permission` / `dead retry-if:<edge>`；图例按用到的标记动态生成（出现即解释）
@@ -14910,7 +14938,7 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
 并把清单里被省略的 13 条失败做法逐条重建；其中一个还发现 index.md 已过期、改用 graph.json 作权威。
 
 **④ 历史误报回洗**：新工具 `test/rewash-graph.mjs`（dry-run 默认、写前备份、会话在写则拒绝、证据对齐校验）。
-对 `<SESSION_ID>` 执行 `--apply`：failure 边 101 → **71**，`text` 型误报 43 → **8**（剩下 8 条证据对不上，保守不动），
+对 `<redacted>` 执行 `--apply`：failure 边 101 → **71**，`text` 型误报 43 → **8**（剩下 8 条证据对不上，保守不动），
 其中 4 条改判 `hard-error`（原文确有错误）、30 条降级 `unverified`；35 条留 `rewashed` 审计字段；树已重建。
 
 证据：`evidence/收尾三件-dead锚点-树读取-回洗.md`
@@ -14927,9 +14955,9 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
 
 | 会话 | 请求 | prompt tokens | 缓存命中率 | 清单占 prompt | 其中陈旧副本 |
 |---|---:|---:|---:|---:|---:|
-| <SESSION_ID> | 653 | 258,330,390 | 94.5% | **21.3%** | **54.4M token** |
-| <SESSION_ID> | 429 | 194,031,958 | 94.7% | 2.7% | 5.1M |
-| <SESSION_ID>（当前） | 348 | 93,691,039 | 97.0% | **0.2%** | 0.13M |
+| <redacted> | 653 | 258,330,390 | 94.5% | **21.3%** | **54.4M token** |
+| <redacted> | 429 | 194,031,958 | 94.7% | 2.7% | 5.1M |
+| <redacted>（当前） | 348 | 93,691,039 | 97.0% | **0.2%** | 0.13M |
 
 三条结论：① 真实 prompt 缓存吃掉 94~97% ⇒「省 token」≠「省钱」；② 旧版热清单是那个会话里**最大的浪费源**
 （21.3%，其中 98.9% 是陈旧副本，v1.5.0 已消除）；③ fold 真实成功率 3/226、1/51 ⇒ 模拟的
@@ -14954,15 +14982,15 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
 ### P1-4 彻底修法：热清单**就地替换**，surface 永远只有一条
 
 **问题（拿真实会话日志数出来的）**：旧版每次注入都**追加**一条新 `user/message`，旧的不替换。
-`<SESSION_ID>`（死循环那个会话）累积 **176 条 / 809,819 字符 ≈ 27 万 token** ——
+`<redacted>`（死循环那个会话）累积 **176 条 / 809,819 字符 ≈ 27 万 token** ——
 它的上下文峰值 672,392 token 里，约 27 万是**这个插件自己注入的热清单**。
 一个压缩插件自己的热上下文成了最大的上下文消费者。
 
 | 会话 | 注入条数 | 累计字符 | ≈ tokens |
 |---|---:|---:|---:|
-| `<SESSION_ID>` | 176 | 809,819 | ≈ 270,000 |
-| `<SESSION_ID>` | 103 | 238,083 | ≈ 79,000 |
-| `<SESSION_ID>` | 74 | 155,569 | ≈ 52,000 |
+| `<redacted>` | 176 | 809,819 | ≈ 270,000 |
+| `<redacted>` | 103 | 238,083 | ≈ 79,000 |
+| `<redacted>` | 74 | 155,569 | ≈ 52,000 |
 | 12 个会话合计 | 375 | 1,225,074 | ≈ 408,000 |
 
 **改法**：`pre-step` 里找到当前 surface 上最后一条 `chess-context` 节点，用 DSH 官方的
@@ -14977,7 +15005,7 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
   `contentGeneration`（下游 `startsSeries`），节奏不动最稳
 - 新增配置 `hotLedgerReplace`（默认 `true`，false 退回追加）
 - **历史包袱一次清**：v1.5.0 之前追加出来的旧清单不能被删除（surface 只有 append/replace），
-  但可以逐条**替换成一行占位**（`[stale chess-ledger elided …]`）。实测 `<SESSION_ID>` 的 surface 上
+  但可以逐条**替换成一行占位**（`[stale chess-ledger elided …]`）。实测 `<redacted>` 的 surface 上
   还压着 **44 条 / 295,255 字符 ≈ 9.8 万 token** —— 那个会话下次被打开时会被自动清掉。
   幂等：占位本身 < 200 字符，下次进来直接跳过。
 
@@ -15064,7 +15092,7 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
 - `node test/run.mjs` → **94 passed, 0 failed**（87 + 新增 7）
 - 全库回放（新增工具 `node test/verify-graphs.mjs`）：23 个会话 / 1578 个 agent 节点 /
   对象 worldHash **1279 → 0** / `stateIndex` **5 → 185** / 全部会话 `renderFacts`+`renderLedger` 不抛错
-- 真实日志独立核对：`<SESSION_ID>` 的 `compaction/end` **226** 次、`error` **223** 次、
+- 真实日志独立核对：`<redacted>` 的 `compaction/end` **226** 次、`error` **223** 次、
   其中本错误 **139** 次
 - 变异自检：把修复回滚 → 新增的端到端回归变红（两层都回滚时错误与实机同形）
 - 干净 HEAD 克隆 + `git apply` 补丁 → 94 passed（不是改着源码跑的自证）
@@ -15321,7 +15349,7 @@ renderIndexMd 3.27ms + 写盘 0.65ms，debounce 后每 1.2s 最多一次）， �
 ### 工具：`test/build-tree.mjs`
 
 给 v1.2.0 之前已有的会话补三层文件树（从 `graph.json` 生成）。
-实测：`<SESSION_ID>` 补了 **183 个节点**。
+实测：`<redacted>` 补了 **183 个节点**。
 
 ### 测试
 

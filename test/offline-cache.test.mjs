@@ -335,10 +335,10 @@ tests["T47 ⑦ 中位数/分位数：空数组返回 null（不是 0）"] = (t) 
 /* ────────────────────────── ⑧ 日志索引 ────────────────────────── */
 
 tests["T47 ⑧ 会话 id → 日志：`session-` 前缀与子串匹配"] = (t) => {
-  const logs = ["/x/--D-repo--/a/08c3f737-b0d4-4b2a.zstd", "/x/--D-repo--/b/<SESSION_ID>.zstd"];
+  const logs = ["/x/--D-repo--/a/08c3f737-b0d4-4b2a.zstd", "/x/--D-repo--/b/session-19e24ef7.zstd"];
   t.eq(findLog(logs, "08c3f737-b0d4"), logs[0], "普通 id 子串命中");
-  t.eq(findLog(logs, "<SESSION_ID>"), logs[1], "带 session- 前缀也要能命中");
-  t.eq(findLog(logs, "<SESSION_ID>"), logs[1], "去掉前缀后按子串命中");
+  t.eq(findLog(logs, "session-19e24ef7"), logs[1], "带 session- 前缀也要能命中");
+  t.eq(findLog(logs, "19e24ef7"), logs[1], "去掉前缀后按子串命中");
   t.eq(findLog(logs, ""), null, "空 id ⇒ null");
   t.eq(findLog(logs, "不存在的会话"), null, "找不到 ⇒ null（调用方据此计缺日志）");
   t.eq(findLog([], "x"), null, "空索引 ⇒ null");

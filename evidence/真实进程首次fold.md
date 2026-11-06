@@ -7,7 +7,7 @@
 ## 一 · 怎么做到的
 
 1. 给 `profiles/headless` 加一个 **junction**：`profiles/headless/node_modules/dsh-gokifu-compact` →
-   `<WORKSPACE>\projects\dsh-chess-context`（指向仓库本体；实测 `ln -s` 在 Windows 上会**复制**目录，
+   `<workspace>`（指向仓库本体；实测 `ln -s` 在 Windows 上会**复制**目录，
    必须用 `New-Item -ItemType Junction`，否则测的是旧副本 —— 第一次跑就是这么被骗的）。
 2. 用 `--patch` 叠一层临时 overlay：关掉 `compaction-basic` / `compaction-tool-result-pruner`，
    插入 `dsh-gokifu-compact`，把 `thresholdRatio` 压到 0.002（1M 窗口 ⇒ 2000 token 触发）、
@@ -20,12 +20,12 @@
 ```
 == real-headless-fold：在真实 dsh headless 进程里触发 fold ==
 task: 用 node 写一个 1+1 的脚本并运行，把结果告诉我
-session: <SESSION_ID>
+session: <redacted>
 compaction：成功 3 / 失败 0；checkpoint 消息 3 条
 == 全部通过（真实进程 / 真实 Session / 真实 compactRegion） ==
 ```
 
-另一次手工跑（`<SESSION_ID>…`）的细节：**5 次 fold 全成功**，每次都有
+另一次手工跑（`<redacted>…`）的细节：**5 次 fold 全成功**，每次都有
 `compaction/summary`（`provider=magpie`、`model=group/deepseek-v4.1-flash1017`、shadowed 1,096~2,526 tok）
 和一条 `surfaceOp:{op:"replace"}` 的 checkpoint 消息。
 

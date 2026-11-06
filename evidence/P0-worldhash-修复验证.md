@@ -31,7 +31,7 @@
 ## 二 · 复跑证据（全部可重跑）
 
 ```bash
-cd <WORKSPACE>/projects/dsh-chess-context
+cd <workspace>
 node test/run.mjs              # 94 passed, 0 failed（原 87 + 新增 7）
 node test/verify-install.mjs   # 13/13 全过
 node test/real-modules.mjs     # 4/4 全过（真实 @deepseek-ai 包）
@@ -48,14 +48,14 @@ node test/verify-graphs.mjs    # 23 个会话全健康，退出码 0
 
 - 每个会话的 `renderFacts()` 与 `renderLedger()` 都跑通（抛错 = 压缩 100% 失败，是本次事故的直接形态）
 - 重新序列化后**对象残留 0**（磁盘靠插件下次 `#flush` 写回，不需要手工迁移 23 个文件）
-- 事故会话 `<SESSION_ID>`：211 个 agent 节点 / 对象 206 → 0 / `stateIndex` 3 → 49 / `renderFacts` 输出 39,336 字符
+- 事故会话 `<redacted>`：211 个 agent 节点 / 对象 206 → 0 / `stateIndex` 3 → 49 / `renderFacts` 输出 39,336 字符
 
 ### 2.2 旧三层树重建（人读视图也一起治）
 
 事故会话的 `nodes/*.md` 里状态字段是 bug 的残影：`worldHash: [object Obje`、`constraintHash: pending`。
 
 ```bash
-node test/build-tree.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/sessions/<SESSION_ID>-..."
+node test/build-tree.mjs "<workspace> Harness/home/chess-context/sessions/<redacted>..."
 # built 267 nodes
 ```
 
@@ -79,7 +79,7 @@ node test/build-tree.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/s
 
 ## 三 · 真实日志独立核对（不是转述，是重新数的）
 
-### 3.1 故障会话 `<SESSION_ID>`（`session.v4.jsonl.zstd`，解压后 20,468,318 字节）
+### 3.1 故障会话 `<redacted>`（`session.v4.jsonl.zstd`，解压后 20,468,318 字节）
 
 | 项 | 数值 | 数法 |
 |---|---:|---|
@@ -95,7 +95,7 @@ node test/build-tree.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/s
 > 与事故文档 §2.2 的分布**逐项一致**（226 / 3 成功 / 139 / 80 / 2 / 1 / 1）。
 > 注：文档里「80」「2」是事件数；若按字符串出现次数数（错误原文会在多处被引用）是 85 和 13 —— 两个数都对，口径不同。
 
-### 3.2 magpie `usage.jsonl`（`<USER_HOME>\.config\magpie\usage.jsonl`，10,312,222 字节）
+### 3.2 magpie `usage.jsonl`（`<workspace>`，10,312,222 字节）
 
 | 项 | 数值 |
 |---|---:|
@@ -116,7 +116,7 @@ node test/build-tree.mjs "<DSH_HOME_OR_INSTALL_DIR> Harness/home/chess-context/s
 重启后一条命令验收（只读，不改任何数据）：
 
 ```bash
-cd <WORKSPACE>/projects/dsh-chess-context && node test/verify-graphs.mjs
+cd <workspace> && node test/verify-graphs.mjs
 ```
 
 判据：

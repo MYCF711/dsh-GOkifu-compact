@@ -8,7 +8,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 
 const PKG_NAME = "dsh-gokifu-compact";
-const DSH_HOME = process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
+const DSH_HOME = process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home";
 const profileArg = process.argv.indexOf("--profile");
 const PROFILE = profileArg >= 0 ? process.argv[profileArg + 1] : "desktop";
 const presetArg = process.argv.indexOf("--preset");

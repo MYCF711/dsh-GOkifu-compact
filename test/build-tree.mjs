@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fromJSON, renderIndexMd, renderNodeMd } from "../src/rooms/kifu-model.mjs";
 
-const CHESS_ROOT = path.join(process.env.DSH_HOME ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"), "chess-context", "sessions");
+const CHESS_ROOT = path.join(process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home", "chess-context", "sessions");
 const args = process.argv.slice(2);
 const all = args.includes("--all");
 const force = args.includes("--force");
@@ -64,6 +64,6 @@ if (all) {
   }
   console.log(`rebuilt ${rebuilt} 个会话（${nodes} 个节点文件）→ ${CHESS_ROOT}`);
 } else {
-  const sess = explicit ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh", "chess-context", "sessions", "example-session");
+  const sess = explicit ?? "D:/DeepSeek Harness/home/chess-context/sessions/session-5acafe42-b85b-4e06-845a-65428b43d7c0";
   console.log(`built ${build(sess)} nodes -> ${sess}`);
 }

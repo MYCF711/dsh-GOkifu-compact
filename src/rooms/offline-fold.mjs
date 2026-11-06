@@ -135,7 +135,7 @@ export function reasoningConclusionText(text, maxChars = REASONING_CONCLUSION_MA
  *
  * 由来（真机 2026-11-05，`node scripts/prompt-bleed-audit.mjs` 原样输出）：
  *   有正文的摘要 392 条，含系统提示词标记的 11 条，其中**逐字**回灌的 1 条
- *   （`<SESSION_ID>`：13,210 字符里 4,750 = **36.0%** 是系统提示词）。
+ *   （`<redacted>`：13,210 字符里 4,750 = **36.0%** 是系统提示词）。
  *   回灌全部落在摘要的「约束」段 —— 因为摘要 prompt 要求「把硬事实里的约束原样抄一遍」，
  *   而硬事实块里的约束**本身**就带着系统提示词（见下面的证据链）。
  *
@@ -310,9 +310,9 @@ export function toolDigestLine(data, maxArgChars = 80) {
 
 export function collectMessages(events, { maxChars = 60_000, fromSeq = null, toolShare = 0.4, perMessageChars = 2000, idBySeq = null } = {}) {
   // ★ C538：**把棋谱里的节点 id 一起喂进去**。以前消息不带 id，模型只能写 `n?`，
-  //   而"引用要能回溯"正是这本棋谱的意义（真机 <SESSION_ID>：11 条状态节点全是 `n?`）。
+  //   而"引用要能回溯"正是这本棋谱的意义（真机 3a3fb03c：11 条状态节点全是 `n?`）。
   // ★ C538：**最近的节点**也算（消息大多落在两个节点之间）。只给"精确匹配"的加前缀时，
-  //   模型看到的绝大多数字消息没有 id，于是照样写 `n?`（真机 <SESSION_ID>：11 条全是 n?）。
+  //   模型看到的绝大多数字消息没有 id，于是照样写 `n?`（真机 3a3fb03c：11 条全是 n?）。
   const sorted = (() => {
     if (!(idBySeq instanceof Map)) return null;
     return [...idBySeq.entries()].filter(([seq, id]) => Number.isFinite(seq) && typeof id === "string" && id !== "").sort((a, b) => a[0] - b[0]);
@@ -373,7 +373,7 @@ export function collectMessages(events, { maxChars = 60_000, fromSeq = null, too
   let textChars = 0;
   let dropped = 0;
   /** ★ C522：单条就超预算时**截断它**，而不是把后面所有内容一起放弃。
-   *  真机 `<SESSION_ID>` 开头就是一条两万字的大提示 —— 老逻辑下 head 模式只装进 1 条就 break，
+   *  真机 `8cc34e32` 开头就是一条两万字的大提示 —— 老逻辑下 head 模式只装进 1 条就 break，
    *  于是"补缺口"补了个寂寞（覆盖 8-11 四步）。 */
   const clamp = (len, room) => {
     if (room < 500) return null;
@@ -393,7 +393,7 @@ ${plan.keepTail > 0 ? m.text.slice(-plan.keepTail) : ""}`;
     const cap = m.role === "tool" ? toolCap : textCap;
     const used = m.role === "tool" ? toolChars : textChars;
     let item = m;
-    // ★ C522：**单条也设上限**（默认 2000 字符）。真机 <SESSION_ID> 的头几条是两万字的大提示，
+    // ★ C522：**单条也设上限**（默认 2000 字符）。真机 8cc34e32 的头几条是两万字的大提示，
     //   不设上限时它们会把整个预算吃光，覆盖区间只有 seq 8-12（两万多个事件里的 4 步）。
     //
     // ★ C612：**2000 经真机审计后保留，别再往大改**（`scripts/message-size-audit.mjs` 原样输出；
@@ -663,7 +663,7 @@ export function reclaimPlaceholders(text, missing, claimed = new Set()) {
  * `docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，那就不能只靠提示词自觉
  * （C458 的原则：提示词挡不住的东西用代码挡）。
  *
- * 真机依据（2026-11-04 19:00:57Z，`<SESSION_ID>` 的 `archive-offline`）：
+ * 真机依据（2026-11-04 19:00:57Z，`<redacted>` 的 `archive-offline`）：
  * 模型把 e693–e698 六条合并成 `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）`，
  * `failureRecall` 掉到 0.43（7 条里丢 4 条），而合并出来的动作描述还是**错的**（4 个不同文件）。
  *
@@ -743,9 +743,9 @@ const MAX_FACTS_CHARS = 8000;
 /**
  * ★ C607：**把动作里的路径压成文件名**（事实块与死路补回共用）。
  *
- * 真机（`<SESSION_ID>` 的 `archive-offline` 那一次，2026-11-04 19:00:57Z）：
+ * 真机（`<redacted>` 的 `archive-offline` 那一次，2026-11-04 19:00:57Z）：
  * 6 条死路的动作都是
- * `edit(file_path=<DSH_HOME_OR_INSTALL_DIR> Harness\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs\<文件>)`，
+ * `edit(file_path=<workspace> Harness\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs\<文件>)`，
  * 而 `renderFacts` 是**从左往右**切 80 字符 ⇒ 切在 `…\ptc-do` 上 ——
  * **真正有区分度的那一段（文件名）被切掉了**，6 条死路在事实块里长得一模一样。
  * 模型于是把它们合并成「对同一文件连续 edit（重复 6 次）」：它不是瞎写，
@@ -761,9 +761,9 @@ export function compactAction(text, maxChars = 80) {
   if (raw === "") return "";
   const base = (value) => String(value).split(/[\\/]/).filter((x) => x !== "").pop() ?? String(value);
   const compact = raw
-    // `file_path=D:\…\x.md)` —— 值到 `)` / `,` / `;` 为止（路径里有空格，不能按空白切）
+    // `file_path=<workspace>` —— 值到 `)` / `,` / `;` 为止（路径里有空格，不能按空白切）
     .replace(/([A-Za-z_][A-Za-z0-9_]*)=((?:[A-Za-z]:)?[^),;]*[\\/][^),;]*)/g, (_m, key, value) => `${key}=${base(value)}`)
-    // `"/d/…/x.md"` 这种带引号的裸路径
+    // `"<workspace>"` 这种带引号的裸路径
     .replace(/"((?:[A-Za-z]:)?[^"]*[\\/][^"]*)"/g, (_m, value) => `"${base(value)}"`);
   return compact.length > maxChars ? `${compact.slice(0, maxChars)}…` : compact;
 }
@@ -921,7 +921,7 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
     //   说不出每步**得出了什么**，读者还得回去翻原文 —— 那等于没压。
     "- 「棋谱」每一条都要写成「哪个节点 做了什么 → **得出了什么**」，一条一句；只写编号串不算。",
     // ★ C607：**死路必须逐条**（契约：`docs/方案书.md` §「失败边……逐条出现，不合并、不省略」）。
-    //   真机 <SESSION_ID> 那一次：模型把 e693–e698 合并成一行
+    //   真机 <redacted> 那一次：模型把 e693–e698 合并成一行
     //   `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）` ⇒ 中间 4 条 id 当场消失
     //   （failureRecall 0.43），而且「同一文件」本身是错的 —— 那 6 条是 **4 个不同文件**。
     "- 「已探明死路」**一条边一行**：`- e123 「动作」→ 为什么失败`；**不许**把连续几条合并成 " +
@@ -947,10 +947,10 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
     //     别凭印象改 —— 这条规则改一次，所有折叠的产物都跟着变。
     "- 「当前节点」要说清：现在停在哪、手上还差什么、下一步的**已知约束**（不是建议）。",
     "- 引用实体只能引用上面出现过的 `n123` / `e456`。",
-    // ★ C538：消息前缀就是答案 —— 但不说清楚模型宁可写 `n?`（真机 <SESSION_ID> 连着 3 次全是 n?）。
+    // ★ C538：消息前缀就是答案 —— 但不说清楚模型宁可写 `n?`（真机 3a3fb03c 连着 3 次全是 n?）。
     "- **原始消息行首的 `[n123]` 就是那一步的棋谱 id**：写状态节点时**必须**用它，不许写 `n?`；"+"只有整条消息前面确实没有方括号时才写 `n?`。",
     "- 不要写「下一步该做什么」这类行动建议。",
-    // ★ C533：**篇幅与诚实**。以前没写长度上限，模型一路写到 4000 token 撞顶被截断（真机 <SESSION_ID>）。
+    // ★ C533：**篇幅与诚实**。以前没写长度上限，模型一路写到 4000 token 撞顶被截断（真机 8cc34e32）。
     `- 篇幅 **${len.min}–${len.max} 字**（按输入规模算出来的）；宁可少写，不要为凑篇幅重复。`,
     "- 只能写上面出现过的事实；推不出来的不要写（**不许编造**）。遇到不确定的引用写 `n?`。",
     "- 结尾另起一节 `## 约束（逐字）`，把「硬事实」里的约束**原样**抄一遍（这是机读的，不是给人看的）。",
@@ -1069,7 +1069,7 @@ export async function runOfflineFold({
     let billed = out?.billedUsage ?? out?.usage ?? null;
     /** 这一段真的发出去过几次调用；没有 usage 的 attempt 也计数，但不凭空造 token。 */
     let billedCalls = Math.max(1, Math.floor(Number(out?.billedCalls) || 1));
-    // ★ C522：**被截断的摘要不能当完整**。真机 <SESSION_ID>：completion_tokens 正好 4000（撞上限），
+    // ★ C522：**被截断的摘要不能当完整**。真机 8cc34e32：completion_tokens 正好 4000（撞上限），
     //   摘要停在半句话上，后面的「已验证事实 / 未验证 / 原始坐标」全没了，而账上却记成成功。
     //   这里先放大 2× 重试一次；还截断就明确标 `truncated`，让 doctor/图能看见。
     // ★ C649：token 判据比**正文**（`estimateTokens`，与预算同源），不比含 reasoning 的 outputTokens（C73）—— 后者只在「正文只剩骨架」时才算数。
@@ -1080,7 +1080,7 @@ export async function runOfflineFold({
       const used = Number(r?.usage?.completion_tokens ?? r?.usage?.outputTokens ?? NaN);
       if (isTruncatedFinish(r?.finish ?? r?.finishReason) || /max/i.test(String(r?.finish ?? r?.finishReason ?? ""))) return true;
       if (estimateTokens(String(r?.text ?? "")) >= budget) return true;
-      // ★ C534：**没撞上限，也可能没写完**。真机 <SESSION_ID>：completion 4000 里 reasoning 3816，
+      // ★ C534：**没撞上限，也可能没写完**。真机 3a3fb03c：completion 4000 里 reasoning 3816，
       //   正文只有 184 token（715 字符）—— 低于上限，旧判据放过它，于是"成功"却只有骨架。
       //   判据：输入不小（>4000 字符）而正文过短（<400 字符）⇒ 当没写完，放大重试。
       const produced = String(r?.text ?? "").trim().length;
@@ -1140,7 +1140,7 @@ export async function runOfflineFold({
     const sanitized = cleaned.removed.length;
 
     // 约束补回：用**全量**缺失清单（质量报告只给前 5 条）
-    // ★ C522：判重要**忽略空白差异**。真机 <SESSION_ID>：模型写的是「开启 superagent 模式」，
+    // ★ C522：判重要**忽略空白差异**。真机 8cc34e32：模型写的是「开启 superagent 模式」，
     //   原文是「开启superagent模式」—— 逐字比较判不出来，于是整段约束被重复补了一遍。
     // ★ C653：判重不再直接把变体留在最终产物里，而是先就地还原为原文；完全缺失才追加。
     const constraints = allConstraints(graph);
@@ -1155,7 +1155,7 @@ export async function runOfflineFold({
     // ★ C607：**死路逐条补回**（与上面的约束补回同构）。顺序有意义：死路段补在**约束段之前**，
     //   这样摘要结尾仍然是提示词要求的「## 约束（逐字）」。
     //   为什么必须兜底：`docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，
-    //   而真机已经出现过合并（<SESSION_ID>：e693—e698 六条并一行，丢 4 条 id）。
+    //   而真机已经出现过合并（<redacted>：e693—e698 六条并一行，丢 4 条 id）。
     //   判据与探针同源（`failuresInFoldRange` + `mentionsEdge`），补完 `failureRecall` 必然 = 1。
     // ★ C641：**接线搬到 `repairFailuresInText`** —— 写回点（`applyOfflineFoldToGraph`）也要调它。
     //   原来这段只长在本函数里，而 `trigger=archive-offline` 有**两个**生产者：
@@ -1265,7 +1265,7 @@ export function uncoveredFoldable(events, { rangeStart, rangeEnd, coveredStart, 
 export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = true, minEvents = 40, marks = null, stillDue = null } = {}) {
   if (enabled !== true) return { go: false, why: "disabled" };
   // 顺序有意义：**已经折过**先判（不管原因写着什么，都不该再花一次钱）
-  // ★ C555：**"已经折过"要有证据**。真机（2026-11-04 <SESSION_ID>）：旧代码写下 `folded: 1`，
+  // ★ C555：**"已经折过"要有证据**。真机（2026-11-04 4f3cae10）：旧代码写下 `folded: 1`，
   //   而 `foldMarks` 是 **0** —— 那一刻 `compactRegion` 空转了。若只看 `folded > 0`，
   //   这类"假冒成功"的会话会被判定"已折过"，永远走不到离线补折。
   //   `marks === null` 表示调用方没给证据 ⇒ 退回旧行为（保守）。
@@ -1280,7 +1280,7 @@ export function shouldTryOfflineFold({ closeout, reason, tailEvents, enabled = t
   //   这里原来只认 `no-foldable-span`，于是 C501 加的"超时也走离线"实际是**死代码** ——
   //   reason 传进来的是 `"timeout"`，永远不匹配。教训：加分支时先测那个分支的输入。
   // ★ C517：**第三种放弃理由：surface 供不上这段**。
-  //   真机（2026-11-04 <SESSION_ID>，归档后补账）：
+  //   真机（2026-11-04 c460d468，归档后补账）：
   //     `foldError: "Error: compactRegion: start seq 496 not found in surface"`
   //   —— 归档/恢复之后宿主的 surface 里没有这些消息，在线折叠**永远折不了**。
   //   这正是离线补折存在的理由，可它只认前两种原因 ⇒ 白白失败。
@@ -1587,7 +1587,7 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
     offlineCovered: { start: result.coveredStart ?? last.start, end: result.coveredEnd ?? last.end },
     ...(partial ? { partial: true } : {}),
     // ★ C522：**缺口要带游标，而且要往前走**。只记 events 的话，下次还是从同一个起点开始，
-    //   每次都在补同一段（真机 <SESSION_ID> 就这样原地打转）。
+    //   每次都在补同一段（真机 8cc34e32 就这样原地打转）。
     ...(() => {
       const prevGap = prevGapEvents;
       const gapFrom = Number(meta?.rangeStart ?? 1) || 1;

@@ -8,7 +8,7 @@
  * 它每次都是**一次性的独立请求**（prompt 由 `buildOfflinePrompt` 现拼），跑在后台补账里。
  * 于是有个很自然的怀疑：**折叠的 prompt 开头每次都变 ⇒ 连一个公共前缀单元都形不成 ⇒ 每条全价**。
  *
- * 这个脚本把那个怀疑量出来。它**只读**（`<DSH_HOME_OR_INSTALL_DIR> Harness\home` 一个字都不写）、
+ * 这个脚本把那个怀疑量出来。它**只读**（`<workspace> Harness\home` 一个字都不写）、
  * **零模型调用**（重放 prompt = 拼字符串，不是推理）。
  *
  * ## 口径（三条，都是本仓已核实的）
@@ -438,7 +438,7 @@ function main() {
   const ttlArg = argv.find((item) => item.startsWith("--ttl="));
   const limit = limitArg === undefined ? Infinity : Math.max(1, Number(limitArg.slice("--limit=".length)) || 1); // 会话数
   const ttl = ttlArg === undefined ? 3600 : Math.max(1, Number(ttlArg.slice("--ttl=".length)) || 3600);
-  const home = String(homeArg === undefined ? process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh") : homeArg.slice("--home=".length)).trim();
+  const home = String(homeArg === undefined ? process.env.DSH_HOME ?? "" : homeArg.slice("--home=".length)).trim();
 
   const root = nodePath.join(home, "chess-context", "sessions");
   let dirs = [];

@@ -5,7 +5,7 @@
  * 为什么需要它：`src/rooms/keeper.mjs` 的 `isHumanMessage` 只用 `source.kind` 判断
  * 「这条 user 消息是不是人打的字」。真机反例（2026-11-05）：
  *
- *   <SESSION_ID> seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
+ *   <redacted> seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
  *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘的请求体），宿主标的 `source.kind = "user"`。
  *   ⇒ 被当成「人打的字」⇒ `extractConstraints` 抽出 40 条「约束」⇒ 渲染进
  *     `## 约束（一条都不许丢）` —— 整块 36% 是系统提示词。
@@ -24,9 +24,9 @@
  * 用法：
  *   node scripts/human-message-audit.mjs                     # 全量（真机 784 个会话，约 15 秒）
  *   node scripts/human-message-audit.mjs --limit=50           # 只扫前 50 个会话（冒烟用）
- *   node scripts/human-message-audit.mjs --session=<SESSION_ID>   # 只看一个会话（id 前缀）
+ *   node scripts/human-message-audit.mjs --session=8a73e06b   # 只看一个会话（id 前缀）
  *   node scripts/human-message-audit.mjs --json               # 机读
- *   node scripts/human-message-audit.mjs --home=D:/...        # 换 home（默认 DSH_HOME，否则 ~/.dsh）
+ *   node scripts/human-message-audit.mjs --home=<workspace>        # 换 home（默认 DSH_HOME，否则 ~/.dsh）
  *
  * 退出码：0 = 审计跑完（无论数字是多少）；2 = 一条会话日志都读不到（home 给错了）。
  * 边界：**只读**。不写盘、不改图、不调模型。
@@ -174,7 +174,7 @@ export function resolveHome(env = process.env, argv = []) {
   if (fromArg !== undefined && fromArg.length > "--home=".length) return fromArg.slice("--home=".length);
   const fromEnv = String(env.DSH_HOME ?? "").trim();
   if (fromEnv !== "") return fromEnv;
-  // 本机 DSH 装在 `<DSH_HOME_OR_INSTALL_DIR> Harness` 下，`~/.dsh` 里没有 sessions：两个候选都试，谁有日志用谁。
+  // 本机 DSH 装在 `<workspace> Harness` 下，`~/.dsh` 里没有 sessions：两个候选都试，谁有日志用谁。
   const profile = env.USERPROFILE ?? env.HOME ?? os.homedir();
   const hasSessions = (home) => {
     try {

@@ -25,7 +25,7 @@
  * 用法：
  *   node scripts/pending-changes.mjs                    # 时间点 = <home>/chess-context/build.json.startedAt
  *   node scripts/pending-changes.mjs --since=2026-11-05T04:28:33Z
- *   node scripts/pending-changes.mjs --home=D:/x/home --root=D:/x/repo
+ *   node scripts/pending-changes.mjs --home=<workspace> --root=<workspace>
  *   node scripts/pending-changes.mjs --json             # 机读
  *
  * 退出码：0 = 无待验证改动；1 = 有待验证改动（每条都附复验命令）；2 = 无法判断（**不是**"没有改动"）。

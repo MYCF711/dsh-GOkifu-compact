@@ -130,7 +130,7 @@ tests["collectConstraints 去重"] = () => {
 
 /** 胖夹具：长 root + 长约束 + 8 跳成功链 + N 条长原因失败边 ⇒ 小预算必然落到兜底档。 */
 function fallbackGraph({ hops = 8, failures = 40, sessionId = "ledger-fallback" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
   const u = addUserNodeId(g, {
     seq: 1,

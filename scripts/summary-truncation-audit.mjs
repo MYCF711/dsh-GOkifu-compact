@@ -27,7 +27,7 @@
  * 用法：
  *   node scripts/summary-truncation-audit.mjs                 # 全量（真机 ~570 个会话）
  *   node scripts/summary-truncation-audit.mjs --json          # 机读
- *   node scripts/summary-truncation-audit.mjs --session <SESSION_ID>
+ *   node scripts/summary-truncation-audit.mjs --session 8a73e06b
  *   node scripts/summary-truncation-audit.mjs --max-tokens=8192 --offline-max-tokens=8192
  *   DSH_HOME=... node scripts/summary-truncation-audit.mjs    # 换 home（与 doctor 同源）
  *

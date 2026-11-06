@@ -1,7 +1,7 @@
 {
   "schema": "gokifu/live-folds/v1",
   "generatedAt": "2026-11-04T17:15:35Z",
-  "home": "<DSH_HOME_OR_INSTALL_DIR> Harness/home",
+  "home": "<workspace> Harness/home",
   "sessions": 458,
   "unreadable": 0,
   "summary": {
@@ -38,30 +38,30 @@
     "closureChain": {
       "checked": 120,
       "offenders": [
-        "<SESSION_ID>:n1255→n1",
-        "<SESSION_ID>:n1546→n117",
-        "<SESSION_ID>:n1863→n663",
-        "<SESSION_ID>:n2183→n1246",
-        "<SESSION_ID>:n2505→n1535",
-        "<SESSION_ID>:n3685→n2178",
-        "<SESSION_ID>:n1820→n520",
-        "<SESSION_ID>:n941→n1",
-        "<SESSION_ID>:n1192→n215",
-        "<SESSION_ID>:n1428→n441",
-        "<SESSION_ID>:n1729→n932",
-        "<SESSION_ID>:n2108→n1207",
-        "<SESSION_ID>:n4886→n2973",
-        "<SESSION_ID>:n5189→n3730",
-        "<SESSION_ID>:n102→n44",
-        "<SESSION_ID>:n1185→n240",
-        "<SESSION_ID>:n1450→n524",
-        "<SESSION_ID>:n1809→n897",
-        "<SESSION_ID>:n2190→n1271",
-        "<SESSION_ID>:n2901→n1526",
-        "<SESSION_ID>:n927→n74",
-        "<SESSION_ID>:n1075→n315",
-        "<SESSION_ID>:n1241→n604",
-        "<SESSION_ID>:n1381→n944"
+        "<redacted>:n1255→n1",
+        "<redacted>:n1546→n117",
+        "<redacted>:n1863→n663",
+        "<redacted>:n2183→n1246",
+        "<redacted>:n2505→n1535",
+        "<redacted>:n3685→n2178",
+        "<redacted>:n1820→n520",
+        "<redacted>:n941→n1",
+        "<redacted>:n1192→n215",
+        "<redacted>:n1428→n441",
+        "<redacted>:n1729→n932",
+        "<redacted>:n2108→n1207",
+        "<redacted>:n4886→n2973",
+        "<redacted>:n5189→n3730",
+        "<redacted>:n102→n44",
+        "<redacted>:n1185→n240",
+        "<redacted>:n1450→n524",
+        "<redacted>:n1809→n897",
+        "<redacted>:n2190→n1271",
+        "<redacted>:n2901→n1526",
+        "<redacted>:n927→n74",
+        "<redacted>:n1075→n315",
+        "<redacted>:n1241→n604",
+        "<redacted>:n1381→n944"
       ]
     },
     "bySession": {
@@ -69,15 +69,15 @@
       "multiFold": 17,
       "top": [
         {
-          "sessionId": "<SESSION_ID>",
+          "sessionId": "<redacted>",
           "folds": 20
         },
         {
-          "sessionId": "<SESSION_ID>",
+          "sessionId": "<redacted>",
           "folds": 20
         },
         {
-          "sessionId": "<SESSION_ID>",
+          "sessionId": "<redacted>",
           "folds": 19
         }
       ]
@@ -127,7 +127,7 @@
   },
   "folds": [
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793540242027,
       "trigger": null,
@@ -152,7 +152,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793540328637,
       "trigger": null,
@@ -177,7 +177,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793544008503,
       "trigger": null,
@@ -202,7 +202,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793544021831,
       "trigger": null,
@@ -227,7 +227,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793558174055,
       "trigger": "pressure",
@@ -272,7 +272,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793558194333,
       "trigger": "pressure",
@@ -317,7 +317,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793558452856,
       "trigger": "pressure",
@@ -362,7 +362,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793560279507,
       "trigger": "pressure",
@@ -411,7 +411,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793560367604,
       "trigger": "pressure",
@@ -460,7 +460,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793560475183,
       "trigger": "pressure",
@@ -509,7 +509,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793562100517,
       "trigger": "pressure",
@@ -558,7 +558,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793562116719,
       "trigger": "pressure",
@@ -607,7 +607,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793563501568,
       "trigger": "pressure",
@@ -656,7 +656,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793565071916,
       "trigger": "pressure",
@@ -705,7 +705,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793565273608,
       "trigger": "pressure",
@@ -754,7 +754,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793566567570,
       "trigger": "pressure",
@@ -803,7 +803,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793567684335,
       "trigger": "pressure",
@@ -852,7 +852,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793567942238,
       "trigger": "pressure",
@@ -901,7 +901,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793571693363,
       "trigger": "pressure",
@@ -950,7 +950,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793576287433,
       "trigger": "pressure",
@@ -999,7 +999,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793582310332,
       "trigger": "pressure",
@@ -1048,7 +1048,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793582330254,
       "trigger": "tier2",
@@ -1089,7 +1089,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793589636258,
       "trigger": "pressure",
@@ -1138,7 +1138,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793589651502,
       "trigger": "tier2",
@@ -1179,7 +1179,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793590386369,
       "trigger": "pressure",
@@ -1228,7 +1228,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793593586786,
       "trigger": "pressure",
@@ -1277,7 +1277,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793593612882,
       "trigger": "tier2",
@@ -1318,7 +1318,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793596367470,
       "trigger": null,
@@ -1340,7 +1340,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793598712329,
       "trigger": "pressure",
@@ -1389,7 +1389,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793600932433,
       "trigger": "pressure",
@@ -1438,7 +1438,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793602254141,
       "trigger": "pressure",
@@ -1487,7 +1487,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793606606046,
       "trigger": "pressure",
@@ -1536,7 +1536,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793607120035,
       "trigger": "pressure",
@@ -1585,7 +1585,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793609234901,
       "trigger": "pressure",
@@ -1634,7 +1634,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793610000557,
       "trigger": "pressure",
@@ -1683,7 +1683,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793612886090,
       "trigger": "pressure",
@@ -1732,7 +1732,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793613938274,
       "trigger": "pressure",
@@ -1781,7 +1781,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793614753301,
       "trigger": "pressure",
@@ -1830,7 +1830,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793616014100,
       "trigger": "pressure",
@@ -1879,7 +1879,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793616018508,
       "trigger": "tier2",
@@ -1920,7 +1920,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793618688462,
       "trigger": "pressure",
@@ -1969,7 +1969,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793618882387,
       "trigger": "pressure",
@@ -2018,7 +2018,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793618903168,
       "trigger": "tier2",
@@ -2059,7 +2059,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793619278315,
       "trigger": "pressure",
@@ -2108,7 +2108,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793623663741,
       "trigger": "pressure",
@@ -2157,7 +2157,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793624243438,
       "trigger": "pressure",
@@ -2206,7 +2206,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793624266741,
       "trigger": "tier2",
@@ -2247,7 +2247,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793626165069,
       "trigger": "pressure",
@@ -2296,7 +2296,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793626179400,
       "trigger": "tier2",
@@ -2337,7 +2337,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793627171715,
       "trigger": "pressure",
@@ -2386,7 +2386,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793630200915,
       "trigger": "pressure",
@@ -2435,7 +2435,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793630783044,
       "trigger": "pressure",
@@ -2484,7 +2484,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793630794383,
       "trigger": "tier2",
@@ -2525,7 +2525,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793632449529,
       "trigger": "pressure",
@@ -2574,7 +2574,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793633177006,
       "trigger": "pressure",
@@ -2623,7 +2623,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793634642073,
       "trigger": "pressure",
@@ -2672,7 +2672,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793634649929,
       "trigger": "tier2",
@@ -2713,7 +2713,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793636025177,
       "trigger": "pressure",
@@ -2762,7 +2762,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793636798039,
       "trigger": "pressure",
@@ -2811,7 +2811,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793638140426,
       "trigger": "pressure",
@@ -2860,7 +2860,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793640289144,
       "trigger": "pressure",
@@ -2909,7 +2909,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793640296084,
       "trigger": "tier2",
@@ -2950,7 +2950,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793640885011,
       "trigger": "pressure",
@@ -2999,7 +2999,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793643645626,
       "trigger": "pressure",
@@ -3048,7 +3048,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793647059234,
       "trigger": "pressure",
@@ -3097,7 +3097,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793648155390,
       "trigger": "pressure",
@@ -3146,7 +3146,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793648469014,
       "trigger": "pressure",
@@ -3195,7 +3195,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793649207616,
       "trigger": "pressure",
@@ -3244,7 +3244,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793649222754,
       "trigger": "tier2",
@@ -3285,7 +3285,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793661168829,
       "trigger": "pressure",
@@ -3334,7 +3334,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793663165937,
       "trigger": "pressure",
@@ -3383,7 +3383,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793664021429,
       "trigger": "pressure",
@@ -3432,7 +3432,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793665647636,
       "trigger": "pressure",
@@ -3481,7 +3481,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793668445805,
       "trigger": "pressure",
@@ -3530,7 +3530,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793673877819,
       "trigger": "pressure",
@@ -3579,7 +3579,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793678074827,
       "trigger": "pressure",
@@ -3628,7 +3628,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793684536259,
       "trigger": "pressure",
@@ -3677,7 +3677,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793686748181,
       "trigger": "context-overflow",
@@ -3726,7 +3726,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793689030171,
       "trigger": "pressure",
@@ -3775,7 +3775,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793691881795,
       "trigger": "pressure",
@@ -3824,7 +3824,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793692758897,
       "trigger": "pressure",
@@ -3873,7 +3873,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793693665744,
       "trigger": "pressure",
@@ -3922,7 +3922,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793693806887,
       "trigger": "pressure",
@@ -3971,7 +3971,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793694185681,
       "trigger": "pressure",
@@ -4020,7 +4020,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793694204552,
       "trigger": "tier2",
@@ -4061,7 +4061,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793695669297,
       "trigger": "pressure",
@@ -4110,7 +4110,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793695776964,
       "trigger": "pressure",
@@ -4159,7 +4159,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 16,
       "at": 1793696118568,
       "trigger": "pressure",
@@ -4208,7 +4208,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793697082022,
       "trigger": "pressure",
@@ -4257,7 +4257,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793698466427,
       "trigger": "pressure",
@@ -4306,7 +4306,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793700141132,
       "trigger": "pressure",
@@ -4355,7 +4355,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793700218035,
       "trigger": "pressure",
@@ -4404,7 +4404,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 17,
       "at": 1793700587843,
       "trigger": "pressure",
@@ -4453,7 +4453,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793701741761,
       "trigger": "pressure",
@@ -4502,7 +4502,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793702762533,
       "trigger": "pressure",
@@ -4551,7 +4551,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793704424322,
       "trigger": "pressure",
@@ -4600,7 +4600,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793707035223,
       "trigger": "pressure",
@@ -4649,7 +4649,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793707409693,
       "trigger": "archive-offline",
@@ -4674,7 +4674,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793707639202,
       "trigger": "archive-offline",
@@ -4699,7 +4699,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793707650151,
       "trigger": "archive-offline",
@@ -4724,7 +4724,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793707731123,
       "trigger": "archive-offline",
@@ -4757,7 +4757,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793708634730,
       "trigger": "pressure",
@@ -4806,7 +4806,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793708949124,
       "trigger": "pressure",
@@ -4855,7 +4855,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793710095240,
       "trigger": "pressure",
@@ -4904,7 +4904,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793713764821,
       "trigger": "pressure",
@@ -4953,7 +4953,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793718715443,
       "trigger": "pressure",
@@ -5002,7 +5002,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793719789688,
       "trigger": "pressure",
@@ -5051,7 +5051,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 16,
       "at": 1793722097569,
       "trigger": "pressure",
@@ -5100,7 +5100,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 17,
       "at": 1793722111142,
       "trigger": "tier2",
@@ -5141,7 +5141,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793722159363,
       "trigger": "pressure",
@@ -5190,7 +5190,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793722781864,
       "trigger": "pressure",
@@ -5239,7 +5239,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 18,
       "at": 1793722971189,
       "trigger": "pressure",
@@ -5288,7 +5288,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793723685097,
       "trigger": "pressure",
@@ -5337,7 +5337,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793724144809,
       "trigger": "pressure",
@@ -5386,7 +5386,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793724144854,
       "trigger": "pressure",
@@ -5435,7 +5435,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793729732100,
       "trigger": "pressure",
@@ -5484,7 +5484,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793730172130,
       "trigger": "pressure",
@@ -5533,7 +5533,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793730575593,
       "trigger": "pressure",
@@ -5582,7 +5582,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793730720491,
       "trigger": "pressure",
@@ -5631,7 +5631,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793731250431,
       "trigger": "pressure",
@@ -5680,7 +5680,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793731718406,
       "trigger": "pressure",
@@ -5729,7 +5729,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793733987803,
       "trigger": "pressure",
@@ -5778,7 +5778,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793738051539,
       "trigger": "pressure",
@@ -5827,7 +5827,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793738579955,
       "trigger": "pressure",
@@ -5876,7 +5876,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793739604361,
       "trigger": "pressure",
@@ -5925,7 +5925,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793739622779,
       "trigger": "pressure",
@@ -5974,7 +5974,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793740106887,
       "trigger": "pressure",
@@ -6023,7 +6023,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793741689115,
       "trigger": "pressure",
@@ -6072,7 +6072,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793744564109,
       "trigger": "pressure",
@@ -6121,7 +6121,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793744566486,
       "trigger": "tier2",
@@ -6162,7 +6162,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793746555636,
       "trigger": "pressure",
@@ -6211,7 +6211,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793747628997,
       "trigger": "pressure",
@@ -6260,7 +6260,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793747708001,
       "trigger": "pressure",
@@ -6309,7 +6309,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 16,
       "at": 1793749609672,
       "trigger": "pressure",
@@ -6358,7 +6358,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793750623229,
       "trigger": "pressure",
@@ -6407,7 +6407,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793751468325,
       "trigger": "pressure",
@@ -6456,7 +6456,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793751485353,
       "trigger": "tier2",
@@ -6497,7 +6497,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793751766856,
       "trigger": "pressure",
@@ -6546,7 +6546,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793752558637,
       "trigger": "archive-offline",
@@ -6579,7 +6579,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793753154511,
       "trigger": "archive-offline",
@@ -6612,7 +6612,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793753267895,
       "trigger": "archive-offline",
@@ -6645,7 +6645,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793754229581,
       "trigger": "archive-offline",
@@ -6678,7 +6678,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 6,
       "at": 1793754288605,
       "trigger": "archive-offline",
@@ -6711,7 +6711,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793754354410,
       "trigger": "archive-offline",
@@ -6744,7 +6744,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793754406726,
       "trigger": "archive-offline",
@@ -6777,7 +6777,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793754475792,
       "trigger": "archive-offline",
@@ -6810,7 +6810,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793754537864,
       "trigger": "archive-offline",
@@ -6843,7 +6843,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793754990931,
       "trigger": "archive-offline",
@@ -6876,7 +6876,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793755117508,
       "trigger": "archive-offline",
@@ -6909,7 +6909,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793755358879,
       "trigger": "archive-offline",
@@ -6942,7 +6942,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793755458736,
       "trigger": "pressure",
@@ -6991,7 +6991,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793755469760,
       "trigger": "tier2",
@@ -7032,7 +7032,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793756209562,
       "trigger": "context-overflow",
@@ -7081,7 +7081,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793756219442,
       "trigger": "tier2",
@@ -7122,7 +7122,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793756263307,
       "trigger": "archive-offline",
@@ -7155,7 +7155,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793757792417,
       "trigger": "archive-offline",
@@ -7188,7 +7188,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793757830928,
       "trigger": "archive-offline",
@@ -7221,7 +7221,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793759354120,
       "trigger": "pressure",
@@ -7270,7 +7270,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793760111962,
       "trigger": "archive-offline",
@@ -7303,7 +7303,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 17,
       "at": 1793761547364,
       "trigger": "pressure",
@@ -7352,7 +7352,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793766321977,
       "trigger": "pressure",
@@ -7401,7 +7401,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793766753615,
       "trigger": "pressure",
@@ -7450,7 +7450,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793766761577,
       "trigger": "tier2",
@@ -7491,7 +7491,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 18,
       "at": 1793771026799,
       "trigger": "pressure",
@@ -7540,7 +7540,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 7,
       "at": 1793772035079,
       "trigger": "pressure",
@@ -7589,7 +7589,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793773302570,
       "trigger": "archive-offline",
@@ -7622,7 +7622,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 18,
       "at": 1793773304276,
       "trigger": "pressure",
@@ -7671,7 +7671,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793773353416,
       "trigger": "archive-offline",
@@ -7704,7 +7704,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793773557402,
       "trigger": "archive-offline",
@@ -7737,7 +7737,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793773696046,
       "trigger": "archive-offline",
@@ -7770,7 +7770,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 8,
       "at": 1793779864152,
       "trigger": "pressure",
@@ -7819,7 +7819,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 9,
       "at": 1793779876952,
       "trigger": "tier2",
@@ -7860,7 +7860,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793780464707,
       "trigger": "archive-offline",
@@ -7893,7 +7893,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 19,
       "at": 1793780860254,
       "trigger": "pressure",
@@ -7942,7 +7942,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793782310803,
       "trigger": "archive-offline",
@@ -7975,7 +7975,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793783297506,
       "trigger": "archive-offline",
@@ -8008,7 +8008,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793783811899,
       "trigger": "archive-offline",
@@ -8041,7 +8041,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793784067885,
       "trigger": "archive-offline",
@@ -8074,7 +8074,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793784464838,
       "trigger": "archive-offline",
@@ -8107,7 +8107,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793784899978,
       "trigger": "archive-offline",
@@ -8140,7 +8140,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793784973973,
       "trigger": "archive-offline",
@@ -8173,7 +8173,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 16,
       "at": 1793785120692,
       "trigger": "pressure",
@@ -8222,7 +8222,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 17,
       "at": 1793785131002,
       "trigger": "tier2",
@@ -8263,7 +8263,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793786073956,
       "trigger": "archive-offline",
@@ -8296,7 +8296,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793786419893,
       "trigger": "pressure",
@@ -8345,7 +8345,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793786607529,
       "trigger": "pressure",
@@ -8394,7 +8394,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793786700351,
       "trigger": "archive-offline",
@@ -8427,7 +8427,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793786740921,
       "trigger": "archive-offline",
@@ -8460,7 +8460,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793787132171,
       "trigger": "archive-offline",
@@ -8493,7 +8493,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793787342614,
       "trigger": "archive-offline",
@@ -8526,7 +8526,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793787455193,
       "trigger": "archive-offline",
@@ -8559,7 +8559,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793787779698,
       "trigger": "archive-offline",
@@ -8592,7 +8592,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793788048094,
       "trigger": "archive-offline",
@@ -8625,7 +8625,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793788171093,
       "trigger": "archive-offline",
@@ -8658,7 +8658,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 20,
       "at": 1793788353833,
       "trigger": "pressure",
@@ -8707,7 +8707,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793788394594,
       "trigger": "archive-offline",
@@ -8740,7 +8740,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793789042933,
       "trigger": "archive-offline",
@@ -8773,7 +8773,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793789277460,
       "trigger": "archive-offline",
@@ -8806,7 +8806,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 10,
       "at": 1793789419149,
       "trigger": "pressure",
@@ -8855,7 +8855,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 11,
       "at": 1793789427962,
       "trigger": "tier2",
@@ -8896,7 +8896,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793789486527,
       "trigger": "archive-offline",
@@ -8929,7 +8929,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793790787540,
       "trigger": "archive-offline",
@@ -8962,7 +8962,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793790872223,
       "trigger": "archive-offline",
@@ -8995,7 +8995,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793790875672,
       "trigger": "archive-offline",
@@ -9028,7 +9028,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 19,
       "at": 1793791376980,
       "trigger": "pressure",
@@ -9077,7 +9077,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793791442213,
       "trigger": "archive-offline",
@@ -9110,7 +9110,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793791528264,
       "trigger": "archive-offline",
@@ -9143,7 +9143,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793791789008,
       "trigger": "pressure",
@@ -9192,7 +9192,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793792005360,
       "trigger": "archive-offline",
@@ -9225,7 +9225,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793792120241,
       "trigger": "archive-offline",
@@ -9258,7 +9258,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793792790132,
       "trigger": "archive-offline",
@@ -9291,7 +9291,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 18,
       "at": 1793793440357,
       "trigger": "archive-offline",
@@ -9324,7 +9324,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 19,
       "at": 1793793445679,
       "trigger": "pressure",
@@ -9373,7 +9373,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 20,
       "at": 1793793450636,
       "trigger": "tier2",
@@ -9414,7 +9414,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793794561788,
       "trigger": "archive-offline",
@@ -9447,7 +9447,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793794618249,
       "trigger": "archive-offline",
@@ -9480,7 +9480,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793794876347,
       "trigger": "archive-offline",
@@ -9513,7 +9513,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793794978425,
       "trigger": "archive-offline",
@@ -9546,7 +9546,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793794991692,
       "trigger": "archive-offline",
@@ -9579,7 +9579,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793795022514,
       "trigger": "archive-offline",
@@ -9612,7 +9612,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793795938990,
       "trigger": "archive-offline",
@@ -9645,7 +9645,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793796455160,
       "trigger": "archive-offline",
@@ -9678,7 +9678,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793796644819,
       "trigger": "archive-offline",
@@ -9711,7 +9711,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793796735899,
       "trigger": "archive-offline",
@@ -9744,7 +9744,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 16,
       "at": 1793796999106,
       "trigger": "pressure",
@@ -9793,7 +9793,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 17,
       "at": 1793797008318,
       "trigger": "tier2",
@@ -9834,7 +9834,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 5,
       "at": 1793797451413,
       "trigger": "archive-offline",
@@ -9867,7 +9867,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 12,
       "at": 1793797958089,
       "trigger": "pressure",
@@ -9916,7 +9916,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 13,
       "at": 1793797972507,
       "trigger": "tier2",
@@ -9957,7 +9957,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793798161764,
       "trigger": "archive-offline",
@@ -9990,7 +9990,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793798347166,
       "trigger": "archive-offline",
@@ -10023,7 +10023,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793800509072,
       "trigger": "archive-offline",
@@ -10056,7 +10056,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 19,
       "at": 1793801299362,
       "trigger": "archive-offline",
@@ -10089,7 +10089,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793802060284,
       "trigger": "archive-offline",
@@ -10122,7 +10122,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793802294628,
       "trigger": "archive-offline",
@@ -10155,7 +10155,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793802297742,
       "trigger": "archive-offline",
@@ -10188,7 +10188,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793802368526,
       "trigger": "archive-offline",
@@ -10221,7 +10221,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793803412918,
       "trigger": "archive-offline",
@@ -10254,7 +10254,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793803435930,
       "trigger": "archive-offline",
@@ -10287,7 +10287,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793803532860,
       "trigger": "archive-offline",
@@ -10320,7 +10320,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 4,
       "at": 1793803573883,
       "trigger": "archive-offline",
@@ -10353,7 +10353,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793804026221,
       "trigger": "archive-offline",
@@ -10386,7 +10386,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793804294240,
       "trigger": "archive-offline",
@@ -10419,7 +10419,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 14,
       "at": 1793805436240,
       "trigger": "pressure",
@@ -10468,7 +10468,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 15,
       "at": 1793805512944,
       "trigger": "tier2",
@@ -10509,7 +10509,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793805548838,
       "trigger": "archive-offline",
@@ -10542,7 +10542,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793805687698,
       "trigger": "archive-offline",
@@ -10575,7 +10575,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793806620509,
       "trigger": "pressure",
@@ -10624,7 +10624,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 2,
       "at": 1793806801966,
       "trigger": "pressure",
@@ -10673,7 +10673,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793806878050,
       "trigger": "archive-offline",
@@ -10706,7 +10706,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793806902545,
       "trigger": "archive-offline",
@@ -10739,7 +10739,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793807003820,
       "trigger": "archive-offline",
@@ -10772,7 +10772,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793807144829,
       "trigger": "archive-offline",
@@ -10805,7 +10805,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793807324445,
       "trigger": "pressure",
@@ -10854,7 +10854,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793807380956,
       "trigger": "archive-offline",
@@ -10887,7 +10887,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793808671152,
       "trigger": "archive-offline",
@@ -10920,7 +10920,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793808866621,
       "trigger": "archive-offline",
@@ -10953,7 +10953,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793809152065,
       "trigger": "pressure",
@@ -11002,7 +11002,7 @@
       }
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793809698327,
       "trigger": "archive-offline",
@@ -11035,7 +11035,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793809699824,
       "trigger": "archive-offline",
@@ -11068,7 +11068,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793810051621,
       "trigger": "archive-offline",
@@ -11101,7 +11101,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793810477417,
       "trigger": "archive-offline",
@@ -11134,7 +11134,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793810742939,
       "trigger": "archive-offline",
@@ -11167,7 +11167,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793810804148,
       "trigger": "archive-offline",
@@ -11200,7 +11200,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 3,
       "at": 1793811163648,
       "trigger": "archive-offline",
@@ -11233,7 +11233,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793811269340,
       "trigger": "archive-offline",
@@ -11266,7 +11266,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793811370806,
       "trigger": "archive-offline",
@@ -11299,7 +11299,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793811552661,
       "trigger": "archive-offline",
@@ -11332,7 +11332,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793812029732,
       "trigger": "archive-offline",
@@ -11365,7 +11365,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793812090451,
       "trigger": "archive-offline",
@@ -11398,7 +11398,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793812520735,
       "trigger": "archive-offline",
@@ -11431,7 +11431,7 @@
       "boundary": null
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "<redacted>",
       "fold": 1,
       "at": 1793812529900,
       "trigger": "archive-offline",

@@ -1,12 +1,12 @@
 {
   "generatedAt": "2026-11-01T20:20:36Z",
-  "home": "<DSH_HOME_OR_INSTALL_DIR> Harness\\home",
+  "home": "<workspace> Harness\\home",
   "budget": 500,
   "sessions": 24,
   "unreadable": 0,
   "over": [
     {
-      "session": "<SESSION_ID>",
+      "session": "<redacted>",
       "tokens": 641,
       "over": 141,
       "fallback": "over-budget",
@@ -18,7 +18,7 @@
       "reason": "irreducible"
     },
     {
-      "session": "<SESSION_ID>",
+      "session": "<redacted>",
       "tokens": 537,
       "over": 37,
       "fallback": "over-budget",
@@ -42,6 +42,6 @@
       "floor": 1
     },
     "topSessionChanged": false,
-    "topSession": "<SESSION_ID>"
+    "topSession": "<redacted>"
   }
 }

@@ -26,7 +26,7 @@
  *   node scripts/make-presets-override.mjs            # dry-run，打印摘要与自检结果
  *   node scripts/make-presets-override.mjs --write    # 写仓库根 cordis.patch.yml（先备份）
  * 环境变量：
- *   DSH_APP_ASAR  —— app.asar 路径，默认 <DSH_HOME_OR_INSTALL_DIR> Harness/Desktop/resources/app.asar
+ *   DSH_APP_ASAR  —— app.asar 路径，默认 <workspace> Harness/Desktop/resources/app.asar
  */
 
 import nodeFs from "node:fs";
@@ -36,13 +36,8 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const OUT = nodePath.join(ROOT, "cordis.patch.yml");
-const DSH_HOME = nodePath.resolve(process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"));
-const ASAR_CANDIDATES = [
-  process.env.DSH_APP_ASAR,
-  nodePath.join(DSH_HOME, "..", "Desktop", "resources", "app.asar"),
-  nodePath.join(DSH_HOME, "..", "resources", "app.asar"),
-].filter((value) => typeof value === "string" && value !== "");
-const ASAR = ASAR_CANDIDATES.find((file) => nodeFs.existsSync(file)) ?? ASAR_CANDIDATES[0];
+const DSH_ROOT = process.env.DSH_HOME ? nodePath.dirname(process.env.DSH_HOME) : process.env.USERPROFILE ?? "";
+const ASAR = process.env.DSH_APP_ASAR ?? nodePath.join(DSH_ROOT, "Desktop", "resources", "app.asar");
 
 /** 四个内置 preset 的 id（宿主 `@deepseek-ai/dsh-web-app` bundle 层）。 */
 const PRESET_NAMES = Object.freeze(["standard", "ptc", "minimal", "cordis"]);

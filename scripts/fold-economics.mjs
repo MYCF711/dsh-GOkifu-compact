@@ -76,7 +76,7 @@ export function hitRateFromFile(file) {
  *            shadowedTokens:number, paybackMedian:number|null, paybackMin:number|null,
  *            paybackMax:number|null, sessions:number, minSteps:number|null}}
  */
-export function computeEconomics({ home = process.env.DSH_HOME ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"), hitRate = null } = {}) {
+export function computeEconomics({ home = process.env.DSH_HOME ?? "", hitRate = null } = {}) {
   let cache;
   if (hitRate !== null && Number.isFinite(Number(hitRate))) {
     cache = { hitRate: Number(hitRate), hit: null, miss: null, source: "--hit 手动指定" };
@@ -148,7 +148,7 @@ function main(argv) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") ? argv[i + 1] : fallback;
   };
-  const home = get("home", process.env.DSH_HOME ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh"));
+  const home = get("home", process.env.DSH_HOME ?? "");
   const override = get("hit", null);
 
   const cache =

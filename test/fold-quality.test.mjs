@@ -10,6 +10,7 @@
 
 import { findOutOfRangeIds, measureFoldQuality, mentionsEdge, failuresInFoldRange, findUnknownIds, foldCostMetrics, sanitizeSummaryIds } from "../src/rooms/fold-quality.mjs";
 import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
+import { collectConstraints } from "../src/rooms/ledger.mjs";
 import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
 import { pathToFileURL } from "node:url";
 
@@ -291,7 +292,7 @@ tests["C528 结构契约：截断的摘要必须能被机器看出来（别只�
   t.eq(s1.sectionsMissing, [], "齐全的摘要不该报缺段");
   t.eq(s1.endedCleanly, true, "结尾干净");
 
-  // 真机 <SESSION_ID> 的截断形状：停在 `grep -n "` 上，召回率却全是 1
+  // 真机 8cc34e32 的截断形状：停在 `grep -n "` 上，召回率却全是 1
   const cut = "## 目标\n- 把构建跑通\n## 棋谱\n- grep -n \"";
   const s2 = m.describeStructure(cut, { expectFailures: true });
   t.eq(s2.sectionsMissing, ["死路"], "缺死路段");
@@ -331,4 +332,68 @@ tests["C547 两种 usage 形状都要归一（否则离线折叠不进缓存统�
   t.eq(offline.hit, 2048, "provider 原始：prompt_tokens_details.cached_tokens");
   t.eq(offline.out, 7569, "provider 原始：completion_tokens");
   t.eq(m.normalizeUsage(null).miss, null, "没有 usage 就是 null（不许瞎报 0）");
+};
+
+/* ───────── K-29：expected constraints 只计折叠时已存在的约束 ───────── */
+
+tests["K-29 n2.seq=400 > rangeEnd=380：未来约束右删失，模型与最终产物共用分母"] = (t) => {
+  const graph = {
+    order: ["n1", "n2"],
+    nodes: {
+      n1: { id: "n1", kind: "user", seq: 100, constraints: ["保留旧约束"] },
+      n2: { id: "n2", kind: "user", seq: 400, constraints: ["未来约束"] },
+    },
+    edges: {},
+    rootUserNodeIds: ["n1"],
+  };
+  const q = measureFoldQuality({
+    graph,
+    range: { start: 100, end: 380 },
+    summaryText: "保留旧约束",
+    modelText: "保留旧约束",
+  });
+  t.eq(q.expectedConstraints, 1, "未来约束不进本次 fold 的分母");
+  t.eq(q.constraintRecall, 1, "旧约束已保留 ⇒ 1，而不是未来约束造成的 0.5");
+  t.eq(q.modelConstraintRecall, 1, "modelConstraintRecall 必须使用同一个右删失分母");
+  t.eq(q.missingConstraints, [], "未来约束不进入本次缺失清单");
+  t.eq(collectConstraints(graph), ["保留旧约束", "未来约束"], "全量约束收集语义不变");
+};
+
+tests["K-29 区间边界：seq=380 包括、381 排除；缺 seq 保守纳入"] = (t) => {
+  const atBoundary = (seq) => ({
+    order: ["n1", "n2"],
+    nodes: {
+      n1: { id: "n1", kind: "user", seq: 100, constraints: ["旧约束"] },
+      n2: { id: "n2", kind: "user", ...(seq === undefined ? {} : { seq }), constraints: ["新约束"] },
+    },
+    edges: {},
+    rootUserNodeIds: ["n1"],
+  });
+  const range = { start: 100, end: 380 };
+  const included = measureFoldQuality({ graph: atBoundary(380), range, summaryText: "旧约束" });
+  t.eq(included.expectedConstraints, 2, "seq == range.end 仍属于本次 fold");
+  t.eq(included.constraintRecall, 0.5, "边界内新约束缺失必须如实扣分");
+  const excluded = measureFoldQuality({ graph: atBoundary(381), range, summaryText: "旧约束" });
+  t.eq(excluded.expectedConstraints, 1, "seq > range.end 是右删失，不属于本次 fold");
+  t.eq(excluded.constraintRecall, 1, "排除未来值后召回为 1");
+  const unknown = measureFoldQuality({ graph: atBoundary(undefined), range, summaryText: "旧约束" });
+  t.eq(unknown.expectedConstraints, 2, "缺 seq 无法证明在未来 ⇒ 保守纳入");
+  t.eq(unknown.constraintRecall, 0.5, "缺 seq 不得被当成未来值丢弃");
+};
+
+tests["K-29 后续根约束更新：未来新增值不得污染本次 fold"] = (t) => {
+  const graph = {
+    order: ["n1", "n2"],
+    nodes: {
+      n1: { id: "n1", kind: "user", seq: 100, text: "原根目标", constraints: ["只改后端"] },
+      n2: { id: "n2", kind: "user", seq: 400, text: "根目标更新", constraints: ["只改后端", "允许更新文档"] },
+    },
+    edges: {},
+    rootUserNodeIds: ["n1"],
+  };
+  const q = measureFoldQuality({ graph, range: { start: 100, end: 380 }, summaryText: "只改后端" });
+  t.eq(q.expectedConstraints, 1, "后续根约束更新只保留当时已有的旧值");
+  t.eq(q.constraintRecall, 1, "未来新增值不扣本次召回");
+  t.eq(q.missingConstraints, [], "未来新增值不列为本次缺失");
+  t.eq(collectConstraints(graph), ["只改后端", "允许更新文档"], "生产所需的全量约束仍完整保留");
 };

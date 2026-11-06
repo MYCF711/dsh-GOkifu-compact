@@ -3,7 +3,7 @@
  *
  * 由来：C519 让「离线补折留下的前段缺口」计入欠账，但**计划**还是按尾巴算的 ——
  * 缺口型会话 `tail=0` ⇒ `closeoutExceedsLimit` 返回 null ⇒ 0 段 ⇒ 永远补不了
- * （真机 <SESSION_ID>：尾巴 0 事件、缺口 1,043k tok、**0 段**）。
+ * （真机 session-00b50089：尾巴 0 事件、缺口 1,043k tok、**0 段**）。
  */
 import { planChunkedCloseout } from "../src/rooms/closeout-plan.mjs";
 
@@ -35,7 +35,7 @@ tests["C531 「调用了」不等于「折了」：空转的段不许计入 fold
   const ok = await m.runChunkedCloseout({ chunks, deadline: Date.now() + 10_000, fold: async () => ({ ok: true }) });
   t.eq(ok.folded, 2, "两段都算");
 
-  // 空转：宿主返回但什么都没变 —— 真机 <SESSION_ID> 就是这个形状
+  // 空转：宿主返回但什么都没变 —— 真机 1286ce28 就是这个形状
   const noop = await m.runChunkedCloseout({ chunks, deadline: Date.now() + 10_000, fold: async () => ({ folded: false, skipped: "no-op" }) });
   t.eq(noop.folded, 0, "空转一段都不许算");
   t.eq(noop.stopped, "no-op", "要说明停下来的原因（好让上层去走离线补折）");

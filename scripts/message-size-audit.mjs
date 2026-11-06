@@ -9,7 +9,7 @@
  *
  * 而 `tool/result` **压根不进输入**（C481：工具结果占上下文 12%–77%，其中 93%–100% 没被失败边引用）。
  *
- * 2000 是 C522 拍的（依据只有一条两万字的真机会话 `<SESSION_ID>`）。真机审计
+ * 2000 是 C522 拍的（依据只有一条两万字的真机会话 `8cc34e32`）。真机审计
  * （`scripts/input-truncation-audit.mjs`）说 575 条 foldMark 里 **568 条**有消息正文被切 ——
  * 于是必须回答一个问题：**切掉的那 47% 字符，是"本来就该切"的噪音，还是摘要真的少看了东西？**
  *
@@ -26,7 +26,7 @@
  * 用法：
  *   node scripts/message-size-audit.mjs                    # 全量（真机 741 个会话，约 1 分钟）
  *   node scripts/message-size-audit.mjs --limit=50          # 只扫前 50 个会话（冒烟用）
- *   node scripts/message-size-audit.mjs --session=<SESSION_ID>  # 只看一个会话
+ *   node scripts/message-size-audit.mjs --session=8a73e06b  # 只看一个会话
  *   node scripts/message-size-audit.mjs --json              # 机读
  *   DSH_HOME=... node scripts/message-size-audit.mjs        # 换 home（与 doctor / graph-audit 同源）
  *

@@ -5,7 +5,7 @@
 
 | 会话 | tokens | 超出 | 档位 | 归因 |
 |---|---:|---:|---|---|
-| <SESSION_ID>… | 641 | 141 | L3 | irreducible |
-| <SESSION_ID>-… | 537 | 37 | L3 | floor |
+| <redacted>… | 641 | 141 | L3 | irreducible |
+| c7b857f1-8f8b-4f1f-8eca-… | 537 | 37 | L3 | floor |
 
 与上次对比（2026-11-01T20:02:00Z）：floor +1

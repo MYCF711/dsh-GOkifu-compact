@@ -64,7 +64,7 @@ index feb44b4..3b99712 100644
 +  // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
 +  //   { hash, mode, files } 对象直接写进了节点字段。这里在加载边界统一收敛成字符串，
 +  //   否则 ledger 的 `.slice()` 会抛 "latest?.worldHash?.slice is not a function"，
-+  //   整个压缩链路失败（实机 <SESSION_ID>：187 次该错误 / 226 次压缩仅 3 次成功）。
++  //   整个压缩链路失败（实机 <redacted>：187 次该错误 / 226 次压缩仅 3 次成功）。
 +  let pendingConstraint = 0;
 +  for (const node of Object.values(obj.nodes ?? {})) {
 +    if (!node || node.kind !== "agent") continue;
@@ -184,7 +184,7 @@ index 2f0de79..a17e53b 100644
  };
 +
 +/**
-+ * ★ P0 死亡循环的端到端回归（2026-10-28 实机 <SESSION_ID>）。
++ * ★ P0 死亡循环的端到端回归（2026-10-28 实机 <redacted>）。
 + *
 + * 生产故障链：v1.3.4 把 worldstate.hash() 的 { hash, mode, files } 对象直接写进节点 →
 + *   summarize() 里 renderFacts() 对对象调 .slice() → TypeError →
@@ -200,7 +200,7 @@ index 2f0de79..a17e53b 100644
 +  const sessDir = nodePath.join(dir, "sessions", "sess-legacy");
 +  nodeFs.mkdirSync(sessDir, { recursive: true });
 +  const legacy = {
-+    version: 1, sessionId: "sess-legacy", cwd: "C:/tmp", createdAt: 1, updatedAt: 1,
++    version: 1, sessionId: "sess-legacy", cwd: "<workspace>", createdAt: 1, updatedAt: 1,
 +    nextNode: 3, nextEdge: 2,
 +    nodes: {
 +      n1: { id: "n1", kind: "user", seq: 1, text: "不许动 prod 配置。把构建跑通。", constraints: ["不许动 prod 配置"], ts: 1 },
@@ -425,7 +425,7 @@ index 0000000..f38b5a0
 +/**
 + * worldHash 类型契约回归测试（P0，2026-10-28 实机故障）
 + *
-+ * 事故现场：<SESSION_ID> 的 graph.json 里 206/267 个 agent 节点的 worldHash
++ * 事故现场：<redacted> 的 graph.json 里 206/267 个 agent 节点的 worldHash
 + * 是 { hash, mode, files } 对象（worldstate.hash() 的返回值被直接写入）。
 + * ledger.renderLedger() 里 `latest?.worldHash?.slice(0, 12)` 对对象抛
 + *   "latest?.worldHash?.slice is not a function"

@@ -5,7 +5,7 @@
   "note": "C-13 历史豁免清单。每条被豁免的判据一行；数值(E/N/L)与指纹是冻结条件，任一变化即恢复判红。见 test/graph-exemptions.mjs 顶部注释。",
   "exemptions": [
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "0a3294cf-d7a2-4399-a7cf-8a4705fae7b7",
       "code": "edge-per-node",
       "E": 186,
       "N": 11,
@@ -18,7 +18,7 @@
       "fingerprint": "f80c06e118cbca23479462c33e3244033304a5f5c070161b1b52c3e6a0e807f7"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-04c23b36-8b41-4710-9857-f37e389091af",
       "code": "edge-per-node",
       "E": 319,
       "N": 23,
@@ -31,7 +31,7 @@
       "fingerprint": "fa4c4a7a8e89f65998233df7d2f3d5600a90ebcce9bc6a28fb6878861247fc69"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-1331683e-c033-4039-9ba8-01252081d180",
       "code": "self-loop",
       "E": 628,
       "N": 127,
@@ -44,7 +44,7 @@
       "fingerprint": "afd7573894212d24a07388071d5990e5f3f008ad0facd479a1a2c5cb356755a7"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-1331683e-c033-4039-9ba8-01252081d180",
       "code": "collapsed-graph",
       "E": 628,
       "N": 127,
@@ -57,7 +57,7 @@
       "fingerprint": "afd7573894212d24a07388071d5990e5f3f008ad0facd479a1a2c5cb356755a7"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-15a2dcb3-07e1-4362-8dc1-8ce3512a0111",
       "code": "edge-per-node",
       "E": 561,
       "N": 34,
@@ -70,7 +70,7 @@
       "fingerprint": "5963d9f56ae10f53ad008ffbaa4294b3bb061fc7e41bbe00e265544978a0f38f"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-31b196f9-37f3-4e99-84e7-2ea660e02471",
       "code": "edge-per-node",
       "E": 374,
       "N": 20,
@@ -83,7 +83,7 @@
       "fingerprint": "0ffb756b2543a42aa2c58a1c46979c884d159d565a217f804a6b61913b43b4e4"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-3a8e19ea-ac2b-42ae-ad77-981238c6ad7c",
       "code": "edge-per-node",
       "E": 312,
       "N": 23,
@@ -96,7 +96,7 @@
       "fingerprint": "b6c53325e17ad25ab7c28969498146757e66f80f94eac8941c2e5c6cfc3eac76"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-520905aa-13d3-485f-afaa-cff42c4793d7",
       "code": "edge-per-node",
       "E": 247,
       "N": 23,
@@ -109,7 +109,7 @@
       "fingerprint": "22d881172c2e0019027a853cb5903fc37210333f9c251d3f91485b08ed7bad4d"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-569f9cd0-38ad-4257-b249-e6f3040ffc97",
       "code": "edge-per-node",
       "E": 78,
       "N": 7,
@@ -122,7 +122,7 @@
       "fingerprint": "185a79869ff9d3a93fa8118b3326a7cbcd0d37dd24936a3bbf87601331f45ce2"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-69dd787e-c712-4353-b7d5-b5edaff4aa81",
       "code": "self-loop",
       "E": 153,
       "N": 32,
@@ -135,7 +135,7 @@
       "fingerprint": "ff5c21ff011eb6e82d6d20fa0ac8445abe4e19b9f3578bb4f3a4e03e4c0552f7"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-69dd787e-c712-4353-b7d5-b5edaff4aa81",
       "code": "collapsed-graph",
       "E": 153,
       "N": 32,
@@ -148,7 +148,7 @@
       "fingerprint": "ff5c21ff011eb6e82d6d20fa0ac8445abe4e19b9f3578bb4f3a4e03e4c0552f7"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-8bfe7040-3875-47ec-af64-40b85a6d4b8c",
       "code": "edge-per-node",
       "E": 117,
       "N": 11,
@@ -161,7 +161,7 @@
       "fingerprint": "0cccd1182608616de0e83157e1cfb4c5cbf545cd48ec61ac87d75c0442d395db"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-9d07d733-4182-4ec5-806f-d200c5099613",
       "code": "edge-per-node",
       "E": 246,
       "N": 24,
@@ -174,7 +174,7 @@
       "fingerprint": "bdd83d15d8d447f7f90f7f7cf0ed440989cacdccaab218d542d83ffeb6ccba08"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-a0d03648-c306-43ae-a343-a2a672cd92f2",
       "code": "edge-per-node",
       "E": 530,
       "N": 23,
@@ -187,7 +187,7 @@
       "fingerprint": "c615d6eec12691d22f36b46c74ec2370a056aa8ccf677c3a60bac112e2f8f2f5"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-aebc6e78-df03-4797-bdb6-44d9cfd29b13",
       "code": "edge-per-node",
       "E": 659,
       "N": 52,
@@ -200,7 +200,7 @@
       "fingerprint": "48fa94607a81f3d6be4f031127b474a56c9f3a6a0cba398dfcc2bbf8b3d62e15"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-e02194c6-af6c-4692-91bd-c62a5fefe74e",
       "code": "edge-per-node",
       "E": 285,
       "N": 23,
@@ -213,7 +213,7 @@
       "fingerprint": "3a86260f2410b3a5fe7f7c1bb017a1fb844c1895fc6b9689ff826c08e7f43449"
     },
     {
-      "sessionId": "<SESSION_ID>",
+      "sessionId": "session-fe7af907-13c9-4bf9-98cd-dad34e0e3172",
       "code": "edge-per-node",
       "E": 83,
       "N": 8,

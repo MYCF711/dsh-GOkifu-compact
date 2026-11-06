@@ -49,16 +49,16 @@ export const SAMPLE_COUNT = 10;
  * 冻结集本身**就是** `--fresh` 在 343 条池上的输出，不是挑出来的。
  */
 export const FROZEN_SAMPLE_SESSIONS = Object.freeze([
-  "<SESSION_ID>", // 556 字符（最短，截断的 tool_call）
-  "<SESSION_ID>", // 4424
-  "<SESSION_ID>", // 5103
-  "<SESSION_ID>", // 5682
-  "<SESSION_ID>", // 6068（单事件区间 seq 8-8）
-  "<SESSION_ID>", // 6469
-  "<SESSION_ID>", // 6971（单事件区间 seq 11-11）
-  "<SESSION_ID>", // 7508
-  "<SESSION_ID>", // 8095
-  "<SESSION_ID>", // 13210（最长）
+  "session-fixture", // 556 字符（最短，截断的 tool_call）
+  "session-fixture", // 4424
+  "session-fixture", // 5103
+  "session-fixture", // 5682
+  "session-fixture", // 6068（单事件区间 seq 8-8）
+  "session-fixture", // 6469
+  "session-fixture", // 6971（单事件区间 seq 11-11）
+  "session-fixture", // 7508
+  "session-fixture", // 8095
+  "session-fixture", // 13210（最长）
 ]);
 
 /**

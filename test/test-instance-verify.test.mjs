@@ -24,7 +24,7 @@ tests["T63 真机 1–8 小缺口：真 Engine 合并成大窗口且不写 live 
   }
 };
 
-tests["T64 真机 <SESSION_ID>：seq 1–8 非消息事件的 uncoveredHead 8→0"] = async (t) => {
+tests["T64 真机 010c3b44：seq 1–8 非消息事件的 uncoveredHead 8→0"] = async (t) => {
   const result = await verifyFictitiousGap();
   t.eq(result.actual?.leadingEvents, 8, "真机 seq 1–8 共 8 个事件");
   t.eq(result.actual?.leadingFoldable, 0, "seq 1–8 没有可折消息");
@@ -32,7 +32,7 @@ tests["T64 真机 <SESSION_ID>：seq 1–8 非消息事件的 uncoveredHead 8→
   t.eq(result.actual?.legacyUncoveredHead, 8, "旧坐标差必须复现为 8（反事实分支）");
   t.eq(result.actual?.uncoveredHead, 0, "新实现只数可折事件，头部缺口必须为 0");
   t.eq(result.actual?.uncoveredTail, 0, "区间 1–8 也不得虚构尾部缺口");
-  t.eq(result.sourceAfter?.unchanged, true, "<SESSION_ID> 源日志必须只读");
+  t.eq(result.sourceAfter?.unchanged, true, "010c3b44 源日志必须只读");
 };
 
 tests["T66 finish.kind=error + TRANSPORT：结局 offline:error 而非 empty-response"] = async (t) => {

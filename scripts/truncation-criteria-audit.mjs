@@ -37,7 +37,7 @@
  * 用法：
  *   node scripts/truncation-criteria-audit.mjs                       # 真机全量（DSH_HOME 或 ~/.dsh）
  *   node scripts/truncation-criteria-audit.mjs --json                # 机读
- *   node scripts/truncation-criteria-audit.mjs --session <SESSION_ID>   # 单会话
+ *   node scripts/truncation-criteria-audit.mjs --session 8a73e06b   # 单会话
  *   node scripts/truncation-criteria-audit.mjs --max-tokens=8192 --offline-max-tokens=8192
  *   DSH_HOME=... node scripts/truncation-criteria-audit.mjs
  *

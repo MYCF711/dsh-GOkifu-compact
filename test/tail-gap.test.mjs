@@ -114,7 +114,7 @@ const OLD_due = (tail, gap, closedOut, minEvents = DEFAULT_MIN_EVENTS) =>
   gap > 0 ? gap >= minEvents : closedOut !== true && tail >= minEvents;
 
 tests["C649 ① 小缺口不许吃掉大尾巴（旧判据在同一份夹具上必须是「不欠」）"] = (t) => {
-  // 真机形状（<SESSION_ID>，2026-11-05）：折痕 12–337，尾巴到 676，
+  // 真机形状（session-742a7f59，2026-11-05）：折痕 12–337，尾巴到 676，
   // closeout 同时写着 `offlineUncoveredHead: {events: 11}` 与 `offlineUncoveredTail: {events: 339}`。
   const g = mkGraph({
     seqs: [13, 676],

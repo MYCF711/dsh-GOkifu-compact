@@ -29,7 +29,7 @@
  *
  * 用法：
  *   node scripts/summary-persistence-audit.mjs                   # 默认 DSH_HOME
- *   node scripts/summary-persistence-audit.mjs --home D:/x/home   # 换 home
+ *   node scripts/summary-persistence-audit.mjs --home <workspace>   # 换 home
  *   node scripts/summary-persistence-audit.mjs --json             # 机读
  *
  * 退出码：0 = 统计跑完（无论数字多少）；1 = 一张图都读不到（home 指错了）。

@@ -24,7 +24,7 @@
  * 变异自检（证明不是假绿）不在本文件里跑：它会把整个仓库复制到 `os.tmpdir()` 的副本，
  * **只在副本里变异和运行**（正式源码全程只读，开始/结束 tree sha256 必须一致）。
  * 单独脚本：
- *   `node <WORKSPACE>/tmp/dsh-gokifu-compact/s1a/mutation-selfcheck.mjs`
+ *   `node /d/主工作区/tmp/dsh-gokifu-compact/s1a/mutation-selfcheck.mjs`
  */
 
 import nodeFs from "node:fs";

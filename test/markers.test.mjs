@@ -195,7 +195,7 @@ tests["标记的 token 成本可控：图例不超过 10 行"] = () => {
 
 /** 胖夹具：小预算必然落到兜底档；失败原因是 EACCES ⇒ semantic 档标 `[blocked:permission]`。 */
 function fallbackGraph({ failures = 40, sessionId = "markers-fallback" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(5);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(5);
   const g = createGraph({ sessionId, cwd: "/tmp" });
   const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 5 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉，也不许绕过。`).join(" ")}` });
   let cursor = u; // addUserNodeId 返回 id 字符串（u.id 是 undefined）

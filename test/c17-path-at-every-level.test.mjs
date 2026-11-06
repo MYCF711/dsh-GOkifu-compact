@@ -5,9 +5,9 @@
  *   S2a 给会话加了 `WORKING: …` 行（+28~46 tokens），3 个会话因此从 L2 掉到 L3，
  *   而 1.9.1 的渲染链写的是 `path.length > 1 && level <= 2` —— L3 起整个路径段不渲染。
  *   于是「为了显示工作路径」反而让**路径连同工作位置一起消失**：
- *     <SESSION_ID>：L2=453 → L3=376，WORKING 无
- *     <SESSION_ID>：L2=438 → L3=356，WORKING 无
- *     <SESSION_ID>：L2=489 → L3=394，WORKING 无
+ *     session-569f9cd0：L2=453 → L3=376，WORKING 无
+ *     session-8bfe7040：L2=438 → L3=356，WORKING 无
+ *     session-e02194c6：L2=489 → L3=394，WORKING 无
  *
  * 修法（只改 renderLedger 的路径段，不新增配置键、不动预算、不动档位语义）：
  *   · L0–L2 `full` —— 与 1.9.1 **逐字相同**；
@@ -60,7 +60,7 @@ function weakOnlyGraph({ failures = 10, sessionId = "c17-weak" } = {}) {
 
 /** 一条很长的中文根目标 —— 复现「大图把预算吃光」的形态（真实库里的 5 个 L5 超限图同型）。 */
 function fatRootGraph({ hops = 6, constraints = 10, sessionId = "c17-fat" } = {}) {
-  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在工作区里，已有大量未提交改动必须保留。".repeat(6);
+  const long = "你是并行工作流 WS-C17 的执行子代理，仓库在主工作区里，已有大量未提交改动必须保留。".repeat(6);
   const g = createGraph({ sessionId });
   const u = addUserNodeId(g, { seq: 1, text: `${long}\n\n约束：${Array.from({ length: 4 }, (_, i) => `第${i + 1}条必须遵守的约束，不许删掉。`).join(" ")}` });
   let cursor = u;
@@ -161,7 +161,7 @@ function mixedGraph({ hops = 12, failures = 12, sessionId = "c17-mixed" } = {}) 
 }
 
 /**
- * 「工作路径尾 === 当前路径尾」但两条路径**不等**的形态（真实 <SESSION_ID> 就是它）：
+ * 「工作路径尾 === 当前路径尾」但两条路径**不等**的形态（真实 session-569f9cd0 就是它）：
  * 一条 success 边的 `to` 是 user 节点 ⇒ currentPath 走到 user 就停住，working 链却继续往回走。
  * 旧代码把 WORKING 并进 CURRENT PATH 之后仍然执行 `${folded.workingLine}`，
  * 实测输出一行字面量 `null [weak 1/1]`（既印了 null，又把工作位置藏了）。
@@ -351,7 +351,7 @@ tests["C17-6 L1–L5 档位语义不变：档位越高越省（tokens 单调不�
 tests["C226 只有 1 个节点的路径也必须渲染（旧门槛 path.length>1 会整块丢掉路径）"] = (t) => {
   // 事故：`renderLedger` 里路径块的门槛是 `if (path.length > 1)` —— 任何「只有当前位置、走不出链」的图
   // （只有一个 agent 节点、或边还没接上）在**任何档位**都不出路径行。handoff-check 契约 ⑥ 在 live 上
-  // 稳定抓到 2 个会话（<SESSION_ID> / <SESSION_ID>）报 FAIL，产品侧就是这里。
+  // 稳定抓到 2 个会话（5df02bf8 / 30140e4c）报 FAIL，产品侧就是这里。
   const g = createGraph({ sessionId: "fx-single-path" });
   addUserNodeId(g, { seq: 1, text: "把构建修好" });
   addAgentNode(g, { seq: 2, goal: "再试一次", worldHash: "W1", constraintHash: "C1" });
@@ -484,8 +484,8 @@ tests["C17-13 estimateTokens 与预算判定：折叠后的文本确实被算小
 
 /* ───────────────── 4. C17 收尾修掉的两个缺陷的回归（2026-10-30） ───────────────── */
 
-tests["C17-14 合并形态不许印出字面量 null（真实 <SESSION_ID> 的形态）"] = () => {
-  // 工作路径尾 === 当前路径尾的形态（真实 <SESSION_ID>）：旧代码在这条路径上输出过字面量
+tests["C17-14 合并形态不许印出字面量 null（真实 session-569f9cd0 的形态）"] = () => {
+  // 工作路径尾 === 当前路径尾的形态（真实 session-569f9cd0）：旧代码在这条路径上输出过字面量
   // `null [weak 1/1]`。现在 L3+ **优先分开写**（显式 WORKING），预算不够才允许合并且把
   // `(working edge …)` 标记保在 CURRENT PATH 上。
   const { g } = mergedTailGraph();

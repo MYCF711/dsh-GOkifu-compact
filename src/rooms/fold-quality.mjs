@@ -249,6 +249,27 @@ export function sanitizeSummaryIds(text, graph, range) {
   return { text: out, removed, checked };
 }
 
+/**
+ * 本次 fold 的 expected constraints：只计折叠结束时已经存在的用户约束。
+ *
+ * 与失败边的区间交集不同，约束是累计事实，所以不拿 `range.start` 排除历史约束；
+ * 只有能确定晚于 `range.end` 的节点才右删失。缺 seq 无法证明来自未来，保守纳入。
+ * 这里只收窄质量指标的分母；`renderFacts` / `allConstraints` 的全量事实与机械补回不变。
+ */
+export function constraintsInFoldRange(graph, range) {
+  if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return collectConstraints(graph);
+  }
+  const out = [];
+  for (const id of graph.order) {
+    const node = graph.nodes[id];
+    if (node?.kind !== "user" || !Array.isArray(node.constraints)) continue;
+    if (Number.isFinite(node.seq) && node.seq > range.end) continue;
+    out.push(...node.constraints);
+  }
+  return [...new Set(out)];
+}
+
 export function measureFoldQuality({
   graph,
   range = null,
@@ -260,7 +281,7 @@ export function measureFoldQuality({
   allowedIds = null,
 } = {}) {
   const text = String(summaryText ?? "");
-  const constraints = collectConstraints(graph);
+  const constraints = constraintsInFoldRange(graph, range);
   const failures = failuresInFoldRange(graph, range);
 
   const missingConstraints = [];
@@ -309,7 +330,7 @@ export function measureFoldQuality({
       };
     })()),
     modelConstraintRecall,
-    // ★ C528：**结构契约**。真机 <SESSION_ID> 那次摘要撞了 max_tokens，停在 `grep -n "` 上，
+    // ★ C528：**结构契约**。真机 8cc34e32 那次摘要撞了 max_tokens，停在 `grep -n "` 上，
     //   而当时的质量指标（约束/失败召回）**全是 1**，看起来完美 —— 因为后面的段落整段没写。
     //   这里补两项机器判据：缺哪些必备段落、结尾是不是干净收束。
     ...describeStructure(text, { expectFailures: failures.length > 0 }),

@@ -32,6 +32,7 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
  * 光有退出码 0 不算过 —— 否则"命令没报错但什么都没检查"会被当成绿。
  */
 export const GATES = Object.freeze([
+  { id: "privacy", name: "新增改动无敏感信息（--changed）", script: "privacy-audit.mjs", args: ["--changed"], expect: /✅ privacy-audit changed: pass/ },
   { id: "boundary", name: "越权审计 0 条", script: "boundary-audit.mjs", expect: /越界线索 0 条/ },
   { id: "docs-index", name: "文档都登记在索引里", script: "docs-index-check.mjs", expect: /未索引文档 0 个/ },
   { id: "changelog-index", name: "CHANGELOG 索引与正文一致", script: "changelog-index.mjs", args: ["--check"], expect: /一致|索引/ },

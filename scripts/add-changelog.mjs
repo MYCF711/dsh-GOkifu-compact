@@ -8,7 +8,7 @@
  * 所以这里按结构插入，不猜文本。
  *
  * 用法：
- *   node scripts/add-changelog.mjs --title "标题" --body-file /tmp/body.md
+ *   node scripts/add-changelog.mjs --title "标题" --body-file <workspace>
  *   node scripts/add-changelog.mjs --c 404 --title "…" --body "…" --dry-run
  *   echo "正文" | node scripts/add-changelog.mjs --title "…"
  */

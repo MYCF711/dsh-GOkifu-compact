@@ -125,7 +125,7 @@ export function taskPivotScore(text, { rootText = "", constraints = [] } = {}, {
  * ★ C446：动作**指纹**（工具名 + 完整参数，键序无关）。给「循环判据」用，不给人看。
  *
  * 为什么不能只看 `actionSummary`：它只取 2 个关键参数，于是
- * `edit(file_path=D:/a/b.md)` 对**同一文件的每次不同编辑**都逐字相同。
+ * `edit(file_path=<workspace>` 对**同一文件的每次不同编辑**都逐字相同。
  * 真机实测（36 个会话）：3 个会话出现连续 **5–6 次** `edit(...)`，`result` 全是 `success`
  * —— 那是真的在改代码，不是循环。用 action 当判据会把它们误判成思考死循环并强行折叠。
  *
@@ -284,7 +284,7 @@ function machineOutputShare(body) {
  * 这条 user 消息是人打的字，还是系统/插件注入的上下文。
  *
  * ★ T38（2026-11-05）：`source.kind` 只说明「宿主把这条归到 user 轮」，**不说明它是人打的字**。
- *   真机反例（<SESSION_ID> seq 1179）：一条 **251,157 字符**的 LLM 错误 JSON
+ *   真机反例（<redacted> seq 1179）：一条 **251,157 字符**的 LLM 错误 JSON
  *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘上的请求体）宿主标的 `kind: "user"`，
  *   于是 `extractConstraints` 从里面抽出 40 条「约束」灌进事实块 —— 整块 36% 是系统提示词。
  *

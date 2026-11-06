@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.18.2**（完整脱敏稳定候选，未发布；1.18.1 + 全量隐私清理与可执行性修复）。完整审计 confirmed_sensitive=0 后再推 main/tag/npm/Release |
+| 版本 | **1.18.3**（稳定版；完整脱敏 1.18.2 之后收口 K-32 假阴性、handoff 活跃会话误判与历史 foldMark 保真修复）。全量 **2128 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**6/7 判分门 + 5 条参考门**（仅 handoff 保留 2 条既有 foldMark FAIL）。全量 **2073 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**7/8 判分门 + 5 条参考门**（仅 handoff 保留 1 条历史 foldMark FAIL，待 `repair-foldmark-fidelity --apply`）。全量 **2128 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
 | 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
@@ -17,7 +17,7 @@
 | ⏳ 还差真机样本的**一项**（C466 已补齐） | **C466 已由真机证明**：386 张 live 图里 **325 张有 `closeout`、其中 159 张写了 `foldAttempted/folded`**；**C467 仍缺**——`lastFoldFailure` 落图 **0 条**，要有一次**失败**折叠才会出现，不能造 |
 | ⏳ 唯一待办 | **补账真跑**（规模/花费/段数**只认 `node scripts/backfill-plan.mjs` 当次输出**，本行不再抄第二份 —— 旧值「49 个 / 10.7M tok / $1.72 / 3 次点击」已过期）；先把 `closeoutMaxFoldTokens` 按干跑给的值调大（C392） |
 | 未结案候选 | **K-20**（token 比例标定：实测端到端只差 1.07× ⇒ 降级）· **K-22**（两个「上下文大小」不是一个数 + 800k 台阶；证据已在 C366 埋好，重启后第一次 fold 即可对账） |
-| ⏭ 重启后的三步（照抄） | ① `npm run status` 看六行（若「全量测试」显示"未重跑"且门禁绿，即一切正常）②`node scripts/accept-after-restart.mjs` 看是否 `ready` ③ 想验证补账通道就先 `node scripts/backfill-one.mjs --session <SESSION_ID> --dry`（只演不跑），确认后去掉 `--dry` 补**一个**小会话 |
+| ⏭ 重启后的三步（照抄） | ① `npm run status` 看六行（若「全量测试」显示"未重跑"且门禁绿，即一切正常）②`node scripts/accept-after-restart.mjs` 看是否 `ready` ③ 想验证补账通道就先 `node scripts/backfill-one.mjs --session e78cc233 --dry`（只演不跑），确认后去掉 `--dry` 补**一个**小会话 |
 | 🔜 重启后**应该新出现**的东西 | `state.today.truncated`、`state.update.relation`、`foldMark.usage.model` / `finishReason` / `measuredBefore`、doctor「折叠证据字段」由 `0 0 0` 变为非 0、面板认识 `sessionIds` 参数（`accept-after-restart` 会点名）；若仍缺，说明面板那份模块还是旧的 |
 | 怎么读这份文件 | 本块 = 现状；下面是**追加日志**（旧在上、新在下）。判读顺序：本块 → `docs/README.md` → `docs/压缩的职责边界.md` → `docs/压缩的重注入契约.md` |
 
@@ -28,7 +28,7 @@
 ```bash
 node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
 node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
-npm run gate                                # 6 判分门；跑完把实测 passed 回写 test/counts-baseline.json
+npm run gate                                # 7 判分门；跑完把实测 passed 回写 test/counts-baseline.json
 node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（**8 份文档 / 14 处锚点**一次改完）
 node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
 ```
@@ -78,7 +78,7 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | **最终验收快照（本轮）** | `evidence/最终验收-2026-11-02.md`：六道门禁全绿 —— 676 测试 / bench 447·8/8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 5 警（逐条解释）；live 11 会话 / 555 节点 / 672 边 / 自环 0 / 热清单 3543 tok；版本 **1.17.0 未发布**（tag/publish 待授权）；已知缺口：live 真值样本、#9/#11/#17 |
 | **收口确认（第 24 轮，2026-11-02 01:10）** | 六道门禁复跑全绿：676 测试 / bench 447·8-8 / handoff FAIL 0 / boundary 0 / docs-index 0 / doctor 0 错 4 警（均为跨日或旧 foldMark 未采集）；版本 1.17.0 未发布，tag/publish 待授权；**本轮无代码改动**（避免收尾引入未验证风险）。剩余：live 真值样本（等真实 fold）、#9/#11/#17 候选、发版授权 |
 | **⚠ 用户层 patch 遮蔽（2026-11-02 实机事故）** | 重启后 `chess-context/` 不落盘：`profiles/desktop/cordis.patch.yml`（用户层，最后应用）里的 `preset-standard` 快照写回了 `@deepseek-ai/dsh-compaction-basic`，盖掉了 bundle 层的 engine 覆盖。**已加检测**（`findShadowedUserPresets` + doctor/verify-install 各一项，live 现在准确报 error）；**修复包**在 `home/.gokifu-fix-2026-11-02/`（DSH 完全退出后运行 `apply-fix.cmd`，带备份/原子替换/回滚；幂等）。教训：**verify 只看包内 patch 不够，必须看最后生效的用户层** |
-| **✅ 已收口（2026-11-02 02:36）** | 主人重启后引擎由**机器级层**接管：`/gokifu/api` version 1.17.1；`doctor` 0 错误 / 1 警告（用户层遮蔽 = ✓ 已被机器级层接管）；`verify-install` 19/19；`chess-context/sessions/` 恢复写入（`<SESSION_ID>…`）。修复包 `home/.gokifu-fix-2026-11-02/` 留作应急（1.17.1 起正常退出会自动登记，不需要它） |
+| **✅ 已收口（2026-11-02 02:36）** | 主人重启后引擎由**机器级层**接管：`/gokifu/api` version 1.17.1；`doctor` 0 错误 / 1 警告（用户层遮蔽 = ✓ 已被机器级层接管）；`verify-install` 19/19；`chess-context/sessions/` 恢复写入（`<redacted>…`）。修复包 `home/.gokifu-fix-2026-11-02/` 留作应急（1.17.1 起正常退出会自动登记，不需要它） |
 | **C27 机器级层自愈（1.17.1，本轮）** | 插件在**进程退出时**把用户层里被写回 compaction-basic 的 `preset-*` 行原样复制到 `$DSH_HOME/cordis.patch.yml`（宿主最后应用），只换 compaction 成员 → 下次启动接管，**用户零命令**。doctor/verify 三态化（已登记 ✓ / 未登记提示）。测试 `user-patch-heal` 9 用例；离线组装验证 persona 与 22 个成员逐字保留 |
 | **⏰ 无人值守约定（2026-11-02）** | 每小时定时任务（`schedule-c0e8f774…`）为**自愈式**：每轮先 `get_goal` —— 空则 `create_goal`（max_goal_rounds=240）、blocked/paused 则 `update_goal resume`、complete 则新建，然后才干活。所以 goal 被系统判受阻不会让循环停摆。硬约束不变：串行全量测试、只 add 自己文件、不重启 DSH、不 push |
 | **C28 live fold 证据（1.17.1 后）** | `node scripts/live-folds.mjs` 扫 `foldMarks` 生成 `evidence/live-folds.{json,md}`（只读）。真机 6 次 fold：usage 6/6、trigger 2/6、quality 2/6（其余是老 fold 无字段）、c=1/f=1、压缩比 127–133.8、成本 1.43–1.81、空闭包 2。巡检照它报数，不再手抄 |
@@ -90,7 +90,7 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | **C34 运行实例版本标记（1.17.1 后）** | engine 启动写 `<chess-context>/build.json`（version/startedAt/pid，原子、失败静默、测试写临时目录）；doctor 新增「运行实例版本」：磁盘更新而进程落后 ⇒ warn「重启后生效」；测试 build-stamp 4 用例 |
 | **C35 合同 §6-4 消费者 + 验收清单刷新（1.17.1 后）** | doctor 新增「fold 悬空（dangling）」（fromBroken⇒error / liveUnsettled⇒warn）；live-folds 汇总 dangling；合同 §6 表刷新到 2026-11-02 live 数字并补第 9–13 行。live：3 次 fold、liveUnsettled 0 |
 | **C36 handoff-check ① 语义修正（1.17.1 后）** | 空图（0 节点）⇒ ① 记 ok「不适用」，不再当成「缺 rootUserNodeIds」告警；live WARN **9 → 7**；测试 H-11 |
-| **C36.1 ⑥ 误报修复（1.17.1）** | 当前路径===工作路径时 ledger 只写 `WORKING:` 行，⑥ 旧判据不认 ⇒ 合法渲染被判 FAIL（live <SESSION_ID> 实测）；补 `/^WORKING:/m` + H-12；live handoff-check **FAIL 1→0**、WARN 7 |
+| **C36.1 ⑥ 误报修复（1.17.1）** | 当前路径===工作路径时 ledger 只写 `WORKING:` 行，⑥ 旧判据不认 ⇒ 合法渲染被判 FAIL（live 7520721a 实测）；补 `/^WORKING:/m` + H-12；live handoff-check **FAIL 1→0**、WARN 7 |
 | **✅ 重启后自动转绿（03:01 重启）** | `build.json` 已落盘（v1.17.1 / 03:01）、home 层漂移自愈；doctor 只剩「fold 边界完整性」未采集（下次 fold 落 boundary 即转 ✓） |
 | **C37 ⑬fold边界门禁 + ①agent-only（1.17.1）** | handoff-check 新增 ⑬：`boundary.openAtEnd>0` ⇒ fail（与 doctor 同口径）；① 区分空图 / agent-only（ok）/ 有 user 漏记 root（warn）/ 缺 ROOT USER（fail）；测试 H-13/H-14；live WARN 8→7 |
 | **C38 真空样本告警分层（1.17.1）** | handoff-check ⑩ 真空样本改 ok（detail 标明「非缺陷」）；doctor 保真度在**全部样本真空**时 warn「保真度未被检验」。live handoff WARN **7→5**；测试 H-15 + H-4 改写 |
@@ -102,7 +102,7 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | **C45 图例去行动建议 + 审计规则（1.17.1）** | `MARKER_LEGEND` 8 条全部改事实口径（删 retry when / take it / or create it）；`boundary-audit` 新增 `retry-advice` error 规则（英文行动建议与中文同口径）；markers 测试同步；bench 447 / L5 不变 |
 | **C46 UNVERIFIED 去认知指令（1.17.1）** | `treat as unproven` → `unproven`（只陈述状态）；`boundary-audit` 新增 `epistemic-advice`（treat as / you can / make sure to…）；测试 B-6/B-7 + 事实写法不假红 + U-4；B-1 放宽为「至少命中行为指导」 |
 | **C47 摘要章节标题去指令（1.17.1）** | `## 已探明死路（逐条保留，一条不许少）` → `## 已探明死路`（facts-prompt 模板 + ruleSummary 两侧一致）；规则已在正文规则段，标题不再长期带指令；真机脚本期望同步；bench 447 / L5 |
-| **C48 over-budget 按会话归因（1.17.1）** | `ledger-budget.json` 新增 `overBySession`（前 8 来源）+ doctor 显示「主要来源」；离线归因证明 19.5% 由 `<SESSION_ID>`（649/500，7 条长失败原因）单会话放大，非系统性退化 |
+| **C48 over-budget 按会话归因（1.17.1）** | `ledger-budget.json` 新增 `overBySession`（前 8 来源）+ doctor 显示「主要来源」；离线归因证明 19.5% 由 `<redacted>`（649/500，7 条长失败原因）单会话放大，非系统性退化 |
 | **C49 over-budget 归因细分（1.17.1）** | 新增 `budgetIrreducible`（已列全失败边仍超 ⇒ 再省必须丢失败记忆，设计内）；doctor 同时显示 floorOver / irreducible；测试覆盖两种形态；证据页追加第 6 节 |
 | **C50 live-folds 跨轮趋势（1.17.1）** | `trendOf`：新增 fold / 质量下限变化 / 边界回归 / 成本漂移；`main()` 读上次快照后一起落盘；证据页加「与上次对比」小节；测试 L-6 |
 | **C51 图例单行化（1.17.1）** | L2+ 标记图例压成一行（无换行/无 `#   ` 前缀），L0/L1 仍多行；bench **447→446**（基线已更新+注明理由）；「uniform 标记剔除」实验省到 413 但丢语义（全 blocked 会话失去「被什么挡住」）⇒ 否决入库 |
@@ -117,20 +117,20 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | **C60 折叠纯函数不变量（2026-11-02）** | `test/fold-properties.test.mjs`：随机图+随机区间，闭包计数=暴力扫描、preGraph 语义、openAtEnd≤overlapping 且全盖为 0、unsettled、保真度召回/unknownIds/压缩比；首跑全绿 |
 | **C61 引擎级折叠不变量（2026-11-02）** | `engine-harness` C61：真实 `compactIfNeeded` 后断言失败边/约束一条不少、闭包与暴力重算一致、`openAtEnd=0`、foldMark 字段齐全；顺带记下两个测试坑（idle 才落盘、失败边要落在折叠头） |
 | **C62 连续折叠不变量（2026-11-02）** | `engine-harness` C62：三轮真实 fold，断言区间单调（不许重扫已折区域）、失败边只增不减、每次 foldMark 带 quality/closure/boundary；首跑全绿 |
-| **C63 修正超预算归因假阳性（1.17.1）** | `renderLedger` 新增 `attemptTokens`；`classifyBudget` 把 `reducible?` 换成 `bug`（所选 > 最省尝试才报）；C59 追加「over-budget ⇒ 所选 = 最省尝试」不变量；live 复核 bug=0（此前 <SESSION_ID> 被误报） |
+| **C63 修正超预算归因假阳性（1.17.1）** | `renderLedger` 新增 `attemptTokens`；`classifyBudget` 把 `reducible?` 换成 `bug`（所选 > 最省尝试才报）；C59 追加「over-budget ⇒ 所选 = 最省尝试」不变量；live 复核 bug=0（此前 8fe881d1 被误报） |
 | **C64 专员审计落地（1.17.1）** | P0：摘要模板「需要时按 seq 回读」→「（seq 可定位）」；P1：删置换告警「别重复」、图例去 retry-if 建议、`safeMeasureFoldQuality` 兜住诊断异常、职责边界改「已修清单」；P2：handoff-check 用 `budgetMax`、overbudget-report 按生产形状渲染（666 而非 641）、doctor 悬空未采集→warn、审计补 `directive-short`/`memory-restore-advice`、文档数字统一 415 |
 | **C65 诊断脚本安全默认（1.17.1）** | `live-folds` 默认只打印、`--write` 才落盘（L-8 用例）；`traceRecent` 接入 `traceDropped` 计数并在 doctor 显示；bench 415 不变 |
 | **C66 doctor 四项检查补测（2026-11-02）** | `test/doctor-cli.test.mjs`：子进程 + 临时 home 断言 fold 悬空 / 边界完整性 / 置换合并可追溯 / 分项占用四项（含「未采集必须 warn」与「自相矛盾必须 error」）；4 例全绿 |
 | **C67 minimal 字段接消费者（1.17.1）** | `minimal` → `minimalRenders` 计数 → doctor 显示「最小清单（无失败边）N 次」；T-5 + engine-harness + doctor-cli 三处断言；**专员审计 12 条全部收口** |
 | **C68 发布就绪评估（2026-11-02）** | `docs/发布就绪-2026-11-02.md`：交付物形态 / 能力面 / 七层验证证据 / 「已无优化方向」逐项依据 / 已知缺口与不修理由 / 专员审核结论 / 重启清单（交用户）/ 结论：到达能力上限，唯一待办=重启 |
 | **C69 重启后核对脚本（2026-11-02）** | `scripts/post-restart-check.mjs`：buildId/版本/预算归因三态 + doctor 0 错 + boundary 0 条，一条命令给 fail/warn；live 实测 fail 1（缺 buildId）/ warn 1（578 次 over 无归因）⇒ 明确指向「等重启」；测试 3 例 |
-| **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`<SESSION_ID>` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
+| **C70 live fold 逐会话质量快照（2026-11-02）** | `evidence/fold质量-多会话-2026-11-02.md`：6 会话 / 15 次 fold，quality 11 次召回全 1、boundary 7 次 openAtEnd 全 0、closure 11 次可寻址、thrash 0；`<redacted>` 的旧 fold 无字段=升级前产物；合同 §6 补 `post-restart-check` |
 | **C71 研究文档收口（2026-11-02）** | `docs/research/00` §11 补 27–33、§11.1 刷新（752 passed / folds 15-6 / c=f=1）、新增 §11.2 审计规则演进（C15→C64 五次扩规则的漏网句式与「自审盲区」教训） |
 | **C72 真实会话校准（2026-11-02）** | `scripts/ledger-calibration.mjs`：live 24 会话按生产形状渲染 → **p50 419** / p90 521 / max 688 / 超预算 3-24；证明 bench 415 与真实中位一致（此前「未校准」已消除）；证据 `evidence/ledger-calibration.{json,md}`；测试 2 例 |
 | **C73 负结论（2026-11-02）** | 试图用 provider `outputTokens` 校准本地 `estimateTokens`：实测比值中位 0.537 但**分母含 reasoning/格式开销**，与摘要正文不同量 ⇒ 指标不落地（脚本已回滚）；正解仍需宿主 tokenizer；判据「分母必须与分子同量」入库 |
 | **C74 合同 §6 现状列刷新（2026-11-02）** | 14 行全部按 20:56Z 实测刷新（2293 渲染/583 超、15 次 fold、dangling 11、sections failures 68%、trigger pressure 11/15、closure preGraph 1 true/7 false、boundary 8 次 openAtEnd 0、buildId 缺失=等重启）；表头标明「这是快照，判读看命令」 |
 | **C75 模糊测试加固（2026-11-02）** | `ledger-properties` 种子 10→40（50→200 次渲染）+ 断言「必须命中 over-budget / 省略分支」；`fold-properties` 闭包种子 7→20 + 断言「必须覆盖到节点」；防止属性测试退化成恒真 |
-| **C76 live 证据补采（2026-11-02）** | 新增第 7 个会话 `<SESSION_ID>`（第 16 次 fold：pressure、c=1/f=1、closure+boundary 齐全、openAtEnd=0）；live-folds / 逐会话页 / evidence README / research §11.1 四处口径同步（16 次 / 7 会话 / 8 次 boundary 全 0 / 成本 47–76%） |
+| **C76 live 证据补采（2026-11-02）** | 新增第 7 个会话 `634616f8`（第 16 次 fold：pressure、c=1/f=1、closure+boundary 齐全、openAtEnd=0）；live-folds / 逐会话页 / evidence README / research §11.1 四处口径同步（16 次 / 7 会话 / 8 次 boundary 全 0 / 成本 47–76%） |
 | **C77 发布就绪文档数字刷新（2026-11-02）** | 749→754 passed、13→16 次 fold / 6→7 会话、成本 47→76%、超预算改双口径（即期 bug=0 + 累计 583/2293）；表头标注「快照，判读看命令」 |
 | **C78 交接门禁补 ⑭fold成本（2026-11-02）** | handoff-check 新增 ⑭（遮蔽占读入 <30% ⇒ warn，按最差一次判；无 usage=未采集 ok）；live 本会话「3 次 fold 最低 64% 健康」；测试 H-12/H-13 |
 | **C79 交接门禁 ⑮⑯（2026-11-02）** | handoff-check 新增 ⑮fold悬空（fromBroken⇒fail / liveUnsettled⇒warn / residue 不判错）与 ⑯闭包自洽（区间反向或 nodes>graphNodes⇒fail，preGraph 标注）；live 本会话两项皆 ok；测试 H-14/H-15 |
@@ -156,8 +156,8 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | **C99 QUICKSTART 项数过期（2026-11-02）** | 「18 项/18-18」实际已 19 项：改为不写死项数 + 保留「哪一项可能短红」；C99-1 禁止 QUICKSTART 出现写死项数 |
 | **C100 文档数字锚判据（2026-11-02）** | `docs-numbers`：文档「boundary-audit N 条规则」= `RULES.length`、bench「N tokens」= `EXPECTED_TOKENS`；立刻抓到文档写 5 条、实际 **6** 条（已改正）；两条判据都要求至少命中一次 |
 | **C101 数字锚再补两根（2026-11-02）** | 文档「fold 间隔 < N 事件」= `THRASH_SEQ`(30)、`hotLedgerMaxTokens` 数值 = schema 默认(500)；两处都正确 => 由「碰巧对」变「有人看守」；记下「别在正则里塞换行，用 split(fromCharCode(10))」 |
-| **C102 live 证据补采（2026-11-02）** | 新增 2 次 fold（<SESSION_ID> seq 2171–3166；本会话 seq 7930–9799 = 当前摘要来源）：总数 18 / 7 会话、quality 14 次召回全 1、boundary 11 次全 0、thrash 0；四处口径同步 |
-| **C103 闭包链检查（2026-11-02）** | live 出现「fold 区间重叠」（<SESSION_ID> 7272–8862 vs 上轮 4876–8547）→ 查清是 checkpoint 节点 seq 回落，**节点集不重叠**；新增 `closureChainOf` + live-folds「闭包链」节（18 次 fold / 5 对 / 节点级重叠 0），把「区间 vs 节点集」分开 |
+| **C102 live 证据补采（2026-11-02）** | 新增 2 次 fold（8cc34e32 seq 2171–3166；本会话 seq 7930–9799 = 当前摘要来源）：总数 18 / 7 会话、quality 14 次召回全 1、boundary 11 次全 0、thrash 0；四处口径同步 |
+| **C103 闭包链检查（2026-11-02）** | live 出现「fold 区间重叠」（1e82afca 7272–8862 vs 上轮 4876–8547）→ 查清是 checkpoint 节点 seq 回落，**节点集不重叠**；新增 `closureChainOf` + live-folds「闭包链」节（18 次 fold / 5 对 / 节点级重叠 0），把「区间 vs 节点集」分开 |
 | **C104 越界引用探针（2026-11-02）** | `findOutOfRangeIds`：id 存在但不在本次折叠区间 ⇒ 出界（幻觉探针抓不到的一类）；`measureFoldQuality.outOfRangeIds`、handoff ⑪ 合并两路、doctor 新增一行；测试 Q-8 + H-16；实现坑：`` 被脚本写坏成控制字符 ⇒ 改「不依赖转义」的匹配 |
 | **C105 合并 id 不再算幻觉（2026-11-02）** | 置换合并会把被吞节点从 nodes 删除、只留 `superseded[]`；`findUnknownIds` 曾把它判成编造 id（假红）。已把合并历史纳入已知集合；越界探针不重复报；测试 Q-9；live 当前无合并 ⇒ 不改变现有数字 |
 | **C106 合并 vs 闭包自洽（2026-11-02）** | 查证 ⑯ 用的是折叠当时的 `closure.graphNodes`（非当前图）⇒ 后续合并缩图不会假红；加回归 H-17（历史闭包不误判 / 真坏数据仍 fail）；无 bug |
@@ -191,10 +191,10 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 | 生成器 | `node scripts/make-presets-override.mjs [--write]` —— 读宿主 asar 里的官方 preset，**文本级**改写（官方文件里的 `!!js` 表达式绝不能被 YAML round-trip）。DSH 升级后重跑再发版 |
 | 已否决 | **运行时接管方案（R17）**：`src/rooms/takeover.mjs` + `installTakeover` 会让 preset 生成树挂载失败（重启后会话只剩宿主级工具，`bash`/`read`/`write` 全消失）。代码在 `git stash`：`wip:R17-takeover（事故，留档）`，**不要恢复** |
 | 隔离验证（真跑过） | ① `--dump-config` 四个 `- id: preset-*` 行都带 `dsh-gokifu-compact/engine`；② `agentPreset: "standard"` 会话里**工具齐全**（模型成功调用工具并拿到输出）；③ `<home>/chess-context/sessions/<id>/graph.json` 落盘（含 user/agent 节点与带 verify 的边）；④ 卸载后 `--dump-config` 里引擎行归零、四个 preset 内部 `compaction-basic` 全部回来 |
-| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `<SESSION_ID>` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
+| 桌面 live | **21:51 重启后已加载新 patch**：`doctor` 全绿（错误 0 / 警告 0）、`verify-install` 18/18；本会话 `<redacted>` 的 preset 投影 = **`standard`**，且 assistant 消息里有 **3 条含 `<chess-ledger>`**、ledger 里带 failed 边 → **标准模式在 live 上确实由 GOkifu 引擎压缩** |
 | 已验（live） | ① preset 投影 = standard；② 热清单注入 3 次；③ 失败边进 ledger；④ `doctor` 0 错 0 警、`verify-install` 18/18 |
 | 已验（隔离实例 · 真实 fold） | 给引擎行加小阈值（thresholdRatio .004 / firstFoldRatio .002 / retainRatio .001 / minFoldTokens 200）后连发三条长 prompt：会话日志 `compaction/start → compaction/summary → compaction/end`，graph 写入 `foldMarks: [{seqStart:8, seqEnd:9, shadowedTokens:8093, totalAfter:9844, foldCount:1, ms:7476, usage:{in:16595,out:934}}]` ⇒ **压缩确实走 GOkifu 棋谱摘要** |
-| 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add <WORKSPACE>/repos/dsh-GOkifu-compact`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
+| 已验（官方安装流程） | 干净 profile（只含 base + web-app）跑 `dsh plugin --profile installprobe add <workspace>`：① 依赖自动写入（link）；② **`dsh.profile.bundles` 自动追加 `dsh-gokifu-compact`**；③ `--dump-config` 显示四个 `- id: preset-*` 行各带 `dsh-gokifu-compact/engine`、外加 `gokifu-ui` 行 ⇒ GUI 插件市场点「安装」走的是同一条通道 |
 | 未验证 | 1.15.x 旧会话 header 里 `agentPreset: "gokifu"` 在移除 preset-gokifu 后的恢复行为 —— 升级前扫一遍会话日志（脚本在 Hindsight `1.16.0 升级前必查`） |
 
 
@@ -228,17 +228,17 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 
 ### 已了结的旧账（2026-11-01 复核，别再当待办）
 
-- **P6-C 真实 apply 已经执行了**（旧版本文件写「仍未执行」，是错的）：`<WORKSPACE>\tmp\dsh-gokifu-compact\LIVE-APPLY-2026-10-31T14-20-18-959Z.log`
+- **P6-C 真实 apply 已经执行了**（旧版本文件写「仍未执行」，是错的）：`<workspace>`
   → preflight **exit 0**（176 会话 / 30,341,323 B）→ dry-run → `--apply` → `migrate verify … "ok": true`、
   **`archived=6219 deleted=6219 sessions=48`**、`[exit 0]`（2026-10-31 22:20 本地）。整目录备份在
-  `<WORKSPACE>\tmp\dsh-gokifu-compact\live-apply-backup-2026-10-31T14-20-18-959Z\`。
+  `<workspace>`。
   **没做完的是「重启后读日志验收」** —— 而 11-01 的 home 重建让那一步**永久不可复现**。
 - **S1b（清理 2 张历史自环图）可关**：对上述归档快照实测 `test/rewash-selfloop.mjs` dry-run
   = **176 个 graph.json / 0 个含自环 / 全库自环 0 / 37,194 = 0.0%**（点名的两张图仍在，但已无自环）。
 
 ## 新版 DSH 适配（0.2.1-rc.5）—— 装回去之前必读
 
-> 完整方案（逐行源码实测）：`<SECONDARY_CHECKOUT_ROOT>`。
+> 完整方案（逐行源码实测）：`<workspace>`。
 > 本节只留结论与顺序，别整段抄。
 
 **三道版本闸（缺一不可，全在宿主 `dsh-app-boot` 里）**
@@ -262,7 +262,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
    若要用旧包，走官方 `dsh plugin --profile desktop allow-version <pkg@ver> --dsh-version <exact> --accept-risk`。
 2. **装 bundle —— `dsh plugin add` 就是官方 install 通道**
    ```bash
-   dsh plugin --profile desktop add "<WORKSPACE>\repos\dsh-GOkifu-compact"
+   dsh plugin --profile desktop add "<workspace>"
    ```
    **机制更正（1.13.0 实测，别再按旧笔记走 Web 页面）**：`dsh plugin add` **不只是转发 pnpm** ——
    成功后它会调 `reconcile()`（`dsh-plugin-manager/lib/types/operations.js:96-124`），把「本次新增的依赖
@@ -274,8 +274,8 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
    ```bash
    # 默认就是 dry-run；生成时别把 DSH_HOME 指向目标 home（否则「不许写进运行中 home」的守卫会拒，退出码 2）
    env -u DSH_HOME node scripts/make-preset.mjs
-   env -u DSH_HOME node scripts/make-preset.mjs --write --out "<repo>/tmp/preset-bundle"
-   dsh plugin --profile desktop add "<repo>/tmp/preset-bundle"     # 同样会被 reconcile 选进 bundles
+   env -u DSH_HOME node scripts/make-preset.mjs --write --out "<repo><workspace>"
+   dsh plugin --profile desktop add "<repo><workspace>"     # 同样会被 reconcile 选进 bundles
    ```
    - 它从**当前宿主 asar** 读官方 `dsh-web-app/presets/standard.patch.yml`，**只**把 compaction group 里的
      `- id: compaction-basic` 换成 `- id: gokifu-compact / name: 'dsh-gokifu-compact/engine'`，
@@ -290,7 +290,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 
 1. **「安装态与 preset 必须同源」，而手加的 `link:` 会被插件管理器抹掉**：2026-10-31 22:02:22 DSH 插件管理器重写
    `profile/package.json` 时是**按自己的托管清单重建**，把插件 `cli.mjs install` 手加的 `link:` 依赖与 bundle 项一起丢了
-   （现场备份 `<WORKSPACE>\.trash\2026-10-31\live-profile-before-gokifu-reinstall\package.json`），而 preset 还指着它
+   （现场备份 `<workspace>`），而 preset 还指着它
    ⇒ 所有相关 resume 报 `gokifu-compact (dsh-gokifu-compact): never started (gateway/internal)`。
    **⇒ 必须走官方通道装，不要只手改 package.json。**
 2. **引擎名必须写 `dsh-gokifu-compact/engine`**，不能写包根：包根 `exports["."]` → `src/ui.mjs` 是 UI host，
@@ -299,7 +299,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 > 其它陷阱：桌面 `gokifu-停窗减枝.cmd` 必须是 **GBK(CP936) + CRLF**（1361 B / 39 CRLF / 无 BOM）；
 > UTF-8 编辑器保存会让它静默失效。`live` 若用 `link:` 指向工作树，则**工作树里任何未提交改动重启后都会被直接加载**。
 >
-> **⚠ 启动器（1.13.0 发现并已修）**：`<DSH_HOME_OR_INSTALL_DIR> Harness\启动 DSH.cmd` **原本是坏的** —— 两处路径写
+> **⚠ 启动器（1.13.0 发现并已修）**：`<workspace> Harness\启动 DSH.cmd` **原本是坏的** —— 两处路径写
 > `%~dp0DeepSeek Harness Desktop\`，而实际目录名是 `Desktop\`（连它的 `.bak-20261101` 备份也是同一处错
 > ⇒ **升级后就一直断**）。已改成 `%~dp0Desktop\`、重写为 CRLF/无 BOM，并逐条验证引用的 3 个路径都存在。
 > **为什么这条重要**：「重启 DSH」正是装回插件的第 2 步 —— 启动器坏了会被误判成**「插件把宿主搞崩」**。
@@ -307,16 +307,16 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
 ## 测试用 DSH 实例（W-C · 1.13.0 建成，这是本轮最重要的能力）
 
 > 目的：以后**任何**「装回去到底行不行」的验证，都在这个**独立实例**上做，不再拿生产 home 冒险。
-> 细节与逐条证据：`<SECONDARY_CHECKOUT_ROOT>`。
+> 细节与逐条证据：`<workspace>`。
 
 | 项 | 值 |
 |---|---|
-| 测试 home | **`<TEST_DSH_HOME>`**（独立 `DSH_HOME`，与生产 `<DSH_HOME_OR_INSTALL_DIR> Harness\home` 完全隔离） |
+| 测试 home | **`<workspace>`**（独立 `DSH_HOME`，与生产 `<workspace> Harness\home` 完全隔离） |
 | 端口 | **62619**（生产是 62618）⇒ 两个实例可同时跑 |
 | profile | `web`（自动创建），已装 `dsh-gokifu-compact` + 自建 preset bundle，二者都在 `dsh.profile.bundles` 里 |
 | 起停 | 起：`dsh --profile web --host 127.0.0.1 --port 62619 --no-open`；停：`netstat -ano \| grep LISTENING \| grep :62619` 拿 PID 后 `taskkill //PID <PID> //T //F` |
 | 复现命令序 | `test-instance.md` §7（一条条可照抄） |
-| 副产物 | `<PNPM_STORE_DIR>`（官方 `dsh plugin add` **自己选的** pnpm store，74 MB，不要时 `rm -rf <PNPM_STORE_DIR>`） |
+| 副产物 | `<workspace>`（官方 `dsh plugin add` **自己选的** pnpm store，74 MB，不要时 `rm -rf <workspace>） |
 
 **已验证到哪一段（A→B→C→引擎加载）**
 
@@ -329,7 +329,7 @@ peer 表同时是模块解析路由表），并补 `engines.dsh`。⚠ 这套 ra
   `status:"schema"` 且 `$defs` 是本插件 `config-schema.mjs` 生成的**带中文 description 的 Config**（说明模块真被 import）；
   ③ 同 realm `inject:["compaction"]` 探针被激活，写出
   `{"hasService":true,"constructorName":"ChessCompactionEngine","hooks":{summarize/compactIfNeeded/compactNow/compactRegion 全 function}}`。
-  旁证：`POST http://127.0.0.1:<ISOLATED_UI_PORT>/gokifu/api {"action":"health"}` → **HTTP 200** + 插件自己的 JSON。
+  旁证：`POST http://127.0.0.1:62619/gokifu/api {"action":"health"}` → **HTTP 200** + 插件自己的 JSON。
 
 **还差什么（诚实写）**：「**会话选中 preset → 引擎实例化 → 真压一轮**」**没验** —— 测试 home 没配模型路由，
 也没有擅自把生产 magpie 接过去。所以准确说法是：**「引擎行被加载、实例化、注册服务」已实测；
@@ -449,7 +449,7 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 | GitHub | https://github.com/MYCF711/dsh-GOkifu-compact |
 | npm | `dsh-gokifu-compact@1.7.0`（`dsh plugin --profile <name> add dsh-gokifu-compact`）|
 | 最新 Release | https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.8.0 |
-| 本地路径 | `<WORKSPACE>\projects\dsh-chess-context`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
+| 本地路径 | `<workspace>`（物理目录名保留旧名 `chess`；junction 名 `dsh-gokifu-compact`） |
 | 包名 | `dsh-gokifu-compact`（npm 只能小写）；展示名 `dsh-GOkifu-compact` |
 | 运行期生效 | ✅ 10:0x 已重启：GUI 里**第一次真实 fold 成功**（遮蔽 440,847 tok → surface 1391→373，面板 81%→约 16%）|
 
@@ -482,7 +482,7 @@ DSH 的上下文压缩后端插件。把「历史 → 一段摘要」换成
 **这是插件上线以来最严重的 bug，不是平台问题**：`worldstate.hash()` 返回
 `{ hash, mode, files }` 对象，`engine.worldHashOf()` 把它原样写进节点 ⇒
 `renderFacts()` 的 `latest?.worldHash?.slice()` 抛 TypeError ⇒ 压缩事务回滚。
-实机 `<SESSION_ID>`：**226 次压缩只成功 3 次**，上下文涨到 66 万 token，
+实机 `<redacted>`：**226 次压缩只成功 3 次**，上下文涨到 66 万 token，
 模型 reasoning 退化自我重复，被 magpie 判死循环中断（37 次，全部在同一模型上）。
 
 修复内容（`docs/P0-worldhash-死循环-根因与修复方案.md` + `evidence/P0-worldhash-修复验证.md`）：
@@ -550,7 +550,7 @@ sessions/<sessionId>/
 
 ### 第五阶段：清单就地替换（v1.4.0 → 1.5.0）
 
-旧版每次注入都**追加**一条新消息 ⇒ 实测 `<SESSION_ID>` 累积 **176 条 / 81 万字符 ≈ 27 万 token**
+旧版每次注入都**追加**一条新消息 ⇒ 实测 `<redacted>` 累积 **176 条 / 81 万字符 ≈ 27 万 token**
 （它上下文峰值 672K 里约 27 万是插件自己注入的）—— 压缩插件自己的热上下文成了最大的消费者。
 现在用 DSH 官方的 `surfaceOp:{op:"replace"}` **就地替换**，surface 上永远只有一条；
 历史追加出来的旧清单被一次性换成一行占位（事故会话 surface 上还压着 44 条 / 29.5 万字符 ≈ 9.8 万 token）。
@@ -601,7 +601,7 @@ sessions/<sessionId>/
 | 1 | **重启 DSH（部署最新代码）** | ✅ 已做；`doctor` 全绿（0 错误 0 警告）|
 | 2 | **GUI 长会话的自然 fold** | 机制链路已在真实 dsh 进程验证（`test/real-headless-fold.mjs`，多次 3~6/6 成功）；GUI 里 45 万 token 的自然触发要等重启后跑一段 |
 | 3 | **真实计费对账（口径已建）** | `test/measure-billing.mjs` 能按会话拆「未缓存/缓存/清单占比/fold 收支」；网关价目表不落盘，金额需主人按账单折算 |
-| 4 | **其它历史会话的回洗** | `test/rewash-graph.mjs` 只对 <SESSION_ID> 跑过；其余会话按需各自 dry-run + apply |
+| 4 | **其它历史会话的回洗** | `test/rewash-graph.mjs` 只对 <redacted> 跑过；其余会话按需各自 dry-run + apply |
 | 5 | **index.md 时效性** | v1.6.1 起每次 flush 重写；`nodes/*.md` 仍只在首次/fold 后写（快照，细节以 graph.json 为准） |
 | 6 | **`text` 型残留 8 条** | 证据区间对不上，保守未洗（见 `evidence/收尾三件-dead锚点-树读取-回洗.md`） |
 
@@ -618,7 +618,7 @@ sessions/<sessionId>/
 ## 怎么验证 / 装 / 回滚
 
 ```bash
-cd <WORKSPACE>/projects/dsh-chess-context
+cd <workspace>
 
 # 验证（当前 v1.3.5 工作区）
 node test/run.mjs            # 118 passed

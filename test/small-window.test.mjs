@@ -56,7 +56,7 @@ const REPO = nodePath.join(HERE, "..");
 /* ───────────────────────────── 夹具 ───────────────────────────── */
 
 /**
- * 真机形状（抄自 `<SESSION_ID>` / `<SESSION_ID>` / `<SESSION_ID>` 的实测区间）：
+ * 真机形状（抄自 `f5f5f84a` / `3c43529c` / `74b9db26` 的实测区间）：
  *
  *   · seq 1–8 是 `session` / `sandbox/mode` / `step/start` 这类**非消息**事件；
  *   · 第一条 user 消息在 seq 9 ⇒ 首折会出现 `offlineUncoveredHead = {from:1, events:8}`；

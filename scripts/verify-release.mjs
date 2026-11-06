@@ -63,7 +63,7 @@ function localTarball(target) {
   if (!/^https?:\/\//i.test(target)) {
     const abs = nodePath.resolve(ROOT, target)
     if (!nodeFs.existsSync(abs)) throw new Error(`tarball 不存在：${abs}`)
-    // ⚠ 一律复制到 tmpRoot 下的**相对文件名**：GNU tar 会把 `C:\…` 里的 `C:` 当成远程主机
+    // ⚠ 一律复制到 tmpRoot 下的**相对文件名**：GNU tar 会把 `<workspace>` 里的 `C:` 当成远程主机
     // （rsh 语法），报 “Cannot connect to C: resolve failed”。用 cwd + 相对名彻底绕开。
     nodeFs.copyFileSync(abs, out)
     return out

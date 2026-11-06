@@ -41,8 +41,8 @@ export function parseSpec(spec) {
 
 /**
  * 解析规格里的路径文本为绝对路径。
- * 相对路径按 pnpm 契约从 `baseDir`（profile 目录）起算；Windows 下顺手认 MSYS 风格 `/d/x`
- * （那是 Git Bash 的路径，直接 `path.resolve` 会变成 `D:\d\x` 这种不存在的怪路径）。
+ * 相对路径按 pnpm 契约从 `baseDir`（profile 目录）起算；Windows 下顺手认 MSYS 风格 `<workspace>
+ * （那是 Git Bash 的路径，直接 `path.resolve` 会变成 `<workspace>` 这种不存在的怪路径）。
  */
 export function resolveSpecPath(pathText, baseDir) {
   if (typeof pathText !== "string" || pathText.length === 0) return null;

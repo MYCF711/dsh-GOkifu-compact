@@ -26,7 +26,7 @@
  *
  * 用法：
  *   node scripts/summary-text-coverage-audit.mjs                        # 默认 DSH_HOME
- *   node scripts/summary-text-coverage-audit.mjs --home D:/x/home       # 换 home
+ *   node scripts/summary-text-coverage-audit.mjs --home <workspace>       # 换 home
  *   node scripts/summary-text-coverage-audit.mjs --sessions <dir>       # 直接指 sessions 目录
  *   node scripts/summary-text-coverage-audit.mjs --json                 # 机读
  *   node scripts/summary-text-coverage-audit.mjs --strict               # 该有正文的路径未 100% ⇒ 退出码 1

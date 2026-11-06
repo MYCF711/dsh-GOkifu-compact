@@ -58,7 +58,7 @@
 - e5 "用 webpack 5 的持久缓存" → Error: Cannot read config file: webpack.config.mjs — Unexpected token 'export' (evidence seq 50-54)
 - e6 "把数据库迁移脚本一次跑完" → MigrationError: relation "users" already exists (code 42P07) (evidence seq 60-64)
 - e7 "给 API 加 5 秒超时重试" → AssertionError: expected 3 retries, got 0 (tests/api.test.js:88) (evidence seq 70-74)
-- e8 "把 CI 缓存目录换成 /tmp" → ls: cannot access '/tmp/ci-cache': No such file or directory [exit code: 2] (evidence seq 80-84)
+- e8 "把 CI 缓存目录换成 /tmp" → ls: cannot access '<workspace>': No such file or directory [exit code: 2] (evidence seq 80-84)
 
 ## 已验证事实
 - `npx eslint src --max-warnings 0` 退出码 0（exit 0）。
@@ -110,7 +110,7 @@
 - `webpack.config.mjs` unexpected token `export` — config/format mismatch; unresolved.
 - `MigrationError: relation "users" already exists (42P07)` — re-running `--all` migrations not idempotent; unresolved.
 - `AssertionError: expected 3 retries, got 0` at `tests/api.test.js:88` — retry implementation violates contract.
-- `/tmp/ci-cache` missing (exit 2) — CI cache dir does not exist; unresolved.
+- `<workspace>` missing (exit 2) — CI cache dir does not exist; unresolved.
 - Fixed: `.env.example` written successfully (18 lines).
 - Fixed: `npx eslint src --max-warnings 0` → exit 0.
 
@@ -153,7 +153,7 @@
 - e5 用 webpack 5 的持久缓存 → `Error: Cannot read config file: webpack.config.mjs — Unexpected token 'export'`
 - e6 把数据库迁移脚本一次跑完 → `MigrationError: relation "users" already exists`（code 42P07）
 - e7 给 API 加 5 秒超时重试 → `AssertionError: expected 3 retries, got 0`（tests/api.test.js:88）
-- e8 把 CI 缓存目录换成 /tmp → `ls: cannot access '/tmp/ci-cache': No such file or directory` [exit 2]
+- e8 把 CI 缓存目录换成 /tmp → `ls: cannot access '<workspace>': No such file or directory` [exit 2]
 
 另外有一条不可采信：e11「看一眼性能曲线」，跑了但没有任何外部验证信号，不计入失败清单。
 
@@ -182,7 +182,7 @@
 - **e2/e3/e5** 都是引入依赖或切换工具链（sqlite、nvm、webpack 持久缓存）；我只运行仓库自带的测试命令，不装包、不换运行时、不碰构建配置。
 - **e4** 是写 `config/prod.yaml`，被约束明令禁止且实际 EACCES；我只读测试输出，完全不接触 prod 配置。
 - **e6**（迁移脚本 42P07）与 **e7**（`tests/api.test.js:88` 期望 3 次重试得到 0）都是**已知失败现象本身**，而不是"查明还有哪些失败"。跑全量测试正是为了把 e7 这类断言失败与其它失败区分开，而不是再去调那个重试逻辑。
-- **e8** 是往 `/tmp/ci-cache` 写东西、且该路径根本不存在；我这一步不涉及任何 CI 缓存路径。
+- **e8** 是往 `<workspace>` 写东西、且该路径根本不存在；我这一步不涉及任何 CI 缓存路径。
 
 一句话概括：**先量体温再开药——用一次无改动的全量测试确定"全绿"的真实缺口，而不是再一次赌某一行。** 拿到清单后，我会优先修与"日志流式输出"直接相关的那部分（对应 e1 的 `pipe` 目标），并逐条核对公开 API 响应字段未变，`config/` 一律不碰。
 ```

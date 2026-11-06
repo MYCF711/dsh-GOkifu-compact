@@ -3,7 +3,7 @@
  *
  * 背景（task-46 / task-36 对账）：
  *   · 生产口径下 `renderLedger` 的 `TRACE:` 行写的是**绝对路径**
- *     （`<DSH_HOME_OR_INSTALL_DIR> Harness\home\chess-context\sessions\<sid>/index.md ...`，实测 137.7 字符/行）；
+ *     （`D:\DeepSeek Harness\home\chess-context\sessions\<sid>/index.md ...`，实测 137.7 字符/行）；
  *   · 94/133 个会话带 TRACE 行 ⇒ 白烧 token（净 +2318 = avg +17.43/图），还把本机用户名/盘符
  *     泄漏进热清单。
  *
@@ -36,9 +36,9 @@ function failingGraph({ sessionId = "fx-trace", failures = 3 } = {}) {
   return { g, ids: [u, a] };
 }
 
-const ABS_WIN = String.raw`D:\fixture\home\chess-context\sessions\abc-123`;
-const ABS_POSIX = "D:/fixture/home/chess-context/sessions/abc-123";
-const ABS_USER = "<USER_HOME>/chess-context/sessions/abc-123";
+const ABS_WIN = String.raw`D:\DeepSeek Harness\home\chess-context\sessions\abc-123`;
+const ABS_POSIX = "/d/DeepSeek Harness/home/chess-context/sessions/abc-123";
+const ABS_USER = "C:/Users/Administrator/chess-context/sessions/abc-123";
 
 const traceLine = (text) => text.split("\n").find((l) => l.startsWith("TRACE:")) ?? "";
 const ABSOLUTE_RE = /(?:[A-Za-z]:[\\/]|^\/|\/Users\/|\/home\/|DeepSeek Harness|Administrator)/;

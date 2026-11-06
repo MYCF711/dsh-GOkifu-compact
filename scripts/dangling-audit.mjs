@@ -22,8 +22,8 @@
  * 用法（默认只读）：
  *   node scripts/dangling-audit.mjs                 # 全库审计 + 分类统计
  *   node scripts/dangling-audit.mjs --json          # 机读
- *   node scripts/dangling-audit.mjs --session=<SESSION_ID>       # 只审计一个会话（id 前缀）
- *   node scripts/dangling-audit.mjs --apply --session=<SESSION_ID> # 标记该会话的不可补悬空边（先备份到 tmp/）
+ *   node scripts/dangling-audit.mjs --session=8cc34e32       # 只审计一个会话（id 前缀）
+ *   node scripts/dangling-audit.mjs --apply --session=8cc34e32 # 标记该会话的不可补悬空边（先备份到 tmp/）
  *   node scripts/dangling-audit.mjs --apply --dry-run        # 只报告将要写什么
  *
  * 退出码：0 全绿；1 有**未标记**的不自洽；2 参数错误。

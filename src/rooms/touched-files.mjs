@@ -32,11 +32,11 @@ const NEXT_ARG_RE = /(?:^|\s)[A-Za-z0-9_-]+=/;
  * 从一条图边的 `action` 字符串里解析出「文件路径」。
  *
  * 形态（keeper.actionSummary 的确定性产物）：
- *   `read(file_path=/tmp/x.md)`
- *   `edit(file_path=<WORKSPACE>\repo\a.mjs)`
- *   `write(file_path=D:\…\a.md content=# 标题 …)`      ← 第二个参数带空格，要在 ` content=` 处截断
- *   `write(file_path="D:\my docs\a.md")`               ← 带引号（宿主/测试都可能出现）
- *   `read(file_path=/tmp/very/long…`                    ← action 被截断（没有闭合括号）
+ *   `read(file_path=<workspace>`
+ *   `edit(file_path=<workspace>`
+ *   `write(file_path=<workspace> content=# 标题 …)`      ← 第二个参数带空格，要在 ` content=` 处截断
+ *   `write(file_path="<workspace> docs\a.md")`               ← 带引号（宿主/测试都可能出现）
+ *   `read(file_path=<workspace>`                    ← action 被截断（没有闭合括号）
  *
  * @param {unknown} action
  * @returns {string|null} 路径（最长 {@link MAX_PATH_CHARS} 字符）；不是文件类工具或没有路径参数 ⇒ null
@@ -61,7 +61,7 @@ export function parseTouchedFileAction(action) {
   }
   if (keyAt < 0) return null;
   let rest = body.slice(keyAt + keyLen);
-  // 值到「下一个 key=」为止：路径里可以有空格（`D:\my docs\a.md`），所以不能按空格切。
+  // 值到「下一个 key=」为止：路径里可以有空格（`<workspace> docs\a.md`），所以不能按空格切。
   const next = NEXT_ARG_RE.exec(rest);
   const truncated = next === null;
   if (next !== null) rest = rest.slice(0, next.index);

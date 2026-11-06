@@ -1,7 +1,7 @@
 /**
  * rewash-graph.mjs —— 用**当前的** verifier 重洗历史棋谱（数据层修复）
  *
- * 背景（HANDOFF 未完成清单）：`<SESSION_ID>` 的 101 条 failure 里有 43 条是 verifier 误报
+ * 背景（HANDOFF 未完成清单）：`session-5acafe42` 的 101 条 failure 里有 43 条是 verifier 误报
  * （`verify.kind === "text"`：只读工具的叙述文本里出现了「失败」二字），而且很多 `errorSnippet`
  * 是旧版取法抓来的噪声（例如 Python traceback 只抓到 `[stderr]` + 第一帧，真正的异常那行没抓到）。
  *

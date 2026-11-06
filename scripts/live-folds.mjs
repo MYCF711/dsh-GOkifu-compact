@@ -11,7 +11,7 @@
  * 用法：
  *   node scripts/live-folds.mjs                     # 读 DSH_HOME（或 ~/.dsh），**只打印摘要**（安全默认）
  *   node scripts/live-folds.mjs --write             # 落盘 evidence/live-folds.{json,md}
- *   node scripts/live-folds.mjs --home D:/x/home    # 指定 home
+ *   node scripts/live-folds.mjs --home <workspace>    # 指定 home
  *   node scripts/live-folds.mjs --dry-run           # 同默认（保留旧参数，向后兼容）
  */
 

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-const asar='<DSH_HOME_OR_INSTALL_DIR> Harness/resources/app.asar';
+const asar='D:/DeepSeek Harness/resources/app.asar';
 const buf=fs.readFileSync(asar);
 const hs=buf.readUInt32LE(12);
 const header=JSON.parse(buf.toString('utf8',16,16+hs));

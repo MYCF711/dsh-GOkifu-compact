@@ -31,7 +31,7 @@
 
 ```bash
 node scripts/p6c-preflight.mjs            # 人类可读
-node scripts/p6c-preflight.mjs --json > /tmp/p6c-preflight.json   # 存档对账基线
+node scripts/p6c-preflight.mjs --json > <workspace>   # 存档对账基线
 ```
 
 它检查 5 件事，**全是只读**（不写 live、不建目录、不启停 DSH）：
@@ -57,7 +57,7 @@ node scripts/p6c-preflight.mjs --json > /tmp/p6c-preflight.json   # 存档对账
 ## 3. 第 1 步：dry-run 对账（**只读**，apply 前必做）
 
 ```bash
-node scripts/migrate-dangling.mjs --json > /tmp/p6c-dryrun.json
+node scripts/migrate-dangling.mjs --json > <workspace>
 node scripts/migrate-dangling.mjs            # 人类可读
 ```
 
@@ -86,7 +86,7 @@ node scripts/migrate-dangling.mjs            # 人类可读
 ## 4. 第 2 步：apply（**不带 `--force`**）
 
 ```bash
-node scripts/migrate-dangling.mjs --apply 2>&1 | tee /tmp/p6c-apply.log
+node scripts/migrate-dangling.mjs --apply 2>&1 | tee <workspace>
 ```
 
 - **绝对不要带 `--force`**：`--force` 的唯一作用是跳过 120s 新鲜度守卫，只应作为「已确认插件没在跑、但 mtime 恰好新鲜」的兜底，且必须记进报告。
@@ -145,13 +145,13 @@ node scripts/migrate-dangling.mjs --rollback=<备份目录>
 
 ```bash
 # 0) 预检（DSH 必须已全退）
-node scripts/p6c-preflight.mjs --json | tee /tmp/p6c-preflight.json     # 期望 exit 0
+node scripts/p6c-preflight.mjs --json | tee <workspace>     # 期望 exit 0
 
 # 1) dry-run 对账（只读）
-node scripts/migrate-dangling.mjs --json > /tmp/p6c-dryrun.json
+node scripts/migrate-dangling.mjs --json > <workspace>
 
 # 2) apply（不带 --force）
-node scripts/migrate-dangling.mjs --apply 2>&1 | tee /tmp/p6c-apply.log
+node scripts/migrate-dangling.mjs --apply 2>&1 | tee <workspace>
 
 # 3) verify（只读）
 node scripts/migrate-dangling.mjs --verify --backup=<apply 输出里的备份目录>

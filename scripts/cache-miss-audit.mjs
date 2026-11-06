@@ -47,7 +47,7 @@
  * ## 用法
  *
  *   node scripts/cache-miss-audit.mjs                      # 扫 DSH_HOME 下全部会话
- *   node scripts/cache-miss-audit.mjs --session <SESSION_ID>    # 只看一个会话
+ *   node scripts/cache-miss-audit.mjs --session 8a73e06b    # 只看一个会话
  *   node scripts/cache-miss-audit.mjs --max-sessions 50     # 大 home 上先跑样本
  *   node scripts/cache-miss-audit.mjs --json               # 机器可读
  *   node scripts/cache-miss-audit.mjs --noise 128 --ttl 600 # 换阈值（默认 256 / 300）

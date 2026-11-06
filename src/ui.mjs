@@ -22,7 +22,7 @@
  *          （「绑 0.0.0.0」只表示监听所有网卡，不等于「信任任意域名解析到本机」）
  *       ② 带 Origin 时必须是同源（协议+主机+端口与 Host 一致）
  *       ③ 带 Sec-Fetch-Site 时只允许 same-origin / none（**same-site 也不行**：
- *          127.0.0.1:<UI_ORIGIN_PORT> → 127.0.0.1:<UI_TARGET_PORT> 的跨站简单请求实测就是 `same-site`）
+ *          127.0.0.1:19401 → 127.0.0.1:19400 的跨站简单请求实测就是 `same-site`）
  *     再要求 `content-type: application/json` —— 表单与 `text/plain` 都进不来。
  *   · **真实调用方核对**（不是凭猜）：唯一的浏览器调用方是 `lib/client.js` 的
  *     `fetch("/gokifu/api", {method:"POST", headers:{"content-type":"application/json"}})`。
@@ -78,7 +78,7 @@ import { createPersistStore, createFsPort, graphRoot } from "./rooms/kifu-persis
  * 本文件所在目录（真实路径）。
  *
  * 为什么不用 `new URL(import.meta.url).pathname`：pathname 是**百分号编码**串
- * （`/<WORKSPACE>/…`），拼出来的路径在磁盘上不存在 ⇒
+ * （`/<workspace>`），拼出来的路径在磁盘上不存在 ⇒
  * `readFileSync` ENOENT ⇒ `readVersion()` 的 catch 吞成 `null` ⇒ 页面标题渲染成 `v?`
  * （`lib/client.js:197` 的 `v${state?.version ?? "?"}`）。
  * `fileURLToPath` 是 Node 官方解码入口（空格 `%20`、中文、`~` 的 `%7E` 一并还原）。

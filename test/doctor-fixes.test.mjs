@@ -170,8 +170,8 @@ const OLD_triggerVerdict = (marks) => {
 };
 
 tests["C604 ② fold 触发原因：2 天前自救过一次、之后又正常 fold ⇒ 结论已不成立（旧判据真红）"] = (t) => {
-  // 真机形状：<SESSION_ID> 在 11-04T01:36 溢出自救一次，之后又 fold 了 18 次（最近 archive-offline）；
-  // <SESSION_ID> 11-03T06:19 自救一次，之后最近一次是 pressure。旧判据只看累计次数 ⇒ 永久红。
+  // 真机形状：226dbf4f 在 11-04T01:36 溢出自救一次，之后又 fold 了 18 次（最近 archive-offline）；
+  // d62a520c 11-03T06:19 自救一次，之后最近一次是 pressure。旧判据只看累计次数 ⇒ 永久红。
   const marks = [
     mark(T0, { trigger: "context-overflow" }),
     ...Array.from({ length: 5 }, (_, i) => mark(T0 + (i + 1) * MIN, { trigger: "pressure" })),
@@ -318,7 +318,7 @@ tests["C604 ④ 反向：usage 与 route 都没有模型名 ⇒ 仍然必须 `!`
 /* ───────────────── ⑤ 归档后剩余的未折尾巴：缺字段时不许编造 ───────────────── */
 
 tests["C604 ⑤ 未折尾巴：closeout 缺 eventsSinceLastFold 时不许拿「fold 折到哪」当尾巴（旧判据真红）"] = (t) => {
-  // 真机形状（<SESSION_ID>）：closeout 没有 eventsSinceLastFold，
+  // 真机形状（session-0dcbcff0）：closeout 没有 eventsSinceLastFold，
   // lastEnd=3002（-fold 折到的**位置**），而图上最大事件序号只有 1761 ⇒ 真实尾巴是 0。
   // 旧代码 `eventsSinceLastFold ?? Math.max(0, lastEnd)` 把位置当差值 ⇒ 凭空报「还有 3002 事件未折」。
   const marks = [mark(T0, { trigger: "archive-offline", seqStart: 10, seqEnd: 3002 })];
