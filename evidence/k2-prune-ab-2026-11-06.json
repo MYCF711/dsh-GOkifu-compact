@@ -1,5 +1,9 @@
 {
   "schema": "k2-prune-ab-evidence-v1",
+  "status": "SUPERSEDED",
+  "supersededBy": "k32-snippet-normalization-2026-11-06.json",
+  "supersededAt": "2026-11-06",
+  "supersededReason": "旧判据用原始 snippet 前60字符比对 norm后的 facts；14/23 条 missing 是空白归一化假阴性。旧 failureRecall 与 REJECT 不得再作为结论。",
   "generatedAt": "2026-11-06",
   "command": "node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json",
   "mode": "offline-read-only",

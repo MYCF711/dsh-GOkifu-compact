@@ -1,0 +1,37 @@
+{
+  "schema": "k32-snippet-normalization-v1",
+  "generatedAt": "2026-11-06",
+  "commit": "79a009a",
+  "rootCause": "renderFacts 先 norm()/clip()，旧审计用原始 errorSnippet 前60字符直接 includes；CRLF/连续空格/行尾差异造成假阴性",
+  "fix": "isRememberedByGraph 对正文与 snippet 都先 norm() 并把空白压成单空格，再做前60字符比对",
+  "p2": {
+    "cases": 10,
+    "currentSessionCases": 0,
+    "snippets": 285,
+    "rawMissing": 14,
+    "normalizedMissing": 0
+  },
+  "k2Controlled": {
+    "rawOutput": "k2-controlled-2026-11-06.json",
+    "selection": "最近会话中 <=5MB 且排除当前根会话，取10条",
+    "latestTotal": 1381,
+    "evaluatedSessions": 10,
+    "savedTokens": 1122809,
+    "baselineFailureRecall": 1,
+    "everyStepFailureRecall": 1,
+    "baselineConstraintRecall": 1,
+    "everyStepConstraintRecall": 1,
+    "decision": "CANDIDATE",
+    "reasons": []
+  },
+  "supersedes": {
+    "evidence": "k2-prune-ab-2026-11-06.json",
+    "oldDecision": "REJECT",
+    "reason": "旧口径的 14/23 条 missing 是空白归一化假阴性；不得再作为失败召回结论"
+  },
+  "defaultPruneChanged": false,
+  "limits": [
+    "受控样本排除了当前会话与 >5MB 日志，不能替代全量分布",
+    "未调用真实 reader，CANDIDATE 只表示结构召回归一化后无回归，不代表任务能力无损"
+  ]
+}

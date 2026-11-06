@@ -586,9 +586,13 @@
 
 > 完整脱敏稳定版 1.18.2 公开后，本地下一轮开发线切换为 `1.18.3-beta.1`，避免与稳定版混用。
 
+### T96 · K-32 failure snippet 归一化修正
+
+`isRememberedByGraph` 改为对正文与 snippet 使用同一空白归一化，再比对前 60 字符；新增 CRLF/连续空格真红用例。修正后 P2 的 285 条 snippet raw 缺 14、归一化后缺 0；受控 K-2 10 会话为 CANDIDATE（省约 1,122,809 tok，failure/constraint 1→1）。旧的 K-2 REJECT 是假阴性，保留为 SUPERSEDED；仍不默认开启每步清理。
+
 ### T95 · K-2 工具结果每步清理离线 A/B
 
-新增只读 `tool-result-prune-ab.mjs`，比较原始工具结果与 every-step + 生产 `renderFacts` 重注入。10 个真实会话、774 条失败边、50 条约束：可省约 7,222,723 估算 tokens，但 failureRecall 从 80.23% 降到 77.26%，constraintRecall 保持 1。结论 **REJECT**，不修改默认剪枝行为；9 条真红/新绿测试守住判据。
+新增只读 `tool-result-prune-ab.mjs`，比较原始工具结果与 every-step + 生产 `renderFacts` 重注入。10 个真实会话、774 条失败边、50 条约束：可省约 7,222,723 估算 tokens，但 failureRecall 从 80.23% 降到 77.26%，constraintRecall 保持 1。结论 **REJECT**（**已被 T96 标为假阴性/SUPERSEDED**），不修改默认剪枝行为；9 条真红/新绿测试守住判据。
 
 ### T94 · K-27 冻结续接问答与 full/compact 配对判分器
 

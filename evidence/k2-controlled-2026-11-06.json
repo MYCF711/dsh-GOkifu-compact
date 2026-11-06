@@ -1,0 +1,43 @@
+{
+  "maxMB": 5,
+  "limit": 10,
+  "excludeSid": true,
+  "latestTotal": 1381,
+  "eligible": 10,
+  "skippedTooLargeOrUnread": 1371,
+  "summary": {
+    "status": "OK",
+    "scannedSessions": 10,
+    "evaluatedSessions": 10,
+    "missingGraphSessions": 0,
+    "readErrorSessions": 0,
+    "toolResults": 1189,
+    "toolResultChars": 3591573,
+    "retainedTextChars": 2819581,
+    "factsChars": 72385,
+    "failureEdges": 30,
+    "failureSnippetEdges": 30,
+    "missingSnippetEdges": 0,
+    "constraints": 32,
+    "baseline": {
+      "chars": 6411154,
+      "tokens": 2025951,
+      "failureRecalled": 30,
+      "constraintRecalled": 32,
+      "failureRecall": 1,
+      "constraintRecall": 1
+    },
+    "everyStep": {
+      "chars": 2891966,
+      "tokens": 903142,
+      "failureRecalled": 30,
+      "constraintRecalled": 32,
+      "failureRecall": 1,
+      "constraintRecall": 1
+    },
+    "savedChars": 3519188,
+    "savedTokens": 1122809,
+    "decision": "CANDIDATE",
+    "reasons": []
+  }
+}
