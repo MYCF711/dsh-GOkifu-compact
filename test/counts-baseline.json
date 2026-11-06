@@ -1,5 +1,5 @@
 {
- "total": 1790,
+ "total": 1793,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -93,6 +93,7 @@
   "install-ui-step.test.mjs": 5,
   "instrument-audit.test.mjs": 10,
   "integration.test.mjs": 0,
+  "k26-coverage-check.test.mjs": 3,
   "keeper.test.mjs": 3,
   "kifu-model-snapshot.test.mjs": 7,
   "kifu-persist.test.mjs": 10,
@@ -234,6 +235,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2146,
- "passedAt": "2026-11-06T19:30:24.375Z"
+ "passed": 2149,
+ "passedAt": "2026-11-06T20:41:17.562Z"
 }
