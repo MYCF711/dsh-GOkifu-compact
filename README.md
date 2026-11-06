@@ -1,6 +1,6 @@
 # dsh-GOkifu-compact
 
-> 当前版本：**`1.18.0`**（**未发布**：无 tag / 未 npm publish；git 源用户靠版本号识别更新） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
+> 当前版本：**`1.18.1`**（稳定候选，未发布；稳定版 1.18.0 已公开） · npm [`dsh-gokifu-compact`](https://www.npmjs.com/package/dsh-gokifu-compact) · [GitHub Releases](https://github.com/MYCF711/dsh-GOkifu-compact/releases) · 更新记录见 [CHANGELOG.md](CHANGELOG.md)
 
 **DSH 的棋谱式上下文压缩后端 —— 把「历史 → 一段摘要」换成「历史 → 可复盘的棋谱 DAG + 每步只有 415 tokens 的热清单」。**
 
@@ -183,7 +183,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2072 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2073 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
