@@ -15,6 +15,7 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 
 import z from "@deepseek-ai/schemastery";
@@ -714,6 +715,54 @@ function resolveHome() {
   return nodePath.join(os.homedir(), ".dsh");
 }
 
+const BACKFILL_REPO_ROOT = nodePath.dirname(nodePath.dirname(fileURLToPath(import.meta.url)));
+
+/** 按钮的一次性路由：两个值都给了才覆盖；否则完整继承父 agent 的当前路由。 */
+export function backfillSubagentRoute(options = {}, parent = null) {
+  const requestedProvider = String(options.summarizationProvider ?? options.provider ?? "").trim();
+  const requestedModel = String(options.summarizationModel ?? options.model ?? "").trim();
+  const explicit = requestedProvider !== "" && requestedModel !== "";
+  const header = (() => {
+    try {
+      return parent?.session?.requestHeader?.()?.config ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const currentProvider = String(header?.provider ?? parent?.options?.provider ?? "").trim();
+  const currentModel = String(header?.model ?? parent?.options?.model ?? "").trim();
+  return {
+    provider: explicit ? requestedProvider : currentProvider,
+    model: explicit ? requestedModel : currentModel,
+    explicit,
+  };
+}
+
+/** Git bash 的单参数引用，模型 id 即使是手填文本也不能变成 shell 片段。 */
+function backfillShellArg(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+export function backfillSubagentCommand(route = {}) {
+  const model = String(route.model ?? "").trim();
+  return [
+    "node scripts/archive-fold.mjs --due --limit 1 --chunks 1 --write",
+    ...(model === "" ? [] : [`--model ${backfillShellArg(model)}`]),
+  ].join(" ");
+}
+
+/** 子代理的结束状态与结构化回执共同决定成败；只有进程 completed 不算补折成功。 */
+export function backfillSubagentOutcome(result) {
+  const report = String(result?.structured?.report ?? "").slice(0, 1000);
+  if (result?.stopReason !== "completed") {
+    return { ok: false, report, error: `补折子代理未正常完成（${String(result?.stopReason ?? "unknown")}）` };
+  }
+  if (result?.structured?.ok !== true) {
+    return { ok: false, report, error: report === "" ? "补折子代理没有确认写回成功" : report };
+  }
+  return { ok: true, report, error: null };
+}
+
 export default class ChessCompactionEngine extends BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
 
@@ -778,8 +827,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         latest: this,
         forCtx,
         closeoutNow: (agent, options) => (forCtx(agent?.ctx) ?? this).closeoutNow(agent, options),
-        // 按钮补折：模型、进度与取消都只随这一次调用传递，不写回 chess 全局配置。
-        runBackfillWithModel: (options) => (forCtx(null) ?? this).runAutoBackfillOnce(options),
+        // 按钮补折：点一下只派一个子代理；模型只随本次调用传递，不写回 chess 全局配置。
+        runBackfillWithModel: (options) => (forCtx(null) ?? this).runBackfillSubagentOnce(options),
         // ★ C529：**面板与人别撞车**。自动补账和面板补账可能同时选中同一个会话，
         //   那就是两次模型调用 + 两个写者。面板动手前先问一句。
         isBackfillBusy: (id) => (forCtx(null) ?? this)?._backfillInFlight?.has?.(String(id)) === true,
@@ -2167,6 +2216,85 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *   · **活着的会话不碰**（日志 mtime < 5 分钟）—— 宿主手里有内存里的图，我们写会被覆盖；
    *   · 失败只 warn，绝不影响主流程。
    */
+  /**
+   * 面板的「补折」按钮：一次调用只派一个子代理，子代理执行一条有界补折命令。
+   * 不调用 #startAutoBackfill，也不创建 timeout/interval；忙碌、启动失败与子代理失败都如实返回。
+   */
+  async runBackfillSubagentOnce(options = {}) {
+    if (this._backfillSubagentBusy === true) return { ok: false, busy: true, error: "已有一个补折子代理在跑" };
+    this._backfillSubagentBusy = true;
+    try {
+      const runtime = (() => {
+        if (options.subagents) return options.subagents;
+        try {
+          return this.ctx?.subagents ?? this.ctx?.get?.("subagents") ?? null;
+        } catch {
+          return null;
+        }
+      })();
+      if (typeof runtime?.startActivation !== "function") return { ok: false, error: "宿主没有 subagents.startActivation" };
+      const agents = (() => {
+        if (options.agents) return options.agents;
+        try {
+          return this.ctx?.agents ?? this.ctx?.get?.("agents") ?? null;
+        } catch {
+          return null;
+        }
+      })();
+      const parent = options.parent ?? agents?.roots?.().at(-1) ?? agents?.list?.().at(-1) ?? null;
+      if (!parent?.session) return { ok: false, error: "没有可作为补折父级的活跃 agent" };
+      const backend = options.subagentProvider ?? runtime.list?.()[0] ?? null;
+      if (typeof backend !== "string" || backend === "") return { ok: false, error: "宿主没有可用的子代理后端" };
+
+      const route = backfillSubagentRoute(options, parent);
+      const command = backfillSubagentCommand(route);
+      const signal = options.signal ?? new AbortController().signal;
+      const prompt = [
+        "你是一次性归档补折子代理，当前目录就是 dsh-GOkifu-compact 仓库。",
+        `运行这一条命令（只运行一次）：\`${command}\``,
+        "命令会选取一个有欠账的归档会话，写回一段折痕。保留命令的 stdout/stderr 与退出码。",
+        "结束后调用 structured_output：只有退出码为 0 且输出确认已写入折痕时 ok=true，其余情况 ok=false；report 写退出码和关键输出。",
+        "不改其它文件，不重启 DSH，不另起后台任务。",
+      ].join("\n");
+      const activation = await runtime.startActivation({
+        provider: backend,
+        label: "归档补折",
+        delivery: "caller",
+        signal,
+        request: {
+          parent,
+          cwd: options.cwd ?? BACKFILL_REPO_ROOT,
+          prompt: [{ type: "text", text: prompt }],
+          signal,
+          ...(route.explicit ? { agentOptions: { provider: route.provider, model: route.model } } : {}),
+          outputSchema: {
+            type: "object",
+            properties: { ok: { type: "boolean" }, report: { type: "string" } },
+            required: ["ok", "report"],
+            additionalProperties: false,
+          },
+        },
+      });
+      options.onProgress?.({ stage: "dispatched", childId: activation.childId, provider: route.provider, model: route.model });
+      const result = await activation.result;
+      const outcome = backfillSubagentOutcome(result);
+      options.onProgress?.({ stage: "settled", childId: activation.childId, ...outcome });
+      return {
+        ...outcome,
+        dispatched: true,
+        childId: activation.childId,
+        stopReason: result?.stopReason ?? "unknown",
+        provider: route.provider || null,
+        model: route.model || null,
+        inheritedRoute: !route.explicit,
+      };
+    } catch (error) {
+      return { ok: false, dispatched: false, error: String(error?.message ?? error).slice(0, 300) };
+    } finally {
+      this._backfillSubagentBusy = false;
+    }
+  }
+
   /**
    * ★ C598：**手动触发一轮自动补账**（面板「立即补账」/ 测试用）。
    *

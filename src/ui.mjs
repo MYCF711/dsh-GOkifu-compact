@@ -1605,6 +1605,31 @@ function applyInner(ctx) {
           const refresh = body.refresh === true || body.refresh === 1 || body.refresh === "1" || body.refresh === "true";
           return sendJson(res, 200, await checkUpdate({ profile: profileName, refresh }));
         }
+        if (action === "backfill-subagent") {
+          // ★ Lead 集成（T76 的客户端/引擎实现已完成，这里补薄分支）：
+          //   用户的设计 = 「补折**点一下派个子代理去补折**，可以用免费模型」。
+          //   客户端发 `action:"backfill-subagent", summarizationProvider, summarizationModel`，
+          //   这里把它接到引擎桥的 `runBackfillWithModel({provider, model})`（一次 startActivation，无定时器）。
+          const bridge = (() => {
+            try {
+              return globalThis[Symbol.for("dsh-gokifu.engine")] ?? null;
+            } catch {
+              return null;
+            }
+          })();
+          if (bridge === null || typeof bridge.runBackfillWithModel !== "function") {
+            return sendJson(res, 503, {
+              ok: false,
+              code: "engine-missing",
+              error: "压缩引擎不在这个进程里（插件未加载，或代码已更新但还没重载宿主）",
+            });
+          }
+          const report = await bridge.runBackfillWithModel({
+            provider: body.summarizationProvider,
+            model: body.summarizationModel,
+          });
+          return sendJson(res, 200, report);
+        }
         if (action === "backfill") {
           // ★ C260：**同一时刻只允许一次真补账**。
           //   两个标签页（或手抖双击）同时点"开始补账"，会对同一批归档会话**各 resume 一次**
