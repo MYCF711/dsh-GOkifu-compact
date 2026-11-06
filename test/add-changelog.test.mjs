@@ -56,11 +56,53 @@ tests["C403 非法输入要让错误可读；maxNumber 取最大编号"] = (t) =
 
 tests["C404 add-changelog 必须顺带刷新 CHANGELOG 索引（否则 C169 会红）"] = async (t) => {
   const nodeFs = await import("node:fs");
+  const nodeOs = await import("node:os");
   const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
+  const { fileURLToPath, pathToFileURL } = await import("node:url");
   const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "scripts", "add-changelog.mjs"), "utf8");
-  t.includes(src, "changelog-index.mjs", "必须在插入后调用索引脚本（C404）");
-  t.includes(src, "spawnSync", "用同步子进程调用，别引入异步复杂度");
-  t.includes(src, "索引没刷成", "刷失败时要提示人（不许静默）");
+  const source = nodePath.join(here, "..", "scripts", "add-changelog.mjs");
+  const indexer = nodePath.join(here, "..", "scripts", "changelog-index.mjs");
+  const makeRepo = (withIndexer) => {
+    const root = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "add-changelog-c404-"));
+    nodeFs.mkdirSync(nodePath.join(root, "scripts"), { recursive: true });
+    nodeFs.copyFileSync(source, nodePath.join(root, "scripts", "add-changelog.mjs"));
+    if (withIndexer) nodeFs.copyFileSync(indexer, nodePath.join(root, "scripts", "changelog-index.mjs"));
+    nodeFs.writeFileSync(nodePath.join(root, "CHANGELOG.md"), SAMPLE, "utf8");
+    return root;
+  };
+  const run = async (root) => {
+    const logs = [];
+    const originalLog = console.log;
+    console.log = (...args) => logs.push(args.join(" "));
+    try {
+      const mod = await import(`${pathToFileURL(nodePath.join(root, "scripts", "add-changelog.mjs")).href}?c404=${Math.random()}`);
+      const code = mod.main(["--c", "3", "--title", "三", "--body", "正文3"]);
+      return { code, logs: logs.join("\n"), text: nodeFs.readFileSync(nodePath.join(root, "CHANGELOG.md"), "utf8") };
+    } finally {
+      console.log = originalLog;
+    }
+  };
+
+  // 真跑成功分支：索引脚本必须真的执行，C3 必须出现在正文前的索引里。
+  const okRoot = makeRepo(true);
+  try {
+    const ok = await run(okRoot);
+    t.eq(ok.code, 0, "插入必须成功");
+    t.eq(ok.text.indexOf("| C3 | 三 |") >= 0 && ok.text.indexOf("| C3 | 三 |") < ok.text.indexOf("### C3 · 三"), true,
+      "新条目必须真的写进索引，而不只是写进正文");
+    t.includes(ok.text, "正文3", "正文仍要插入");
+  } finally {
+    nodeFs.rmSync(okRoot, { recursive: true, force: true });
+  }
+
+  // 真跑失败分支：索引脚本失败时不许静默，必须给出人读警告。
+  const badRoot = makeRepo(false);
+  try {
+    const bad = await run(badRoot);
+    t.eq(bad.code, 0, "索引失败不回滚已经插入的条目");
+    t.includes(bad.logs, "索引没刷成", "索引子进程失败后必须真的打出警告");
+    t.eq(bad.text.includes("| C3 | 三 |"), false, "失败夹具里索引没有被刷新（证明上一组成功断言不是空转）");
+  } finally {
+    nodeFs.rmSync(badRoot, { recursive: true, force: true });
+  }
 };

@@ -189,14 +189,41 @@ tests["C370 K-23 接线：p90 从图上 foldMark 现算（不再依赖从未赋�
   t.eq(recentFoldP90([{ ms: 0 }, { ms: null }]), null, "没有有效 ms ⇒ null");
   t.eq(recentFoldP90([]), null, "空数组 ⇒ null");
 
-  // 引擎接线：必须真的从图上算，不许再用那个从未赋值的字段
+  // 真 Engine 接线：大尾巴进入分段收尾时，必须消费图上的 foldMark.ms 并打出 p90 警告。
+  // 删除 recentFoldP90 import 后，引擎内部 catch 会把缺失绑定吞成 null，这条警告会消失。
   const nodeFs = await import("node:fs");
+  const nodeOs = await import("node:os");
   const nodePath = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const here = nodePath.dirname(fileURLToPath(import.meta.url));
-  const src = nodeFs.readFileSync(nodePath.join(here, "..", "src", "engine.mjs"), "utf8");
-  t.eq(src.includes("this._foldP90Ms"), false, "不许再依赖 _foldP90Ms（K-23）");
-  t.includes(src, "recentFoldP90(", "引擎必须调用 recentFoldP90");
+  const { load, makeCtx, makeSession } = await import("./engine-harness.test.mjs");
+  const { Engine } = await load();
+  const runCloseout = async (ms) => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-c370-"));
+    const id = `sess-c370-${String(ms)}`;
+    try {
+      const ctx = makeCtx({ measureTotal: () => 10_000 });
+      const engine = new Engine(ctx, { graphDir: dir, auto: false, closeoutMinEvents: 1, closeoutTimeoutMs: 90_000 });
+      const session = makeSession({ id });
+      for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "x" }] });
+      await ctx.emitRaw("session/event", session, {
+        type: "user/message",
+        data: { id: "u", role: "user", content: [{ type: "text", text: "root" }], source: { kind: "prompt" } },
+      });
+      const graph = engine.graphs.get(id);
+      t.eq(!!graph, true, "夹具必须先让引擎读到真图");
+      for (const node of Object.values(graph.nodes)) node.seq = 200_000;
+      graph.foldMarks = [{ seqStart: 0, seqEnd: 100, shadowedTokens: 100_000, ms }];
+      await engine.closeoutNow({ session, options: {} });
+      return ctx.warns;
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const warns = await runCloseout(100_000);
+  t.eq(warns.some((line) => line.includes("6 段 × p90 100.0s = 600s > 超时 90s")), true,
+    `p90 必须真的进入分段超时建议：${JSON.stringify(warns)}`);
+  const noP90Warns = await runCloseout(null);
+  t.eq(noP90Warns.some((line) => line.includes("× p90")), false,
+    `没有有效 ms 时不许虚构 p90 警告：${JSON.stringify(noP90Warns)}`);
 };
 
 tests["C414 计划里也要列出「最小的三个」（验证通道要先从便宜的一端试）"] = async (t) => {

@@ -703,8 +703,8 @@ Object.assign(tests, {
     const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
     const count = (src.match(/opts\.mode === "merge"/g) ?? []).length;
     t.eq(count, 2, `merge 分支必须恰好 2 处（执行 + 输出），实际 ${count}`);
-    // 执行链里必须调 mergeMany，输出链里必须有 backup:
-    t.includes(src, "mergeMany(opts.mergeTarget", "必须调 mergeMany");
+    // mergeMany 的真实调用由 P6C-C1 的 CLI dry-run/apply/幂等行为覆盖；
+    // 这里只保留本用例自身的输出结构检查，不再用函数名文本冒充接线证明。
     t.includes(src, "backup:", "人类摘要必须打印备份目录");
     t.includes(src, "已回灌并重建 index.md", "apply 人类摘要必须说明写了什么");
   },
@@ -798,24 +798,26 @@ Object.assign(tests, {
 tests["C278 dry-run 必须说清「会改哪些会话」——只报 affected N 用户没法判断该不该 --apply"] = (t) => {
   const root = tmpRoot("per-session");
   try {
-    makeSessionDir(root, "sess-a", () => mixedGraph("sess-a").g);
-    makeSessionDir(root, "sess-b", () => {
-      const g = createGraph({ sessionId: "sess-b" });
-      addUserNode(g, { seq: 1, text: "hi" });
-      return g;
-    });
+    for (const id of ["sess-a", "sess-b", "sess-c", "sess-d", "sess-e", "sess-f"]) {
+      makeSessionDir(root, id, () => mixedGraph(id).g);
+    }
     const result = dryRun(root, { now: NOW });
     t.eq(Array.isArray(result.perSession), true, "dry-run 必须给出 perSession（打印要用）");
+    t.eq(result.perSession.length, 6, "六个受影响会话必须全部进入明细");
     t.eq(result.perSession.length, result.affectedSessions, "perSession 条数必须等于 affectedSessions");
-    const one = result.perSession.find((x) => x.session === "sess-a");
-    t.eq(!!one, true, "有 residue 的 sess-a 必须在清单里");
-    t.eq(one.residue > 0, true, "要带 residue 条数（用户据此判断改动量）");
-    t.eq(Number.isFinite(one.bytesBefore), true, "要带文件大小");
+    t.eq(result.perSession.every((one) => one.residue > 0 && Number.isFinite(one.bytesBefore)), true,
+      "每条明细都要带 residue 与文件大小");
 
-    // 接线：脚本真的把它打印出来（数据算了不打印 = 用户还是看不到）
-    const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs"), "utf8");
-    t.includes(src, "result.perSession", "脚本必须用 perSession 打印受影响会话");
-    t.includes(src, "另 ${", "超过 5 个要有「…另 N 个」而不是刷屏");
+    // 真跑 CLI：人读输出必须消费这份明细，前五条之外给出剩余数，且 dry-run 一个字节都不写。
+    const before = hashTree(root);
+    const cli = nodePath.join(HERE, "..", "scripts", "migrate-dangling.mjs");
+    const out = execFileSync(process.execPath, [cli, `--root=${root}`, `--now=${NOW}`], { encoding: "utf8", timeout: 120_000 });
+    const lines = out.split(/\r?\n/).filter((line) => /^  · sess-/.test(line));
+    t.eq(lines.length, 5, `人读输出必须真的列出前五条会话明细：\n${out}`);
+    t.eq(lines.every((line) => /: residue [1-9]\d*（\d+ bytes）/.test(line)), true,
+      `输出明细必须带 residue 与 bytes：\n${out}`);
+    t.includes(out, "…另 1 个会话", "第六个会话必须折叠成剩余计数，而不是静默丢掉");
+    t.eq(hashTree(root), before, "CLI dry-run 前后整目录哈希必须相同");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }

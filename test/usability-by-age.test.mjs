@@ -288,11 +288,66 @@ tests["T52⑤ 跨度/离尾部分档：分档器必须把每条折痕分到且�
 
 /* ───────────────────────── ⑥ 口径与只读（源码级守卫） ───────────────────────── */
 
-tests["T52⑥ 机械指标必须从 T33 导入（不许第二套实现）"] = (t) => {
+tests["T52⑥ 机械指标必须从 T33 导入（不许第二套实现）"] = async (t) => {
   const src = nodeFs.readFileSync(SCRIPT, "utf8");
-  t.includes(src, 'from "./summary-usability-audit.mjs"', "必须 import T33 的模块");
-  t.includes(src, "measureSample", "必须复用 T33 的 measureSample");
-  t.includes(src, "resolveHome", "DSH_HOME 解析也必须复用 T33 那一份");
+  const nodeOs = await import("node:os");
+  const { pathToFileURL } = await import("node:url");
+  const { collectPool, main } = await import(pathToFileURL(SCRIPT).href);
+  const { measureSample, resolveHome } = await import(pathToFileURL(T33).href);
+
+  // 真实消费链：collectPool 必须把同一份样本交给 T33 的 measureSample，结果逐字段一致。
+  const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "usability-by-age-import-"));
+  try {
+    const sessionDir = nodePath.join(home, "chess-context", "sessions", "sess-t52");
+    nodeFs.mkdirSync(sessionDir, { recursive: true });
+    const mark = { at: 2500, seqStart: 1, seqEnd: 2, trigger: "archive-offline" };
+    const slot = { at: 2500, range: { start: 1, end: 2 }, text: "## 棋谱（状态节点）\n- n1 → n2：完成\n- n999：编造" };
+    const graph = {
+      sessionId: "sess-t52",
+      nodes: {
+        n1: { id: "n1", kind: "user", seq: 1, text: "目标", constraints: [] },
+        n2: { id: "n2", kind: "agent", seq: 2, text: "完成" },
+      },
+      edges: {},
+      foldMarks: [mark],
+      lastOfflineSummary: slot,
+    };
+    nodeFs.writeFileSync(nodePath.join(sessionDir, "graph.json"), JSON.stringify(graph), "utf8");
+    const sample = {
+      sessionId: "sess-t52",
+      trigger: "archive-offline",
+      source: "lastOfflineSummary",
+      text: slot.text,
+      chars: slot.text.length,
+      at: 2500,
+      seqStart: 1,
+      seqEnd: 2,
+      mark,
+      lastOfflineSummary: slot,
+    };
+    const expected = measureSample(sample, graph);
+    const scanned = collectPool(home);
+    t.eq(scanned.pool.length, 1, "夹具必须真的产生一条可复判折痕");
+    t.eq(scanned.pool[0].measured, expected, "消费链测得的指标必须与直接调用 T33 measureSample 完全一致");
+
+    // resolveHome 也必须真被 CLI 消费：显式 home 经 T33 规整后进入审计结果。
+    const logs = [];
+    const originalLog = console.log;
+    console.log = (...args) => logs.push(args.join(" "));
+    let code;
+    try {
+      code = main(["--home", home, "--json"]);
+    } finally {
+      console.log = originalLog;
+    }
+    t.eq(code, 0, `审计 CLI 必须成功：${logs.join("\n")}`);
+    const report = JSON.parse(logs.join("\n"));
+    t.eq(report.home, resolveHome(home), "CLI 必须使用 T33 resolveHome 解析显式 home");
+    t.eq(report.poolSize, 1, "CLI 必须真的消费同一测量链");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+  }
+
   // 反向：不许在脚本里自己再写一遍 id 提取/占位符统计（那就是第二套口径）
   t.notIncludes(src, "findUnknownIds", "不要在本地重算幻觉 id（用 measureSample 已经算好的字段）");
   t.notIncludes(src, "[ne]\\?", "不要在本地重数 n?/e?（正则会和 T33 分叉）");

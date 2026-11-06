@@ -109,11 +109,85 @@ tests["C494 默认模型跟 DSH 走：从 profile 的 cordis.patch.yml 读 agent
 };
 
 tests["C523 活着的会话不许用脚本写回（宿主会覆盖，钱白花）"] = async (t) => {
-  const src = nodeFs.readFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "archive-fold.mjs"), "utf8");
-  t.includes(src, "仍在跑", "要明确告诉用户为什么跳过");
-  t.includes(src, "--force-live", "确实要写时要有逃生口");
-  t.includes(src, "mtimeMs", "判据看日志 mtime");
-  t.includes(src, "applyOfflineFoldToGraph", "写回必须走共享实现（否则字段又会分叉）");
+  const nodeOs = await import("node:os");
+  const nodeZlib = await import("node:zlib");
+  const { main: archiveMain } = await import("../scripts/archive-fold.mjs");
+  const sid = "c523-live-guard";
+  const realFetch = globalThis.fetch;
+  let modelCalls = 0;
+  globalThis.fetch = async () => {
+    modelCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: "## 目标\n- fixture\n\n## 已建立事实\n- 完成" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 20 },
+        model: "fixture-model",
+      }),
+    };
+  };
+  const run = async ({ fresh, force = false }) => {
+    const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "archive-c523-"));
+    const originalLog = console.log;
+    const logs = [];
+    const beforeCalls = modelCalls;
+    try {
+      const graphDir = nodePath.join(home, "chess-context", "sessions", sid);
+      nodeFs.mkdirSync(graphDir, { recursive: true });
+      const graphFile = nodePath.join(graphDir, "graph.json");
+      nodeFs.writeFileSync(graphFile, JSON.stringify({
+        version: 1,
+        sessionId: sid,
+        rootUserNodeIds: ["n1"],
+        nodes: {
+          n1: { id: "n1", kind: "user", seq: 1, text: "fixture", constraints: [], ts: 1 },
+          n2: { id: "n2", kind: "agent", seq: 3, text: "末", ts: 1 },
+        },
+        edges: {}, order: ["n1", "n2"], stateIndex: {}, foldMarks: [], updatedAt: 1,
+      }), "utf8");
+      const logDir = nodePath.join(home, "sessions", "workspace", `session-${sid}`);
+      nodeFs.mkdirSync(logDir, { recursive: true });
+      const events = [u("第一条"), a("回答"), u("最后一条")].map((event, i) => ({ ...event, seq: i + 1 }));
+      const logFile = nodePath.join(logDir, "session.v4.jsonl.zstd");
+      nodeFs.writeFileSync(logFile, nodeZlib.zstdCompressSync(Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`)));
+      const stamp = fresh ? Date.now() / 1000 : (Date.now() - 600_000) / 1000;
+      nodeFs.utimesSync(logFile, stamp, stamp);
+      console.log = (...args) => logs.push(args.join(" "));
+      const code = await archiveMain(["--session", sid, "--write", ...(force ? ["--force-live"] : [])], {
+        DSH_HOME: home,
+        MAGPIE_BASE_URL: "http://fixture.invalid/v1",
+      });
+      return { code, logs: logs.join("\n"), calls: modelCalls - beforeCalls, graph: JSON.parse(nodeFs.readFileSync(graphFile, "utf8")) };
+    } finally {
+      console.log = originalLog;
+      nodeFs.rmSync(home, { recursive: true, force: true });
+    }
+  };
+  try {
+    // 新鲜日志：必须在模型调用前跳过，图也不能变。
+    const live = await run({ fresh: true });
+    t.eq(live.code, 0, "活会话跳过不是脚本失败");
+    t.eq(live.calls, 0, "活会话不许调模型");
+    t.eq(live.graph.foldMarks.length, 0, "活会话不许写图");
+    t.includes(live.logs, "仍在跑", "跳过原因必须真的打印出来");
+
+    // 显式逃生口：同一新鲜日志只有 --force-live 才允许继续，并真的走共享写回。
+    const forced = await run({ fresh: true, force: true });
+    t.eq(forced.code, 0, `--force-live 必须能执行：${forced.logs}`);
+    t.eq(forced.calls, 1, "--force-live 必须真的调用一次假模型");
+    t.eq(forced.graph.foldMarks.length, 1, "共享写回必须真的新增 foldMark");
+    t.eq(forced.graph.lastOfflineSummary?.text.includes("fixture"), true, "共享写回必须落 lastOfflineSummary");
+    t.eq(!!forced.graph.closeout, true, "共享写回必须落 closeout");
+
+    // 日志做旧后不再需要逃生口：证明判据确实消费 mtime，而不是一律跳过。
+    const archived = await run({ fresh: false });
+    t.eq(archived.code, 0, `旧日志必须可写：${archived.logs}`);
+    t.eq(archived.calls, 1, "旧日志必须真的调用一次假模型");
+    t.eq(archived.graph.foldMarks.length, 1, "旧日志必须真的写回一段折痕");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 };
 
 tests["C538 摘要里的状态节点必须能回溯：消息要带棋谱节点 id（否则全是 n?）"] = async (t) => {
