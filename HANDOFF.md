@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.18.4-beta.1**（本地开发版；稳定版 1.18.3 已发布）。K-33 发布后自动验证 + K-27 真实 reader pilot（full 8/10 · compact 7/10，PILOT_ONLY）；全量 **2149 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
+| 版本 | **1.18.4**（稳定版，1.18.3 之后）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2149 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
