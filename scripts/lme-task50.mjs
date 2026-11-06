@@ -73,7 +73,7 @@ function listValue(value) {
 }
 
 /** 机械判分：不做语义相似度、不调用 judge 模型。 */
-export function gradeAnswer(expected, actual, grader) {
+export function gradeAnswer(expected, actual, grader, aliases = []) {
   if (!GRADERS.has(grader)) return { correct: false, code: "invalid-grader", message: `unsupported grader: ${grader}` };
   if (actual === undefined || actual === null || actual === "") return { correct: false, code: "missing-answer", message: "reader answer is missing" };
   if (grader === "UNKNOWN") {
@@ -83,7 +83,8 @@ export function gradeAnswer(expected, actual, grader) {
   if (grader === "exact") {
     const want = exactText(expected);
     const got = exactText(actual);
-    const ok = want !== null && got !== null && want === got;
+    const accepted = [want, ...(Array.isArray(aliases) ? aliases.map(exactText) : [])].filter((value) => value !== null);
+    const ok = got !== null && accepted.includes(got);
     return { correct: ok, code: ok ? "ok" : "exact-mismatch", message: ok ? "exact match" : "trimmed, whitespace-normalized strings differ" };
   }
   const want = listValue(expected);
@@ -301,7 +302,7 @@ export function evaluateRun(fixtures, run) {
     const row = { id: item.id, type: item.type };
     for (const arm of ARMS) {
       const actual = result[arm];
-      const grade = gradeAnswer(item.answer, actual, item.grader);
+      const grade = gradeAnswer(item.answer, actual, item.grader, item.aliases ?? []);
       row[arm] = { answer: actual ?? null, ...grade, unknownProcessIds: unknownIds(actual, item) };
     }
     row["reader-limited"] = !row.full.correct && !row.compact.correct;
