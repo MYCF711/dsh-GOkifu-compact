@@ -2945,7 +2945,80 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
   /* ─────────────────── 触发策略：growth-gated 增量 fold ─────────────────── */
 
-  async compactIfNeeded(agent, trigger, signal) {
+  /**
+   * DSH 0.2.2-rc.1 的模型切换入口。官方基类在这里直接选择 surface 前缀，
+   * 会绕过 GOkifu 的策略与账本；这里只保留下一模型的压力契约，实际 fold
+   * 仍委托给 compactIfNeeded 单次执行体（planFold / gates / foldMarks）。
+   * summarize() 不改 session.requestHeader()，因此仍使用已提交的旧路由。
+   */
+  async compactPressure(agent, header, signal, requireBelowThreshold) {
+    const ownerPressure = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerPressure !== undefined && ownerPressure !== this) {
+      return ownerPressure.compactPressure(agent, header, signal, requireBelowThreshold);
+    }
+    const session = agent.session;
+    const config = header?.config;
+    if (!config?.provider || !config?.model) {
+      this._foldSkipReason = "no-target";
+      return null;
+    }
+    const target = { provider: config.provider, model: config.model };
+    const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal);
+    if (info.context === undefined) {
+      throw new Error(`chess-context: no context capacity for ${target.provider}/${target.model}; configure contextWindow on that adapter model`);
+    }
+    const graph = this.#graph(session);
+    const spec = resolveSpec(
+      resolvePolicy(this.chess, target),
+      info.context.contextWindow,
+      config.maxTokens ?? info.defaultMaxTokens ?? 0,
+      graph.foldCount === 0,
+    );
+    spec.contextWindow = info.context.contextWindow;
+    const override = this.config?.modelPolicies?.find((policy) => policy.provider === target.provider && policy.model === target.model);
+    const configuredRetries = Number(override?.compactionRetries ?? this.config?.compactionRetries);
+    const retries = Number.isFinite(configuredRetries) ? Math.max(0, Math.floor(configuredRetries)) : 0;
+    let result = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      this._foldSkipReason = null;
+      const foldCountBefore = graph.foldCount;
+      const folded = await this.compactIfNeeded(agent, "model-switch", signal, { header, spec });
+      if (folded !== null && folded !== undefined) result = folded;
+      const after = this.ctx.tokenMeter.measure(session, header);
+      if (after.totalTokens < spec.thresholdTokens) {
+        if (graph.foldCount === foldCountBefore) {
+          // 换到更大窗口、仅 tier-2、或前次 fold 后本次无需再折也可能接受切换。
+          // 没有新的普通 fold 负责写账时，growth baseline 仍须转成将提交的新路由口径；
+          // 不新增 foldCount，也不改既有 foldMark。
+          graph.lastFoldTotalTokens = after.totalTokens;
+          this.#flush(session, { full: true });
+        }
+        return result;
+      }
+      if (graph.foldCount > foldCountBefore) {
+        // 本次 fold 已提交，但宿主将拒绝切换并保留旧路由：账本必须回到旧路由口径，
+        // 否则下一 header 的 baseline 会污染后续普通 pressure 的 growth 判据。
+        const committed = this.ctx.tokenMeter.measure(session);
+        graph.lastFoldTotalTokens = committed.totalTokens;
+        const mark = graph.foldMarks.findLast((entry) => entry?.foldCount === graph.foldCount);
+        if (mark !== undefined) mark.totalAfter = committed.totalTokens;
+        this.#flush(session, { full: true });
+      }
+      if (folded === null || folded === undefined) {
+        if (!requireBelowThreshold && result === null) return null;
+        const reason = this._foldSkipReason ?? "no-foldable-span";
+        throw new Error(
+          `model-switch compaction blocked by ${reason} (${after.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+        );
+      }
+    }
+    const after = this.ctx.tokenMeter.measure(session, header);
+    throw new Error(
+      `compaction still above threshold after ${retries + 1} compaction attempts (${after.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+    );
+  }
+
+  async compactIfNeeded(agent, trigger, signal, modelSwitchOptions = undefined) {
     // ★ C600：**活跃回合**是唯一能安全拿到宿主服务的地方。这里把 `ctx.llm` 抓住存下来，
     //   并顺手把"定时器攒下的待办"启动 —— 补账仍然异步跑（不阻塞本回合），
     //   但它用的是**这份活跃期捕获的句柄**，不会再撞 `inactive context`。
@@ -2961,9 +3034,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       });
     }
     const ownerNeeded = ENGINE_BY_CTX.get(this?.ctx);
-    if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal);
+    if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal, modelSwitchOptions);
     const session = agent.session;
-    const target = routedTarget(session);
+    const modelSwitch = trigger === "model-switch";
+    const switchHeader = modelSwitch ? modelSwitchOptions?.header : undefined;
+    const switchConfig = switchHeader?.config;
+    const target = modelSwitch
+      ? switchConfig?.provider && switchConfig?.model
+        ? { provider: switchConfig.provider, model: switchConfig.model }
+        : undefined
+      : routedTarget(session);
     if (target === undefined) {
       this._foldSkipReason = "no-target";
       return null;
@@ -2971,13 +3051,17 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
 
     // tier-2 先跑：surface 上的 checkpoint 太多时，把最老的两条合并成一条。
     // 它与压力无关（checkpoint 常驻本身就是成本），因此放在阈值判断之前。
+    // model-switch 只在这个前置分支复用 pressure 入口，随后恢复，foldMark 仍能区分触发源。
+    const requestedTrigger = trigger;
+    if (modelSwitch) trigger = "pressure";
     if (trigger === "pressure" && this.chess.tier2After > 0) {
       const merged = await this.#tier2IfNeeded(agent, signal);
       if (merged !== null && merged !== undefined) return merged;
     }
+    trigger = requestedTrigger;
     const policy = resolvePolicy(this.chess, target);
     const meter = this.ctx.tokenMeter;
-    let measurement = meter.measure(session);
+    let measurement = modelSwitch ? meter.measure(session, switchHeader) : meter.measure(session);
 
     // ★ C177：连续失败后的退避 —— 不给「坏掉的摘要路径」每个事件都再付一次模型调用。
     // ★ C179：`context-overflow` 也不再无限重试 —— 前 3 次仍然「宁可不惜代价自救」，
@@ -2995,12 +3079,18 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         });
         const wait = Math.min(profile.base * 2 ** Math.min(failures - 1, 6), profile.cap);
         const since = session.seq - (stBackoff.lastFoldFailureSeq ?? 0);
-        if (since < wait) return null;
+        if (since < wait) {
+          if (modelSwitch) this._foldSkipReason = "fold-backoff";
+          return null;
+        }
         // ★ C367：限流/过载还要满足**最小等待时间**（事件数不等于时间）
         const minDelay = retryMinDelayMs(stBackoff.lastFoldErrorKind ?? "other");
         if (minDelay > 0) {
           const at = Number(stBackoff.lastFoldFailureAt);
-          if (!Number.isFinite(at) || Date.now() - at < minDelay) return null;
+          if (!Number.isFinite(at) || Date.now() - at < minDelay) {
+            if (modelSwitch) this._foldSkipReason = "fold-backoff";
+            return null;
+          }
         }
       }
     }
@@ -3011,7 +3101,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   `bash(...)`、零文本产出，**手动压缩一次就好了**。这里把那个动作变成自动：
     //   末尾连续相同动作 ≥ 4 次 ⇒ 强制折一次（受限流与上限保护，坑在 loop-guard 里）。
     let loopFired = false;
-    if (trigger === "pressure" || trigger === "auto") {
+    if (trigger === "pressure" || trigger === "auto" || modelSwitch) {
       const loopState = this.#runtimeFor(session);
       const stat = loopStreak(
         Object.values(g?.edges ?? {})
@@ -3053,21 +3143,27 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     if (overflow) {
       spec = { thresholdTokens: 0, retainTokens: 0 };
     } else {
-      const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal);
-      if (info.context === undefined) {
-        throw new Error(
-          `chess-context: no context capacity for ${target.provider}/${target.model}; configure contextWindow on that adapter model`,
-        );
+      if (modelSwitch) {
+        // compactPressure 已按下一模型解析一次 spec；重试期间保持同一阈值与保留量。
+        spec = modelSwitchOptions?.spec;
+        if (spec === undefined) throw new Error("chess-context: model-switch compaction requires a resolved spec");
+      } else {
+        const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal);
+        if (info.context === undefined) {
+          throw new Error(
+            `chess-context: no context capacity for ${target.provider}/${target.model}; configure contextWindow on that adapter model`,
+          );
+        }
+        // ★ C605（真机状态文件 + 子代理定位）：`?.` 只挡「返回 null」，挡不住**方法不存在**。
+        //   离线补折走 `#offlineCloseoutFold → compactIfNeeded(#asAgent(target))`，而 `#asAgent`
+        //   对合成 target 返回的是 `{session:{id,cwd}}` —— 没有 `requestHeader` 方法 ⇒
+        //   `TypeError: session.requestHeader is not a function`（C597 只补了 `routedTarget`，漏了这里和 summarizeTarget）。
+        const headerInfo = typeof session?.requestHeader === "function" ? session.requestHeader() : null;
+        const reserved = headerInfo?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
+        // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
+        spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
+        spec.contextWindow = info.context.contextWindow;
       }
-      // ★ C605（真机状态文件 + 子代理定位）：`?.` 只挡「返回 null」，挡不住**方法不存在**。
-      //   离线补折走 `#offlineCloseoutFold → compactIfNeeded(#asAgent(target))`，而 `#asAgent`
-      //   对合成 target 返回的是 `{session:{id,cwd}}` —— 没有 `requestHeader` 方法 ⇒
-      //   `TypeError: session.requestHeader is not a function`（C597 只补了 `routedTarget`，漏了这里和 summarizeTarget）。
-      const headerInfo = typeof session?.requestHeader === "function" ? session.requestHeader() : null;
-      const reserved = headerInfo?.config?.maxTokens ?? info.defaultMaxTokens ?? 0;
-      // ★ S8：本会话第一次 fold 用 firstFoldRatio（默认 0.30）削峰；之后回到 thresholdRatio。
-      spec = resolveSpec(policy, info.context.contextWindow, reserved, g.foldCount === 0);
-      spec.contextWindow = info.context.contextWindow;
       // ★ C197：无论是否触发，都记一次「压力快照」（节流在方法内），让 doctor 能回答「还差多少」
       // ★ C366：把「为什么这一刻才折」的三个数留下（进 foldMark）：
       //   实测发现 prompt 峰值到了 799,847，而配置阈值按 1M×0.45 应该是 450k ——
@@ -3078,14 +3174,20 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       const prune = this.ctx.get("toolResultPruner");
       if (prune !== undefined) {
         prune.pruneSession(session);
-        measurement = meter.measure(session);
+        measurement = modelSwitch ? meter.measure(session, switchHeader) : meter.measure(session);
       }
       if (!forced && measurement.totalTokens < spec.thresholdTokens) return null;
       // 增长门控：距上次 fold 的增量不足就不折腾（省掉一次模型调用）。
       // archive / backfill 是**补账**，不是「长了没长」的问题 ⇒ 跳过这道门控（C216）。
       if (!forced && this.chess.growthFloorTokens > 0 && g.foldCount > 0) {
-        const growth = measurement.totalTokens - (g.lastFoldTotalTokens ?? 0);
-        if (growth < this.chess.growthFloorTokens) return null;
+        // lastFoldTotalTokens 属于已提交路由；候选 header 只用于下一模型阈值与规划，
+        // growth 必须继续用 committed route 测量，否则首次切换也会混用两种 token 口径。
+        const growthMeasurement = modelSwitch ? meter.measure(session) : measurement;
+        const growth = growthMeasurement.totalTokens - (g.lastFoldTotalTokens ?? 0);
+        if (growth < this.chess.growthFloorTokens) {
+          if (modelSwitch) this._foldSkipReason = "growth-gate";
+          return null;
+        }
       }
     }
 
@@ -3178,7 +3280,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       ls.lastLoopFoldSeq = session.seq;
       ls.loopFoldCount = (ls.loopFoldCount ?? 0) + 1;
     }
-    const after = meter.measure(session);
+    const after = modelSwitch ? meter.measure(session, switchHeader) : meter.measure(session);
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
     st.foldFailures = 0;
     st.lastFoldFailureSeq = 0;
