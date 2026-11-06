@@ -183,7 +183,7 @@ dsh plugin --profile <profile> add <本仓库路径>    # 或按下面的说明�
 > 若之前装过 1.15.x 的 `dsh-gokifu-preset` 包（或 profile 里留着 `preset-gokifu` 行），
 > 先 `dsh plugin --profile <p> remove dsh-gokifu-preset`，否则同名 preset 会重复注册。
 
-**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2111 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
+**质量基线（2026-11-04 实测；以当次输出为准）**：`node test/run.mjs` → **2120 passed / 0 skipped / 0 failed**（**必须串行** —— 两个 `run.mjs` 并发会互相删 `test/.harness` ⇒ 假红）
 
 > 这个数由 `scripts/sync-doc-numbers.mjs` 从 `test/counts-baseline.json` 的 `passed` 同步（`npm run gate` 跑完全量后回写），
 > **别手改** —— 手改要么被下一次 `--write` 覆盖，要么被 `--check` 点名到「文件:行号」。
@@ -205,6 +205,14 @@ node scripts/lme-task50.mjs --run <results.json> # 只评已有 full/compact rea
 ```
 
 真实 reader 尚未运行，任务质量为 `NOT_RUN`；`--validate` 通过不代表压缩后任务能力通过。
+
+**K-2 工具结果清理离线 A/B**：
+
+```bash
+node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json
+```
+
+只读比较原始工具结果与 every-step + 生产 facts 重注入，不改默认行为。2026-11-06 的 10 会话实测为 **REJECT**：虽省约 722 万估算 tokens，但 failureRecall 从 80.23% 降至 77.26%，因此不启用每步清理。
 
 ## 配置
 

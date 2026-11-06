@@ -1,0 +1,31 @@
+{
+  "schema": "k2-prune-ab-evidence-v1",
+  "generatedAt": "2026-11-06",
+  "command": "node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json",
+  "mode": "offline-read-only",
+  "tokenEstimate": {
+    "latinTokensPerChar": 0.3,
+    "cjkTokensPerChar": 0.6
+  },
+  "evaluatedSessions": 10,
+  "missingGraphSessions": 0,
+  "readErrorSessions": 0,
+  "failureEdges": 774,
+  "constraints": 50,
+  "baseline": {
+    "tokens": 21477719,
+    "failureRecall": 0.8023255813953488,
+    "constraintRecall": 1
+  },
+  "everyStep": {
+    "tokens": 14254996,
+    "failureRecall": 0.772609819121447,
+    "constraintRecall": 1
+  },
+  "savedTokens": 7222723,
+  "decision": "REJECT",
+  "reasons": [
+    "failureRecall regression"
+  ],
+  "note": "只保留聚合数据，不含会话 id 或私有正文。约束保持 100%，失败召回下降 23 条，因此不进入默认每步清理。"
+}

@@ -1,5 +1,5 @@
 {
-  "total": 1755,
+  "total": 1764,
   "files": {
     "accept-newcode.test.mjs": 3,
     "action-cost.test.mjs": 6,
@@ -195,6 +195,7 @@
     "test-instance-verify.test.mjs": 4,
     "tewari-perf.test.mjs": 7,
     "tier2.test.mjs": 10,
+    "tool-result-prune-ab.test.mjs": 9,
     "tool-result-share.test.mjs": 3,
     "touched-files.test.mjs": 9,
     "trace-relative.test.mjs": 0,
@@ -228,6 +229,6 @@
     "worldhash.test.mjs": 0,
     "ws-install.test.mjs": 19
   },
-  "passed": 2111,
-  "passedAt": "2026-11-06T13:17:30.190Z"
+  "passed": 2120,
+  "passedAt": "2026-11-06T13:54:11.736Z"
 }

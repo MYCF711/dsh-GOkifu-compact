@@ -586,6 +586,10 @@
 
 > 完整脱敏稳定版 1.18.2 公开后，本地下一轮开发线切换为 `1.18.3-beta.1`，避免与稳定版混用。
 
+### T95 · K-2 工具结果每步清理离线 A/B
+
+新增只读 `tool-result-prune-ab.mjs`，比较原始工具结果与 every-step + 生产 `renderFacts` 重注入。10 个真实会话、774 条失败边、50 条约束：可省约 7,222,723 估算 tokens，但 failureRecall 从 80.23% 降到 77.26%，constraintRecall 保持 1。结论 **REJECT**，不修改默认剪枝行为；9 条真红/新绿测试守住判据。
+
 ### T94 · K-27 冻结续接问答与 full/compact 配对判分器
 
 新增 50 道过程续接夹具，IE/MR/KU/TR/ABS 各 10，失败与更新形态 34 道。`lme-task50.mjs --validate` 默认零模型调用，只验夹具与无泄漏；`--run` 对已有 reader 结果机械判分，保留 reader-limited 与全部分母。真实 reader 尚未运行，任务质量仍为 `NOT_RUN`，不把合成结果当产品跑分。
