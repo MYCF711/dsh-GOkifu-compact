@@ -26,6 +26,7 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FIXTURES = nodePath.join(HERE, "..", "evidence", "lme-task50.fixtures.json");
 const DEFAULT_OUT = nodePath.join(HERE, "..", "evidence", "lme-pilot-reader-2026-11-07.json");
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
+const VARIANT = process.env.LME_READER_VARIANT || "v1";
 const ENDPOINT = process.env.LME_READER_ENDPOINT || "http://127.0.0.1:3425/v1/chat/completions";
 const PER_TYPE = 2;
 
@@ -50,16 +51,26 @@ export function normalizeReaderAnswer(raw) {
   return text;
 }
 
-export function buildMessages(payload) {
+export const READER_PROMPTS = Object.freeze({
+  v1:
+    "You answer a single question from the supplied context. " +
+    "Use only the context. Do not explain. " +
+    "For an id or list answer, output only the exact id(s) separated by commas. " +
+    "If the context does not support an answer, output exactly UNKNOWN.",
+  v2:
+    "You answer a single question from the supplied context. " +
+    "Silently find the smallest verbatim span that answers the question; do not show that step. " +
+    "Output only the span, exactly as written: no explanation, no quotes, no code fence. " +
+    "For a list answer, output the exact ids in the order they appear, comma-separated. " +
+    "If no span explicitly records the requested value, output exactly UNKNOWN. " +
+    "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+});
+
+export function buildMessages(payload, { variant = "v1" } = {}) {
+  const system = READER_PROMPTS[variant];
+  if (!system) throw new Error(`unknown reader prompt variant: ${variant}`);
   return [
-    {
-      role: "system",
-      content:
-        "You answer a single question from the supplied context. " +
-        "Use only the context. Do not explain. " +
-        "For an id or list answer, output only the exact id(s) separated by commas. " +
-        "If the context does not support an answer, output exactly UNKNOWN.",
-    },
+    { role: "system", content: system },
     {
       role: "user",
       content: `Context:\n${payload.context}\n\nQuestion: ${payload.question}\n\nAnswer:`,
@@ -74,7 +85,7 @@ async function callModel(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: MODEL,
-      messages: buildMessages(payload),
+      messages: buildMessages(payload, { variant: VARIANT }),
       temperature: 0,
       max_tokens: 2048,
       stream: false,
@@ -128,7 +139,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       });
     }
   }
-  return summarize(selected, results);
+  return { ...summarize(selected, results), variant: VARIANT };
 }
 
 export function summarize(selected, results) {

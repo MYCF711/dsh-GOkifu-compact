@@ -1,0 +1,24 @@
+{
+  "schema": "lme-reader-prompt-prereg-v1",
+  "variant": "v2",
+  "createdAt": "2026-11-06T18:09:14.416Z",
+  "model": "deepseek-v4.1-flash-1017",
+  "prompt": "You answer a single question from the supplied context. Silently find the smallest verbatim span that answers the question; do not show that step. Output only the span, exactly as written: no explanation, no quotes, no code fence. For a list answer, output the exact ids in the order they appear, comma-separated. If no span explicitly records the requested value, output exactly UNKNOWN. Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+  "promptSha256": "8bb621082266c491ff58920ad9acb3818b54c43cf822c4a5855436abf7afc3b1",
+  "selectionRule": "first 2 per type in frozen v2 fixture order",
+  "pilotIds": [
+    "IE-01",
+    "IE-02",
+    "MR-01",
+    "MR-02",
+    "KU-01",
+    "KU-02",
+    "TR-01",
+    "TR-02",
+    "ABS-01",
+    "ABS-02"
+  ],
+  "rationale": "v1 formal FAIL: 4 over-abstentions, KU-02 truncated to 20, ABS-10 substituted untested for UNKNOWN; all six compact contexts contain the answer.",
+  "changes": "prompt only; fixtures/answers/thresholds unchanged",
+  "formalPlan": "20-call pilot first; if no new errors and compact pilot improves, run 100-call formal v2; report both outcomes."
+}

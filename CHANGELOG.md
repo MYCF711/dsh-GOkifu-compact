@@ -592,6 +592,8 @@
 
 v2 正式 50/50：100 次调用 0 错误，full **100%** / compact **88%** / Δ **-12%**，质量门 **FAIL**（overallCompact / pairedDelta / perType / abstention）。6 道 compact 失败（MR-04、KU-01、KU-02、TR-01、TR-02、ABS-10）的上下文都包含答案，归因 reader 弃答/抽取与 abstention，不是压缩丢事实。正式结论保持 FAIL；不换题、不回调阈值。
 
+提示词 v2 pilot（预注册 sha256 `8bb62108…`）：full **7/10** / compact **8/10**；full 退化、TR 输出证据 span 而非答案，**未放行正式 100 次**。负结果保留，下一步改两步抽取协议 v3。
+
 ### K-33 · 发布后自动验证
 
 `release.mjs --yes --npm` 在 publish/Release 之后自动跑 `release-post-verify.mjs`：轮询 `npm view <pkg>@<version> version` 直到传播完成，校验 `dist-tags.latest`、tarball 内 `## <version>` 段、`verify-release.mjs` 逐文件一致，以及 GitHub Release 非 draft/prerelease。任一失败非零退出，明确写「publish 已完成，不要重跑发布事务」。默认超时 180s、间隔 5s；纯判据 6 条单测，不连网络。

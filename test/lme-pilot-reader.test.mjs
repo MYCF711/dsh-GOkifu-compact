@@ -7,7 +7,7 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectPilot, normalizeReaderAnswer, buildMessages, summarize } from "../scripts/lme-pilot-reader.mjs";
+import { selectPilot, normalizeReaderAnswer, buildMessages, summarize, READER_PROMPTS } from "../scripts/lme-pilot-reader.mjs";
 import { assertReaderPayload, makeReaderPayload, TYPES } from "../scripts/lme-task50.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -63,4 +63,24 @@ tests["K27-P4 汇总按臂/类型计数，错误保留但不改分母"] = (t) =>
   t.eq(report.summary.errors.length, 1, "错误保留");
   t.eq(report.summary.byType.KU.compact.correct, 1, "KU compact 1/2");
   t.eq(report.status, "PILOT_ONLY", "不许冒充正式质量门");
+};
+
+tests["K27-P5 提示词 v2 是独立预注册变体，v1 保持默认"] = (t) => {
+  t.eq(READER_PROMPTS.v1.includes("Never substitute"), false, "v1 不含 v2 的弃答规则");
+  t.eq(READER_PROMPTS.v2.includes("Never substitute a status word"), true, "v2 明确禁止用状态词代替 UNKNOWN");
+  const payload = makeReaderPayload(selectPilot(FIXTURES.questions)[0], "compact");
+  t.eq(buildMessages(payload)[0].content, READER_PROMPTS.v1, "默认仍是 v1");
+  t.eq(buildMessages(payload, { variant: "v2" })[0].content, READER_PROMPTS.v2, "显式 v2");
+  t.eq(buildMessages(payload, { variant: "v2" })[1].content.includes(payload.question), true, "题目仍在 user 消息");
+};
+
+tests["K27-P6 未知变体必须报错，不许静默回落"] = (t) => {
+  const payload = makeReaderPayload(selectPilot(FIXTURES.questions)[0], "full");
+  let message = "";
+  try {
+    buildMessages(payload, { variant: "v3" });
+  } catch (error) {
+    message = String(error?.message ?? error);
+  }
+  t.eq(/unknown reader prompt variant/.test(message), true, "未知变体必须抛错");
 };

@@ -23,6 +23,7 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = nodePath.join(HERE, "..", "evidence", "lme-task50-v2.fixtures.json");
 const OUT = process.env.LME_FORMAL_OUT || nodePath.join(HERE, "..", "evidence", "lme-formal-reader-2026-11-07.json");
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
+const VARIANT = process.env.LME_READER_VARIANT || "v2";
 const ENDPOINT = process.env.LME_READER_ENDPOINT || "http://127.0.0.1:3425/v1/chat/completions";
 
 async function callModel(payload) {
@@ -32,7 +33,7 @@ async function callModel(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: MODEL,
-      messages: buildMessages(payload),
+      messages: buildMessages(payload, { variant: VARIANT }),
       temperature: 0,
       max_tokens: 2048,
       stream: false,
@@ -98,6 +99,7 @@ export async function runFormal({ fixtures, log = console.log } = {}) {
   return {
     schema: "lme-formal-reader-v1",
     status: "SCORED",
+    variant: VARIANT,
     qualityGate: evaluation.qualityGate,
     passed: evaluation.passed,
     model: MODEL,
