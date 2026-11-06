@@ -582,6 +582,14 @@
 
 # 更新记录
 
+## 1.18.4-beta.1（2026-11-07，本地开发版）
+
+> 1.18.3 稳定版发布后，本地开发线切换为 `1.18.4-beta.1`；本版只处理发布事务的**后置验证**，不改压缩行为。
+
+### K-33 · 发布后自动验证
+
+`release.mjs --yes --npm` 在 publish/Release 之后自动跑 `release-post-verify.mjs`：轮询 `npm view <pkg>@<version> version` 直到传播完成，校验 `dist-tags.latest`、tarball 内 `## <version>` 段、`verify-release.mjs` 逐文件一致，以及 GitHub Release 非 draft/prerelease。任一失败非零退出，明确写「publish 已完成，不要重跑发布事务」。默认超时 180s、间隔 5s；纯判据 6 条单测，不连网络。
+
 ## 1.18.3（2026-11-06，稳定版）
 
 > 1.18.3 是 1.18.2 之后的稳定版：收口 K-32 假阴性、handoff 活跃会话误判与历史 foldMark 保真修复；全量 2128/0、gate 8/8。

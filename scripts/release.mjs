@@ -28,6 +28,7 @@ import { execSync, execFileSync } from "node:child_process"
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { classifyRemote, runTransaction, checkTestFileCount } from "./release-lib.mjs"
+import { runPostPublishVerify } from "./release-post-verify.mjs"
 
 const ROOT = process.cwd()
 const argv = new Set(process.argv.slice(2))
@@ -559,6 +560,31 @@ if (token) {
   console.log(C.dim("    正文直接把 CHANGELOG 里 " + version + " 那一段粘过去"))
 }
 
+// ── 第 7 步：发布后自动验证（K-33）────────────────────────────────────
+// 只打印命令不够：2026-11-06 发布 1.18.3 时 npm 返回 0、registry 仍 404 了约 2 分钟。
+// 这里真的去轮询，任何一条不成立就非零退出（publish 已发生，只能报告，不能回滚）。
+let postVerifyFailed = false
+if (!DRY && ALSO_NPM) {
+  console.log(C.dim("\n  发布后验证 · npm 传播 / dist-tag / tarball / Release / 逐文件 …\n"))
+  const post = await runPostPublishVerify({
+    name: pkg.name,
+    version,
+    tag,
+    token,
+    repoRoot: ROOT,
+    owner: gh.owner,
+    repo: gh.repo,
+  })
+  if (post.ok) {
+    console.log(C.green(`  发布后验证 … ok（tarball=${post.tarball}）`))
+  } else {
+    postVerifyFailed = true
+    console.log(C.red(`  发布后验证 … 失败 @ ${post.failedAt}`))
+    console.log(C.dim(`    ${post.detail}`))
+    console.log(C.dim("    publish/push/tag 已完成；先查 npm 传播或 Release 状态，不要重跑发布事务。"))
+  }
+}
+
 // ── 第 7 步留给人看的清单 ─────────────────────────────────────────────
 
 console.log(C.bold("\n第 7 步 · 四条验证（逐条跑，别只看版本号）：\n"))
@@ -580,7 +606,7 @@ console.log(
 )
 
 // 走到这里说明 push / tag /（npm）全部成功。Release 失败仍是失败（否则「npm 有、Release 没有」）。
-const failed = !!token && !released
+const failed = (!!token && !released) || postVerifyFailed
 if (failed) {
   console.log(C.red("\n✗ GitHub Release 没建成 —— push/tag/npm 都已完成，只差 Release："))
   console.log(C.dim("  手工建：GitHub → Releases → Draft a new release → 选 " + tag))

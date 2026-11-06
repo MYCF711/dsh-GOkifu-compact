@@ -56,7 +56,6 @@ tests["C453 今日聚合按 foldMark.at 计价：高峰折叠必须算成两倍�
   const startLocal = new Date();
   startLocal.setHours(0, 0, 0, 0);
   const fromLocal = startLocal.getTime();
-  const isWeekend = [0, 6].includes(new Date().getUTCDay());
   // 高峰窗口是 UTC 01–04：从本地午夜起往后找**第一个**落在该窗口的整点（可能在今天稍晚，也可能明天）
   const peakAt = (() => {
     const d = new Date(fromLocal);
@@ -68,6 +67,8 @@ tests["C453 今日聚合按 foldMark.at 计价：高峰折叠必须算成两倍�
     }
     return fromLocal + 2 * 3600_000;
   })();
+  // ★ 用 peakAt 的 UTC 日判周末：本地午夜后 peakAt 可能落到 UTC 明天（周五晚跑成周六）
+  const isWeekend = [0, 6].includes(new Date(peakAt).getUTCDay());
   const offAt = fromLocal + 12 * 3600_000;   // 本地午夜 +12h：一定在「今天」里，且不在 UTC 01–03
   writeGraph(TMP, "session-cost", [
     { at: offAt, trigger: "pressure", shadowedTokens: 1000, usage: USAGE },
