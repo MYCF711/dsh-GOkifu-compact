@@ -588,7 +588,9 @@
 
 ### K-27 · 真实 reader pilot smoke
 
-预注册五类各 2 题（共 10 题）× full/compact 两臂，`deepseek-v4.1-flash-1017` 20 次显式调用。机械判分 **full 8/10 · compact 7/10 · Δ-1**；ABS/IE/MR 两臂各 2/2，KU compact 1/2。TR-01/02 模型答中文「之前/之后」而 exact 只认 `before/after`，记为判分口径；KU-02 compact 把 `retain-20` 答成 `20`，是压缩后抽取退化候选。正式 50/50 仍 **NOT_RUN**，不换题、不回调阈值。
+预注册五类各 2 题（共 10 题）× full/compact 两臂，`deepseek-v4.1-flash-1017` 20 次显式调用。机械判分 **full 8/10 · compact 7/10 · Δ-1**；ABS/IE/MR 两臂各 2/2，KU compact 1/2。TR-01/02 模型答中文「之前/之后」而 exact 只认 `before/after`，记为判分口径；KU-02 compact 把 `retain-20` 答成 `20`，是压缩后抽取退化候选。
+
+v2 正式 50/50：100 次调用 0 错误，full **100%** / compact **88%** / Δ **-12%**，质量门 **FAIL**（overallCompact / pairedDelta / perType / abstention）。6 道 compact 失败（MR-04、KU-01、KU-02、TR-01、TR-02、ABS-10）的上下文都包含答案，归因 reader 弃答/抽取与 abstention，不是压缩丢事实。正式结论保持 FAIL；不换题、不回调阈值。
 
 ### K-33 · 发布后自动验证
 
