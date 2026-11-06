@@ -579,15 +579,44 @@ export const tests = {
     t.eq(bothTruncated.kind, "error", "输入裁切也应报出错");
     t.eq(bothTruncated.hint, "输出截断 2 · 输入裁切 3", "两类截断独立展示，同一fold不得相加成5");
     const unknown = T.compressionStatus(fixture({ today: { truncated: 0, inputTruncated: 0, truncatedUnknown: 2 } }), null);
-    t.eq(unknown.kind, "unknown", "截断状态未知不能冒充正常");
-    t.eq(unknown.label, "待核查", "未知单独显示待核查");
-    t.eq(unknown.hint, "截断状态未知 2 · 未知不等于未截断", "未知计数必须暴露");
+    t.eq(unknown.kind, "normal", "历史截断状态未知不是当前后端故障");
+    t.eq(unknown.label, "正常", "未知观察项不改变运行正常判级");
+    t.eq(unknown.hint, "已接管 · 自动压缩开启 · 截断状态未知 2 · 未知不等于未截断", "未知计数必须暴露且不得清零");
     const stale = T.compressionStatus(fixture(), "refresh failed");
     t.eq(stale.kind, "error", "旧state仍在但刷新失败 = 出错，不许继续报正常");
     t.eq(stale.hint, "状态刷新失败 · 显示旧数据", "明确旧数据语义");
     t.eq(T.compressionStatus(null, new Error("offline")).kind, "error", "host 读取失败 = 出错");
+    t.eq(T.compressionStatus(fixture({ error: "host state failed" }), null).kind, "error", "state.error 仍 = 出错");
     t.includes(SOURCE, "compressionStatus(state, loadError)", "总览只消费state加载错误，不消费保存/模型目录错误");
     t.includes(SOURCE, "setLoadError(message)", "load catch 必须真的写入loadError");
+  },
+
+  "⑤b T90 输入-only 裁切判正常并保留计数；真实 host 卡与错误/未知对照同步验证"(t) {
+    const base = fixture();
+    const inputState = fixture({ today: { ...base.today, truncated: 0, inputTruncated: 213, truncatedUnknown: 0 } });
+    const inputStatus = T.compressionStatus(inputState, null);
+    const inputPanel = panelRenderer(inputState);
+    const statusCards = findAll(inputPanel.runtime.tree(), (node) => node.props?.["data-status-kind"] !== undefined);
+    console.log("=== T90 INPUT-ONLY STATUS ===");
+    console.log(JSON.stringify(inputStatus, null, 2));
+    console.log("=== T90 REAL HOST STATUS CARD ===");
+    if (statusCards.length === 1) console.log(serializeTree(statusCards[0]).join("\n"));
+
+    t.eq(inputStatus, { kind: "normal", label: "正常", hint: "已接管 · 自动压缩开启 · 输入裁切 213" }, "只有输入裁切、输出 truncated=0 时必须判正常且保留输入裁切计数");
+    t.eq(inputState.today, { ...base.today, truncated: 0, inputTruncated: 213, truncatedUnknown: 0 }, "判级不得清零或改写 today 的任何计数");
+    t.eq(statusCards.length, 1, "真实总览必须渲染一张状态卡");
+    t.eq(statusCards[0]?.props["data-status-kind"], "normal", "真实 host 卡必须带 data-status-kind=normal");
+    t.includes(textOf(statusCards[0]), "正常", "真实 host 卡必须显示正常");
+    t.includes(textOf(statusCards[0]), "已接管 · 自动压缩开启 · 输入裁切 213", "真实 host 卡不得隐藏输入裁切计数");
+
+    t.eq(T.compressionStatus(fixture({ today: { ...base.today, truncated: 1, inputTruncated: 213, truncatedUnknown: 0 } }), null), { kind: "error", label: "出错", hint: "输出截断 1 · 输入裁切 213" }, "输出+输入同时截断仍必须出错且两类计数都保留");
+    const liveState = fixture({ today: { ...base.today, truncated: 0, inputTruncated: 213, truncatedUnknown: 7 } });
+    t.eq(T.compressionStatus(liveState, null), { kind: "normal", label: "正常", hint: "已接管 · 自动压缩开启 · 输入裁切 213 · 截断状态未知 7 · 未知不等于未截断" }, "真机 input=213/unknown=7 也必须正常且两项计数都保留");
+    const livePanel = panelRenderer(liveState);
+    const liveCards = findAll(livePanel.runtime.tree(), (node) => node.props?.["data-status-kind"] !== undefined);
+    t.eq(liveCards.length, 1, "真机形态仍只渲染一张状态卡");
+    t.eq(liveCards[0].props["data-status-kind"], "normal", "真机形态的真实 host 卡必须为 normal");
+    t.includes(textOf(liveCards[0]), "输入裁切 213 · 截断状态未知 7", "真实 host 卡必须同时保留两类观测计数");
   },
 
   "⑥ 加载态缺少 today/latest：总览仍保留健康、活跃会话空态与补账操作"(t) {
