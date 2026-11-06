@@ -133,6 +133,7 @@
   "package-exports.test.mjs": 12,
   "panel-labels.test.mjs": 0,
   "panel-layout.test.mjs": 0,
+  "panel-loading.test.mjs": 0,
   "patch-manifest.test.mjs": 3,
   "peak-pricing.test.mjs": 4,
   "pending-changes.test.mjs": 8,
@@ -223,6 +224,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2048,
- "passedAt": "2026-11-05T20:32:17.446Z"
+ "passed": 2050,
+ "passedAt": "2026-11-06T04:05:47.435Z"
 }

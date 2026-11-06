@@ -208,11 +208,15 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
  *   · 同一个请求里 latestGraph 与 todayAggregate **共用一次扫描**（否则 readdir+stat 要跑两遍）。
  */
 const GRAPH_CACHE = new Map();
-// ★ C282：上限从 2000 收到 256，并改成**真正的 LRU 淘汰**。
-//   旧行为是 `size >= MAX` 就 `clear()` 全清 —— 那是一次**缓存雪崩**：下一次 /state 要把所有图重读一遍
-//   （实测 44 个会话 / 11 MB JSON；2000 个会话时这一下就是几秒 + 内存尖峰）。
-//   现在：满了只淘汰**最久没被访问**的一条，命中时把条目移到队尾（Map 的插入序就是 LRU 序）。
+// ★ C282：基础上限 256，并改成**真正的 LRU 淘汰**（满了只逐条淘汰，绝不 clear 雪崩）。
+// ★ 面板大工作集修正：256 小于真机 925 个会话时，顺序扫描会循环淘汰 —— 每次打开仍全量重读。
+//   因此完整扫描的缓存下限必须覆盖本次 files；小扫描仍用 256，不预设一个永远不够大的硬编码总数。
 const GRAPH_CACHE_MAX = 256;
+
+function graphCacheCapacity(scan) {
+  const files = Array.isArray(scan?.files) ? scan.files.length : 0;
+  return Math.max(GRAPH_CACHE_MAX, files);
+}
 
 /**
  * 把 key 放到队尾（= 最近使用），并在超限时淘汰队首（= 最久未用）。
@@ -268,10 +272,12 @@ export const BACKFILL_GATE = { inFlight: false };
 const LIST_DEBTS_CACHE = new Map();
 
 /** 每个文件的聚合摘要缓存（key = 绝对路径 + mtimeMs + size）。 */
-function graphSummary(entry) {
+function graphSummary(entry, cacheMax = GRAPH_CACHE_MAX) {
   const cached = GRAPH_CACHE.get(entry.file);
   if (cached !== undefined && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) {
-    lruSet(GRAPH_CACHE, entry.file, cached); // 命中也要续命（否则热条目会被冷条目挤掉）
+    // 小扫描保留原始调用；只有大工作集需要显式容量（C282 的静态接线守卫也锁定这一分支）。
+    if (cacheMax === GRAPH_CACHE_MAX) lruSet(GRAPH_CACHE, entry.file, cached);
+    else lruSet(GRAPH_CACHE, entry.file, cached, cacheMax);
     return cached;
   }
   let summary = null;
@@ -294,7 +300,7 @@ function graphSummary(entry) {
     summary = null; // 坏图：缓存「坏」这个事实，别每次重读
   }
   const row = { mtimeMs: entry.mtimeMs, size: entry.size, summary };
-  lruSet(GRAPH_CACHE, entry.file, row);
+  lruSet(GRAPH_CACHE, entry.file, row, cacheMax);
   return row;
 }
 
@@ -309,9 +315,10 @@ function pruneGraphCache(root, files) {
 
 /** 最近活跃的棋谱（按 graph.json mtime）。 */
 export function latestGraphFrom(scan) {
+  const cacheMax = graphCacheCapacity(scan);
   const best = scan.files.reduce((acc, file) => (acc === null || file.mtimeMs > acc.mtimeMs ? file : acc), null);
   if (best === null) return null;
-  const summary = graphSummary(best).summary;
+  const summary = graphSummary(best, cacheMax).summary;
   if (summary === null) return null;
   return {
     session: best.dir,
@@ -330,6 +337,8 @@ export function latestGraphFrom(scan) {
 
 /** 折痕列表只暴露最近 20 条，与图本身的折痕保留上限一致。 */
 export const FOLD_LIST_LIMIT = 20;
+/** 折痕取数只读最近活跃的 20 个图；目录元数据用于挑选，绝不为了列表解析全库。 */
+export const FOLD_SOURCE_FILE_LIMIT = 20;
 
 function finiteNumberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -363,14 +372,20 @@ export function foldMarksForUi(foldMarks) {
   });
 }
 
-/** 全局最近折痕：跨会话按 foldMark.at 排序，最近 20 条在前；坏图跳过，真空才返回 []。 */
+/** 近期活跃会话的最近折痕：只解析 mtime 最近的 20 个图，再按 foldMark.at 跨会话排序。 */
 export function latestFoldMarksFrom(scan) {
   const files = Array.isArray(scan?.files) ? scan.files : [];
+  const cacheMax = graphCacheCapacity(scan);
+  // 用户只要最近几条，不做全库历史统计。readdir/stat 只用于找近期文件，graph.json 正文最多读 20 个。
+  const candidates = files
+    .map((file, index) => ({ file, index }))
+    .sort((left, right) => right.file.mtimeMs - left.file.mtimeMs || right.index - left.index)
+    .slice(0, FOLD_SOURCE_FILE_LIMIT);
   const all = [];
-  for (const file of files) {
-    const summary = graphSummary(file).summary;
+  for (const { file } of candidates) {
+    const summary = graphSummary(file, cacheMax).summary;
     if (summary === null) continue;
-    // 每个会话只取它自己的最近 20 条：全局前 20 不可能落在某个会话的第 21 条之后。
+    // 每个候选会话最多贡献自己的最近 20 条，最终仍只暴露全局前 20 条。
     all.push(...foldMarksForUi(summary.foldMarks));
   }
   const epoch = (mark) => {
@@ -496,6 +511,7 @@ export function estimateFoldCostUsd(usage, model = usage?.model, { at = null } =
 }
 
 export function todayAggregateFrom(scan) {
+  const cacheMax = graphCacheCapacity(scan);
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const from = start.getTime();
@@ -518,7 +534,7 @@ export function todayAggregateFrom(scan) {
   let inputTruncated = 0;
   for (const file of scan.files) {
     totalSessions += 1;
-    const summary = graphSummary(file).summary;
+    const summary = graphSummary(file, cacheMax).summary;
     if (summary === null) continue;
     const marks = summary.foldMarks.filter((mark) => (mark.at ?? 0) >= from);
     if (marks.length > 0) {
