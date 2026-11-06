@@ -165,6 +165,23 @@ export const tests = {
     }
   },
 
+  "正确性反例：最新 fold.at 在最早创建的会话也必须进入全局第一，禁止按 mtime/ctime 限量": async (t) => {
+    const home = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-panel-fold-at-"));
+    try {
+      nodeFs.mkdirSync(nodePath.join(home, "chess-context", "sessions"), { recursive: true });
+      const first = graphFor(0);
+      first.foldMarks[0] = { ...first.foldMarks[0], at: BASE + 100_000, seqEnd: 99_999 };
+      writeGraph(home, 0, first); // 最先创建，mtime/ctime 都最旧；不回写时间，避免 ctime 补丁混淆。
+      for (let index = 1; index < SESSION_COUNT; index += 1) writeGraph(home, index, graphFor(index));
+      const ui = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+      const marks = ui.latestFoldMarksFrom(ui.collectGraphFiles(home));
+      t.eq(marks.length, 20, "仍返回全局最近 20 条");
+      t.eq(marks[0].seqEnd, 99_999, "fold.at 最新即全局第一，与 graph mtime/ctime 无关");
+    } finally {
+      nodeFs.rmSync(home, { recursive: true, force: true });
+    }
+  },
+
   "失败分支真红：旧 256 条 LRU 的循环淘汰读盘形态必须被同一预算拒绝": (t) => {
     const oldThrashingReads = { cold: SESSION_COUNT * 2 + 1, warm: SESSION_COUNT * 2, changed: SESSION_COUNT };
     t.throws(() => assertReadBudget(oldThrashingReads), "旧实现冷 601 / 热 600 / 变更 300 次读盘必须失败");

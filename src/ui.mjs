@@ -337,8 +337,6 @@ export function latestGraphFrom(scan) {
 
 /** 折痕列表只暴露最近 20 条，与图本身的折痕保留上限一致。 */
 export const FOLD_LIST_LIMIT = 20;
-/** 折痕取数只读最近活跃的 20 个图；目录元数据用于挑选，绝不为了列表解析全库。 */
-export const FOLD_SOURCE_FILE_LIMIT = 20;
 
 function finiteNumberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -372,20 +370,15 @@ export function foldMarksForUi(foldMarks) {
   });
 }
 
-/** 近期活跃会话的最近折痕：只解析 mtime 最近的 20 个图，再按 foldMark.at 跨会话排序。 */
+/** 全局最近折痕：跨会话按 foldMark.at 排序，最近 20 条在前；坏图跳过，真空才返回 []。 */
 export function latestFoldMarksFrom(scan) {
   const files = Array.isArray(scan?.files) ? scan.files : [];
   const cacheMax = graphCacheCapacity(scan);
-  // 用户只要最近几条，不做全库历史统计。readdir/stat 只用于找近期文件，graph.json 正文最多读 20 个。
-  const candidates = files
-    .map((file, index) => ({ file, index }))
-    .sort((left, right) => right.file.mtimeMs - left.file.mtimeMs || right.index - left.index)
-    .slice(0, FOLD_SOURCE_FILE_LIMIT);
   const all = [];
-  for (const { file } of candidates) {
+  for (const file of files) {
     const summary = graphSummary(file, cacheMax).summary;
     if (summary === null) continue;
-    // 每个候选会话最多贡献自己的最近 20 条，最终仍只暴露全局前 20 条。
+    // 每个会话只取它自己的最近 20 条：全局前 20 不可能落在某个会话的第 21 条之后。
     all.push(...foldMarksForUi(summary.foldMarks));
   }
   const epoch = (mark) => {
