@@ -1,24 +1,44 @@
 {
-  "schema": "k2-reader-pilot-v1",
-  "createdAt": "2026-11-06T20:52:19.897Z",
-  "sessionHash": "0692b6e5bb18b7bb",
+  "schema": "k2-reader-pilot-v2",
+  "createdAt": "2026-11-06T20:53:46.628Z",
   "question": "列出上下文中的 Hindsight memory page 标题",
-  "contextChars": {
-    "baseline": 40686,
-    "everyStep": 29293
-  },
-  "factsChars": 581,
-  "savedChars": 11393,
-  "baseline": {
-    "titles": 6,
-    "hasCoreConcepts": true,
-    "hasConventions": true
-  },
-  "everyStep": {
-    "titles": 0,
-    "hasCoreConcepts": false,
-    "hasConventions": false
+  "trials": [
+    {
+      "sessionHash": "0692b6e5bb18b7bb",
+      "contextChars": {
+        "baseline": 40686,
+        "everyStep": 29293
+      },
+      "savedChars": 11393,
+      "baselineTitles": 6,
+      "everyTitles": 0,
+      "hasCoreConcepts": {
+        "baseline": true,
+        "everyStep": false
+      }
+    },
+    {
+      "sessionHash": "ae9d5a2e977ce731",
+      "contextChars": {
+        "baseline": 42824,
+        "everyStep": 25478
+      },
+      "savedChars": 17346,
+      "baselineTitles": 8,
+      "everyTitles": 0,
+      "hasCoreConcepts": {
+        "baseline": true,
+        "everyStep": false
+      }
+    }
+  ],
+  "aggregate": {
+    "trials": 2,
+    "baselineTitles": 14,
+    "everyTitles": 0,
+    "regressions": 2,
+    "savedChars": 28739
   },
   "verdict": "REJECT_FOR_TASK",
-  "note": "单样本定向 reader：everyStep 丢掉原始 tool/result 里的 page 标题，reader 答 UNKNOWN；只说明该任务退化，不推广到全部场景。"
+  "note": "2/2 独立小样本：everyStep 丢原始 tool/result 的 page 标题，reader 答 UNKNOWN；只说明该任务退化，不推广到全部场景。"
 }
