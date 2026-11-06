@@ -1850,9 +1850,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   判定：进入时 `_chessActiveRange` 为 null ⇒ 不是我们自己的路径（我们自己的路径会先 set 它）。
     const externalCall = prev === null && (this._manualCompactDepth ?? 0) === 0;
     this._chessActiveRange = { start, end };
-    // 2026-11-01（C14）：手动 `/compact` 走的是 compactNow → compactRegion，不经过 compactIfNeeded，
-    // 所以此前**手动压缩没有任何 foldMark / 保真度样本**（覆盖缺口）。这里在手动深度标记生效时记下区间。
-    if ((this._manualCompactDepth ?? 0) > 0) this._manualRange = { start, end };
+    // ★ C655：手动 foldMark 的区间只认 compactNow 本次 result.shadowedRange。
+    // 真实 Basic 可以绕过本方法，因此这里不再写任何引擎级区间槽（单槽或按会话 Map 都不是权威源）。
     try {
       const out = await super.compactRegion(start, end, agent, signal);
       // ★ C587（审核发现）：**记账要无条件**。以前只在"宿主直调"时记，于是
@@ -3089,10 +3088,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     try {
       const result = await super.compactNow(agent, signal, sourceCommandId);
       // 2026-11-01（C14）：手动 /compact 也记一条 foldMark（trigger="manual"）+ 保真度样本。
-      // 这是最后一块覆盖缺口：自动 fold / 规则降级 / tier-2 都有样本，只有手动压缩此前没有。
-      const range = this._manualRange ?? null;
-      if (result !== null && result !== undefined && range !== null) {
-        this.recordFoldMark(agent.session, { range, trigger: "manual" });
+      // ★ C655：区间与 token 只认**本次宿主结果**。真实 Basic 可直接 compactSurfaceRegion、
+      // 绕过我们的 compactRegion；另一会话的 pressure fold 不得覆盖这次手动压缩的账。
+      const range = result?.shadowedRange ?? null;
+      if (result !== null && result !== undefined && Number.isFinite(range?.start) && Number.isFinite(range?.end)) {
+        this.recordFoldMark(agent.session, {
+          range: { start: range.start, end: range.end },
+          trigger: "manual",
+          shadowedTokens: Number.isFinite(result.shadowedTokenCount) ? result.shadowedTokenCount : null,
+        });
       }
       return result;
     } catch (error) {
@@ -3100,7 +3104,6 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       throw error;
     } finally {
       this._manualCompactDepth = Math.max(0, (this._manualCompactDepth ?? 1) - 1);
-      this._manualRange = null;
       // ★ C137：与 C136 同源 —— 手动压缩无论成功/失败，都不许把 summarize 的 pending 摘要留给下一次 fold。
       //   成功路径已经在 try 里把这三个字段消费掉了（记 foldMark 用），这里清的一次是**兜底**（异常/空返回）。
       this._lastSummaryChars = undefined;

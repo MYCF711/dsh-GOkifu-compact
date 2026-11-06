@@ -1574,13 +1574,13 @@ tests["C14b 手动 /compact 的接线：compactNow → compactRegion 记区间 �
   const engine = new Engine(ctx, { graphDir: dir, auto: false });
   const seqA = session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "一" }] });
   const seqB = session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "二" }] });
-  // 桩基类的 compactNow 是空的（返回 null）⇒ 临时替换成「模拟宿主」：算出 range、调 compactRegion、返回成功。
-  // 这一步正是 C14 里唯一没被覆盖的接线（真实宿主就是这么做的）。
+  // 桩基类的 compactNow 是空的（返回 null）⇒ 临时替换成「模拟宿主」：仍走 compactRegion，
+  // 同时返回真实 Basic 的 shadowedRange/shadowedTokenCount。C655 后记账只认这次 result。
   const baseProto = Object.getPrototypeOf(Object.getPrototypeOf(engine));
   const original = baseProto.compactNow;
   baseProto.compactNow = async function (agent) {
     await this.compactRegion(seqA, seqB, agent);
-    return { ok: true };
+    return { ok: true, shadowedRange: { start: seqA, end: seqB }, shadowedTokenCount: 321 };
   };
   try {
     // summarize 在 compactRegion 里会留下 pending 摘要文本；这里直接给（与 P2-2-1 处理桩的方式一致）
@@ -1591,10 +1591,58 @@ tests["C14b 手动 /compact 的接线：compactNow → compactRegion 记区间 �
     const mark = (engine.graphs.get(session.id)?.foldMarks ?? []).at(-1);
     if (mark?.trigger !== "manual") throw new Error(`手动 /compact 必须记 trigger=manual，实际 ${JSON.stringify(mark?.trigger)}`);
     if (mark.seqStart !== seqA || mark.seqEnd !== seqB) throw new Error(`手动压缩记的区间错：${mark.seqStart}-${mark.seqEnd}（期望 ${seqA}-${seqB}）`);
+    if (mark.shadowedTokens !== 321) throw new Error(`shadowedTokens 必须来自本次 result.shadowedTokenCount，实际 ${mark.shadowedTokens}`);
     if (engine._lastSummaryText !== undefined) throw new Error("recordFoldMark 之后 pending 摘要必须被消费");
   } finally {
     baseProto.compactNow = original;
   }
+};
+tests["C655 手动 compactNow 只消费本次 shadowedRange，绕过 compactRegion 也不受另一会话污染"] = async (t) => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c655-manual-range");
+  const engine = new Engine(makeCtx(), { graphDir: dir, auto: false });
+  const sessionA = makeSession({ id: "sess-c655-a" });
+  const sessionB = makeSession({ id: "sess-c655-b" });
+  const rangeA = { start: sessionA.push("user/message", { content: [{ type: "text", text: "A1" }] }), end: 0 };
+  rangeA.end = sessionA.push("user/message", { content: [{ type: "text", text: "A2" }] });
+  for (let i = 0; i < 10; i += 1) sessionB.push("user/message", { content: [{ type: "text", text: `padding-${i}` }] });
+  const rangeB = { start: sessionB.push("user/message", { content: [{ type: "text", text: "B1" }] }), end: 0 };
+  rangeB.end = sessionB.push("user/message", { content: [{ type: "text", text: "B2" }] });
+
+  const baseProto = Object.getPrototypeOf(Object.getPrototypeOf(engine));
+  const originalNow = baseProto.compactNow;
+  let notifyA = null;
+  let releaseA = null;
+  const aStarted = new Promise((resolve) => { notifyA = resolve; });
+  const aMayReturn = new Promise((resolve) => { releaseA = resolve; });
+  let pending = null;
+  // 与真实 Basic 一样：compactNow 直接返回 shadowedRange，**不调用插件 compactRegion**。
+  // A 等待期间，另一会话的 pressure compactRegion 会污染旧 `_manualRange`。
+  baseProto.compactNow = async function () {
+    notifyA();
+    await aMayReturn;
+    return { shadowedRange: rangeA, shadowedTokenCount: 4321 };
+  };
+  try {
+    pending = engine.compactNow({ session: sessionA, options: {} }, undefined, "cmd-c655-a");
+    await aStarted;
+    await engine.compactRegion(rangeB.start, rangeB.end, { session: sessionB, options: {} }, undefined);
+    releaseA();
+    await pending;
+  } finally {
+    releaseA();
+    await Promise.allSettled([pending].filter(Boolean));
+    baseProto.compactNow = originalNow;
+  }
+
+  const markA = (engine.graphs.get(sessionA.id)?.foldMarks ?? []).at(-1);
+  const other = engine.ledgerBudget?.lastExternalFold;
+  t.eq({ start: markA?.seqStart ?? null, end: markA?.seqEnd ?? null }, rangeA,
+    "A 必须记本次 result.shadowedRange，不是另一会话的 pressure range");
+  t.eq(markA?.shadowedTokens, 4321, "shadowedTokens 必须来自本次 result.shadowedTokenCount");
+  t.eq({ start: other?.seqStart ?? null, end: other?.seqEnd ?? null }, rangeB,
+    "另一会话 direct compactRegion 的预算账本指纹也必须保持原区间（C198 不重复写图 foldMark）");
+  t.eq(Object.hasOwn(engine, "_manualRange"), false, "不得再保留会污染本次结果的单槽或 Map 区间载体");
 };
 /** doctor 夹具的上级目录（test/.harness/graphs）。 */
 function GRAPH_PATH_HOME() {
@@ -1789,7 +1837,7 @@ tests["C135 手动 /compact 的深度记账：结束后必须回到外层值（�
   // ① 顶层调用：深度从 0 → 1 → 0
   const first = await engine.compactNow({ session }, undefined, "cmd-1");
   if ((engine._manualCompactDepth ?? 0) !== 0) throw new Error(`顶层调用后深度必须归零，实际 ${engine._manualCompactDepth}`);
-  if (engine._manualRange !== null && engine._manualRange !== undefined) throw new Error(`_manualRange 必须清空，实际 ${JSON.stringify(engine._manualRange)}`);
+  if (Object.hasOwn(engine, "_manualRange")) throw new Error("C655 后不得再存在引擎级 _manualRange 区间槽（单槽或 Map 都不需要）");
   // ② 嵌套调用（外层已经深度 1）：内层结束后必须回到 1，而不是被清零
   engine._manualCompactDepth = 1;
   try {
