@@ -599,7 +599,7 @@ export function accumulateLedgerBudget(stats, metrics, now = Date.now(), session
   }
   target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
   // ★ C245：**over-budget 按成因归因**：超预算到底是「约束/根目标逐字保留那段就占了大半」，
-  //   还是「失败边等可压缩内容占大头」？实测（session-1e82afca，579 tok / 预算 500）：
+  //   还是「失败边等可压缩内容占大头」？实测（session-example，579 tok / 预算 500）：
   //   CONSTRAINTS 198 + markers 图例 43 + ROOT 19 ⇒ 不可裁部分已占 45%，失败边只有 230。
   //   这两类的处置完全不同：前者只能改预算或改约束长度，后者才有"再压一点"的空间。
   if (

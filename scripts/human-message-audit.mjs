@@ -5,7 +5,7 @@
  * 为什么需要它：`src/rooms/keeper.mjs` 的 `isHumanMessage` 只用 `source.kind` 判断
  * 「这条 user 消息是不是人打的字」。真机反例（2026-11-05）：
  *
- *   session-f7f835b1 seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
+ *   session-example seq 1179 —— 一条 **251,157 字符**的 LLM 错误 JSON
  *   （`{"id":"chatcmpl-…","error":{…}}` + 用户粘的请求体），宿主标的 `source.kind = "user"`。
  *   ⇒ 被当成「人打的字」⇒ `extractConstraints` 抽出 40 条「约束」⇒ 渲染进
  *     `## 约束（一条都不许丢）` —— 整块 36% 是系统提示词。
@@ -174,7 +174,7 @@ export function resolveHome(env = process.env, argv = []) {
   if (fromArg !== undefined && fromArg.length > "--home=".length) return fromArg.slice("--home=".length);
   const fromEnv = String(env.DSH_HOME ?? "").trim();
   if (fromEnv !== "") return fromEnv;
-  // 本机 DSH 装在 `D:\DeepSeek Harness` 下，`~/.dsh` 里没有 sessions：两个候选都试，谁有日志用谁。
+  // 本机 DSH 装在 `D:/fixture` 下，`~/.dsh` 里没有 sessions：两个候选都试，谁有日志用谁。
   const profile = env.USERPROFILE ?? env.HOME ?? os.homedir();
   const hasSessions = (home) => {
     try {

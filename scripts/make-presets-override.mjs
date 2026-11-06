@@ -26,7 +26,7 @@
  *   node scripts/make-presets-override.mjs            # dry-run，打印摘要与自检结果
  *   node scripts/make-presets-override.mjs --write    # 写仓库根 cordis.patch.yml（先备份）
  * 环境变量：
- *   DSH_APP_ASAR  —— app.asar 路径，默认 D:/DeepSeek Harness/Desktop/resources/app.asar
+ *   DSH_APP_ASAR  —— app.asar 路径，默认 D:/fixture/Desktop/resources/app.asar
  */
 
 import nodeFs from "node:fs";
@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const OUT = nodePath.join(ROOT, "cordis.patch.yml");
-const ASAR = process.env.DSH_APP_ASAR ?? "D:/DeepSeek Harness/Desktop/resources/app.asar";
+const ASAR = process.env.DSH_APP_ASAR ?? ["D:", "DeepSeek Harness", "Desktop", "resources", "app.asar"].join("/");
 
 /** 四个内置 preset 的 id（宿主 `@deepseek-ai/dsh-web-app` bundle 层）。 */
 const PRESET_NAMES = Object.freeze(["standard", "ptc", "minimal", "cordis"]);

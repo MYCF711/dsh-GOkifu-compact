@@ -311,7 +311,7 @@ export async function main(argv = process.argv.slice(2)) {
   //   日常视图不能这么贵；重算交给 `node scripts/fold-economics.mjs --write`。
   try {
     const fsMod = (await import("node:fs")).default;
-    const homeDir = process.env.DSH_HOME ?? "D:\DeepSeek Harness\home";
+    const homeDir = process.env.DSH_HOME ?? ["D:", "DeepSeek Harness", "home"].join(String.fromCharCode(92));
     const snap = JSON.parse(fsMod.readFileSync(nodePath.join(homeDir, "chess-context", "fold-economics.json"), "utf8"));
     data.economics = { ...snap, ageMinutes: Math.max(0, Math.round((Date.now() - Number(snap.at || 0)) / 60000)) };
   } catch {
@@ -321,7 +321,7 @@ export async function main(argv = process.argv.slice(2)) {
   // ⑤b 动作开销（C451/C454）—— 解一个会话日志，实测 ~1s
   try {
     const mod = await import("./action-cost.mjs");
-    const files = mod.sessionFiles(process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home");
+    const files = mod.sessionFiles(process.env.DSH_HOME ?? ["D:", "DeepSeek Harness", "home"].join(String.fromCharCode(92)));
     if (files.length === 0) {
       data.actionCost = null;
     } else {

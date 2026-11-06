@@ -78,7 +78,7 @@ import { createPersistStore, createFsPort, graphRoot } from "./rooms/kifu-persis
  * 本文件所在目录（真实路径）。
  *
  * 为什么不用 `new URL(import.meta.url).pathname`：pathname 是**百分号编码**串
- * （`/D:/%E4%B8%BB%E5%B7%A5%E4%BD%9C%E5%8C%BA/…`），拼出来的路径在磁盘上不存在 ⇒
+ * （`/D:/fixture/…`），拼出来的路径在磁盘上不存在 ⇒
  * `readFileSync` ENOENT ⇒ `readVersion()` 的 catch 吞成 `null` ⇒ 页面标题渲染成 `v?`
  * （`lib/client.js:197` 的 `v${state?.version ?? "?"}`）。
  * `fileURLToPath` 是 Node 官方解码入口（空格 `%20`、中文、`~` 的 `%7E` 一并还原）。

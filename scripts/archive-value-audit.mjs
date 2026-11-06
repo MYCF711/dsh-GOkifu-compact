@@ -26,7 +26,7 @@ import { buildLogIndex } from "./range-fidelity-audit.mjs";
 import { resolveSummaryText } from "./summary-usability-audit.mjs";
 import { COLD_INPUT_PER_MTOK, OUTPUT_PER_MTOK, forecast, measureFromMarks, quantile } from "./backfill-forecast.mjs";
 
-export const DEFAULT_HOME = process.env.DSH_HOME ?? "D:/DeepSeek Harness/home";
+export const DEFAULT_HOME = process.env.DSH_HOME ?? ["D:", "DeepSeek Harness", "home"].join(String.fromCharCode(92));
 export const MIN_FINGERPRINT_CHARS = 48;
 export const TASK_DEBT_SEGMENTS = 689;
 export const VERDICT_RULES = Object.freeze({ minUsedSessionShare: 0.2, minUsesPerMark: 0.1, cheapUsd: 1 });

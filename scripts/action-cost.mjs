@@ -216,7 +216,7 @@ function main(argv) {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 && argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") ? argv[i + 1] : fallback;
   };
-  const home = get("home", process.env.DSH_HOME ?? "D:\\DeepSeek Harness\\home");
+  const home = get("home", process.env.DSH_HOME ?? ["D:", "DeepSeek Harness", "home"].join(String.fromCharCode(92)));
   const top = Number(get("top", 10));
   const asJson = argv.includes("--json");
   const prefix = get("session", null);

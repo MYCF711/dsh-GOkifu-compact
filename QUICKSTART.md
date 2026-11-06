@@ -14,7 +14,7 @@
 ### 1. 确认插件已加载
 
 ```bash
-cd "D:/主工作区/repos/dsh-GOkifu-compact"
+cd "D:/fixture/repos/dsh-GOkifu-compact"
 node test/verify-install.mjs
 ```
 
@@ -26,13 +26,13 @@ node test/verify-install.mjs
 ### 2. 看一次真实会话的棋谱
 
 ```bash
-ls -lt "D:/DeepSeek Harness/home/chess-context/sessions" | head -3
+ls -lt "D:/fixture/home/chess-context/sessions" | head -3
 ```
 
 挑最新那个目录，看 `graph.json`：
 
 ```bash
-node -e "const g=require('D:/DeepSeek Harness/home/chess-context/sessions/<目录>/graph.json'); console.log('节点',Object.keys(g.nodes).length,'边',Object.keys(g.edges).length,'fold',g.foldCount)"
+node -e "const g=require('D:/fixture/home/chess-context/sessions/<目录>/graph.json'); console.log('节点',Object.keys(g.nodes).length,'边',Object.keys(g.edges).length,'fold',g.foldCount)"
 ```
 
 期望：节点数 > 0、边数 > 0。
@@ -157,7 +157,7 @@ node test/replay-verify.mjs     # 用你当前会话的真实日志回放，看�
 
 | 东西 | 路径 |
 |---|---|
-| 插件源码 | `D:\主工作区\projects\dsh-gokifu-compact` |
+| 插件源码 | `D:/fixture\projects\dsh-gokifu-compact` |
 | 棋谱数据 | `<DSH_HOME>\chess-context\sessions\<sessionId>\graph.json` |
 | 人读视图 | 同目录 `graph.md`（只在 idle / fold 后更新） |
 | 证据 | 项目 `evidence/`（13 个文件，每个 .md + .json） |

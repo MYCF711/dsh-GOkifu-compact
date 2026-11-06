@@ -6,7 +6,7 @@
  * 流式解码器直接 `Unknown frame descriptor`（见 `docs/knowledge/宿主会话文件格式-zstd多帧.md`）。
  *
  * 正确解法：**按 zstd magic（28 B5 2F FD）切帧，逐帧解压**。
- * 实测（session-8a73e06b）：9,236 帧全部可解，得到 37 MB JSONL。
+ * 实测（session-example）：9,236 帧全部可解，得到 37 MB JSONL。
  *
  * 用法：
  *   node scripts/session-scan.mjs --file <session.v4.jsonl.zstd>

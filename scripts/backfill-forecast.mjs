@@ -17,7 +17,7 @@
  *
  * 用法：
  *   node scripts/backfill-forecast.mjs                       # 表格（默认 --home $DSH_HOME）
- *   node scripts/backfill-forecast.mjs --home "D:/DeepSeek Harness/home"
+ *   node scripts/backfill-forecast.mjs --home "D:/fixture/home"
  *   node scripts/backfill-forecast.mjs --seg-sec 169         # 换一个"每段秒数"假设
  *   node scripts/backfill-forecast.mjs --window 8            # 用最近 8 小时实测速率
  *   node scripts/backfill-forecast.mjs --json

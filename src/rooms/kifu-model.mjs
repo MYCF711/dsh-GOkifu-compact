@@ -533,7 +533,7 @@ export function fromJSON(text, { heal = false } = {}) {
   // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
   //   { hash, mode, files } 对象直接写进了节点字段。这里在加载边界统一收敛成字符串，
   //   否则 ledger 的 `.slice()` 会抛 "latest?.worldHash?.slice is not a function"，
-  //   整个压缩链路失败（实机 session-5acafe42：187 次该错误 / 226 次压缩仅 3 次成功）。
+  //   整个压缩链路失败（实机 session-example：187 次该错误 / 226 次压缩仅 3 次成功）。
   let pendingConstraint = 0;
   for (const node of Object.values(obj.nodes ?? {})) {
     if (!node || node.kind !== "agent") continue;
@@ -569,7 +569,7 @@ export function fromJSON(text, { heal = false } = {}) {
   }
   obj.stateIndex = rebuilt;
   // ★ C526：**悬空边自愈**。合并/置换会把节点收拢进别的节点，可历史数据里出现过
-  //   「边还在、端点没了」（真机 session-8a73e06b：e4633 → from=n4559 不存在，C140 报警）。
+  //   「边还在、端点没了」（真机 session-example：e4633 → from=n4559 不存在，C140 报警）。
   //   这里给缺失端点**补一个桩节点**：边不丢（它记着"当时做过什么"），图也自洽。
   //   桩节点带 `stub: true` 与来源边 id，随时能审计。
   try {
@@ -1212,7 +1212,7 @@ export function markNodeDeleted(g, id) {
  *
  * ── ★ C640：回滚**不许跨过「已成功落盘」的边界**（数据一致性，不是显示问题）─────────
  *
- * 反例链（真机 session-8cc34e32 实测，n3780 就是这么没的）：
+ * 反例链（真机 session-example 实测，n3780 就是这么没的）：
  *   ① `compactIfNeeded` 入口拍快照；
  *   ② fold 的 `await compactRegion(...)` 期间 keeper 照常落账，**1.2s debounce 的 flush 真的写了** ——
  *      这些节点在快照之后创建，所以**快照里没有它们**，但它们是磁盘上的真实记录（dirty 已被清空）；
@@ -1438,7 +1438,7 @@ export function applyDelta(g, delta, { heal = false } = {}) {
       }
     }
   }
-  // ★ C526：**删节点会留下悬空边**（真机 session-8a73e06b：delta 删了 n4559，而 e4633 留在 base 里
+  // ★ C526：**删节点会留下悬空边**（真机 session-example：delta 删了 n4559，而 e4633 留在 base 里
   //   ⇒ C140 报「from 节点不存在」）。这里在应用增量后扫一遍：端点没了的边**补桩节点**，
   //   边本身保留 —— 它记着"当时做过什么"，不该因为一次收拢就消失。
   const stubs = [];

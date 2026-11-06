@@ -33,7 +33,7 @@ const NEXT_ARG_RE = /(?:^|\s)[A-Za-z0-9_-]+=/;
  *
  * 形态（keeper.actionSummary 的确定性产物）：
  *   `read(file_path=/tmp/x.md)`
- *   `edit(file_path=D:\主工作区\repo\a.mjs)`
+ *   `edit(file_path=D:/fixture\repo\a.mjs)`
  *   `write(file_path=D:\…\a.md content=# 标题 …)`      ← 第二个参数带空格，要在 ` content=` 处截断
  *   `write(file_path="D:\my docs\a.md")`               ← 带引号（宿主/测试都可能出现）
  *   `read(file_path=/tmp/very/long…`                    ← action 被截断（没有闭合括号）

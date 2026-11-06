@@ -440,10 +440,10 @@ let objectHash = 0;
  * ★ C475：把会话 id 翻成**用户界面上看到的名字**。
  *
  * 由来（用户原话）：「你说的是你看到的编号，不是我这里看到的中文名」——
- * doctor 满屏 `session-b4664e8f…`，而用户界面上写的是「发布代码仓库并公开」。
+ * doctor 满屏 `session-example…`，而用户界面上写的是「发布代码仓库并公开」。
  * 报告要给人看，就得说人话；id 保留在括号里（排查时仍要能定位）。
  *
- * @param {string} sessionId 形如 `session-b4664e8f-…` 或目录名
+ * @param {string} sessionId 形如 `session-example-…` 或目录名
  * @param {Record<string,string>} titles 会话 id（可带或不带 `session-` 前缀）→ 标题
  * @returns {{label:string, title:string|null}}
  */
@@ -2066,7 +2066,7 @@ const recentFoldWindow = (marks) =>
 /* ── 4.8 fold 悬空（合同 §6-4）：liveUnsettled > 0 = fold 切在动作中间；fromBroken > 0 = 图已坏 ──
    ★ C604：**判级窗口改成「最近 10 次 fold」，与同族「fold 边界完整性」对齐**。
    旧判据把**全历史**的 liveUnsettled 求和：真机（2026-11-05 01:38）有一条
-   2026-11-03T06:57 的 `liveUnsettled=1`（session-c0a5847a 的第 10 次 fold），
+   2026-11-03T06:57 的 `liveUnsettled=1`（session-example 的第 10 次 fold），
    而它之后 20 多次 fold 全是 0 —— 这条警告却永远清不掉。
    悬空边是一次性事件：那一次 fold 之后要么被后续结算，要么就是一个已经过去的事实，
    **不可能被"再跑一次 doctor"修好**，所以「恒真」的判据只是噪音。

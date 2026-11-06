@@ -135,7 +135,7 @@ export function reasoningConclusionText(text, maxChars = REASONING_CONCLUSION_MA
  *
  * 由来（真机 2026-11-05，`node scripts/prompt-bleed-audit.mjs` 原样输出）：
  *   有正文的摘要 392 条，含系统提示词标记的 11 条，其中**逐字**回灌的 1 条
- *   （`session-f7f835b1`：13,210 字符里 4,750 = **36.0%** 是系统提示词）。
+ *   （`session-example`：13,210 字符里 4,750 = **36.0%** 是系统提示词）。
  *   回灌全部落在摘要的「约束」段 —— 因为摘要 prompt 要求「把硬事实里的约束原样抄一遍」，
  *   而硬事实块里的约束**本身**就带着系统提示词（见下面的证据链）。
  *
@@ -663,7 +663,7 @@ export function reclaimPlaceholders(text, missing, claimed = new Set()) {
  * `docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，那就不能只靠提示词自觉
  * （C458 的原则：提示词挡不住的东西用代码挡）。
  *
- * 真机依据（2026-11-04 19:00:57Z，`session-fdd814b1` 的 `archive-offline`）：
+ * 真机依据（2026-11-04 19:00:57Z，`session-example` 的 `archive-offline`）：
  * 模型把 e693–e698 六条合并成 `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）`，
  * `failureRecall` 掉到 0.43（7 条里丢 4 条），而合并出来的动作描述还是**错的**（4 个不同文件）。
  *
@@ -743,9 +743,9 @@ const MAX_FACTS_CHARS = 8000;
 /**
  * ★ C607：**把动作里的路径压成文件名**（事实块与死路补回共用）。
  *
- * 真机（`session-fdd814b1` 的 `archive-offline` 那一次，2026-11-04 19:00:57Z）：
+ * 真机（`session-example` 的 `archive-offline` 那一次，2026-11-04 19:00:57Z）：
  * 6 条死路的动作都是
- * `edit(file_path=D:\DeepSeek Harness\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs\<文件>)`，
+ * `edit(file_path=D:/fixture\default-workspace\projects\dsh\plugins\ptc-domain-presets\docs\<文件>)`，
  * 而 `renderFacts` 是**从左往右**切 80 字符 ⇒ 切在 `…\ptc-do` 上 ——
  * **真正有区分度的那一段（文件名）被切掉了**，6 条死路在事实块里长得一模一样。
  * 模型于是把它们合并成「对同一文件连续 edit（重复 6 次）」：它不是瞎写，
@@ -921,7 +921,7 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
     //   说不出每步**得出了什么**，读者还得回去翻原文 —— 那等于没压。
     "- 「棋谱」每一条都要写成「哪个节点 做了什么 → **得出了什么**」，一条一句；只写编号串不算。",
     // ★ C607：**死路必须逐条**（契约：`docs/方案书.md` §「失败边……逐条出现，不合并、不省略」）。
-    //   真机 session-fdd814b1 那一次：模型把 e693–e698 合并成一行
+    //   真机 session-example 那一次：模型把 e693–e698 合并成一行
     //   `e693—e698 对同一文件连续 edit → cannot modify（重复 6 次）` ⇒ 中间 4 条 id 当场消失
     //   （failureRecall 0.43），而且「同一文件」本身是错的 —— 那 6 条是 **4 个不同文件**。
     "- 「已探明死路」**一条边一行**：`- e123 「动作」→ 为什么失败`；**不许**把连续几条合并成 " +
@@ -1155,7 +1155,7 @@ export async function runOfflineFold({
     // ★ C607：**死路逐条补回**（与上面的约束补回同构）。顺序有意义：死路段补在**约束段之前**，
     //   这样摘要结尾仍然是提示词要求的「## 约束（逐字）」。
     //   为什么必须兜底：`docs/方案书.md` 把「失败边逐条出现，不合并、不省略」写成硬契约，
-    //   而真机已经出现过合并（session-fdd814b1：e693—e698 六条并一行，丢 4 条 id）。
+    //   而真机已经出现过合并（session-example：e693—e698 六条并一行，丢 4 条 id）。
     //   判据与探针同源（`failuresInFoldRange` + `mentionsEdge`），补完 `failureRecall` 必然 = 1。
     // ★ C641：**接线搬到 `repairFailuresInText`** —— 写回点（`applyOfflineFoldToGraph`）也要调它。
     //   原来这段只长在本函数里，而 `trigger=archive-offline` 有**两个**生产者：

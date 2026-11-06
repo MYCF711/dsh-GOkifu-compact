@@ -79,7 +79,7 @@ export function planChunkedCloseout(graph, { maxTokens = CLOSEOUT_MAX_FOLD_TOKEN
   }
   // ★ C520：**有前段缺口时，要压的是那个洞**（C519 之后 `tail` 可能已经是 0）。
   //   不处理的话：`closeoutExceedsLimit` 看到 tail=0 直接返回 null ⇒ 分段计划 0 段 ⇒
-  //   这类会话永远补不了（真机 session-00b50089：尾巴 0 事件、缺口 1,043k tok、0 段）。
+  //   这类会话永远补不了（真机 session-example：尾巴 0 事件、缺口 1,043k tok、0 段）。
   const gap = debt?.gap ?? null;
   const gapEvents = Number(gap?.events ?? 0);
   const tooBig = closeoutExceedsLimit(graph, maxTokens);

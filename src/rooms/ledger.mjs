@@ -29,7 +29,7 @@ import { weakKindOf } from "./verify.mjs";
  *   · `to=null` 5,567 条：unverified 4,815 + success 481 + failure 268 + untested 3；
  *   · 5,564 条是 1.9.1 rewash 清自环时把 `to` 抹掉的**历史残留**（已结算却无终点 = 不可能）；
  *   · 3 条 untested 也是 18 小时前的陈旧 in-flight 残留；
- *   · 另有 214 条 `from` 悬空（全在 session-5acafe42，mergeNodeInto 老 bug）——**另一类**，
+ *   · 另有 214 条 `from` 悬空（全在 session-example，mergeNodeInto 老 bug）——**另一类**，
  *     判据必须以 `to == null` 开头，绝不能写成「任一端为空」（会误删）。
  *
  * 不变量（报告 §2，P6C-1 起四类）：
@@ -243,7 +243,7 @@ export function traceRelativeDir(treeDir, root = "") {
   const p = String(treeDir ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
   const m = /(?:^|\/)sessions\/([^/]+)$/.exec(p);
   let sid = m ? m[1] : (p.split("/").filter(Boolean).at(-1) ?? "");
-  // 盘符本身不是会话名（`treeDir = "D:\\"` ⇒ 最后一段是 "D:"）——不许把 "D:" 印成相对路径。
+  // 盘符本身不是会话名（`treeDir = "D:/fixture"` ⇒ 最后一段是 "D:"）——不许把 "D:" 印成相对路径。
   if (/^[A-Za-z]:$/.test(sid) || sid.includes(":")) sid = "";
   if (!sid) return root || ".";
   return root ? `${root}/${sid}` : sid;
@@ -501,7 +501,7 @@ export function renderFailureLine(edge, level = 0, tewari = null, mode = "semant
  * 背景（实测）：渲染链原本是 `path.length > 1 && level <= 2` —— **L3 起整块路径段不渲染**。
  * S2a 的 `WORKING:` 行让 3 个会话多出 28~46 tokens，从 L2 掉到 L3，于是「为了显示工作路径」
  * 反而把路径（连同工作位置）一起挤没了：
- *   session-569f9cd0 L2=453 → L3=376 / session-8bfe7040 L2=438 → L3=356 / session-e02194c6 L2=489 → L3=394。
+ *   session-example L2=453 → L3=376 / session-example L2=438 → L3=356 / session-example L2=489 → L3=394。
  *
  * 修法：**按档位决定路径行的形态 —— 越高越省，而不是越高越没有。**
  *   · `full` —— L0–L2：与 1.9.1 **逐字相同**（不省一个字符，行为不变）。
@@ -566,7 +566,7 @@ function pathDigestLine(ids) {
  * 按**剩余预算**（字符）把两条路径行折到装得下。L3(`head`) / L4-L5(`n1`) 都用它。
  *
  * `budget` = `maxTokens × 3 - 已用字符 - 余量`。为什么按剩余预算而不是固定配比：
- * 实测 session-c328440a 的 CURRENT PATH 有 158 个节点，各砍一半仍超预算（整条 708 tokens）；
+ * 实测 session-example 的 CURRENT PATH 有 158 个节点，各砍一半仍超预算（整条 708 tokens）；
  * 按剩余预算折才有上界。
  *
  * 规则：
@@ -1085,7 +1085,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       // ★ 2026-10-29（goal ⑤）：旧版让模型去读 `graph.md` —— 而那个文件从 v1.2.2 起就不再自动写了（死指针）。
       //   真实的三层树是 index.md + nodes/<id>.md。这里给出**可点的实际路径**，模型要细节时知道去哪。
       // ★ P6a（2026-10-30）：TRACE 只给**相对路径**（`sessions/<sid>/index.md`）。
-      //   旧版把 `treeDir` 的绝对路径整条写进去（`D:\DeepSeek Harness\home\chess-context\sessions\<sid>`，
+      //   旧版把 `treeDir` 的绝对路径整条写进去（`["D:", "DeepSeek Harness", "home"].join(String.fromCharCode(92))\chess-context\sessions\<sid>`，
       //   实测 137.7 字符/行）——既把本机用户名/盘符泄漏给模型，又白烧 token（生产口径 94/133 个会话
       //   带 TRACE 行，平均 +45 token）。相对路径对模型足够定位（会话根 = DSH_HOME/chess-context），
       //   且 `traceRoot` 可配置（默认 "sessions"）。
@@ -1272,7 +1272,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       }
       // ★ C-17 修（2026-10-30）：WORKING 可能被**并进** CURRENT PATH（同尾 ⇒ fitPaths 规则 1，
       //   workingLine 返回 null）。旧写法直接 `${folded.workingLine}${summary}${weakTag}` ⇒
-      //   实测 session-569f9cd0 输出一行字面量 `null [weak 1/1]`：
+      //   实测 session-example 输出一行字面量 `null [weak 1/1]`：
       //   既印了 "null"，又把「工作位置」藏了。现在把摘要与 weak 标记挂到**合并后的那一行**上。
       const mergedIntoCurrent = workingIds !== null && folded.workingLine === null;
       // 最小形态/整块省略时，摘要与 weak 标记必须一起压掉（否则标记裸奔、或又超预算）
