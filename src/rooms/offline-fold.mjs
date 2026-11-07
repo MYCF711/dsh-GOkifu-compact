@@ -17,7 +17,9 @@ import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-qu
 //   R04 的 `classify`），本文件**一行裁决逻辑都不写** —— 复制一份 validator 就等于开第二条
 //   事实质量路径：两套代码迟早只修好其中一套，而那时「哪一套才是判据」已经无人能答。
 import { FACT_KINDS, SUBJECTS, guardModelOutput } from "./fact-guard.mjs";
-import { extractValueFacts } from "./tool-value-facts.mjs";
+// ★ AX-21：`resultKindForValueFacts` 也从 AX-02 房间来 —— 「这次结果算不算可信」的判据
+//   在线（keeper）与离线（本文件的 collectFoldValueFacts）**只有一份**。
+import { extractValueFacts, resultKindForValueFacts } from "./tool-value-facts.mjs";
 import { classify } from "./verify.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
@@ -1096,10 +1098,11 @@ export function buildGuardSource(events, { sessionId = null } = {}) {
  * `weak`（read / shell：工具自报无错、无外部验证）→ 抽；`failure` / 无 weak 的 `unverified`
  * → 抽取器自己返回 `[]`。
  *
- * **已知差异（有意保守，写在 REPORT 的未验项里）**：keeper 里 `githubReadShaped` 会把
- * 「github 读形结果（classify 给 unverified 且不带 weak）」也放行成 `weak`，离线路径没有那份
- * 工具名/实参映射 ⇒ 少抽那几条 API 值。方向是**只少不多**：离线不会产出一条 keeper 产不出的事实，
- * 也不会影响守卫的接受/拒绝（裁决只吃信封与事件源，与 valueFacts 无关）。
+ * ★ AX-21（2026-11-08）：**「结果算不算可信」也走同一份判据**（`resultKindForValueFacts`）。
+ *   旧版这里自己写了一个三元，漏了 keeper 私有的 `githubReadShaped` 映射 ⇒ GitHub 读形结果
+ *   （classify 给 `unverified` 且不带 `weak`）在离线路径**一条值都抽不出来**：
+ *   K-2 的 K2-O3（`id` / `private`）与 K2-N4（`node_id`）的答案片段因此根本不在折叠上下文里。
+ *   现在两条路径 import 同一个纯函数，`resultKind` 不可能再分叉。
  *
  * @param {Array<object>} events 会话事件（升序）
  * @param {{rangeStart?: number|null, rangeEnd?: number|null}} [options] 只看落在区间内的结果
@@ -1141,14 +1144,8 @@ export function collectFoldValueFacts(events, { rangeStart = null, rangeEnd = nu
     const call = (callId === null || callId === undefined ? null : calls.get(String(callId))) ?? lastCall;
     const isError = message?.isError === true;
     const verdict = classify({ tool: call?.name ?? "", text, isError });
-    const resultKind =
-      verdict?.result === "success"
-        ? "success"
-        : verdict?.result === "failure"
-          ? "failure"
-          : typeof verdict?.weak === "string" && verdict.weak !== ""
-            ? verdict.weak
-            : "unverified";
+    // 与 keeper 逐字段同一份判据（AX-21）：GitHub 读形 → weak，写形/其它 → 原样。
+    const resultKind = resultKindForValueFacts(verdict, call?.name ?? "", call?.args);
     const facts = extractValueFacts({ tool: call?.name ?? "", result: text, resultKind, isError, evidenceSeq: seq });
     for (const fact of facts) {
       // 去重口径：同一种值 + 同一条证据只留一条（区间分段时会重复扫到同一条结果）。

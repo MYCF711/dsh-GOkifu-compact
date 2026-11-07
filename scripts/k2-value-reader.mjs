@@ -76,6 +76,8 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderFacts } from "../src/rooms/ledger.mjs";
+import { collectFoldValueFacts } from "../src/rooms/offline-fold.mjs";
+import { toolNameFromAction, toolNameFromSource } from "../src/rooms/tool-value-facts.mjs";
 import { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { gradeAnswer } from "./lme-task50.mjs";
@@ -686,6 +688,101 @@ export function buildSessionContexts(home, sessionHash, { factGuard = true } = {
   const parsed = parseEvents(nodeFs.readFileSync(session.logFile));
   const { facts, contexts } = buildContextsFromGraph(graph, parsed.events, { factGuard });
   return { session, facts, contexts, events: parsed.events.length, badEventLines: parsed.badEventLines, frames: parsed.frames };
+}
+
+/* ─────────────────────── K-2 值事实派生（AX-21，纯函数、只读） ─────────────────────── */
+
+/**
+ * 把「当前代码会写进边上的值事实」派到**图的副本**上（不碰 live 图）。
+ *
+ * 为什么必须派生：K-2 两个冻结会话的 `graph.json` 早于 AX-04，`edge.valueFacts` **一条都没有**
+ * （实测 0/17、0/33 条边），于是 `renderFacts(graph, {factGuard:true})` 与 `guard=false` 逐字相同
+ * —— 候选等于基线，K-2 就永远测不出差异。这里用 **AX-02/AX-07 的同一个抽取器**
+ * （`collectFoldValueFacts`，只读会话日志）重新抽一遍，挂到**证据结束 seq 恰好等于该事实
+ * evidenceSeq 的那条边**上（AX-04 在 keeper 里正是「结算那一条边时写入」）。
+ *
+ * 四条不变量：
+ *   ① **不写 live 图**：输入图被深拷贝后才挂；调用方传进来的对象一个字节都不变（测试钉住）。
+ *   ② **唯一匹配才挂**：`evidence.end === evidenceSeq` 的边多于一条时，只有 `edge.action` 的
+ *      工具名与 `fact.source`（`tool:<name>`）**唯一**对得上才挂 —— 宁可不答，不许挂错
+ *      （K2-N4 的候选回答曾经是**另一条**响应的 `node_id`：那是把「正确弃答」变成「自信答错」）。
+ *   ③ **多义只计数**：0 条命中记 `unmapped`（含「有边但工具名都对不上」），多条命中记 `multi`；
+ *      两者都**不挂**，也不猜。
+ *   ④ **可审计**：返回 `attached` 明细（边 id + 事实种类 + evidenceSeq），产物里能逐条对回源。
+ *
+ * @param {object} graph 冻结图（只读）
+ * @param {Array<object>} events 会话事件（只读）
+ * @param {{rangeStart?:number, rangeEnd?:number, derive?:boolean}} [options]
+ * @returns {{graph:object, derive:boolean, before:number, facts:number, attached:Array<{edge:string,kind:string,evidenceSeq:number}>, unmapped:number, multi:number}}
+ */
+export function deriveValueFacts(graph, events, { rangeStart = 1, rangeEnd = Number.MAX_SAFE_INTEGER, derive = true } = {}) {
+  const copy = JSON.parse(JSON.stringify(graph ?? {}));
+  const result = { derive: derive === true, before: countEdgeValueFacts(copy), facts: 0, attached: [], unmapped: 0, multi: 0 };
+  if (derive !== true) return { graph: copy, ...result };
+  // ★ 注意：`collectFoldValueFacts` 的默认参数（`rangeStart=null/rangeEnd=null`）会被
+  //   `Number(null) === 0` 判成合法区间，于是「不传区间」= 一条都抽不到（AX-07 的默认路径坑）。
+  //   这里**必须显式传区间**。
+  const facts = collectFoldValueFacts(events, { rangeStart, rangeEnd });
+  result.facts = facts.length;
+
+  const byEnd = new Map();
+  for (const edge of Object.values(copy.edges ?? {})) {
+    const end = Number(edge?.evidence?.end);
+    if (!Number.isFinite(end)) continue;
+    if (!byEnd.has(end)) byEnd.set(end, []);
+    byEnd.get(end).push(edge);
+  }
+
+  for (const fact of facts) {
+    const picked = pickFactEdge(byEnd.get(Number(fact.evidenceSeq)) ?? [], fact);
+    if (picked.edge === null) {
+      if (picked.reason === "multi") result.multi += 1;
+      else result.unmapped += 1;
+      continue;
+    }
+    const edge = picked.edge;
+    edge.valueFacts = [...(Array.isArray(edge.valueFacts) ? edge.valueFacts : []), fact];
+    result.attached.push({ edge: edge.id, kind: String(fact.kind), evidenceSeq: Number(fact.evidenceSeq) });
+  }
+  return { graph: copy, ...result };
+}
+
+/**
+ * 一条值事实该挂哪条边（纯函数）。
+ *
+ * 判据顺序（AX-21）：
+ *   ① 只有一条边 ⇒ 挂它（旧行为，逐字不变）；
+ *   ② 多条边 ⇒ 用**工具名**消歧（`edge.action` 的工具名 vs `fact.source` 的 `tool:<name>`）；
+ *   ③ 消歧后恰好一条 ⇒ 挂；0 条 ⇒ `unmapped`（有边但没有一条是这次调用的）；
+ *      仍多于一条 ⇒ `multi`（**不挂**：多义时任何选择都是猜）。
+ *
+ * 「边没有可解析的工具名」（旧图 / 夹具里 `action` 缺失）**不构成排除证据** ——
+ * 否则一张没有 `action` 的图会从「唯一命中」退化成「一条都不挂」，那是把旧语料误杀。
+ *
+ * @param {Array<object>} candidates `evidence.end === evidenceSeq` 的边
+ * @param {{source?:string}} fact AX-02 的值事实
+ * @returns {{edge: object|null, reason: "unique"|"tool"|"unmapped"|"multi"}}
+ */
+function pickFactEdge(candidates, fact) {
+  if (candidates.length === 0) return { edge: null, reason: "unmapped" };
+  if (candidates.length === 1) return { edge: candidates[0], reason: "unique" };
+  const tool = toolNameFromSource(fact?.source);
+  const matched = candidates.filter((edge) => {
+    const name = toolNameFromAction(edge?.action);
+    return name === "" || name === tool;
+  });
+  if (matched.length === 1) return { edge: matched[0], reason: "tool" };
+  if (matched.length === 0) return { edge: null, reason: "unmapped" };
+  return { edge: null, reason: "multi" };
+}
+
+/** 图里已经挂了多少条值事实（派生前后各算一次，产物里对照）。 */
+function countEdgeValueFacts(graph) {
+  let total = 0;
+  for (const edge of Object.values(graph?.edges ?? {})) {
+    if (Array.isArray(edge?.valueFacts)) total += edge.valueFacts.length;
+  }
+  return total;
 }
 
 /** 逐题覆盖预检：答案片段是否真的出现在某一臂的上下文里（字符串级，不是模型判分）。 */

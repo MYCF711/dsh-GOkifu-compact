@@ -9,6 +9,8 @@ import {
   encodeDeltaFrame,
   decodeDeltaFrames,
 } from "../src/rooms/kifu-model.mjs";
+import nodeFs from "node:fs";
+
 import { observeEvent, actionSignature, taskPivotScore } from "../src/rooms/keeper.mjs";
 import { isValueFact } from "../src/rooms/tool-value-facts.mjs";
 
@@ -412,4 +414,25 @@ tests["AX-04 图序列化 / delta 回放后 valueFacts 逐字一致"] = (t) => {
     t.eq(replayedFacts[i].validAtSeq, live[i].validAtSeq, `第 ${i} 条 validAtSeq`);
     t.eq(replayedFacts[i].source, live[i].source, `第 ${i} 条 source`);
   }
+};
+
+/* ═════════════ AX-21：「结果算不算可信」的判据只在 AX-02 房间（本房间不再自带一份） ═════════════ */
+
+tests["AX-21 判据集中一处：keeper import 共享的 resultKindForValueFacts，不再自带 githubReadShaped"] = (t) => {
+  const src = nodeFs.readFileSync(new URL("../src/rooms/keeper.mjs", import.meta.url), "utf8");
+  t.includes(src, 'import { extractValueFacts, resultKindForValueFacts } from "./tool-value-facts.mjs";', "必须 import 共享判据（AX-21 起唯一来源）");
+  t.includes(src, "resultKindForValueFacts(verdict", "必须真的调用它（import 了不用 = 还是自己判）");
+  t.notIncludes(src, "function githubReadShaped", "不许再留一份私有实现（两份实现迟早只修好一份）");
+  t.notIncludes(src, "function resultKindForValueFacts", "同上");
+  t.notIncludes(src, "GITHUB_REST_TOOLS", "判据表也只许有一份（在 tool-value-facts.mjs）");
+};
+
+tests["AX-21 K2-N4 形状：仓库 JSON 的 node_id 必须是一条 id 事实（否则「node_id 是什么」永远答不出）"] = (t) => {
+  const result = repoJson();
+  const { edge } = settleOne({ sessionId: "ax21-n4", tool: "github", args: { path: "repos/octo/demo-repo", method: "GET" }, result });
+  const nodeId = edge.valueFacts?.find((fact) => fact.kind === "id" && fact.value === "R_demo4242");
+  t.eq(nodeId !== undefined, true, "node_id 必须留下（`*_id` 也是 id 键形）");
+  t.eq(result.includes(nodeId.quote), true, "quote 必须是结果原文的逐字连续子串");
+  t.eq(nodeId.evidenceSeq, 5, "证据指针仍是结果事件的 seq");
+  t.eq(edge.result, "unverified", "github 读结果的边仍是 unverified（弱成功不升格）");
 };

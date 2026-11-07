@@ -35,6 +35,12 @@
  *
  * 依赖：`./config-schema.mjs`（配置键的**单一来源**，只为判断「这个键算不算关键配置值」）。
  * 不碰 fs / 网络 / 宿主包；纯函数、确定性：同样输入永远同样输出。
+ *
+ * ★ AX-21（2026-11-08）：**「结果算不算可信」的判据也只留在这里**。
+ *   `githubReadShaped` / `resultKindForValueFacts` 原先分别写在 keeper（在线）与 offline-fold
+ *   （离线）里 —— 后者漏了 GitHub 读形映射，于是 K-2 S2-Q3 的 `id` / `private` 在离线路径
+ *   **一条都抽不出来**（`evidence/k2-reader-expand-2026-11-07.json` 的 6 题退化里有 4 题是 API 值）。
+ *   两条路径现在共用同一对纯函数：判据改一处，两条路径同时改（不可能再分叉）。
  */
 
 import { SCHEMA } from "./config-schema.mjs";
@@ -238,13 +244,98 @@ function resolveLimits(input) {
 }
 
 function sourceOf(tool) {
-  const name = String(tool ?? "")
+  const name = normalizeToolName(tool);
+  return `tool:${name === "" ? "unknown" : name}`;
+}
+
+/**
+ * 工具名 → 规范形（小写、非字母数字压成下划线、去首尾下划线、截断 40）。
+ *
+ * 为什么必须共用：K-2 派生值事实时要判「这条事实的来源工具」与「这条边是哪个工具发起的」
+ * 是不是同一个 —— 一边是 `fact.source`（`tool:github`），一边是 `edge.action`
+ * （`github(path=repos/o/r)`，keeper 的 `actionSummary` 形状）。两侧各写一份归一化，
+ * 等于给同一个工具造出两个名字，匹配就恒假。
+ */
+export function normalizeToolName(tool) {
+  return String(tool ?? "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
-  return `tool:${name === "" ? "unknown" : name}`;
+}
+
+/** `tool:github` → `github`；不是 `tool:` 前缀 ⇒ 空串（**不猜**）。 */
+export function toolNameFromSource(source) {
+  const m = /^tool:(.*)$/.exec(String(source ?? "").trim());
+  return m === null ? "" : m[1];
+}
+
+/** `github(path=repos/o/r)` → `github`（`actionSummary` 形状）；没有括号 ⇒ 整串；空 ⇒ 空串。 */
+export function toolNameFromAction(action) {
+  const text = String(action ?? "").trim();
+  if (text === "") return "";
+  const m = /^([^(]*?)\(/.exec(text);
+  return normalizeToolName(m === null ? text : m[1]);
+}
+
+/* ─────────────────── 结果可信度：GitHub 读形（AX-21 起为唯一来源） ─────────────────── */
+
+/**
+ * **工具本身就是 GitHub REST 端点**的几种名字。
+ *
+ * 只认这几种，是因为「HTTP 方法在实参里」这件事只有这类工具成立：
+ *   · `github`（DSH 的 github 工具：`{path, method?, body?, confirm?}`，method 缺省 GET）；
+ *   · 少数命名空间形态（`mcp__github` / `github_api` …）。
+ * **绝不能**用 `includes("github")` 之类的一刀切 ——
+ *   `mcp__github__create_pull_request` 这类 MCP 工具的方法在**名字**里、实参里没有 `method`，
+ *   按「无 method ⇒ GET」判就会把写调用标成弱成功（任务书 AX-04 明令禁止）。
+ *   它们的 `toolClass` 已经是 mcp-read / mcp-write，走 classify 自己的 weak，不需要这里兜。
+ */
+const GITHUB_REST_TOOLS = new Set(["github", "github_api", "github__api", "mcp__github", "mcp__github_api"]);
+
+/** HTTP 的读形方法（无副作用、结果就是「读到的值」）。 */
+const GITHUB_READ_METHODS = new Set(["GET", "HEAD"]);
+
+/** 这次 github 调用是不是**读形**（GET/HEAD，或没给 method 的缺省 GET）。 */
+export function githubReadShaped(toolName, args) {
+  const name = String(toolName ?? "").trim().toLowerCase();
+  if (!GITHUB_REST_TOOLS.has(name)) return false;
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  const method = typeof a.method === "string" ? a.method.trim().toUpperCase() : "";
+  // 显式给了方法：只有 GET/HEAD 算读（POST/PATCH/PUT/DELETE/其它一律不是）
+  if (method !== "") return GITHUB_READ_METHODS.has(method);
+  // 没给方法 ⇒ 工具缺省 GET。但**出现写形状的实参**就不是读：
+  //   `body` 只有写方法才带；`confirm: true` 是写方法的确认闸（读调用永远不会设）。
+  if (a.body !== undefined && a.body !== null) return false;
+  if (a.confirm === true) return false;
+  return true;
+}
+
+/**
+ * 给 `extractValueFacts` 的 `resultKind`（抽取器的**信任闸**，不是边上的 result）。
+ *
+ * ⚠ 这个函数**不许改 `verdict`**：边的 `result` 永远是 classify 的判定。
+ *   github 读形在这里被当成 `weak` 只是「结果里的 id/private 是可回证的读到的值」，
+ *   **不是**「这次调用成功了」—— 边仍然是 `unverified`（S2a 的弱成功语义）。
+ *
+ * 纯函数、不抛（坏 `verdict` 按「没有弱成功」处理）：在线（keeper）与离线
+ * （`collectFoldValueFacts`）拿到的是**逐字段相同**的结果 —— 这是 K-2 两条路径同源的形式判据。
+ *
+ * @param {{result?:string, weak?:string|null}} verdict classify 的返回值
+ * @param {string} toolName tool-call 的工具名
+ * @param {unknown} args tool-call 的实参
+ * @returns {"success"|"failure"|"unverified"|"weak"|"read"|"shell"}
+ */
+export function resultKindForValueFacts(verdict, toolName, args) {
+  const v = verdict !== null && typeof verdict === "object" ? verdict : {};
+  if (v.result === "success") return "success";
+  if (v.result === "failure") return "failure";
+  // 剩下的只有 unverified：classify 自己的弱成功（read / shell）优先
+  if (typeof v.weak === "string" && v.weak !== "") return v.weak;
+  // K-2 S2-Q3 的真实形状：github 读形结果被 classify 判 unverified 且**没有** weak
+  if (githubReadShaped(toolName, args)) return "weak";
+  return "unverified";
 }
 
 /** 末条非空行若是 `[exit code: N]` 就返回 N（壳命令的退出码标记）；否则 null。 */

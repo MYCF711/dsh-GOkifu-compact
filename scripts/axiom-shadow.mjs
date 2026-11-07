@@ -79,9 +79,9 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadSessionGraph } from "./graph-audit.mjs";
-import { buildContexts, resolveSession, QUESTIONS as K2_QUESTIONS } from "./k2-value-reader.mjs";
+import { buildContexts, deriveValueFacts, resolveSession, QUESTIONS as K2_QUESTIONS } from "./k2-value-reader.mjs";
 import { renderFacts } from "../src/rooms/ledger.mjs";
-import { collectFoldValueFacts, runOfflineFold } from "../src/rooms/offline-fold.mjs";
+import { runOfflineFold } from "../src/rooms/offline-fold.mjs";
 import { findSessionLog, readSessionEvents } from "../src/rooms/zstd-log.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -641,56 +641,18 @@ export function sourceDigest(events, { start = null, end = null } = {}) {
 /* ══════════════════════════ 8 · K-2 值事实的派生（可审计） ══════════════════════════ */
 
 /**
- * 把「当前代码会写进边上的值事实」派到**图的副本**上（不碰 live 图）。
+ * K-2 值事实的派生：**唯一实现**在 `scripts/k2-value-reader.mjs`（`deriveValueFacts`）。
  *
- * 为什么必须派生：K-2 两个冻结会话的 `graph.json` 早于 AX-04，`edge.valueFacts` **一条都没有**
- * （实测 0/17、0/33 条边），于是 `renderFacts(graph, {factGuard:true})` 与 `guard=false` 逐字相同
- * —— 候选等于基线，K-2 就永远测不出差异。这里用 **AX-02/AX-07 的同一个抽取器**
- * （`collectFoldValueFacts`，只读会话日志）重新抽一遍，挂到**证据结束 seq 恰好等于该事实
- * evidenceSeq 的那条边**上（AX-04 在 keeper 里正是「结算那一条边时写入」）。
+ * 为什么本文件不再自己写一份：AX-21 之前这里有一份（按 `evidence.end` 挂边、多义只计数），
+ * 而 reader 侧要用的是**同一条规则** —— 两份实现迟早只修好其中一份，那时「哪一份才是判据」
+ * 已经无人能答。现在只 re-export：`test/axiom-shadow.test.mjs` 与 AX-20 运行器的 import
+ * 路径逐字不变，行为由 k2-value-reader 的用例钉住（含 K2-N4 的同 end 多边形状）。
  *
- * 三条不变量：
- *   ① **不写 live 图**：输入图被深拷贝后才挂；调用方传进来的对象一个字节都不变（测试钉住）。
- *   ② **映射不确定就不挂**：0 条命中或多条命中都只计数（`unmapped` / `multi`），不猜。
- *   ③ **可审计**：返回 `attached` 明细（边 id + 事实种类 + evidenceSeq），产物里能逐条对回源。
- *
- * @param {object} graph 冻结图（只读）
- * @param {Array<object>} events 会话事件（只读）
- * @param {{rangeStart?:number, rangeEnd?:number, derive?:boolean}} [options]
+ * 判据变化（AX-21）：`evidence.end === evidenceSeq` 的边多于一条时，用 `edge.action` 的工具名与
+ * `fact.source`（`tool:<name>`）消歧；**唯一匹配才挂**，多义（`multi`）与无匹配（`unmapped`）
+ * 都只计数、不挂 —— 宁可不答，不许挂错。
  */
-export function deriveValueFacts(graph, events, { rangeStart = 1, rangeEnd = Number.MAX_SAFE_INTEGER, derive = true } = {}) {
-  const copy = JSON.parse(JSON.stringify(graph ?? {}));
-  const before = countEdgeValueFacts(copy);
-  const result = { derive: derive === true, before, facts: 0, attached: [], unmapped: 0, multi: 0 };
-  if (derive !== true) return { graph: copy, ...result };
-  // ★ 注意：`collectFoldValueFacts` 的默认参数（`rangeStart=null/rangeEnd=null`）会被
-  //   `Number(null) === 0` 判成合法区间，于是「不传区间」= 一条都抽不到（AX-07 的默认路径坑）。
-  //   这里**必须显式传区间**。
-  const facts = collectFoldValueFacts(events, { rangeStart, rangeEnd });
-  result.facts = facts.length;
-  const byEnd = new Map();
-  for (const edge of Object.values(copy.edges ?? {})) {
-    const end = Number(edge?.evidence?.end);
-    if (!Number.isFinite(end)) continue;
-    if (!byEnd.has(end)) byEnd.set(end, []);
-    byEnd.get(end).push(edge.id);
-  }
-  for (const fact of facts) {
-    const ids = byEnd.get(Number(fact.evidenceSeq)) ?? [];
-    if (ids.length === 0) {
-      result.unmapped += 1;
-      continue;
-    }
-    if (ids.length > 1) {
-      result.multi += 1;
-      continue;
-    }
-    const edge = copy.edges[ids[0]];
-    edge.valueFacts = [...(Array.isArray(edge.valueFacts) ? edge.valueFacts : []), fact];
-    result.attached.push({ edge: ids[0], kind: String(fact.kind), evidenceSeq: Number(fact.evidenceSeq) });
-  }
-  return { graph: copy, ...result };
-}
+export { deriveValueFacts };
 
 function countEdgeValueFacts(graph) {
   let total = 0;
@@ -1735,7 +1697,7 @@ export async function main(argv = process.argv.slice(2)) {
   limitations.push("K-26 的折叠区间取该样本 `lastOfflineSummary.range`（冻结摘要自己声明的区间），事件按 `seq <= range.end` 钉住；因此「同一段源」是可核对的，但**不是**逐字复现当初那次折叠的输入（输入侧裁切见 `inputTruncated` / `dropped`）。");
   limitations.push("本轮**没有**真实 reader；候选可用性由 AX-11（K-26 复判）/AX-12（K-2）/AX-13（K-27）裁决。");
   limitations.push("路由混淆：本机网关把**同一个请求 id** 负载到不同上游（同一次运行里两臂的 servedModels 可能不同）⇒ 两臂的实际推理后端未必是同一个。run.json 的 totals.servedModelMixed 给出这类条目数；配对断言只比**请求的模型 id**（AX-00 冻结值），上游回显名不参与比较，但必须留痕。");
-  limitations.push("`collectFoldValueFacts` 的**默认参数**有坑：`rangeStart=null/rangeEnd=null` 经 `Number(null)===0` 会判成合法区间 ⇒ 不传区间时一条都抽不到。本脚本总是显式传区间（见 `deriveValueFacts`）；该默认值本身不在 AX-10 的可写路径内，未改动。");
+  limitations.push("`collectFoldValueFacts` 的**默认参数**有坑：`rangeStart=null/rangeEnd=null` 经 `Number(null)===0` 会判成合法区间 ⇒ 不传区间时一条都抽不到。派生入口（`scripts/k2-value-reader.mjs` 的 `deriveValueFacts`）总是显式传区间；该默认值本身不在 AX-10 的可写路径内，未改动。");
 
   // 公开计划：**去掉 graphPath 等私有坐标**（run.json 是要给下游读的聚合文档）。
   const publicPlans = {};

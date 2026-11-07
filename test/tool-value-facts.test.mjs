@@ -17,7 +17,17 @@
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { VALUE_FACT_KINDS, VALUE_FACT_LIMITS, extractValueFacts, isValueFact } from "../src/rooms/tool-value-facts.mjs";
+import {
+  VALUE_FACT_KINDS,
+  VALUE_FACT_LIMITS,
+  extractValueFacts,
+  githubReadShaped,
+  isValueFact,
+  normalizeToolName,
+  resultKindForValueFacts,
+  toolNameFromAction,
+  toolNameFromSource,
+} from "../src/rooms/tool-value-facts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = nodePath.join(HERE, "fixtures", "tool-value-facts.json");
@@ -316,5 +326,74 @@ export const tests = {
     t.eq(extractValueFacts({ ...base, tool: "MCP__GitHub" })[0].source, "tool:mcp__github", "大写转小写、下划线保留");
     t.eq(extractValueFacts({ ...base })[0].source, "tool:unknown", "缺工具名 = unknown");
     t.eq(extractValueFacts({ ...base, tool: "   " })[0].source, "tool:unknown", "空白工具名 = unknown");
+  },
+
+  /* ═══════════════════ AX-21：「结果算不算可信」的判据（唯一来源） ═══════════════════ */
+
+  "AX-21 githubReadShaped：只认 GitHub REST 端点的读形（GET/HEAD/缺省），写形与 MCP 一律不是"(t) {
+    // ① 读形（无副作用：结果就是「读到的值」）
+    t.eq(githubReadShaped("github", { path: "repos/o/r" }), true, "缺省 method ⇒ 读形（工具默认 GET）");
+    t.eq(githubReadShaped("github", { path: "repos/o/r", method: "GET" }), true, "显式 GET");
+    t.eq(githubReadShaped("GitHub", { path: "x", method: " head " }), true, "HEAD 也是读形；工具名/方法的大小写与空白不敏感");
+    t.eq(githubReadShaped("github", null), true, "实参缺失 ⇒ 按缺省 GET（不抛）");
+    t.eq(githubReadShaped("github", ["POST"]), true, "数组实参不是对象 ⇒ 按缺省 GET（不许把数组当 args 读）");
+
+    // ② 写形（有副作用：回执不是「读到的值」，一条事实都不许产）
+    for (const method of ["POST", "PATCH", "PUT", "DELETE", "OPTIONS"]) {
+      t.eq(githubReadShaped("github", { path: "repos/o/r", method }), false, `显式 ${method} ⇒ 写形`);
+    }
+    t.eq(githubReadShaped("github", { path: "repos/o/r", body: { name: "x" } }), false, "缺省 method 但带 body ⇒ 不是读");
+    t.eq(githubReadShaped("github", { path: "repos/o/r", confirm: true }), false, "confirm:true 是写方法的确认闸 ⇒ 不是读");
+    t.eq(githubReadShaped("github", { path: "x", body: null, confirm: false }), true, "body:null / confirm:false 是「没带写形状」⇒ 仍是读");
+
+    // ③ 不是 REST 端点：MCP 工具的方法在**名字**里，实参没有 method ⇒ 绝不按「缺省 GET」放行
+    for (const name of ["mcp__github__create_pull_request", "github_create_issue", "github__create", "gh", "", "  "]) {
+      t.eq(githubReadShaped(name, {}), false, `${JSON.stringify(name)} 不是 github REST 端点（一刀切会把写调用标成弱成功）`);
+    }
+  },
+
+  "AX-21 resultKindForValueFacts：success/failure 直通、classify 的 weak 优先、github 读形补 weak、其余 unverified"(t) {
+    t.eq(resultKindForValueFacts({ result: "success" }, "bash", {}), "success", "success 直通（不看工具名）");
+    t.eq(resultKindForValueFacts({ result: "failure" }, "github", { method: "GET" }), "failure", "failure 优先于 github 读形（失败结果不许升格）");
+    t.eq(resultKindForValueFacts({ result: "unverified", weak: "read" }, "read", {}), "read", "classify 的 weak 优先（只读工具）");
+    t.eq(resultKindForValueFacts({ result: "unverified", weak: "shell" }, "bash", {}), "shell", "shell 弱成功原样");
+    t.eq(resultKindForValueFacts({ result: "unverified" }, "github", { path: "repos/o/r" }), "weak", "github 读形 ⇒ weak（K-2 S2-Q3 的真实形状）");
+    t.eq(resultKindForValueFacts({ result: "unverified" }, "github", { method: "POST", body: { a: 1 } }), "unverified", "github 写形 ⇒ 仍是 unverified（一条事实都不产）");
+    t.eq(resultKindForValueFacts({ result: "unverified" }, "custom_tool", {}), "unverified", "其它 unverified 工具不升格");
+    t.eq(resultKindForValueFacts(null, "custom_tool", {}), "unverified", "坏 verdict（null）不抛：非 GitHub 工具 ⇒ 无弱成功");
+    t.eq(resultKindForValueFacts(undefined, "custom_tool", {}), "unverified", "坏 verdict（undefined）不抛");
+    t.eq(resultKindForValueFacts(null, "github", { path: "repos/o/r" }), "weak", "坏 verdict 也不改变 GitHub 读形的放行（判据只看工具名+实参）");
+
+    // ④ 端到端：同一份结果文本，读形产出 id/node_id/private，写形一条都不产
+    const result = '{"id": 4242, "node_id": "R_demo4242", "private": false}';
+    const readKind = resultKindForValueFacts({ result: "unverified" }, "github", { path: "repos/o/r" });
+    const readFacts = extractValueFacts({ tool: "github", result, resultKind: readKind, evidenceSeq: 35 });
+    const pairs = kindValuePairs(readFacts);
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === 4242), true, "读形必须留下仓库 id（K2-O3）");
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === "R_demo4242"), true, "node_id 也是 id 类事实（K2-N4 的答案片段）");
+    t.eq(pairs.some(([kind, value]) => kind === "boolean" && value === false), true, "private=false 必须留下（false 不是「没有」）");
+    const writeKind = resultKindForValueFacts({ result: "unverified" }, "github", { method: "POST", body: { name: "x" } });
+    t.eq(extractValueFacts({ tool: "github", result, resultKind: writeKind, evidenceSeq: 36 }), [], "写形一条事实都不产（即使结果里带着 id）");
+  },
+
+  "AX-21 工具名归一：source 与 action 两侧同一口径（派生挂边靠它匹配，写错就恒不命中）"(t) {
+    t.eq(normalizeToolName("Write File!!"), "write_file", "非字母数字压成下划线");
+    t.eq(normalizeToolName("  MCP__GitHub  "), "mcp__github", "去首尾空白、转小写");
+    t.eq(normalizeToolName(null), "", "null ⇒ 空串");
+    t.eq(normalizeToolName("x".repeat(80)), "x".repeat(40), "截断 40（与 source 的口径一致）");
+
+    t.eq(toolNameFromSource("tool:github"), "github", "`tool:` 前缀剥掉");
+    t.eq(toolNameFromSource("write"), "", "不是 `tool:` 前缀 ⇒ 空串（不猜）");
+    t.eq(toolNameFromSource(undefined), "", "undefined ⇒ 空串");
+
+    t.eq(toolNameFromAction("github(path=repos/o/r)"), "github", "括号前的工具名");
+    t.eq(toolNameFromAction("write"), "write", "没有括号 ⇒ 整串（actionSummary 的无参数形状）");
+    t.eq(toolNameFromAction("   "), "", "空白 action ⇒ 空串");
+    t.eq(toolNameFromAction(undefined), "", "undefined action ⇒ 空串");
+
+    // 关键不变式：抽取器产的 source 必须能被边上的 action 还原成同一个名字，否则派生挂边恒不命中。
+    const fact = extractValueFacts({ tool: "GitHub", result: '{"id":1}', evidenceSeq: 1 })[0];
+    t.eq(toolNameFromSource(fact.source), toolNameFromAction("github(path=repos/o/r)"), "source 与 action 必须能对上");
+    t.eq(toolNameFromSource(fact.source), "github", "而且对上的就是工具名本身");
   },
 };
