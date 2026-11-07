@@ -980,7 +980,7 @@ export function renderMarkdown(report) {
   lines.push(`- 复判：守卫放行 **${report.instrument.acceptsSome}** 条、拒绝 **${report.instrument.rejectsSome}** 条 ⇒ 仪器**既不恒真也不恒假**（恒真则 rejectsSome=0，恒假则 acceptsSome=0）。`);
   lines.push(`- 五类合成反例 **${report.instrument.probes.passed}/${report.instrument.probes.batch}** 全绿：每类都有一条被拒的红例 + 一条通过的对照。`);
   lines.push(`- **机械形状 ≠ 语义 precision**：守卫放行的口径是 ${pct(p.guardAccepted.value)}（${p.guardAccepted.numerator}/${p.guardAccepted.denominator}），人工裁决口径仍是 ${pct(p.labelAdjudicated.value)}（${p.labelAdjudicated.numerator}/${p.labelAdjudicated.denominator}）。前者只证明「seq 同会话 + 事件在 + 主体一致 + quote 逐字 + 四条文本判据没过度触发」，**不证明** claim 被 quote 语义蕴含（守卫每次裁决都带 \`entailmentProven:false\`）。`);
-  lines.push(`- PENDING ${report.frozen.pending} 条：**一条都没有被当成 GOLD**；其中 ${report.replay.pending.shapeAcceptedOnly} 条只是「形状被接受」，仍记 PENDING 语义。`);
+  lines.push(`- PENDING ${report.frozen.pending} 条：**一条都没有被当成 GOLD**（不计入任何 precision 分子/分母）；形状被守卫接受 ${report.replay.pending.shapeAcceptedOnly}/${report.frozen.pending} 条，但语义上仍记 PENDING。`);
   lines.push("");
   lines.push("## 2 · 冻结分母对账");
   lines.push("");
