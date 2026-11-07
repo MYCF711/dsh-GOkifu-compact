@@ -2,7 +2,7 @@ import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureE
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderLedger, renderFacts, renderMinimalLedger, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, collectValueFacts, planValueFacts, renderValueFactLine, valueFactDigest, VALUE_FACT_RENDER_LIMIT, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, renderMinimalLedger, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, collectValueFacts, planValueFacts, renderValueFactLine, valueFactDigest, VALUE_FACT_RENDER_LIMIT, VALUE_FACT_QUOTE_MAX_CHARS, _internal } from "../src/rooms/ledger.mjs";
 import { extractValueFacts, isValueFact, VALUE_FACT_KINDS } from "../src/rooms/tool-value-facts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
@@ -800,7 +800,8 @@ tests["AX-08 ⑩：collectValueFacts / planValueFacts / renderValueFactLine 的�
   t.eq(fact.text, facts[0].value, "渲染用的文本必须逐字等于原值（不改写、不截断）");
   t.eq(fact.evidenceSeq, 5, "证据指针 = 结果事件 seq");
   t.eq(fact.validAtSeq, 5, "缺省 validAtSeq = evidenceSeq");
-  t.eq(renderValueFactLine(fact), `- ${fact.edgeId} file_created ${facts[0].value} (seq 5)`, "行格式冻结（改它 = 改行为）");
+  // ★ P0-1：行尾多出**有界字面 quote**（`— Created file`）。前缀（边id / 种类 / 标签 / seq）逐字不动。
+  t.eq(renderValueFactLine(fact), `- ${fact.edgeId} file_created ${facts[0].value} (seq 5) — Created file`, "行格式冻结（改它 = 改行为）");
   const plan = planValueFacts(collected.facts, { limit: 1 });
   t.eq(plan.shown.length, 1, "限额内全渲染");
   t.eq(plan.omitted, 0, "没有省略");
@@ -809,4 +810,107 @@ tests["AX-08 ⑩：collectValueFacts / planValueFacts / renderValueFactLine 的�
   const brokenGraph = valueFactGraph({ facts: [], sessionId: "ax08-pure-b" });
   Object.values(brokenGraph.edges)[0].valueFacts = "not-an-array";
   t.eq(collectValueFacts(brokenGraph).malformed, 1, "非数组必须计 malformed（不静默、不抛）");
+};
+
+/* ═════════════ P0-1：值事实行必须带**可回答的字面值**（2026-11-07，AX-12 已证实） ═════════════
+ *
+ * 失效形态（AX-12 实测）：K-2 的 full 臂 10/10 → compact 臂 3/10。`VALUE_FACTS_VERBATIM`
+ * 只印 `kind + 值 + seq`，而 K2-O1 问的是「write 结果里的 `<content>` 写的是什么」——
+ * 答案 `Created file` 只存在于 quote 里 ⇒ **两臂 compact 均不可见**（id / private 同理：
+ * 值在，但 JSON 原文形态不在）。
+ *
+ * 修法：行尾补**有界的字面 quote**（`— Created file` / `— "private": false`），
+ * 前缀（边id / 种类 / 标签 / seq）逐字不动；长 quote 截断到 `VALUE_FACT_QUOTE_MAX_CHARS`；
+ * guard=false 时一个字符都不加（旧渲染逐字不变）。
+ */
+
+tests["P0-1 ①：`Created file` 在 L0 与 L5 都必须可见（K2-O1 的两臂）"] = (t) => {
+  const facts = createdFacts("D:/x/a.mjs", 5);
+  const g = valueFactGraph({ facts, failures: 40, sessionId: "p01-created" });
+  // L0 = 预算宽裕的全量档；L5 = 预算压到底的兜底档（值事实一条都不许被挤掉）。
+  const wide = renderLedger(g, { maxTokens: 4000, factGuard: true });
+  const tight = renderLedger(g, { maxTokens: 1, factGuard: true });
+  t.eq(wide.level, 0, `预算 4000 必须落在 L0（实际 L${wide.level}）`);
+  t.eq(tight.level, 5, `预算 1 必须落到 L5 兜底（实际 L${tight.level}）`);
+  for (const [name, r] of [["L0", wide], ["L5", tight]]) {
+    const row = valueFactRows(r.text).find((line) => line.includes("file_created")) ?? "";
+    t.includes(row, "— Created file", `${name}：K2-O1 的答案（Created file）必须逐字可见 —— 只有 kind 不够`);
+    t.includes(row, "D:/x/a.mjs", `${name}：路径不许被 quote 挤掉`);
+    t.includes(row, "(seq 5)", `${name}：出处不许被 quote 挤掉`);
+  }
+  // 零失败会话走最小清单（level 5 的另一条路），同样必须能答 K2-O1。
+  const minimal = renderMinimalLedger(valueFactGraph({ facts, sessionId: "p01-created-min" }), { factGuard: true });
+  t.includes(minimal.text, "— Created file", "最小清单（零失败会话）同样要带字面值");
+  t.includes(minimal.text, "(seq 5)", "最小清单同样要带出处");
+  // 摘要臂（renderFacts → VALUE_FACTS_VERBATIM）是 compact 上下文的另一个入口。
+  const summary = renderFacts(g, { factGuard: true });
+  t.includes(summary, "— Created file", "摘要臂（VALUE_FACTS_VERBATIM）同样要带字面值");
+  t.includes(summary, "evidence=seq 5", "摘要臂的出处口径不变");
+};
+
+tests["P0-1 ②：API 的 id / private 字面值（`\"id\": 4242` / `\"private\": false`）必须可见"] = (t) => {
+  const facts = apiFacts(7);
+  const g = valueFactGraph({ facts, sessionId: "p01-api" });
+  const r = renderLedger(g, { maxTokens: 4000, factGuard: true });
+  const rows = valueFactRows(r.text);
+  const idRow = rows.find((line) => / id /.test(line)) ?? "";
+  const privRow = rows.find((line) => / boolean /.test(line)) ?? "";
+  t.includes(idRow, `"id": 4242`, "id 的 JSON 原文形态必须可见（K2-O3 问的是 id 与 private 的值）");
+  t.includes(idRow, "4242", "值本身不许丢");
+  t.includes(privRow, `"private": false`, "private 的 JSON 原文形态必须可见（false 不是「没有」）");
+  t.includes(privRow, "private=false", "键名口径（标签）不变");
+  const summary = renderFacts(g, { factGuard: true });
+  t.includes(summary, `"private": false`, "摘要臂同样要带 JSON 原文形态");
+  t.includes(summary, `"id": 4242`, "摘要臂的 id 同样要带原文形态");
+};
+
+tests["P0-1 ③：长 quote 有界（截断 + 省略号），绝不回灌整份结果"] = (t) => {
+  const longQuote = `"default_branch": "main" ${"x".repeat(400)}`;
+  const fact = { kind: "config", value: "main", quote: longQuote, evidenceSeq: 12, validAtSeq: 12, source: "tool:github" };
+  const g = valueFactGraph({ facts: [fact], sessionId: "p01-long" });
+  const row = valueFactRows(renderLedger(g, { maxTokens: 4000, factGuard: true }).text).find((line) => line.includes(" config ")) ?? "";
+  t.includes(row, "— ", "长 quote 必须仍带字面值段");
+  t.eq(row.includes("\n"), false, "值事实行必须仍是单行（换行会破坏清单契约）");
+  const excerpt = row.slice(row.indexOf(" — ") + 3);
+  t.eq(excerpt.length <= VALUE_FACT_QUOTE_MAX_CHARS, true, `字面 quote 必须有界（实际 ${excerpt.length} > ${VALUE_FACT_QUOTE_MAX_CHARS}）`);
+  t.eq(excerpt.endsWith("…"), true, "截断必须显式（… 收尾，不假装完整）");
+  t.eq(row.includes("x".repeat(VALUE_FACT_QUOTE_MAX_CHARS)), false, "整段长 quote 不许回灌（有界不是口号）");
+  t.eq(row.split("—").length, 2, "只该有一个字面值段（重复拼接 = 回灌）");
+  // 反例：短 quote 原样（不截断、不加省略号）
+  const short = { kind: "boolean", value: false, quote: '"private": false', evidenceSeq: 13, validAtSeq: 13, source: "tool:github" };
+  const g2 = valueFactGraph({ facts: [short], sessionId: "p01-short" });
+  const shortRow = valueFactRows(renderLedger(g2, { maxTokens: 4000, factGuard: true }).text).find((line) => line.includes(" boolean ")) ?? "";
+  t.eq(shortRow.endsWith(`— "private": false`), true, "短 quote 必须逐字、不加省略号");
+};
+
+tests["P0-1 ④：guard=false 时逐字等于旧版（没有字面 quote 段，一个字符都不多）"] = (t) => {
+  const facts = createdFacts("D:/x/guard.mjs", 5);
+  const g = valueFactGraph({ facts, sessionId: "p01-guard-off" });
+  for (const budget of [4000, 500, 1]) {
+    const off = renderLedger(g, { maxTokens: budget });
+    t.eq(valueFactRows(off.text).length, 0, `maxTokens=${budget}：guard 关掉时不许出现值事实行`);
+    t.eq(off.text.includes("Created file"), false, `maxTokens=${budget}：guard 关掉时字面 quote 一个字都不许出现`);
+    t.eq(off.valueFactStats.total, 0, `maxTokens=${budget}：统计口径 = 没有值`);
+  }
+  t.notIncludes(renderFacts(g), "Created file", "摘要臂 guard 关掉时同样一个字符都不加");
+  t.notIncludes(renderMinimalLedger(g).text, "Created file", "最小清单 guard 关掉时同样一个字符都不加");
+};
+
+tests["P0-1 ⑤：行结构仍可解析 —— `- <边id> <kind> <标签> (seq N) — <quote>`，一行一条"] = (t) => {
+  const facts = createdFacts("D:/x/parse.mjs", 5);
+  const g = valueFactGraph({ facts, sessionId: "p01-parse" });
+  const row = valueFactRows(renderLedger(g, { maxTokens: 4000, factGuard: true }).text)[0] ?? "";
+  // 解析器口径：旧字段一个不少，quote 是可选的尾部段。
+  const m = /^- (\S+) (file_created) (.+?) \(seq (\d+)\)(?: — (.+))?$/.exec(row);
+  t.ok(m !== null, `行必须可解析（实际 ${JSON.stringify(row)}）`);
+  t.eq(m?.[1], "e1", "边 id 在最前");
+  t.eq(m?.[2], "file_created", "种类在第二位");
+  t.eq(m?.[3], "D:/x/parse.mjs", "标签逐字 = 值");
+  t.eq(m?.[4], "5", "seq 是纯数字");
+  t.eq(m?.[5], "Created file", "quote 段是行尾可选段");
+  // 没有「标签里没有的字面值」时（纯 `<path>…</path>` 包络），行必须逐字等于旧格式。
+  const pathOnly = { kind: "file_path", value: "D:/x/read.mjs", quote: "<path>D:/x/read.mjs</path>", evidenceSeq: 9, validAtSeq: 9, source: "tool:read" };
+  const g2 = valueFactGraph({ facts: [pathOnly], sessionId: "p01-parse-path" });
+  const pathRow = valueFactRows(renderLedger(g2, { maxTokens: 4000, factGuard: true }).text)[0] ?? "";
+  t.eq(pathRow, "- e1 file_path D:/x/read.mjs (seq 9)", "纯路径包络不重复印路径（行逐字等于旧格式）");
 };

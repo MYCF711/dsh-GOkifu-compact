@@ -203,6 +203,12 @@ const BUDGET_UNITS_PER_TOKEN = UNITS_PER_TOKEN;
  * 每行都带 `(seq N)`：这是「可回证」的唯一机械形式 —— 模型拿着 seq 能回到会话原文，
  * 与失败边行的出处口径一致（见 `provenanceCoverageOf` 的口径说明）。**不写行动建议**，
  * 只陈述「哪个成功结果留下了什么值、在哪一条事件里」（边界见 `docs/压缩的职责边界.md`）。
+ *
+ * ★ P0-1（2026-11-07，AX-12 已证实）：**只有 seq 不够**。K-2 的 K2-O1 问的是
+ * 「write 结果的 `<content>` 里写的是什么」⇒ `Created file`；而旧行只印 `kind + 路径 + seq`，
+ * 那个字面值留在 quote 里没人读 ⇒ full 臂 10/10、compact 臂 3/10。所以行尾必须补上
+ * **有界的字面 quote**（`— Created file` / `— "private": false`）：截断到
+ * `VALUE_FACT_QUOTE_MAX_CHARS`，单行（空白折叠），且绝不回灌整份结果。
  */
 
 /**
@@ -221,6 +227,14 @@ export const VALUE_FACT_RENDER_LIMIT = 8;
 const VALUE_FACT_VALUE_MAX_CHARS = 200;
 /** 从 quote 里取 JSON 成员名的长度上限（防御坏数据，不是正常路径）。 */
 const VALUE_FACT_KEY_MAX_CHARS = 80;
+/**
+ * 一行值事实能印出的**字面 quote** 上限（P0-1）。
+ *
+ * 为什么必须有界：quote 是工具结果的连续原文，极端情况下可以长到整份结果（2 MB 上限）。
+ * 把它原样回灌热清单 = 把「压缩」再变成「不压缩」。取值 120 与 K-26 的 quote 口径一致
+ * （`docs/` 里的「可截断到 120」），超出部分用 `…` 显式标记截断 —— 不静默截、也不假装完整。
+ */
+export const VALUE_FACT_QUOTE_MAX_CHARS = 120;
 
 /**
  * 从图里收集**可渲染**的值事实（纯读、确定性）。
@@ -293,6 +307,7 @@ function normalizeValueFact(fact, edgeId) {
     evidenceSeq: fact.evidenceSeq,
     validAtSeq,
     key: quoteKeyOf(fact.kind, fact.quote),
+    quoteText: quoteExcerptOf(fact.kind, fact.quote, text),
   };
 }
 
@@ -315,6 +330,39 @@ function quoteKeyOf(kind, quote) {
   }
 }
 
+/**
+ * 一行值事实能带上的**字面 quote**（有界、单行、只做空白折叠）。
+ *
+ * 为什么需要它（P0-1 / AX-12 已证实）：只印 `kind + 值 + seq` 时，`Created file` 这类
+ * **回执词**根本没进清单 —— 值（路径 / id / false）在，但「结果原文里到底怎么写的」不在，
+ * reader 只能靠猜。K-2 的 K2-O1（`<content>` 里写的是什么 ⇒ `Created file`）正是这样从
+ * 10/10 掉到 3/10 的。这里把 quote 的字面片段补回去，让「可回证」在**渲染产物里**成立，
+ * 而不只是落在 `graph.json` 里。
+ *
+ * 三条边界：
+ *   · **单行**：清单契约是「一行一条」，换行/制表一律折叠成一个空格（只动空白，不动值本身）；
+ *   · **有界**：超过 `VALUE_FACT_QUOTE_MAX_CHARS` 就截断并加 `…`（显式截断，不静默、不回灌整份结果）；
+ *   · **不重复**：文件类事实的 quote 是 `<path>…</path>\n…\nCreated file` 整块包络 —— 路径已经在
+ *     标签里了，唯一新增的字面值是回执词（`Created file` / `Updated file`），只印它；
+ *     纯路径包络（`file_path` 的 `<path>…</path>`）没有新增字面值 ⇒ 返回空串（再加一遍就是白烧预算）。
+ */
+function quoteExcerptOf(kind, quote, text) {
+  const clipped = (flat) => (flat.length <= VALUE_FACT_QUOTE_MAX_CHARS ? flat : `${flat.slice(0, VALUE_FACT_QUOTE_MAX_CHARS - 1)}…`);
+  const flat = String(quote ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (flat === "") return "";
+  if (FILE_FACT_KINDS.has(kind)) {
+    // 回执词是整块包络里**唯一**标签没有的字面值；先找它，长路径才不会把回执挤出窗口。
+    const receipt = /(?:^| )(Created file|Updated file)(?: |$)/.exec(flat);
+    if (receipt !== null) return receipt[1];
+    // 纯路径包络：标签已经是同一段原文，再印一遍是白烧预算（行逐字等于旧格式）。
+    if (flat === `<path>${String(text ?? "")}</path>`) return "";
+    // 其余形状（如编辑回执整句 `The file … has been updated successfully.`）本身就是新增字面值。
+  }
+  return clipped(flat);
+}
+
 /** 一条值事实的显示标签：`private=false` / `id` 的值 / 文件路径（逐字，不改写）。 */
 function valueFactLabel(fact) {
   if (FILE_FACT_KINDS.has(fact.kind)) return fact.text;
@@ -324,9 +372,26 @@ function valueFactLabel(fact) {
   return `${fact.key}=${fact.text}`;
 }
 
-/** 热清单里的一行值事实：`- e12 file_created D:/x/a.mjs (seq 5)`。 */
+/**
+ * 值事实行的字面 quote 段（`— Created file` / `— "private": false`）。
+ * 空串 ⇒ 该条没有标签里没有的字面值（例如纯路径包络），行尾不加任何东西。
+ */
+function valueFactQuoteSuffix(fact) {
+  const text = typeof fact?.quoteText === "string" ? fact.quoteText : "";
+  return text === "" ? "" : ` — ${text}`;
+}
+
+/**
+ * 热清单里的一行值事实：
+ *   `- e12 file_created D:/x/a.mjs (seq 5) — Created file`
+ *
+ * 格式契约（P0-1 起）：
+ *   `- <边id> <种类> <值/标签> (seq <原文seq>)[ — <有界字面 quote>]`
+ * 前缀（边id / 种类 / 标签 / seq）就是旧格式，**逐字不动**；字面 quote 只在行尾追加，
+ * 所以既有解析器（`^- e\d+ <kind> `）不需要改，缺 quote 时行也逐字等于旧版。
+ */
 export function renderValueFactLine(fact) {
-  return `- ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} (seq ${fact.evidenceSeq})`;
+  return `- ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} (seq ${fact.evidenceSeq})${valueFactQuoteSuffix(fact)}`;
 }
 
 /**
@@ -361,6 +426,9 @@ export function planValueFacts(facts, { limit = VALUE_FACT_RENDER_LIMIT, relTree
  *
  * 只由 `edgeId + kind + 值 + evidenceSeq` 组成：`validAtSeq/source` 与渲染文本同源，
  * 放进来只会让「同样的清单」算出不同的 digest。
+ * ★ P0-1 起行尾多了**字面 quote**（`renderValueFactLine` 的 `— …` 段），这里**刻意不把它算进来**：
+ *   quote 是「同一条 evidence 事件的原文」，`evidenceSeq` 相同 ⇒ quote 必然相同，
+ *   加进 digest 只会让同一批值在重算时抖动，却拦不住任何真实变化。
  */
 export function valueFactDigest(g) {
   const { facts } = collectValueFacts(g);
@@ -1814,7 +1882,9 @@ export function renderFacts(
   if (factsValue.shown > 0) {
     lines.push(`VALUE_FACTS_VERBATIM (${factsValue.shown} of ${factsValue.total}; keep every line, never merge, never drop):`);
     for (const fact of factsValue.facts) {
-      lines.push(`* ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} evidence=seq ${fact.evidenceSeq}`);
+      // ★ P0-1：摘要臂同样要带**字面 quote** —— 否则 `Created file` 只存在于 quote 里，
+      //   这一臂的 reader 只能看到「哪个文件被创建」，看不到「结果原文怎么写的」。
+      lines.push(`* ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} evidence=seq ${fact.evidenceSeq}${valueFactQuoteSuffix(fact)}`);
     }
   }
   if (factsValue.omitted > 0) {
