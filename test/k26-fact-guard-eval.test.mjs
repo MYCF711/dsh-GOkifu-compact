@@ -203,6 +203,27 @@ tests["AX05-8 冻结分母对账：一致 / 不一致都要说"] = (t) => {
   t.eq(bad.ok, false, "GOLD 多一条必须红");
   t.eq(bad.mismatches[0].key, "GOLD", "差异项定位到 GOLD");
   t.eq(bad.mismatches[0].expect, 2, "报出冻结值");
+
+  // 逐样本：总数对得上但样本之间错位，也必须红
+  const perAudit = {
+    totals: { facts: 2, gold: 1, rejected: 1, pending: 0 },
+    samples: [
+      { index: 0, sampleId: "aaaaaaaaaaaa", facts: 2, gold: 1, rejected: 1, pending: 0 },
+      { index: 1, sampleId: "bbbbbbbbbbbb", facts: 2, gold: 1, rejected: 1, pending: 0 },
+    ],
+  };
+  const swapped = checkFrozenAlignment(
+    { facts: 4, GOLD: 2, REJECTED: 2, PENDING: 0 },
+    { ...perAudit, totals: { facts: 4, gold: 2, rejected: 2, pending: 0 } },
+    [
+      { sampleIndex: 0, facts: 2, GOLD: 2, REJECTED: 0, PENDING: 0 },
+      { sampleIndex: 1, facts: 2, GOLD: 0, REJECTED: 2, PENDING: 0 },
+    ],
+    ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+  );
+  t.eq(swapped.ok, false, "逐样本错位必须红（总数对得上也不行）");
+  t.eq(swapped.perSample.length, 2, "逐样本逐条对账");
+  t.eq(swapped.perSample[0].ok, false, "s0 对不上");
 };
 
 /* ── 事件源 ─────────────────────────────────────────────────────────── */
