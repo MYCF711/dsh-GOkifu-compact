@@ -1,5 +1,5 @@
 {
- "total": 1796,
+ "total": 1798,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -121,7 +121,7 @@
   "loop-guard.test.mjs": 4,
   "loop-report.test.mjs": 4,
   "make-preset.test.mjs": 0,
-  "make-presets-override.test.mjs": 3,
+  "make-presets-override.test.mjs": 5,
   "manual-compact.test.mjs": 1,
   "markers.test.mjs": 15,
   "merge-provenance.test.mjs": 4,
@@ -216,6 +216,7 @@
   "ui-config.test.mjs": 13,
   "ui-health.test.mjs": 0,
   "ui-heartbeat.test.mjs": 5,
+  "ui-home.test.mjs": 0,
   "ui-layout.test.mjs": 3,
   "ui-models.test.mjs": 7,
   "ui-perf.test.mjs": 10,
@@ -236,6 +237,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2152,
- "passedAt": "2026-11-07T01:02:44.241Z"
+ "passed": 2157,
+ "passedAt": "2026-11-07T09:00:58.466Z"
 }

@@ -40,38 +40,65 @@ const ROOT = nodePath.resolve(HERE, "..");
 const OUT = nodePath.join(ROOT, "cordis.patch.yml");
 
 /**
- * 解析宿主 app.asar：DSH_APP_ASAR 环境变量优先；否则按平台探测真实安装目录，
- * 找不到再回退到历史写死的 D: fixture（保留旧报错路径）。
- * @returns {string}
+ * 解析宿主 app.asar。
+ *
+ * 优先级**从「当前实例」往外**（越靠前越可信）：
+ *   ① `DSH_APP_ASAR` 环境变量（显式指定，最优先）；
+ *   ② **`DSH_HOME` 父目录下的同级安装** —— 本机真实布局：
+ *      `DSH_HOME=D:/DeepSeek Harness/home` ⇒ 同级并存 `Desktop` 与 `Desktop-0.2.2-rc.1`，
+ *      按目录名**倒序**让带版本号的那个（`Desktop-0.2.2-rc.1`）排在裸名之前；
+ *   ③ `process.execPath` 所在安装（脚本在宿主进程里跑时命中；用 node 直接跑时是 nodejs 目录，自然落空）；
+ *   ④ 各平台标准安装位置。
+ *
+ * ★ **不再兜底到历史写死的 `D:/DeepSeek Harness/Desktop/...`**：
+ *   静默用**旧宿主**生成「看起来对」的产物，比找不到更危险 ——
+ *   那正是 2026-11-07「随包 patch 引用宿主已删除的 list-agents 子路径」事故的成因。
+ *
+ * @returns {string|null} 找到的 app.asar 路径；一个都不存在时返回 null（由 main 报错退出）。
  */
 export function resolveAsar() {
   const fromEnv = process.env.DSH_APP_ASAR;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv;
 
-  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
-  const localAppData = process.env.LOCALAPPDATA
-    ?? (home ? nodePath.join(home, "AppData", "Local") : "");
-  const programFiles = process.env.PROGRAMFILES ?? "C:/Program Files";
-
   const candidates = [];
   const add = (p) => { if (p && !candidates.includes(p)) candidates.push(p); };
+  const appAsarUnder = (dir) => nodePath.join(dir, "resources", "app.asar");
 
+  // ② DSH_HOME 的父目录下扫同级安装（本机真实布局：Desktop / Desktop-0.2.2-rc.1 并存）
+  const dshHome = process.env.DSH_HOME;
+  if (typeof dshHome === "string" && dshHome.trim() !== "") {
+    const parent = nodePath.dirname(nodePath.resolve(dshHome));
+    try {
+      const siblings = nodeFs
+        .readdirSync(parent, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort()
+        .reverse(); // 倒序：`Desktop-0.2.2-rc.1` 排在 `Desktop` 之前（带版本号的更可能是当前实例）
+      for (const name of siblings) add(appAsarUnder(nodePath.join(parent, name)));
+    } catch { /* 目录读不到就跳过 */ }
+  }
+
+  // ③ 当前进程所在安装（在宿主里跑时命中）
+  add(appAsarUnder(nodePath.dirname(process.execPath)));
+
+  // ④ 平台标准位置
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+  const localAppData = process.env.LOCALAPPDATA ?? (home ? nodePath.join(home, "AppData", "Local") : "");
   if (process.platform === "win32") {
-    add(localAppData ? nodePath.join(localAppData, "Programs", "DeepSeek Harness", "resources", "app.asar") : "");
-    add(nodePath.join(programFiles, "DeepSeek Harness", "resources", "app.asar"));
+    add(localAppData ? appAsarUnder(nodePath.join(localAppData, "Programs", "DeepSeek Harness")) : "");
+    add(appAsarUnder(nodePath.join(process.env.PROGRAMFILES ?? "C:/Program Files", "DeepSeek Harness")));
     if (process.env.PROGRAMFILES_X86) {
-      add(nodePath.join(process.env.PROGRAMFILES_X86, "DeepSeek Harness", "resources", "app.asar"));
+      add(appAsarUnder(nodePath.join(process.env.PROGRAMFILES_X86, "DeepSeek Harness")));
     }
   } else if (process.platform === "darwin") {
     add("/Applications/DeepSeek Harness.app/Contents/Resources/app.asar");
   } else {
     add("/opt/DeepSeek Harness/resources/app.asar");
-    if (home) add(nodePath.join(home, ".local", "share", "DeepSeek Harness", "resources", "app.asar"));
+    if (home) add(appAsarUnder(nodePath.join(home, ".local", "share", "DeepSeek Harness")));
   }
-  // 历史写死的构建机路径（作者机器），放最后兜底
-  add(["D:", "DeepSeek Harness", "Desktop", "resources", "app.asar"].join("/"));
 
-  return candidates.find((p) => nodeFs.existsSync(p)) ?? candidates[0];
+  return candidates.find((p) => nodeFs.existsSync(p)) ?? null;
 }
 
 const ASAR = resolveAsar();
@@ -337,8 +364,9 @@ function main() {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
 
-  if (!nodeFs.existsSync(ASAR)) {
-    console.error(`✗ 找不到 app.asar：${ASAR}（用 DSH_APP_ASAR 环境变量指定）`);
+  if (!ASAR || !nodeFs.existsSync(ASAR)) {
+    console.error(`✗ 找不到宿主 app.asar（探测到：${ASAR ?? "无"}）；用 DSH_APP_ASAR 显式指定`);
+    console.error("  提示：不确定装在哪时，先看 DSH_HOME 的父目录下有哪些安装版本");
     process.exitCode = 2;
     return;
   }
