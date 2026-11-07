@@ -901,3 +901,24 @@ tests["AX-21③ 判据来源（静态）：离线 import 共享判据，不再�
   t.includes(src, "resultKindForValueFacts(verdict", "必须真的调用它（import 了不用 = 还是自己判）");
   t.notIncludes(src, 'verdict?.result === "success"', "旧的私有三元已经删掉（两份实现迟早只修好一份）");
 };
+
+tests["AX-24 facts-only 回退：叙事全拒但事实 SUPPORTED ⇒ 不返回空正文"] = (t) => {
+  const envelope = {
+    enabled: true,
+    applied: true,
+    degraded: false,
+    facts: [
+      { id: "f1", subject: "user", claim: "根目标是 repair-fold", verdict: "SUPPORTED", reasons: [] },
+      { id: "f2", subject: "harness", claim: "注入的上下文", verdict: "REJECTED", reasons: [] },
+    ],
+    narratives: [{ id: "n1", text: "引用被拒事实的叙事", verdict: "REJECTED", reasons: [] }],
+    summary: { total: 2, supported: 1, rejected: 1 },
+  };
+  const out = offlineFold.applyOfflineGuard(envelope, "raw");
+  t.includes(out.text, "facts-only 回退", "必须显式标记 facts-only");
+  t.includes(out.text, "根目标是 repair-fold", "SUPPORTED 事实必须保留");
+  t.notIncludes(out.text, "引用被拒事实的叙事", "被拒叙事不许进正文");
+  t.notIncludes(out.text, "注入的上下文", "被拒事实不许进正文");
+  t.eq(out.verdict, "UNVERIFIED", "facts-only 摘要只能是 UNVERIFIED，不能冒充 SUPPORTED");
+  t.includes(out.text, "事实守卫：UNVERIFIED", "必须带机器标记行");
+};

@@ -1250,7 +1250,25 @@ export function applyOfflineGuard(envelope, rawText) {
     .trim();
   const verdict = text === "" ? GUARD_VERDICT.REJECTED : kept.some((item) => item?.verdict === GUARD_VERDICT.UNVERIFIED) ? GUARD_VERDICT.UNVERIFIED : GUARD_VERDICT.SUPPORTED;
   const record = { ...base, verdict, reasons, rejectedNarratives: narratives.length - kept.length };
-  if (text === "") return { text: "", record, verdict, reasons };
+  if (text === "") {
+    // K-26 空回答根因：所有叙事都引用了被拒事实 ⇒ 正文为空。但 facts 里可能仍有
+    // SUPPORTED 事实；直接返回空会把「事实可判」误记成 empty-response。只渲染
+    // SUPPORTED 事实（facts-only 回退），标记 UNVERIFIED，绝不把被拒叙事写成事实。
+    const supported = facts.filter((verdict) => verdict?.verdict === GUARD_VERDICT.SUPPORTED);
+    if (supported.length > 0) {
+      const factsOnlyRecord = { ...record, verdict: GUARD_VERDICT.UNVERIFIED, factsOnly: true };
+      const factsText = supported
+        .map((verdict) => `- [${String(verdict?.id ?? "?")}] ${String(verdict?.subject ?? "?")}: ${String(verdict?.claim ?? "")}`)
+        .join(String.fromCharCode(10));
+      return {
+        text: [guardMarkerLine(factsOnlyRecord), "## 已验证事实（facts-only 回退）", factsText].join(String.fromCharCode(10, 10)),
+        record: factsOnlyRecord,
+        verdict: factsOnlyRecord.verdict,
+        reasons,
+      };
+    }
+    return { text: "", record, verdict, reasons };
+  }
   return { text: [guardMarkerLine(record), text].filter((part) => part !== "").join("\n\n"), record, verdict, reasons };
 }
 
