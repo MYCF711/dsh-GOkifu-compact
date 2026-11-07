@@ -15,6 +15,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const tests = {};
 import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
 import { collectConstraints } from "../src/rooms/ledger.mjs";
+// ★ AX-06（2026-11-07）：事实守卫的契约镜像与纯函数（渲染器/抽取器）从**真源码**导入，
+//   不经 harness 的 engine 副本 —— 这样「渲染规则」和「引擎接线」是两条独立判据。
+import { GUARD_VERDICTS, parseFactGuardEnvelope, renderFactGuardedSummary } from "../src/rooms/facts-prompt.mjs";
+import { VERDICT } from "../src/rooms/fact-guard.mjs";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SRC = nodePath.join(HERE, "..", "src", "engine.mjs");
 // ★ engine.mjs 里有 ./graph.mjs 这类相对 import，所以副本必须放在 src/ 旁边，
@@ -3311,4 +3315,331 @@ tests["C583 积压越大每轮补越多（>100 ⇒ 5 个；预算 240→420s）"
   t.includes(tick, "dueNow > 100 ? 1800 : 240", "预算同步放宽（10 分钟一轮 × 1800s ⇒ 42 段/h）");
   t.includes(tick, "Math.min(5, adaptive)", "上限仍然是 5");
   t.eq(/while \(true\)/.test(tick), false, "不许死循环");
+};
+
+/* ═════════════════════ AX-06 · online summarize 接入事实守卫（2026-11-07） ═════════════════════
+ *
+ * 验收判据（任务卡 AX-06）：
+ *   ① `factGuard:false`（含默认不传）⇒ 摘要**逐字不变**，且发给模型的指令**字节不变**；
+ *   ② `factGuard:true` ⇒ 无证据的叙事/事实**不能落成事实段**，被拒事实与引用它的叙事整条丢弃；
+ *   ③ 合法的模型产物仍保留（事实带 evidence seq、叙事单独成段）；
+ *   ④ 坏 JSON 显式 `degraded:true + degradedReason`，且不把模型内容渲染成事实（退回机械规则摘要）；
+ *   ⑤ 模型故障仍走旧的 `degraded:"rules"` 标记（守卫不接管模型可用性）；
+ *   ⑥ 同一次模型调用（不新增第二个 LLM 评委）；valueFacts 只在 guard 开启时进事实块。
+ */
+
+/** 写一张固定图（AX-06 的判据夹具；世界/约束哈希是 32 位字面量，保证 renderFacts 输出可复现）。 */
+function ax06WriteGraph({ id, withValueFacts = false }) {
+  const dir = nodePath.join(GRAPHS, `ax06-${id}`);
+  const sessDir = nodePath.join(dir, "sessions", id);
+  nodeFs.mkdirSync(sessDir, { recursive: true });
+  const okEdge = {
+    id: "e2",
+    from: "n2",
+    to: "n2",
+    intent: "改构建脚本",
+    action: "edit(file_path=src/a.mjs)",
+    result: "success",
+    verify: { kind: "exit", summary: "exit 0" },
+    evidence: { start: 3, end: 4 },
+    transposition: false,
+    ts: 3,
+  };
+  if (withValueFacts) {
+    okEdge.valueFacts = [
+      // AX-02 的六字段契约（多一个/少一个都会被 isValueFact 挡掉）
+      { kind: "file_created", value: "src/a.mjs", quote: "Created file src/a.mjs", evidenceSeq: 4, validAtSeq: 4, source: "tool:edit" },
+    ];
+  }
+  const graph = {
+    version: 1,
+    sessionId: id,
+    cwd: "C:/tmp",
+    createdAt: 1,
+    updatedAt: 1,
+    nextNode: 3,
+    nextEdge: 3,
+    nodes: {
+      n1: { id: "n1", kind: "user", seq: 1, text: "不许动 prod 配置。把构建跑通。", constraints: ["不许动 prod 配置"], ts: 1 },
+      n2: {
+        id: "n2",
+        kind: "agent",
+        seq: 2,
+        goal: "试改构建脚本",
+        worldHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        constraintHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        via: "e1",
+        ts: 2,
+      },
+    },
+    edges: {
+      e1: {
+        id: "e1",
+        from: "n1",
+        to: "n2",
+        intent: "直接改 prod 配置",
+        action: "edit(file_path=prod.yml)",
+        result: "failure",
+        verify: { kind: "exit", summary: "EACCES" },
+        errorSnippet: "Error: EACCES: permission denied, open prod.yml",
+        evidence: { start: 1, end: 2 },
+        transposition: false,
+        ts: 2,
+      },
+      e2: okEdge,
+    },
+    order: ["n1", "n2"],
+    stateIndex: {},
+    rootUserNodeIds: ["n1"],
+    checkpointSeq: null,
+    foldCount: 0,
+    lastFoldTotalTokens: 0,
+    foldMarks: [],
+  };
+  nodeFs.writeFileSync(nodePath.join(sessDir, "graph.json"), JSON.stringify(graph, null, 1), "utf8");
+  return dir;
+}
+
+/** 往假 session 里注入**真实事件**（守卫的证据源要 `surface.nodes` + `eventAt(seq)` 都命中）。 */
+function ax06SeedEvidence(session) {
+  const userSeq = session.append("user/message", {
+    role: "user",
+    content: [{ type: "text", text: "必须保持接口不变。把构建跑通。" }],
+    source: { kind: "prompt" },
+  }).seq;
+  const toolSeq = session.append("tool/result", {
+    message: {
+      id: "r",
+      role: "tool",
+      toolCallId: "c1",
+      source: { kind: "tool", callId: "c1" },
+      content: [{ type: "text", text: "Created file src/a.mjs\n[exit code: 0]" }],
+      isError: false,
+    },
+  }).seq;
+  const aiSeq = session.append("assistant/message", {
+    message: { id: "a", role: "assistant", content: [{ type: "text", text: "我改好了。" }], source: { kind: "model" } },
+  }).seq;
+  return { userSeq, toolSeq, aiSeq };
+}
+
+/** 把摘要正文按 `## ` 切段（同名段合并；用于断言「这句话在哪个段里」）。 */
+function ax06Sections(text) {
+  const buckets = {};
+  let current = null;
+  for (const line of String(text ?? "").split("\n")) {
+    const match = /^##[ \t]+(.+)$/.exec(line);
+    if (match) {
+      current = match[1].trim();
+      buckets[current] = buckets[current] ?? [];
+      continue;
+    }
+    if (current !== null) buckets[current].push(line);
+  }
+  const out = {};
+  for (const [name, lines] of Object.entries(buckets)) out[name] = lines.join("\n");
+  return out;
+}
+
+/** AX-06：guard=false 的**旧行为指纹**（改代码之前用同一夹具跑出来的值，冻结在这里）。 */
+const AX06_LEGACY_INSTRUCTION_SHA256 = "8e65cf5fb57ff39e7afa9ff8bc0c3b9eab65573a5ae392f8fa2bb6dcbe09a76b";
+const AX06_LEGACY_INSTRUCTION_CHARS = 4081;
+const AX06_LEGACY_OUTPUT_BLOCKS = [
+  "## 目标\n- mock summary",
+  "\n\n## 约束（机械保留，逐字；不由模型改写）\n- 不许动 prod 配置",
+  "\n\n## 最近访问的文件（机械保留，不由模型改写）\n- src/a.mjs (seq 3-4)\n- prod.yml (seq 1-2)",
+];
+const AX06_LEGACY_RESULT_KEYS = ["summary", "rawOutput", "llmStreamCall", "provider", "model", "maxTokens"];
+
+/** 跑一次 summarize 并取回 (out, 指令, 正文)。`__D460_SUMMARY_TEXT__` 用完即清。 */
+async function ax06Run({ id, factGuard, modelText, failModels = new Set(), withValueFacts = false, seedEvidence = false }) {
+  const { Engine } = await load();
+  const dir = ax06WriteGraph({ id, withValueFacts });
+  const session = makeSession({ id });
+  const evidence = seedEvidence ? ax06SeedEvidence(session) : { userSeq: null, toolSeq: null, aiSeq: null };
+  const ctx = makeCtx({ failModels });
+  globalThis.__D460_SUMMARY_TEXT__ = modelText;
+  try {
+    const engine = new Engine(ctx, factGuard === undefined ? { graphDir: dir, auto: false } : { graphDir: dir, auto: false, factGuard });
+    engine._chessActiveRange = { start: 1, end: evidence.aiSeq ?? 4 };
+    const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+    const instruction = ctx.streamCalls.at(-1)?.messages?.at(-1)?.content?.[0]?.text ?? "";
+    const text = (out?.summary ?? []).map((block) => String(block.text ?? "")).join("\n");
+    return { out, ctx, engine, instruction, text, evidence };
+  } finally {
+    globalThis.__D460_SUMMARY_TEXT__ = undefined;
+  }
+}
+
+tests["AX06-1 guard=false（默认不传 / 显式 false）⇒ 摘要与指令逐字不变"] = async (t) => {
+  const crypto = await import("node:crypto");
+  const sha = (text) => crypto.createHash("sha256").update(String(text)).digest("hex");
+  const implicit = await ax06Run({ id: "ax06-off-implicit", modelText: "## 目标\n- mock summary" });
+  const explicit = await ax06Run({ id: "ax06-off-explicit", factGuard: false, modelText: "## 目标\n- mock summary" });
+  // ① 指令字节（这是「零解析、零裁决」最硬的一条：连 prompt 都没变）
+  t.eq(sha(implicit.instruction), AX06_LEGACY_INSTRUCTION_SHA256, "默认不传 factGuard 时指令必须与旧版逐字节相同");
+  t.eq(sha(explicit.instruction), AX06_LEGACY_INSTRUCTION_SHA256, "显式 false 时同样逐字节相同");
+  t.eq(implicit.instruction.length, AX06_LEGACY_INSTRUCTION_CHARS, "指令长度也必须一致");
+  t.notIncludes(implicit.instruction, "VALUE_FACTS", "guard 关掉时值型事实不得进事实块");
+  t.notIncludes(implicit.instruction, 'narratives', "guard 关掉时不得要求 JSON 信封");
+  // ② 摘要产物逐字（含机械追加的约束段与最近访问文件段）
+  t.eq(implicit.out.summary.map((b) => b.text), AX06_LEGACY_OUTPUT_BLOCKS, "默认不传 factGuard 的摘要块必须逐字等于旧版");
+  t.eq(explicit.out.summary.map((b) => b.text), AX06_LEGACY_OUTPUT_BLOCKS, "显式 false 的摘要块必须逐字等于旧版");
+  t.eq(implicit.text, explicit.text, "两臂正文必须完全相同");
+  // ③ 返回值形状不变（不新增 factGuard 字段 = 宿主事件不多一个键）
+  t.eq(Object.keys(implicit.out), AX06_LEGACY_RESULT_KEYS, "返回值不许新增字段");
+  t.eq(implicit.out.degraded, undefined, "guard 关掉时不许出现 degraded 标记");
+  t.eq(implicit.out.factGuard, undefined, "guard 关掉时不许出现 factGuard 报告");
+  t.eq(implicit.engine._lastSummaryFactGuard, undefined, "guard 关掉时不许留下守卫状态");
+};
+
+tests["AX06-2 guard=true：合法事实与叙事被保留（带 evidence seq、叙事单独成段），且只调一次模型"] = async (t) => {
+  const probe = await ax06Run({ id: "ax06-on-probe", factGuard: true, modelText: "{}", seedEvidence: true });
+  const { userSeq, toolSeq } = probe.evidence;
+  const model = {
+    facts: [
+      { id: "f1", kind: "constraint", subject: "user", claim: "必须保持接口不变", quote: "必须保持接口不变", evidenceSeq: userSeq, validAtSeq: userSeq },
+      { id: "f2", kind: "value", subject: "tool", claim: "src/a.mjs 新建成功", quote: "Created file src/a.mjs", evidenceSeq: toolSeq, validAtSeq: toolSeq },
+    ],
+    narratives: [{ id: "s1", text: "用户要求保持接口不变，构建回执已落地。", factRefs: ["f1"] }],
+  };
+  const run = await ax06Run({ id: "ax06-on-ok", factGuard: true, modelText: JSON.stringify(model), seedEvidence: true });
+  const sections = ax06Sections(run.text);
+  t.eq(run.ctx.streamCalls.length, 1, "同一次模型调用：不许为了裁决再发一个请求");
+  t.eq(run.out.factGuard?.applied, true, "守卫必须真的应用（applied）");
+  t.eq(run.out.factGuard?.degraded, false, "合法结构不许降级");
+  t.eq(run.out.degraded, undefined, "合法摘要不许带 degraded 标记");
+  t.eq(run.out.factGuard?.supported, 2, "两条事实都应判 SUPPORTED");
+  t.includes(sections["目标"] ?? "", "必须保持接口不变", "约束事实必须保留在「目标」段");
+  t.includes(sections["目标"] ?? "", `evidence seq ${run.evidence.userSeq}`, "事实必须带可回证的 evidence seq");
+  t.includes(sections["已验证事实"] ?? "", "src/a.mjs 新建成功", "值型事实必须保留");
+  t.includes(sections["已验证事实"] ?? "", `evidence seq ${run.evidence.toolSeq}`, "值型事实同样要带 seq");
+  t.includes(sections["叙事"] ?? "", "用户要求保持接口不变", "合法叙事必须保留");
+  t.includes(sections["叙事"] ?? "", "引用事实：f1", "叙事必须标出它引用的事实 id");
+  t.includes(run.text, "## 约束（机械保留，逐字；不由模型改写）", "约束机械补回必须保留");
+  t.includes(run.text, "- 不许动 prod 配置", "机械补回的约束内容必须还在");
+  t.includes(run.text, "## 最近访问的文件（机械保留，不由模型改写）", "「最近访问的文件」机械段必须保留");
+  t.eq(run.instruction.includes('"facts": ['), true, "guard 开启时指令必须要求 JSON 信封");
+};
+
+tests["AX06-3 guard=true：无证据叙事只进「未验证」，被拒事实与引用它的叙事不到事实段"] = async (t) => {
+  const probe = await ax06Run({ id: "ax06-on-probe2", factGuard: true, modelText: "{}", seedEvidence: true });
+  const { toolSeq } = probe.evidence;
+  const model = {
+    facts: [
+      // 主体错位：claim 说是 user 说的，证据事件其实是 tool 结果 ⇒ 主体混同 ⇒ REJECTED
+      { id: "f9", kind: "state", subject: "user", claim: "所有回归已修复", quote: "Created file src/a.mjs", evidenceSeq: toolSeq, validAtSeq: toolSeq },
+      // 完全没有证据 ⇒ 只能 UNVERIFIED（不能当事实）
+      { id: "f10", kind: "unverified", subject: "assistant", claim: "部署流程可能还有问题" },
+    ],
+    narratives: [
+      { id: "s9", text: "所有回归都已修复，可以发布。", factRefs: ["f9"] },
+      { id: "s10", text: "用户已经同意删除全部测试。", factRefs: [] },
+      { id: "s11", text: "引用了不存在的事实。", factRefs: ["f404"] },
+    ],
+  };
+  const run = await ax06Run({ id: "ax06-on-reject", factGuard: true, modelText: JSON.stringify(model), seedEvidence: true });
+  const sections = ax06Sections(run.text);
+  for (const name of ["目标", "棋谱（状态节点）", "已探明死路", "已验证事实", "叙事"]) {
+    t.notIncludes(sections[name] ?? "", "所有回归已修复", `被拒事实不得出现在「${name}」段`);
+    t.notIncludes(sections[name] ?? "", "可以发布", `引用被拒事实的叙事不得出现在「${name}」段`);
+    t.notIncludes(sections[name] ?? "", "用户已经同意删除全部测试", `无证据叙事不得出现在「${name}」段`);
+  }
+  t.notIncludes(run.text, "引用了不存在的事实", "引用不存在事实 id 的叙事必须整条丢弃");
+  t.includes(sections["未验证"] ?? "", "用户已经同意删除全部测试", "无证据叙事只能进「未验证」");
+  t.includes(sections["未验证"] ?? "", "NO_FACT_REFS", "未验证必须写明原因码");
+  t.includes(sections["未验证"] ?? "", "部署流程可能还有问题", "无证据事实只能进「未验证」");
+  t.includes(sections["未验证"] ?? "", "NO_EVIDENCE", "无证据事实必须写明原因码");
+  t.eq(run.out.factGuard?.rejected, 1, "主体混同的事实必须计入 rejected");
+  t.eq(run.out.factGuard?.narrativesSupported, 0, "没有一条叙事应被采纳");
+  t.eq(run.out.degraded, undefined, "结构合法（只是事实被拒）不属于结构降级");
+};
+
+tests["AX06-4 guard=true + 坏 JSON ⇒ degraded:true + BAD_JSON，退回规则摘要且不渲染模型内容"] = async (t) => {
+  const prose = "我没法给出结构化记录。下面是自然语言摘要：构建已通过，可以发布。";
+  const run = await ax06Run({ id: "ax06-bad-json", factGuard: true, modelText: prose, seedEvidence: true });
+  t.eq(run.out.degraded, "facts", "结构非法必须显式标记（degraded:\"facts\"）");
+  t.eq(run.out.factGuard?.degraded, true, "factGuard 报告必须写 degraded:true");
+  t.eq(run.out.factGuard?.degradedReason, "BAD_JSON", "降级原因必须来自 fact-guard 的 reason code");
+  t.eq(run.ctx.streamCalls.length, 1, "降级也不许再调一次模型");
+  // 降级后返回的是**机械规则摘要**，所以 llmStreamCall=false 是诚实的：账上不能把规则摘要记成模型产物。
+  t.eq(run.out.llmStreamCall, false, "降级产物不是模型产物（llmStreamCall=false）");
+  t.notIncludes(run.text, "构建已通过，可以发布", "非法结构里的断言不得落成摘要内容");
+  t.includes(run.text, "## 已探明死路", "必须退回机械规则摘要");
+  t.includes(run.text, "EACCES", "规则摘要必须带回失败边");
+  t.eq(run.engine._lastSummaryFactGuard?.degradedReason, "BAD_JSON", "降级原因必须留给 foldMark/doctor 读");
+  t.eq(run.ctx.warns.some((w) => String(w).includes("factGuard")), true, "降级必须留一条可检索的告警");
+};
+
+tests["AX06-5 guard=true 但模型全挂 ⇒ 仍是旧标记 degraded:'rules'（守卫不接管模型可用性）"] = async (t) => {
+  const run = await ax06Run({ id: "ax06-model-down", factGuard: true, modelText: "{}", failModels: new Set(["m"]) });
+  t.eq(run.out.degraded, "rules", "模型不可用必须沿用旧标记（不许伪装成 factGuard 降级）");
+  t.eq(run.out.factGuard, undefined, "守卫根本没拿到模型输出 ⇒ 不许伪造 applied 报告");
+  t.eq(run.out.llmStreamCall, false, "规则摘要的 llmStreamCall 必须是 false");
+  t.includes(run.text, "## 目标", "规则摘要结构必须完整");
+  t.includes(run.text, "## 已探明死路", "规则摘要必须带回失败边");
+  t.eq(run.ctx.warns.some((w) => String(w).includes("退回规则摘要")), true, "必须留「退回规则摘要」告警");
+};
+
+tests["AX06-6 valueFacts 只在 guard 开启时进事实块（guard=false 的指令字节不变）"] = async (t) => {
+  const crypto = await import("node:crypto");
+  const sha = (text) => crypto.createHash("sha256").update(String(text)).digest("hex");
+  const off = await ax06Run({ id: "ax06-valuefacts-off", modelText: "## 目标\n- mock summary", withValueFacts: true });
+  t.eq(sha(off.instruction), AX06_LEGACY_INSTRUCTION_SHA256, "边上有 valueFacts 时，guard=false 的指令仍须逐字不变");
+  t.notIncludes(off.instruction, "VALUE_FACTS", "guard=false 绝不渲染值型事实");
+  const on = await ax06Run({
+    id: "ax06-valuefacts-on",
+    factGuard: true,
+    modelText: JSON.stringify({ facts: [], narratives: [] }),
+    withValueFacts: true,
+    seedEvidence: true,
+  });
+  t.includes(on.instruction, "VALUE_FACTS", "guard=true 必须把值型事实喂进事实块");
+  t.includes(on.instruction, "file_created: src/a.mjs", "值型事实必须逐条出现（kind: value）");
+  t.includes(on.instruction, "(evidence seq 4)", "值型事实必须带 evidence seq");
+  t.eq(on.out.factGuard?.applied, true, "空信封也是合法结构（applied）");
+  t.includes(on.text, "## 未验证", "空信封渲染出的摘要必须结构完整（不是降级）");
+};
+
+tests["AX06-7 契约镜像与抽取器：GUARD_VERDICTS === VERDICT；围栏/带前后缀的 JSON 都能抽"] = async (t) => {
+  t.eq([...GUARD_VERDICTS], Object.values(VERDICT), "facts-prompt 的裁决枚举镜像必须与 fact-guard 一致");
+  const pure = parseFactGuardEnvelope('```json\n{"facts":[],"narratives":[]}\n```');
+  t.eq(pure.ok, true, "代码围栏里的 JSON 必须能抽");
+  t.eq(pure.value, { facts: [], narratives: [] }, "抽出来的必须是那个对象");
+  const noisy = parseFactGuardEnvelope('前言 {"facts":[{"id":"f1"}],"narratives":[]} 后记');
+  t.eq(noisy.ok, true, "前后带话也必须能抽");
+  const notJson = parseFactGuardEnvelope("完全不是 JSON");
+  t.eq(notJson.ok, false, "抽不到 JSON 必须报 ok:false（引擎据此出 degraded）");
+  const arrayTop = parseFactGuardEnvelope("[]");
+  t.eq(arrayTop.ok, true, "解析成功但形状不对 ⇒ 原样交给守卫出 UNSUPPORTED_SHAPE（不在这里自造 reason）");
+  t.eq(arrayTop.value, [], "原样透传");
+};
+
+tests["AX06-8 渲染器：REJECTED 事实与引用它的叙事不渲染，UNVERIFIED 只进「未验证」"] = async (t) => {
+  const rendered = renderFactGuardedSummary(
+    {
+      facts: [
+        { id: "f1", kind: "failure", subject: "assistant", claim: "直接改 prod 配置失败（EACCES）", verdict: "SUPPORTED", evidenceSeq: 12, quoteVerbatim: true },
+        { id: "f2", kind: "state", subject: "user", claim: "所有回归已修复", verdict: "REJECTED", reasons: [{ code: "SUBJECT_MISMATCH" }], evidenceSeq: 13 },
+        { id: "f3", kind: "constraint", subject: "user", claim: "不许动 prod 配置", verdict: "UNVERIFIED", reasons: [{ code: "NO_EVIDENCE" }] },
+      ],
+      narratives: [
+        { id: "s1", text: "试改 prod 配置被拒。", verdict: "SUPPORTED", factRefs: ["f1"] },
+        { id: "s2", text: "所有回归都已修复。", verdict: "REJECTED", reasons: [{ code: "CITED_REJECTED_FACT" }], factRefs: ["f2"] },
+      ],
+    },
+    { range: { start: 10, end: 20 } },
+  );
+  const sections = ax06Sections(rendered.text);
+  t.includes(sections["已探明死路"] ?? "", "直接改 prod 配置失败", "SUPPORTED 的 failure 必须进「已探明死路」");
+  t.includes(sections["已探明死路"] ?? "", "evidence seq 12", "死路必须带 evidence seq");
+  t.notIncludes(rendered.text, "所有回归已修复", "REJECTED 事实必须整条丢弃");
+  t.notIncludes(rendered.text, "所有回归都已修复", "引用被拒事实的叙事必须整条丢弃");
+  t.includes(sections["未验证"] ?? "", "不许动 prod 配置", "UNVERIFIED 事实只能进「未验证」");
+  t.includes(sections["未验证"] ?? "", "NO_EVIDENCE", "未验证必须带原因码");
+  t.includes(sections["叙事"] ?? "", "试改 prod 配置被拒", "SUPPORTED 叙事必须保留");
+  t.eq(rendered.counts.supported, 1, "supported 计数");
+  t.eq(rendered.counts.rejected, 1, "rejected 计数");
+  t.includes(rendered.text, "## 原始坐标", "渲染结果必须带折叠区间（机械事实）");
+  t.includes(rendered.text, "seq 10-20", "区间来自 range");
 };
