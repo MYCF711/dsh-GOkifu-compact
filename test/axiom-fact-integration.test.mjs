@@ -501,6 +501,7 @@ tests["AX-09 ③ 成功值可见且可回证：keeper 边 / 离线抽取 / 热�
   t.includes(injectedText, `private=${FIXTURE.values.apiPrivate} (seq ${seqOf("t2")})`, "注入消息必须带 private + seq");
 
   /* ⑦ 契约一致性（接受/拒绝）：ledger 按 AX-02 的存储契约接收值事实 —— 抽取器不可能产出的形状必须被两边同时拒 */
+  t.eq(collectValueFacts(graph).malformed, 0, "真实的 5 条必须 0 malformed（否则下面的「拒绝」是恒真）");
   const mutants = [
     ["未知 kind", (f) => ({ ...f, kind: "not_a_kind" })],
     ["文件类值不是字符串", (f) => ({ ...f, kind: "file_created", value: 42 })],
@@ -527,10 +528,8 @@ tests["AX-09 ③ 成功值可见且可回证：keeper 边 / 离线抽取 / 热�
     };
     const collected = collectValueFacts(broken);
     t.eq(isValueFact(mutate(keeperFacts[0])), false, `AX-02 契约必须拒绝：${label}`);
-    t.eq(collected.malformed >= 1, true, `ledger 必须把「${label}」计入 malformed（不许静默丢）`);
-    t.eq(collected.facts.some((fact) => fact.kind === mutate(keeperFacts[0]).kind && fact.text === "not_a_kind"), false, `ledger 不许把「${label}」渲成事实`);
-    // 反向：真实的条目必须被接受（否则上面的「拒绝」是恒真）
-    t.eq(collectValueFacts(graph).malformed, 0, "真实的 5 条必须 0 malformed");
+    t.eq(collected.malformed, 1, `ledger 必须把「${label}」计入 malformed（不许静默丢）`);
+    t.eq(collected.facts.length, 5, `ledger 只许收下真实那 5 条，不许收「${label}」`);
   }
 };
 
