@@ -3646,3 +3646,191 @@ tests["AX06-8 渲染器：REJECTED 事实与引用它的叙事不渲染，UNVERI
   t.includes(rendered.text, "## 原始坐标", "渲染结果必须带折叠区间（机械事实）");
   t.includes(rendered.text, "seq 10-20", "区间来自 range");
 };
+
+/* ═════════════════════ AX-17 · 在线证据源与离线同裁决（P0-2 + P1-1，2026-11-07） ═════════════════════
+ *
+ * 任务卡（AX-14 已证实的两条缺陷）：
+ *   ① `guardEventRole()` 只读 `message.role`；DSH 把子代理收尾 / agent-message 等投递成
+ *      `user/message`（role 恒为 user）⇒ `SUBJECT_MISMATCH` 对这类事件永不触发，而模型写正确
+ *      主体 `harness` 反而会被拒。主体必须由 `source.kind` 派生（人类来源 ⇒ user，其余 ⇒ harness）。
+ *   ② 在线证据源缺 `tool/call`（离线有）⇒ 同一 `evidenceSeq` 的 tool/call 候选
+ *      online REJECTED / offline SUPPORTED，违反「同输入同裁决」。
+ *
+ * 判据（逐条对应任务卡）：
+ *   · 子代理收尾事件主体为 harness（`subagent-settled` / `agent-message` 两种真机形状）；
+ *   · 正确主体不再被拒（同一事件写成 user 仍必须 REJECTED —— 非恒真控制）；
+ *   · 同 seq 的 tool/call 候选 online/offline 裁决逐字段一致；
+ *   · 旧 user 消息（无 source / source.kind=user）仍 user；
+ *   · `factGuard:false` 零行为（含新事件形状时摘要逐字原样）。
+ *
+ * 另：**真机里 `tool/call` 不在 surface 上**（DSH 的 `SURFACE_EVENT_TYPES` 只含 message 类，
+ * 真机日志的 `surfaceOp` 恒为 null）—— 所以在线证据源必须**按 seq 走完整事件日志**，
+ * 只走 `surface.nodes` 会把它整类漏掉（那正是 P1-1 的根因，也是本段要防的假绿）。
+ */
+
+/** AX-17：真机 `user/message` 的形状（role 恒为 user，主体在 `source.kind` 里）。 */
+function ax17UserMessage({ id, kind, texts, extraSource = {} }) {
+  return {
+    id,
+    role: "user",
+    content: texts.map((text) => ({ type: "text", text })),
+    source: { kind, ...extraSource },
+  };
+}
+
+/** AX-17：真机里 `tool/call` **不在 surface 上**（`surfaceOp` 恒为 null）——
+ *  这里按真机形状把它从 surface 拿掉，在线源只有按 seq 读完整日志才看得见它。 */
+function ax17AppendToolCall(session, data) {
+  const event = session.append("tool/call", data);
+  const index = session.surface.nodes.indexOf(event.seq);
+  if (index >= 0) session.surface.nodes.splice(index, 1);
+  return event.seq;
+}
+
+/** AX-17：跑一次真 engine.summarize（同 AX-06 的装置：假 ctx + 假模型输出）。 */
+async function ax17RunEngine({ id, session, range, factGuard, modelText }) {
+  const { Engine } = await load();
+  const dir = ax06WriteGraph({ id });
+  const ctx = makeCtx();
+  globalThis.__D460_SUMMARY_TEXT__ = modelText;
+  try {
+    const engine = new Engine(ctx, factGuard === undefined ? { graphDir: dir, auto: false } : { graphDir: dir, auto: false, factGuard });
+    engine._chessActiveRange = range;
+    const out = await engine.summarize({ messages: [] }, { session, options: {} }, undefined);
+    const text = (out?.summary ?? []).map((block) => String(block.text ?? "")).join("\n");
+    return { out, ctx, engine, text };
+  } finally {
+    globalThis.__D460_SUMMARY_TEXT__ = undefined;
+  }
+}
+
+tests["AX17-1（P0-2）子代理收尾 / agent-message 投递成 user/message 时，主体必须是 harness（正确主体不再被拒）"] = async (t) => {
+  const { mod } = await load();
+  const { guardModelOutput } = await import("../src/rooms/fact-guard.mjs");
+  const session = makeSession({ id: "sess-ax17-subject" });
+  const closing = "已修正负向测试：等长单字节翻转并精确断言 SHA-256 mismatch。";
+  const settledSeq = session.append(
+    "user/message",
+    ax17UserMessage({
+      id: "u-settled",
+      kind: "subagent-settled",
+      texts: ["Background subagent 9ecd88e9 finished and will do no further work unless you send it more.", "Its closing message:", closing],
+      extraSource: { form: "notice", summary: "background subagent finished", senderSessionId: "9ecd88e9" },
+    }),
+  ).seq;
+  const relayText = "Agent 9ecd88e9 sent a message: 请基于当前脚本尽快给完整最终问题清单。";
+  const relaySeq = session.append(
+    "user/message",
+    ax17UserMessage({ id: "u-relay", kind: "agent-message", texts: [relayText], extraSource: { form: "relay", senderSessionId: "9ecd88e9" } }),
+  ).seq;
+
+  const events = mod.collectGuardEvents(session, { start: 1000, end: relaySeq });
+  const bySeq = new Map(events.map((event) => [event.seq, event]));
+  t.eq(bySeq.get(settledSeq)?.role, "harness", "subagent-settled 的主体必须是 harness（不是宿主恒填的 role:user）");
+  t.eq(bySeq.get(relaySeq)?.role, "harness", "agent-message 的主体同样必须是 harness");
+
+  const envelope = {
+    facts: [
+      { id: "f-settled", kind: "state", subject: "harness", claim: "子代理已完成负向测试修正", quote: closing, evidenceSeq: settledSeq, validAtSeq: settledSeq },
+    ],
+    narratives: [],
+  };
+  const online = guardModelOutput(envelope, { factGuard: true, session: { sessionId: session.id, events } });
+  t.eq(online.facts[0].verdict, "SUPPORTED", "模型写正确主体 harness 时必须被接受（旧实现会判 SUBJECT_MISMATCH）");
+  t.eq(online.facts[0].sourceRole, "harness", "裁决里的 sourceRole 必须与证据事件主体一致");
+  t.eq(online.summary.supported, 1, "接受数必须是 1");
+
+  // 非恒真控制：同一事件写成「用户说」必须被拒 —— 这才是 SUBJECT_MISMATCH 该红的地方
+  const wrong = guardModelOutput(
+    { facts: [{ ...envelope.facts[0], id: "f-wrong", subject: "user" }], narratives: [] },
+    { factGuard: true, session: { sessionId: session.id, events } },
+  );
+  t.eq(wrong.facts[0].verdict, "REJECTED", "把子代理收尾写成「用户说」必须被拒");
+  t.eq(wrong.facts[0].reasons.map((reason) => reason.code), ["SUBJECT_MISMATCH"], "拒绝原因必须是主体混同");
+};
+
+tests["AX17-2 旧 user 消息（无 source / source.kind=user）主体仍是 user，且正确主体仍被接受"] = async (t) => {
+  const { mod } = await load();
+  const { guardModelOutput } = await import("../src/rooms/fact-guard.mjs");
+  const session = makeSession({ id: "sess-ax17-user" });
+  const oldSeq = session.append("user/message", { id: "u-old", role: "user", content: [{ type: "text", text: "把构建跑通。" }] }).seq;
+  const humanSeq = session.append("user/message", ax17UserMessage({ id: "u-human", kind: "user", texts: ["禁止动 prod 配置。"] })).seq;
+  const events = mod.collectGuardEvents(session, { start: 1000, end: humanSeq });
+  const bySeq = new Map(events.map((event) => [event.seq, event]));
+  t.eq(bySeq.get(oldSeq)?.role, "user", "没有 source.kind 的旧消息必须退回 role（旧行为逐字不变）");
+  t.eq(bySeq.get(humanSeq)?.role, "user", "source.kind=user 的人类消息仍是 user");
+  const envelope = {
+    facts: [
+      { id: "f-old", kind: "constraint", subject: "user", claim: "把构建跑通", quote: "把构建跑通", evidenceSeq: oldSeq, validAtSeq: oldSeq },
+      { id: "f-human", kind: "constraint", subject: "user", claim: "禁止动 prod 配置", quote: "禁止动 prod 配置", evidenceSeq: humanSeq, validAtSeq: humanSeq },
+    ],
+    narratives: [],
+  };
+  const out = guardModelOutput(envelope, { factGuard: true, session: { sessionId: session.id, events } });
+  t.eq(out.facts.map((fact) => fact.verdict), ["SUPPORTED", "SUPPORTED"], "旧 user 消息的正确主体必须仍被接受");
+};
+
+tests["AX17-3（P1-1）同 seq 的 tool/call 候选：online 证据源与 offline 逐字段同裁决（不再 REJECTED）"] = async (t) => {
+  const { mod } = await load();
+  const { guardModelOutput } = await import("../src/rooms/fact-guard.mjs");
+  const { buildGuardSource, toolDigestLine } = await import("../src/rooms/offline-fold.mjs");
+  const session = makeSession({ id: "sess-ax17-toolcall" });
+  const userSeq = session.append("user/message", ax17UserMessage({ id: "u1", kind: "user", texts: ["查一下仓库元信息。"] })).seq;
+  const callSeq = ax17AppendToolCall(session, { name: "bash", callId: "call-api", arguments: JSON.stringify({ command: "gh api repos/x/y" }) });
+  const stream = [userSeq, callSeq].map((seq) => session.eventAt(seq));
+  const range = { start: userSeq, end: callSeq };
+  // 非恒真控制：tool/call 确实**不在 surface 上**（真机形状）—— 只走 surface 的实现在这里会漏掉它
+  t.eq(session.surface.nodes.includes(callSeq), false, "真机形状：tool/call 不在 surface 上");
+
+  /* ① 证据源逐字段相同 —— 差异在源就谈不上「同裁决」 */
+  const onlineSource = mod.collectGuardEvents(session, range);
+  const offlineSource = buildGuardSource(stream, { sessionId: session.id });
+  t.eq(onlineSource, offlineSource.events, "online 与 offline 的证据源必须逐字段相同（含 tool/call 摘要行）");
+  const toolRow = onlineSource.find((event) => event.seq === callSeq);
+  t.eq(toolRow?.role, "tool", "tool/call 的主体是 tool");
+  t.eq(toolRow?.text, toolDigestLine(session.eventAt(callSeq).data), "tool/call 文本必须来自同一份 toolDigestLine（不是复制的文本逻辑）");
+  t.eq(toolRow?.text, "→ bash(command=gh api repos/x/y)", "摘要行形状与离线逐字一致");
+
+  /* ② 同一份候选 ⇒ 逐字段相同的裁决（旧实现 online EVIDENCE_SEQ_NOT_FOUND / offline SUPPORTED） */
+  const envelope = {
+    facts: [{ id: "f-toolcall", kind: "value", subject: "tool", claim: "调用过 gh api", quote: "bash(command=gh api repos/x/y)", evidenceSeq: callSeq, validAtSeq: callSeq }],
+    narratives: [],
+  };
+  const online = guardModelOutput(envelope, { factGuard: true, session: { sessionId: session.id, events: onlineSource } });
+  const offline = guardModelOutput(envelope, { factGuard: true, session: offlineSource });
+  t.eq(online.facts, offline.facts, "同 seq 的 tool/call 候选必须逐字段同裁决");
+  t.eq(online.narratives, offline.narratives, "叙事裁决同理");
+  t.eq(online.summary, offline.summary, "汇总计数同理");
+  t.eq(online.facts[0].verdict, "SUPPORTED", "补上 tool/call 后该候选必须通过（不再被拒）");
+  t.eq(online.facts[0].reasons, [], "接受时不许带原因码");
+};
+
+tests["AX17-4 真引擎 summarize：tool/call 候选被接受并渲染（online 不再 EVIDENCE_SEQ_NOT_FOUND）"] = async (t) => {
+  const session = makeSession({ id: "ax17-engine-toolcall" });
+  const userSeq = session.append("user/message", ax17UserMessage({ id: "u1", kind: "user", texts: ["查一下仓库元信息。"] })).seq;
+  const callSeq = ax17AppendToolCall(session, { name: "bash", callId: "call-api", arguments: JSON.stringify({ command: "gh api repos/x/y" }) });
+  const envelope = {
+    facts: [{ id: "f-toolcall", kind: "value", subject: "tool", claim: "调用过 gh api", quote: "bash(command=gh api repos/x/y)", evidenceSeq: callSeq, validAtSeq: callSeq }],
+    narratives: [{ id: "s1", text: "已经调用过 gh api 查仓库元信息。", factRefs: ["f-toolcall"] }],
+  };
+  const run = await ax17RunEngine({ id: "ax17-engine-toolcall", session, range: { start: userSeq, end: callSeq }, factGuard: true, modelText: JSON.stringify(envelope) });
+  const sections = ax06Sections(run.text);
+  t.eq(run.out.factGuard?.applied, true, "合法信封必须 applied");
+  t.eq(run.out.factGuard?.supported, 1, "tool/call 候选必须被接受（修复前 rejected=1）");
+  t.eq(run.out.factGuard?.evidenceEvents, 2, "在线证据源必须包含 user 与 tool/call 两条（tool/call 以前整类缺失）");
+  t.includes(sections["已验证事实"] ?? "", "调用过 gh api", "被接受的 tool/call 事实必须进「已验证事实」段");
+  t.includes(sections["已验证事实"] ?? "", `evidence seq ${callSeq}`, "事实必须带可回证的 evidence seq");
+  t.includes(sections["叙事"] ?? "", "已经调用过 gh api", "引用该事实的叙事必须保留");
+};
+
+tests["AX17-5 factGuard:false ⇒ 含 tool/call 与 agent-message 的会话仍零守卫行为（摘要原样）"] = async (t) => {
+  const session = makeSession({ id: "ax17-engine-off" });
+  const userSeq = session.append("user/message", ax17UserMessage({ id: "u1", kind: "agent-message", texts: ["Agent x sent a message: 继续。"] })).seq;
+  const callSeq = ax17AppendToolCall(session, { name: "bash", callId: "call-1", arguments: JSON.stringify({ command: "npm test" }) });
+  const raw = "## 目标\n- mock summary";
+  const run = await ax17RunEngine({ id: "ax17-engine-off", session, range: { start: userSeq, end: callSeq }, modelText: raw });
+  t.eq(run.out.factGuard, undefined, "guard 关掉时不许出现 factGuard 报告");
+  t.eq(run.engine._lastSummaryFactGuard, undefined, "guard 关掉时不许留下守卫状态");
+  t.eq(run.out.summary[0]?.text, raw, "guard 关掉时模型输出必须原样进摘要（零解析、零裁决）");
+  t.eq(run.out.llmStreamCall, true, "正常模型产物仍按旧路径落账");
+};
