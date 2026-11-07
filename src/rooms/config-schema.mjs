@@ -21,7 +21,16 @@
  * 依赖：**零依赖**（不 import 任何东西）—— 它同时被 R09（engine）、R11（ui）、R13（install）消费。
  */
 
-/** 24 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
+/**
+ * ★ AX-01（2026-11-07）：`factGuard` 的**默认值单一来源**。
+ *
+ * 实验线（K-26 事实守卫）在通过总采纳门槛前必须默认关（任务书 §1「默认状态」）。
+ * `src/rooms/fact-guard.mjs` 直接 import 这个常量当 `enabled` 的缺省值，
+ * 所以「默认关」只有一处字面量 —— AX-15 若要把默认改 true，只改这里。
+ */
+export const FACT_GUARD_DEFAULT = false;
+
+/** 32 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
 export const SCHEMA = Object.freeze([
   // —— 与官方后端同名（语义一致，默认值不同）——
   {
@@ -111,6 +120,17 @@ export const SCHEMA = Object.freeze([
   { key: "closeoutMaxFoldTokens", type: "number", default: 150000, where: "preset", range: [20000, 800000], label: "收尾单段上限(tokens)", desc: "分段收尾每段的输入上限；宿主窗口大时调大能减少补账轮次，太大则会被 provider 拒（C316）" },
   { key: "graphDir", type: "string", default: "", where: "engine", desc: "棋谱落盘目录；留空 = <DSH_HOME>/chess-context" },
   { key: "worldHashMaxFiles", type: "number", default: 200, where: "engine", desc: "世界状态哈希最多 stat 多少个文件" },
+  // ★ AX-01（2026-11-07）：**事实守卫**（K-26 实验线）。默认关 —— 未通过总采纳门槛前
+  //   不许默认开启。引擎作用域（不进 preset 模板）：AX-06 起从 `ctx.config.factGuard` 读。
+  //   只有**字面 true** 才开启；字符串 "true" / 1 一律净化成 false（实验开关不靠真值转换）。
+  {
+    key: "factGuard",
+    type: "boolean",
+    default: FACT_GUARD_DEFAULT,
+    where: "engine",
+    label: "事实守卫",
+    desc: "实验开关（默认关）：模型摘要里的事实候选必须先过冷代码回证（subject / quote 逐字 / 同会话 seq / 时点）才能落成事实",
+  },
 ]);
 
 const BY_KEY = new Map(SCHEMA.map((entry) => [entry.key, entry]));
@@ -262,6 +282,9 @@ export function resolveConfig(raw = {}) {
     closeoutTimeoutMs: num(c.closeoutTimeoutMs, describe("closeoutTimeoutMs").default),
     graphDir: str(c.graphDir, describe("graphDir").default),
     worldHashMaxFiles: num(c.worldHashMaxFiles, describe("worldHashMaxFiles").default),
+    // ★ AX-01：默认 false 的开关 —— 只有字面 true 才开（`!== false` 语义在这里是反的，
+    //   写成 `!== false` 会让 undefined / "true" / 1 全部把实验线打开）。
+    factGuard: c.factGuard === true,
   };
   // 与 A2-4 之前 engine.mjs 的结尾修正逐字相同：保留尾部不得 ≥ 触发阈值。
   if (out.retainRatio >= out.thresholdRatio) out.retainRatio = Math.max(0.05, out.thresholdRatio - 0.05);

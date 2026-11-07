@@ -1,0 +1,1941 @@
+{
+  "schema": "gokifu/fact-guard-fixture/v1",
+  "createdAt": "2026-11-07",
+  "note": "合成夹具（AX-01）：只复刻 K-26 的 68/19/5 形状，不含任何私有会话正文、quote、sid 或路径。每条 quote 都逐字出自同会话的事件。",
+  "k26Shape": {
+    "samples": 12,
+    "total": 92,
+    "gold": 68,
+    "rejected": 19,
+    "pending": 5
+  },
+  "classes": [
+    {
+      "code": "SUBJECT_MISMATCH",
+      "reject": "r0501",
+      "accept": "g0501",
+      "note": "同一段 quote：harness 注入写成用户说必须拒，主体写对必须过"
+    },
+    {
+      "code": "UNSOURCED_NEGATIVE",
+      "reject": "r0201",
+      "accept": "g0702",
+      "note": "claim 是否定句、引文全肯定 ⇒ 拒；引文本身含否定 ⇒ 过"
+    },
+    {
+      "code": "STALE_CURRENT",
+      "reject": "r0301",
+      "accept": "g0301",
+      "note": "「当前」之后有变更证据 ⇒ 过期；validAtSeq 是会话末 ⇒ 过"
+    },
+    {
+      "code": "ARGUMENT_AS_RESULT",
+      "reject": "r0401",
+      "accept": "g0405",
+      "note": "引文只有调用实参 ⇒ 拒；引文自己写了返回 ⇒ 过"
+    },
+    {
+      "code": "STATUS_OVERCLAIM",
+      "reject": "r0601",
+      "accept": "g0604",
+      "note": "「决定」写成「已改完」⇒ 拒；claim 与引文同为完成体 ⇒ 过"
+    },
+    {
+      "code": "QUOTE_NOT_VERBATIM",
+      "reject": "r0801",
+      "accept": "g0801",
+      "note": "转述拼接 ⇒ 拒；逐字 ⇒ 过"
+    },
+    {
+      "code": "CROSS_SESSION_SEQ",
+      "reject": "r0901",
+      "accept": "g0901",
+      "note": "evidenceSession 与源会话不一致 ⇒ 拒"
+    },
+    {
+      "code": "FUTURE_EVIDENCE",
+      "reject": "r1001",
+      "accept": "g1003",
+      "note": "evidenceSeq 晚于 validAtSeq ⇒ 拒"
+    },
+    {
+      "code": "UNKNOWN_FIELD",
+      "reject": "r1101",
+      "accept": "g1103",
+      "note": "候选多一个未知字段 ⇒ 拒；白名单内 ⇒ 过"
+    }
+  ],
+  "samples": [
+    {
+      "id": "s01",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "只改 src/rooms/fact-guard.mjs，不要动 engine.mjs。"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "read: docs/任务书-两条公理纠偏-2026-11-07.md（327 行）"
+        },
+        {
+          "seq": 3,
+          "role": "user",
+          "text": "factGuard 必须默认 false，实验通过前不许开启。"
+        },
+        {
+          "seq": 4,
+          "role": "tool",
+          "text": "write: src/rooms/fact-guard.mjs（12,034 字节）"
+        },
+        {
+          "seq": 5,
+          "role": "assistant",
+          "text": "已按可写面停止，未改其它文件。"
+        },
+        {
+          "seq": 6,
+          "role": "tool",
+          "text": "git status --short ⇒ M src/rooms/config-schema.mjs"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0101",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "用户要求只改 fact-guard 房间",
+          "quote": "只改 src/rooms/fact-guard.mjs",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0102",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "任务书有 327 行",
+          "quote": "327 行",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0103",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "factGuard 默认 false",
+          "quote": "factGuard 必须默认 false",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0104",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "fact-guard 文件 12,034 字节",
+          "quote": "12,034 字节",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0105",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手自称未改其它文件",
+          "quote": "未改其它文件",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0106",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "工作区只有 config-schema 一处改动",
+          "quote": "M src/rooms/config-schema.mjs",
+          "evidenceSeq": 6
+        },
+        {
+          "id": "r0101",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "任务书有 327 行",
+          "quote": "327 行",
+          "evidenceSeq": 2,
+          "extraField": "x"
+        },
+        {
+          "id": "p0101",
+          "kind": "unverified",
+          "subject": "tool",
+          "claim": "未跟踪文件待确认",
+          "status": "PENDING"
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0101",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0102",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0103",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0104",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0105",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0106",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0101",
+          "verdict": "REJECTED",
+          "code": "UNKNOWN_FIELD"
+        },
+        {
+          "id": "p0101",
+          "verdict": "PENDING",
+          "code": null
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0101",
+          "text": "用户只允许改 fact-guard 房间，factGuard 保持默认关。",
+          "factRefs": [
+            "g0101",
+            "g0103"
+          ]
+        },
+        {
+          "id": "n0102",
+          "text": "助手声称任务书有 327 行。",
+          "factRefs": [
+            "r0101"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0101",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "n0102",
+          "verdict": "REJECTED",
+          "code": "CITED_REJECTED_FACT"
+        }
+      ]
+    },
+    {
+      "id": "s02",
+      "events": [
+        {
+          "seq": 1,
+          "role": "tool",
+          "text": "node test/run.mjs fact-guard ⇒ 24 passed, 0 failed"
+        },
+        {
+          "seq": 2,
+          "role": "user",
+          "text": "退出码也记下来，别只看 passed。"
+        },
+        {
+          "seq": 3,
+          "role": "tool",
+          "text": "exit code: 0"
+        },
+        {
+          "seq": 4,
+          "role": "assistant",
+          "text": "fact-guard 套件 24 passed / 0 failed。"
+        },
+        {
+          "seq": 5,
+          "role": "user",
+          "text": "全量测试留给 Lead 在集成树跑。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0201",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "fact-guard 24 passed / 0 failed",
+          "quote": "24 passed, 0 failed",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0202",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "用户要求记录退出码",
+          "quote": "退出码也记下来",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0203",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "命令退出码 0",
+          "quote": "exit code: 0",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0204",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手报告 24 passed / 0 failed",
+          "quote": "24 passed / 0 failed",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0205",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "全量测试在集成树跑",
+          "quote": "Lead 在集成树跑",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0206",
+          "kind": "state",
+          "subject": "user",
+          "claim": "别只看 passed",
+          "quote": "别只看 passed",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "r0201",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "日志里没有任何失败输出",
+          "quote": "24 passed, 0 failed",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "r0202",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "退出码是 0",
+          "quote": "exit code: 1",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "p0201",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "pilot 还没跑，等真实 reader",
+          "status": "PENDING"
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0201",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0202",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0203",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0204",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0205",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0206",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0201",
+          "verdict": "REJECTED",
+          "code": "UNSOURCED_NEGATIVE"
+        },
+        {
+          "id": "r0202",
+          "verdict": "REJECTED",
+          "code": "QUOTE_NOT_VERBATIM"
+        },
+        {
+          "id": "p0201",
+          "verdict": "PENDING",
+          "code": null
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0201",
+          "text": "fact-guard 套件 24 passed / 0 failed，退出码 0。",
+          "factRefs": [
+            "g0201",
+            "g0203"
+          ]
+        },
+        {
+          "id": "n0202",
+          "text": "pilot 还没跑。",
+          "factRefs": [
+            "p0201"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0201",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "n0202",
+          "verdict": "UNVERIFIED",
+          "code": "CITED_UNVERIFIED_FACT"
+        }
+      ]
+    },
+    {
+      "id": "s03",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "当前默认值是 false，等实验通过再改。"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "resolveConfig({}).factGuard ⇒ false"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "默认值保持 false。"
+        },
+        {
+          "seq": 4,
+          "role": "tool",
+          "text": "node test/run.mjs config-schema ⇒ 14 passed, 0 failed"
+        },
+        {
+          "seq": 5,
+          "role": "user",
+          "text": "安装卡在 5% 很久。"
+        },
+        {
+          "seq": 6,
+          "role": "tool",
+          "text": "加载卡 5%，安装成功"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0301",
+          "kind": "state",
+          "subject": "user",
+          "claim": "当前默认值是 false",
+          "quote": "当前默认值是 false",
+          "evidenceSeq": 1,
+          "validAtSeq": 6
+        },
+        {
+          "id": "g0302",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "resolveConfig 的 factGuard 是 false",
+          "quote": "resolveConfig({}).factGuard ⇒ false",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0303",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "默认值保持 false",
+          "quote": "默认值保持 false",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0304",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "config-schema 14 passed",
+          "quote": "14 passed, 0 failed",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0305",
+          "kind": "state",
+          "subject": "user",
+          "claim": "安装卡在 5%",
+          "quote": "安装卡在 5% 很久",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0306",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "config-schema 套件全绿",
+          "quote": "config-schema ⇒ 14 passed, 0 failed",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "r0301",
+          "kind": "state",
+          "subject": "user",
+          "claim": "当前安装卡在 5%",
+          "quote": "安装卡在 5% 很久",
+          "evidenceSeq": 5,
+          "validAtSeq": 5
+        },
+        {
+          "id": "p0301",
+          "kind": "state",
+          "subject": "user",
+          "claim": "安装是否完成还要看后续日志",
+          "status": "PENDING"
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0301",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0302",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0303",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0304",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0305",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0306",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0301",
+          "verdict": "REJECTED",
+          "code": "STALE_CURRENT"
+        },
+        {
+          "id": "p0301",
+          "verdict": "PENDING",
+          "code": null
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0301",
+          "text": "默认值是 false，resolveConfig 确认。",
+          "factRefs": [
+            "g0301",
+            "g0302"
+          ]
+        },
+        {
+          "id": "n0302",
+          "text": "引用了一个不存在的事实。",
+          "factRefs": [
+            "g9999"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0301",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "n0302",
+          "verdict": "REJECTED",
+          "code": "MISSING_FACT_REF"
+        }
+      ]
+    },
+    {
+      "id": "s04",
+      "events": [
+        {
+          "seq": 1,
+          "role": "tool",
+          "text": "selectKernel(false) 调用后返回 undefined"
+        },
+        {
+          "seq": 2,
+          "role": "assistant",
+          "text": "selectKernel 返回 false。"
+        },
+        {
+          "seq": 3,
+          "role": "user",
+          "text": "那是实参，不是返回值。"
+        },
+        {
+          "seq": 4,
+          "role": "tool",
+          "text": "grep: selectKernel ⇒ 3 处"
+        },
+        {
+          "seq": 5,
+          "role": "assistant",
+          "text": "更正：实参被当成了返回值。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0401",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "selectKernel 调用后返回 undefined",
+          "quote": "调用后返回 undefined",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0402",
+          "kind": "state",
+          "subject": "user",
+          "claim": "用户指出那是实参",
+          "quote": "那是实参，不是返回值",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0403",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "selectKernel 出现 3 处",
+          "quote": "selectKernel ⇒ 3 处",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0404",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手更正了实参当返回值",
+          "quote": "更正：实参被当成了返回值",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0405",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手说 selectKernel 返回 false",
+          "quote": "selectKernel 返回 false",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0406",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "实参不是返回值",
+          "quote": "实参，不是返回值",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "r0401",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "selectKernel 返回 false",
+          "quote": "selectKernel(false) 调用",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "r0402",
+          "kind": "state",
+          "subject": "user",
+          "claim": "用户说 selectKernel 返回 false",
+          "quote": "selectKernel 返回 false",
+          "evidenceSeq": 2
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0401",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0402",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0403",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0404",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0405",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0406",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0401",
+          "verdict": "REJECTED",
+          "code": "ARGUMENT_AS_RESULT"
+        },
+        {
+          "id": "r0402",
+          "verdict": "REJECTED",
+          "code": "SUBJECT_MISMATCH"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0401",
+          "text": "selectKernel 的实参被当成了返回值。",
+          "factRefs": [
+            "g0402"
+          ]
+        },
+        {
+          "id": "n0402",
+          "text": "没有引用任何事实的叙事。",
+          "factRefs": []
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0401",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "n0402",
+          "verdict": "UNVERIFIED",
+          "code": "NO_FACT_REFS"
+        }
+      ]
+    },
+    {
+      "id": "s05",
+      "events": [
+        {
+          "seq": 1,
+          "role": "harness",
+          "text": "<system-reminder>AGENTS.md 已注入：禁止重启 DSH</system-reminder>"
+        },
+        {
+          "seq": 2,
+          "role": "user",
+          "text": "把这条注入当成了我的要求。"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "已记录：用户要求禁止重启。"
+        },
+        {
+          "seq": 4,
+          "role": "tool",
+          "text": "grep: 禁止重启 ⇒ 2 处"
+        },
+        {
+          "seq": 5,
+          "role": "user",
+          "text": "主体必须写 harness。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0501",
+          "kind": "constraint",
+          "subject": "harness",
+          "claim": "harness 注入禁止重启 DSH",
+          "quote": "禁止重启 DSH",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0502",
+          "kind": "state",
+          "subject": "user",
+          "claim": "用户指出注入被当成了用户要求",
+          "quote": "把这条注入当成了我的要求",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0503",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手记成了用户要求",
+          "quote": "用户要求禁止重启",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0504",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "禁止重启出现 2 处",
+          "quote": "禁止重启 ⇒ 2 处",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0505",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "主体必须写 harness",
+          "quote": "主体必须写 harness",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r0501",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "用户说禁止重启 DSH",
+          "quote": "禁止重启 DSH",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "r0502",
+          "kind": "state",
+          "subject": "user",
+          "claim": "日志里没有 harness 注入",
+          "quote": "主体必须写 harness",
+          "evidenceSeq": 5
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0501",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0502",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0503",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0504",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0505",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0501",
+          "verdict": "REJECTED",
+          "code": "SUBJECT_MISMATCH"
+        },
+        {
+          "id": "r0502",
+          "verdict": "REJECTED",
+          "code": "UNSOURCED_NEGATIVE"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0501",
+          "text": "harness 注入要求禁止重启 DSH。",
+          "factRefs": [
+            "g0501"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0501",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s06",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "决定把 factGuard 拆成独立房间。"
+        },
+        {
+          "seq": 2,
+          "role": "assistant",
+          "text": "已拆好，房间文件建完。"
+        },
+        {
+          "seq": 3,
+          "role": "tool",
+          "text": "write: src/rooms/fact-guard.mjs"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "还没合并，别说已完成。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "git log --oneline -1 ⇒ 3d3d009"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0601",
+          "kind": "decision",
+          "subject": "user",
+          "claim": "用户决定拆成独立房间",
+          "quote": "决定把 factGuard 拆成独立房间",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0602",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手声称已拆好",
+          "quote": "已拆好",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0603",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "房间文件已建",
+          "quote": "write: src/rooms/fact-guard.mjs",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0604",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "用户要求别说已完成",
+          "quote": "还没合并，别说已完成",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0605",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "HEAD 是 3d3d009",
+          "quote": "3d3d009",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0606",
+          "kind": "state",
+          "subject": "user",
+          "claim": "用户要求别把未合并说成已完成",
+          "quote": "还没合并，别说已完成",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "r0601",
+          "kind": "state",
+          "subject": "user",
+          "claim": "factGuard 已拆好并合入",
+          "quote": "决定把 factGuard 拆成独立房间",
+          "evidenceSeq": 1
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0601",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0602",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0603",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0604",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0605",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0606",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0601",
+          "verdict": "REJECTED",
+          "code": "STATUS_OVERCLAIM"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0601",
+          "text": "用户决定拆房间，助手声称已拆好。",
+          "factRefs": [
+            "g0601",
+            "g0602"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0601",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s07",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "日志里没有 b__0 失败输出吗？"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "grep b__0 ⇒ 0 命中"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "日志无 b__0 失败输出。"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "负向断言要给证据。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "read: log.txt（第 12 行）"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0701",
+          "kind": "state",
+          "subject": "user",
+          "claim": "用户问日志里有没有 b__0 失败输出",
+          "quote": "日志里没有 b__0 失败输出吗",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0702",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "grep b__0 是 0 命中",
+          "quote": "grep b__0 ⇒ 0 命中",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0703",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手断言日志无 b__0 失败输出",
+          "quote": "日志无 b__0 失败输出",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0704",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "负向断言要给证据",
+          "quote": "负向断言要给证据",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0705",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "log.txt 第 12 行",
+          "quote": "read: log.txt（第 12 行）",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r0701",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "日志里没有任何 b__0 失败输出",
+          "quote": "read: log.txt（第 12 行）",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r0702",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "grep b__0 是 0 命中",
+          "quote": "grep b__0 命中 0",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "p0701",
+          "kind": "unverified",
+          "subject": "assistant",
+          "claim": "b__0 失败原因待补证",
+          "status": "PENDING"
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0701",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0702",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0703",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0704",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0705",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0701",
+          "verdict": "REJECTED",
+          "code": "UNSOURCED_NEGATIVE"
+        },
+        {
+          "id": "r0702",
+          "verdict": "REJECTED",
+          "code": "QUOTE_NOT_VERBATIM"
+        },
+        {
+          "id": "p0701",
+          "verdict": "PENDING",
+          "code": null
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0701",
+          "text": "grep 是 0 命中，助手断言无失败输出。",
+          "factRefs": [
+            "g0702",
+            "g0703"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0701",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s08",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "quote 必须逐字，不能转述拼接。"
+        },
+        {
+          "seq": 2,
+          "role": "assistant",
+          "text": "明白，我照原文抄。"
+        },
+        {
+          "seq": 3,
+          "role": "tool",
+          "text": "grep 命中：quote 必须逐字"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "转述的 quote 要拒绝。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "node test/run.mjs fact-guard ⇒ 24 passed"
+        },
+        {
+          "seq": 6,
+          "role": "assistant",
+          "text": "24 passed 已确认。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0801",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "quote 必须逐字",
+          "quote": "quote 必须逐字",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0802",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手照原文抄",
+          "quote": "我照原文抄",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0803",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "grep 命中 quote 必须逐字",
+          "quote": "grep 命中：quote 必须逐字",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0804",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "转述的 quote 要拒绝",
+          "quote": "转述的 quote 要拒绝",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0805",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "fact-guard 24 passed",
+          "quote": "24 passed",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g0806",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "24 passed 已确认",
+          "quote": "24 passed 已确认",
+          "evidenceSeq": 6
+        },
+        {
+          "id": "r0801",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "quote 必须逐字",
+          "quote": "quote 必须逐字出现",
+          "evidenceSeq": 1
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0801",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0802",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0803",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0804",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0805",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0806",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0801",
+          "verdict": "REJECTED",
+          "code": "QUOTE_NOT_VERBATIM"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0801",
+          "text": "quote 必须逐字，转述要拒绝。",
+          "factRefs": [
+            "g0801",
+            "g0804"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0801",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s09",
+      "events": [
+        {
+          "seq": 1,
+          "role": "tool",
+          "text": "session A 的事件 seq 只在本会话有效"
+        },
+        {
+          "seq": 2,
+          "role": "user",
+          "text": "跨会话的 seq 要判红。"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "好。"
+        },
+        {
+          "seq": 4,
+          "role": "tool",
+          "text": "evidenceSeq 越界时的提示"
+        },
+        {
+          "seq": 5,
+          "role": "user",
+          "text": "同会话才允许。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g0901",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "seq 只在本会话有效",
+          "quote": "seq 只在本会话有效",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g0902",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "跨会话 seq 要判红",
+          "quote": "跨会话的 seq 要判红",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g0903",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手确认",
+          "quote": "好。",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g0904",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "evidenceSeq 越界的提示存在",
+          "quote": "evidenceSeq 越界时的提示",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g0905",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "同会话才允许",
+          "quote": "同会话才允许",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r0901",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "seq 只在本会话有效",
+          "quote": "seq 只在本会话有效",
+          "evidenceSeq": 1,
+          "evidenceSession": "s-other"
+        },
+        {
+          "id": "r0902",
+          "kind": "state",
+          "subject": "user",
+          "claim": "没有任何跨会话 seq 证据",
+          "quote": "同会话才允许",
+          "evidenceSeq": 5
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g0901",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0902",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0903",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0904",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g0905",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r0901",
+          "verdict": "REJECTED",
+          "code": "CROSS_SESSION_SEQ"
+        },
+        {
+          "id": "r0902",
+          "verdict": "REJECTED",
+          "code": "UNSOURCED_NEGATIVE"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n0901",
+          "text": "seq 只在本会话有效。",
+          "factRefs": [
+            "g0901"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n0901",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s10",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "未来证据要拒绝。"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "read: 任务书 327 行"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "收到。"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "时点规则不能妥协。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "validAtSeq 之后的事件不算证据"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g1001",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "未来证据要拒绝",
+          "quote": "未来证据要拒绝",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g1002",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "任务书 327 行已读",
+          "quote": "read: 任务书 327 行",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g1003",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手确认收到",
+          "quote": "收到。",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g1004",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "时点规则不能妥协",
+          "quote": "时点规则不能妥协",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g1005",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "validAtSeq 之后的事件不算证据",
+          "quote": "validAtSeq 之后的事件不算证据",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "g1006",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "用户要求证据不能越过时点",
+          "quote": "时点规则不能妥协",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "r1001",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手确认收到",
+          "quote": "收到。",
+          "evidenceSeq": 3,
+          "validAtSeq": 1
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g1001",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1002",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1003",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1004",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1005",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1006",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r1001",
+          "verdict": "REJECTED",
+          "code": "FUTURE_EVIDENCE"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n1001",
+          "text": "未来证据要拒绝。",
+          "factRefs": [
+            "g1001"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n1001",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s11",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "未知字段要红。"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "write: 任务书（只读）"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "好。"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "坏 JSON 必须显式 degraded。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "JSON.parse 抛错时走 degraded 分支"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g1101",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "未知字段要红",
+          "quote": "未知字段要红",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g1102",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "任务书写入",
+          "quote": "write: 任务书",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g1103",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手回应",
+          "quote": "好。",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g1104",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "坏 JSON 必须显式 degraded",
+          "quote": "坏 JSON 必须显式 degraded",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g1105",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "JSON.parse 抛错走 degraded 分支",
+          "quote": "JSON.parse 抛错时走 degraded 分支",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r1101",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手回应",
+          "quote": "好。",
+          "evidenceSeq": 3,
+          "extraField": "x"
+        },
+        {
+          "id": "r1102",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "degraded 分支只在本会话有效",
+          "quote": "坏 JSON 必须显式 degraded",
+          "evidenceSeq": 4,
+          "evidenceSession": "s-other"
+        },
+        {
+          "id": "p1101",
+          "kind": "unverified",
+          "subject": "user",
+          "claim": "degraded 的统计口径待定",
+          "status": "PENDING"
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g1101",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1102",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1103",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1104",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1105",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r1101",
+          "verdict": "REJECTED",
+          "code": "UNKNOWN_FIELD"
+        },
+        {
+          "id": "r1102",
+          "verdict": "REJECTED",
+          "code": "CROSS_SESSION_SEQ"
+        },
+        {
+          "id": "p1101",
+          "verdict": "PENDING",
+          "code": null
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n1101",
+          "text": "未知字段要红。",
+          "factRefs": [
+            "g1101"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n1101",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    },
+    {
+      "id": "s12",
+      "events": [
+        {
+          "seq": 1,
+          "role": "user",
+          "text": "把成功工具结果里的短值记成 valueFacts。"
+        },
+        {
+          "seq": 2,
+          "role": "tool",
+          "text": "Created file: tmp/out.txt（128 字节）"
+        },
+        {
+          "seq": 3,
+          "role": "assistant",
+          "text": "记下了 Created file 与字节数。"
+        },
+        {
+          "seq": 4,
+          "role": "user",
+          "text": "别把数组实参当返回值。"
+        },
+        {
+          "seq": 5,
+          "role": "tool",
+          "text": "writeFile(['a','b'], 2) 直接执行"
+        },
+        {
+          "seq": 6,
+          "role": "assistant",
+          "text": "valueFacts 只保留有证据的短值。"
+        }
+      ],
+      "facts": [
+        {
+          "id": "g1201",
+          "kind": "decision",
+          "subject": "user",
+          "claim": "用户要求把成功值记成 valueFacts",
+          "quote": "把成功工具结果里的短值记成 valueFacts",
+          "evidenceSeq": 1
+        },
+        {
+          "id": "g1202",
+          "kind": "value",
+          "subject": "tool",
+          "claim": "Created file 是 tmp/out.txt",
+          "quote": "Created file: tmp/out.txt",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g1203",
+          "kind": "value",
+          "subject": "tool",
+          "claim": "文件 128 字节",
+          "quote": "128 字节",
+          "evidenceSeq": 2
+        },
+        {
+          "id": "g1204",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "助手记录了 Created file 与字节数",
+          "quote": "记下了 Created file 与字节数",
+          "evidenceSeq": 3
+        },
+        {
+          "id": "g1205",
+          "kind": "constraint",
+          "subject": "user",
+          "claim": "别把数组实参当返回值",
+          "quote": "别把数组实参当返回值",
+          "evidenceSeq": 4
+        },
+        {
+          "id": "g1206",
+          "kind": "state",
+          "subject": "assistant",
+          "claim": "valueFacts 只保留有证据的短值",
+          "quote": "valueFacts 只保留有证据的短值",
+          "evidenceSeq": 6
+        },
+        {
+          "id": "r1201",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "writeFile 返回 2",
+          "quote": "writeFile(['a','b'], 2)",
+          "evidenceSeq": 5
+        },
+        {
+          "id": "r1202",
+          "kind": "state",
+          "subject": "tool",
+          "claim": "工具结果里没有任何失败",
+          "quote": "Created file: tmp/out.txt",
+          "evidenceSeq": 2
+        }
+      ],
+      "expectFacts": [
+        {
+          "id": "g1201",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1202",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1203",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1204",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1205",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "g1206",
+          "verdict": "SUPPORTED",
+          "code": null
+        },
+        {
+          "id": "r1201",
+          "verdict": "REJECTED",
+          "code": "ARGUMENT_AS_RESULT"
+        },
+        {
+          "id": "r1202",
+          "verdict": "REJECTED",
+          "code": "UNSOURCED_NEGATIVE"
+        }
+      ],
+      "narratives": [
+        {
+          "id": "n1201",
+          "text": "Created file 是 tmp/out.txt，短值有证据。",
+          "factRefs": [
+            "g1201",
+            "g1202"
+          ]
+        }
+      ],
+      "expectNarratives": [
+        {
+          "id": "n1201",
+          "verdict": "SUPPORTED",
+          "code": null
+        }
+      ]
+    }
+  ]
+}
