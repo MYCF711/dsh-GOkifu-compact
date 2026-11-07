@@ -1393,7 +1393,8 @@ export function privacyNeedles(items) {
         add(text.slice(0, 80));
         add(text.slice(Math.max(0, text.length - 60)));
       }
-      for (const verdict of Array.isArray(record?.guard?.facts) ? record.guard.facts : []) {
+      // ★ 逐条裁决的原文在 `guardRecord`（私有），不在公开投影 `guard`（只有计数）里。
+      for (const verdict of Array.isArray(record?.guardRecord?.facts) ? record.guardRecord.facts : []) {
         add(verdict?.quote);
         add(String(verdict?.value ?? ""));
       }
@@ -1656,7 +1657,7 @@ export async function main(argv = process.argv.slice(2)) {
     run.defaultModel = { ok: false, file: defaultModel.file, sha256: defaultModel.sha256, provider: null, model: null, source: null };
     run.endpoint = options.endpoint;
     writeJson(nodePath.join(out, "run.json"), run);
-    writeText(nodePath.join(out, "report.md"), renderReport(run));
+    writeText(nodePath.join(out, "report-auto.md"), renderReport(run));
     console.error(`✗ 默认模型不可用：${defaultModel.errors.join("；")}`);
     return 3;
   }
@@ -1783,10 +1784,10 @@ export async function main(argv = process.argv.slice(2)) {
     run.privacy.violations = privacy.violations.length;
     const again = `${JSON.stringify(run, null, 2)}\n`;
     writeText(nodePath.join(out, "run.json"), again);
-    writeText(nodePath.join(out, "report.md"), renderReport(run));
+    writeText(nodePath.join(out, "report-auto.md"), renderReport(run));
   } else {
     writeText(nodePath.join(out, "run.json"), finalRunJson);
-    writeText(nodePath.join(out, "report.md"), finalReportText);
+    writeText(nodePath.join(out, "report-auto.md"), finalReportText);
   }
 
   const parityViolations = run.totals.parityViolations;

@@ -438,7 +438,7 @@ tests["privacyCheck 命中私有串就红"] = (t) => {
       source: { sessionId: "session-とても-secret-0001" },
       arms: {
         "guard=false": { text: needle + needle },
-        "guard=true": { text: needle, guard: { facts: [{ quote: "另一段来自真实会话的私密引文", value: "私密值足够长足够长" }] } },
+        "guard=true": { text: needle, guardRecord: { facts: [{ quote: "另一段来自真实会话的私密引文", value: "私密值足够长足够长" }] } },
       },
     },
   ]);
@@ -455,6 +455,13 @@ tests["publicItemView 不带会话坐标"] = (t) => {
   t.eq(view.itemId, "synthetic-sample", "条目 id 保留（对应私有文件）");
   t.eq(view.arms["guard=true"].status, "SCORED", "两臂都在");
   t.notIncludes(JSON.stringify(view.arms), "# 摘要", "公开视图不带正文");
+
+  const withRaw = fixtureItem();
+  withRaw.arms["guard=true"].guardRecord = { facts: [{ id: "f1", claim: "私密 claim", quote: "私密引文足够长足够长" }] };
+  withRaw.arms["guard=true"].rawOutputs = [{ chars: 3, sha256: "x", text: "私密原文足够长足够长" }];
+  const rawView = JSON.stringify(publicItemView(withRaw));
+  t.notIncludes(rawView, "私密 claim", "逐条裁决原文不进公开视图（AX-11 读私有条目）");
+  t.notIncludes(rawView, "私密原文", "模型原始回答不进公开视图");
 };
 
 /* ───────────────────────── 11 · 汇总与报告 ───────────────────────── */
@@ -557,7 +564,7 @@ tests["main 模型不可用 ⇒ NOT_RUN 退出码 3，且不产物假结果"] = 
     t.eq(run.status, "NOT_RUN", "状态 NOT_RUN");
     t.eq(run.defaultModel.model, null, "不许补一个模型名");
     t.eq(run.corpora.k26.items.length, 0, "没有条目（不伪造）");
-    t.ok(fs.existsSync(path.join(out, "report.md")), "报告仍要写（说明为什么 NOT_RUN）");
+    t.ok(fs.existsSync(path.join(out, "report-auto.md")), "报告仍要写（说明为什么 NOT_RUN）");
   } finally {
     cleanup(dir);
   }
