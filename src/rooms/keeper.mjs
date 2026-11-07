@@ -11,6 +11,10 @@
 
 import { addUserNode, addEdge, addAgentNode, settleEdge, extractConstraints, norm, sha } from "./kifu-model.mjs";
 import { classify } from "./verify.mjs";
+// ★ AX-04（2026-11-07）：成功工具结果的**短值**落边（K-2 已证实的退化，见 tool-value-facts.mjs 头注释）。
+//   依赖面新增 R03 → AX-02 房间；`test/rooms.test.mjs` 的 keeper.allowed 需同步登记
+//   `./tool-value-facts.mjs`，否则 C3 方向门禁会红（本任务可写路径不含该文件，见 REPORT「未验项」）。
+import { extractValueFacts } from "./tool-value-facts.mjs";
 
 /**
  * extract.mjs —— 从会话事件里抽取「意图 / 动作 / 约束」
@@ -376,7 +380,12 @@ export function observeEvent(g, event, state) {
           sig: actionSignature(block.name, args),
           evidence: { start: event.seq, end: event.seq },
         });
-        state.pendingEdges.set(block.id ?? edgeId, edgeId);
+        const callKey = block.id ?? edgeId;
+        state.pendingEdges.set(callKey, edgeId);
+        // ★ AX-04：结算时要看**实参**才能区分「github 读形（GET/HEAD）」与「写形（POST/PATCH…）」——
+        //   `actionSummary` 只留 2 个关键参数，`method` 不在其中，从边上的 action 反推不出来。
+        //   只活在内存里：与 pendingEdges 同生命周期，不进 graph.json / delta（不改磁盘形状）。
+        (state.callInfo ??= new Map()).set(callKey, { name: block.name, args });
         (state.stepEdges ??= []).push(edgeId);
         for (const p of touchedPaths(block.name, args)) {
           state.touched.push(p);
@@ -399,12 +408,32 @@ export function observeEvent(g, event, state) {
       const edgeId = state.pendingEdges.get(callId);
       if (edgeId === undefined) return { changed: false };
       state.pendingEdges.delete(callId);
+      // 这条 tool-call 的实参只在这条边结算时用一次；结算后立刻丢（不常驻内存）
+      const call = state.callInfo?.get(callId);
+      state.callInfo?.delete(callId);
       const text = messageText(message);
-      const verdict = classify({ tool: state.toolNameByCall?.get(callId) ?? guessToolFromEdge(g, edgeId), text, isError: message.isError === true });
+      const toolName = state.toolNameByCall?.get(callId) ?? guessToolFromEdge(g, edgeId);
+      const verdict = classify({ tool: toolName, text, isError: message.isError === true });
       for (const p of writtenPathsFromResult(text)) {
         state.touched.push(p);
         if (typeof state.touchPath === "function") state.touchPath(p);
       }
+      // ★ AX-04：**在结算之前**抽短值（判定要用 verdict，写边必须在 settleEdge 之后 —— 边对象由它返回）。
+      //   `resultKind` 是**抽取器**的信任闸，和边上的 `result` 是两件事：
+      //     · success            → 抽（有外部验证信号）；
+      //     · weak（read/shell）  → 抽（工具自报无错、无外部验证）；**边的 result 仍是 unverified**；
+      //     · failure / 无 weak 的 unverified → 空数组（失败结果不许进成功值事实）。
+      //   github REST 工具（toolClass → "other"、classify 给 unverified 且**不带 weak**）是
+      //   K-2 S2-Q3 的真实形状：读形（GET/HEAD）的结果就是「读到的值」，按 weak 放行；
+      //   写形（POST/PATCH/PUT/DELETE / 带 body / confirm:true）**一律不放行** ——
+      //   不许按工具名一刀切把写调用标成弱成功（那会把一次创建回执当成可复用事实）。
+      const valueFacts = extractValueFacts({
+        tool: call?.name ?? toolName,
+        result: text,
+        resultKind: resultKindForValueFacts(verdict, call?.name ?? toolName, call?.args),
+        // 证据指针 = 这条 tool/result 的事件 seq（与下面回填的 evidence.end 同一个值）
+        evidenceSeq: event.seq,
+      });
       const edge = settleEdge(g, edgeId, {
         result: verdict.result,
         verify: verdict.verify,
@@ -414,6 +443,10 @@ export function observeEvent(g, event, state) {
         weak: verdict.weak ?? null,
       });
       if (edge.evidence && typeof edge.evidence === "object") edge.evidence.end = event.seq;
+      // ★ AX-04：只在**真的抽出短值**时落字段 —— 旧图/无值的边**不长这个键**（graph.json 字节不变）。
+      //   `delete` 与 settleEdge 清 weak 的语义一致：重新结算成「没有值」时不留陈旧事实。
+      if (valueFacts.length > 0) edge.valueFacts = valueFacts;
+      else delete edge.valueFacts;
       return { changed: true, note: `${edgeId} → ${verdict.result}` };
     }
 
@@ -424,6 +457,8 @@ export function observeEvent(g, event, state) {
       for (const [callId, edgeId] of state.pendingEdges) {
         settleEdge(g, edgeId, { result: "unverified", verify: { kind: "no-result", summary: "step closed with no tool result" } });
         state.pendingEdges.delete(callId);
+        // AX-04：没有结果的调用不会产事实，但实参缓存必须一起清（否则跨 step 常驻）
+        state.callInfo?.delete(callId);
         changed = true;
       }
       // 一个 step 结束 = 一个状态节点（本步所有边指向它；下一步从这里出发）
@@ -468,5 +503,60 @@ function guessToolFromEdge(g, edgeId) {
   const edge = g.edges[edgeId];
   const m = /^([A-Za-z0-9_-]+)\(/.exec(edge?.action ?? "");
   return m ? m[1] : "unknown";
+}
+
+/* ─────────────── AX-04：成功工具结果的短值落边（K-2 退化修复） ─────────────── */
+
+/**
+ * **工具本身就是 GitHub REST 端点**的几种名字。
+ *
+ * 只认这几种，是因为「HTTP 方法在实参里」这件事只有这类工具成立：
+ *   · `github`（DSH 的 github 工具：`{path, method?, body?, confirm?}`，method 缺省 GET）；
+ *   · 少数命名空间形态（`mcp__github` / `github_api` …）。
+ * **绝不能**用 `includes("github")` 之类的一刀切 ——
+ *   `mcp__github__create_pull_request` 这类 MCP 工具的方法在**名字**里、实参里没有 `method`，
+ *   按「无 method ⇒ GET」判就会把写调用标成弱成功（任务书 AX-04 明令禁止）。
+ *   它们的 `toolClass` 已经是 mcp-read / mcp-write，走 classify 自己的 weak，不需要这里兜。
+ */
+const GITHUB_REST_TOOLS = new Set(["github", "github_api", "github__api", "mcp__github", "mcp__github_api"]);
+
+/** HTTP 的读形方法（无副作用、结果就是「读到的值」）。 */
+const GITHUB_READ_METHODS = new Set(["GET", "HEAD"]);
+
+/** 这次 github 调用是不是**读形**（GET/HEAD，或没给 method 的缺省 GET）。 */
+function githubReadShaped(toolName, args) {
+  const name = String(toolName ?? "").trim().toLowerCase();
+  if (!GITHUB_REST_TOOLS.has(name)) return false;
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  const method = typeof a.method === "string" ? a.method.trim().toUpperCase() : "";
+  // 显式给了方法：只有 GET/HEAD 算读（POST/PATCH/PUT/DELETE/其它一律不是）
+  if (method !== "") return GITHUB_READ_METHODS.has(method);
+  // 没给方法 ⇒ 工具缺省 GET。但**出现写形状的实参**就不是读：
+  //   `body` 只有写方法才带；`confirm: true` 是写方法的确认闸（读调用永远不会设）。
+  if (a.body !== undefined && a.body !== null) return false;
+  if (a.confirm === true) return false;
+  return true;
+}
+
+/**
+ * 给 `extractValueFacts` 的 `resultKind`（抽取器的**信任闸**，不是边上的 result）。
+ *
+ * ⚠ 这个函数**不许改 `verdict`**：边的 `result` 永远是 classify 的判定。
+ *   github 读形在这里被当成 `weak` 只是「结果里的 id/private 是可回证的读到的值」，
+ *   **不是**「这次调用成功了」—— 边仍然是 `unverified`（S2a 的弱成功语义）。
+ *
+ * @param {{result:string, weak?:string|null}} verdict classify 的返回值
+ * @param {string} toolName tool-call 的工具名
+ * @param {unknown} args tool-call 的实参
+ * @returns {"success"|"failure"|"unverified"|"weak"|"read"|"shell"}
+ */
+function resultKindForValueFacts(verdict, toolName, args) {
+  if (verdict.result === "success") return "success";
+  if (verdict.result === "failure") return "failure";
+  // 剩下的只有 unverified：classify 自己的弱成功（read / shell）优先
+  if (verdict.weak) return verdict.weak;
+  // K-2 S2-Q3 的真实形状：github 读形结果被 classify 判 unverified 且**没有** weak
+  if (githubReadShaped(toolName, args)) return "weak";
+  return "unverified";
 }
 
