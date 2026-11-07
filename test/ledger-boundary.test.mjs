@@ -13,6 +13,7 @@
  */
 
 import { provenanceCoverageOf, renderFailureLine, renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
+import { extractValueFacts } from "../src/rooms/tool-value-facts.mjs";
 
 export const tests = {};
 
@@ -351,4 +352,107 @@ tests["L 分项占用：sections 覆盖七段 + total，单位是字符不是 to
   t.ok(s.total >= s.failures, "total 必须 >= 任一分段（它是各段之和）");
   t.ok(s.failures > 0, "有失败边的图里 failures 段必须 > 0");
   t.ok(s.constraints > 0, "有约束的图里 constraints 段必须 > 0");
+};
+
+/* ═════════════ AX-08 边界：值型事实的**回证**与**省略**（2026-11-07） ═════════════
+ *
+ * 判据与失败边同源（见本文件头 A / D 两条）：
+ *   · **出处（seq）任何降级档位都不砍** —— 值事实行同样必须带 `(seq N)`，否则「可回证」是空话；
+ *   · **省略必须可发现** —— 值太长要**丢弃**（截断的值 = 假值）并计数；超预算要显式 `over-budget`；
+ *   · **绝不泄漏绝对路径**（P6a）—— 省略行的指针先相对化；
+ *   · **只陈述事实** —— 不给「该不该用这个值」的行动建议（边界见 docs/压缩的职责边界.md）。
+ */
+
+
+const createdFileResult = (path) => `<path>${path}</path>\n<type>file</type>\n<content>\nCreated file\n</content>`;
+
+/** 在已有图上挂一条成功 write 边 + 它的值事实（= AX-04 落盘后的形状）。 */
+function withValueFacts(g, facts, seq = 40) {
+  g.edges.e90 = {
+    id: "e90",
+    from: "n2",
+    to: "n2",
+    intent: "写文件",
+    action: "write(file_path=D:/x/a.mjs)",
+    result: "success",
+    verify: { kind: "exit", summary: "exit 0" },
+    evidence: { start: seq, end: seq },
+    ts: Date.now(),
+    valueFacts: facts,
+  };
+  return g;
+}
+
+/** 40 条失败边（把预算压到兜底档）。 */
+const manyFailures = () => Array.from({ length: 40 }, (_, i) => mkEdge({ id: `e${i + 1}`, evidence: { start: 10 + i, end: 11 + i } }));
+
+tests["AX-08 值事实行的出处（seq）在任何降级档位都不砍"] = (t) => {
+  const facts = extractValueFacts({ tool: "write", result: createdFileResult("D:/x/a.mjs"), resultKind: "success", evidenceSeq: 40 });
+  const g = withValueFacts(mkGraph(manyFailures()), facts);
+  const seen = new Set();
+  for (const budget of [4000, 1200, 700, 300, 120]) {
+    const r = renderLedger(g, { maxTokens: budget, factGuard: true });
+    seen.add(r.level);
+    const row = r.text.split(String.fromCharCode(10)).find((line) => line.includes("file_created"));
+    t.ok(row !== undefined, `maxTokens=${budget}：值事实行不许消失（L${r.level}）`);
+    t.includes(row ?? "", "(seq 40)", `maxTokens=${budget}：值事实行必须保留出处（来源监控）`);
+    t.includes(row ?? "", "D:/x/a.mjs", `maxTokens=${budget}：值本身不许被截断`);
+  }
+  t.ok(seen.size >= 3, `档位覆盖不足：${[...seen].join(",")}`);
+};
+
+tests["AX-08 值太长 ⇒ 丢弃（不截断）并计数 —— 截断的值就是假值"] = (t) => {
+  const longValue = "x".repeat(201);
+  const facts = [
+    { kind: "value", value: longValue, quote: longValue, evidenceSeq: 40, validAtSeq: 40, source: "tool:bash" },
+    { kind: "value", value: "short", quote: "short", evidenceSeq: 41, validAtSeq: 41, source: "tool:bash" },
+  ];
+  const g = withValueFacts(mkGraph([]), facts);
+  const r = renderLedger(g, { maxTokens: 2000, factGuard: true });
+  t.eq(r.valueFactStats.malformed, 1, "超长值必须计 malformed（丢弃，不静默）");
+  t.eq(r.valueFactStats.shown, 1, "只渲染那条短的");
+  t.notIncludes(r.text, "xxx", "超长值不许被截断后当成事实");
+  t.includes(r.text, "short", "短值照常渲染");
+};
+
+tests["AX-08 省略行的指针必须相对化（P6a）：绝不泄漏绝对路径"] = (t) => {
+  const facts = [0, 1, 2].map((i) => ({ kind: "value", value: `值${i}`, quote: `值${i}`, evidenceSeq: 40 + i, validAtSeq: 40 + i, source: "tool:bash" }));
+  const g = withValueFacts(mkGraph([]), facts);
+  const ABS = "D:\\DeepSeek Harness\\home\\chess-context\\sessions\\sess-abc";
+  const r = renderLedger(g, { maxTokens: 2000, factGuard: true, maxValueFacts: 1, treeDir: ABS, traceRoot: "sessions" });
+  t.includes(r.text, "sessions/sess-abc/graph.json", "省略行必须给可解析的位置（相对化）");
+  t.notIncludes(r.text, "D:\\DeepSeek Harness", "不许把绝对路径写进热清单");
+  t.includes(r.text, "另有 2 条值事实未展开", "省略数必须真实");
+};
+
+tests["AX-08 分项占用：values 段被单独计量（不是并进 other）"] = (t) => {
+  const facts = extractValueFacts({ tool: "write", result: createdFileResult("D:/x/a.mjs"), resultKind: "success", evidenceSeq: 40 });
+  const g = withValueFacts(mkGraph([mkEdge({ id: "e1" })]), facts);
+  const off = renderLedger(g, { maxTokens: 2000 });
+  t.eq(off.sections.values, 0, "guard 关掉时 values 段必须是 0");
+  const on = renderLedger(g, { maxTokens: 2000, factGuard: true });
+  t.ok(on.sections.values > 0, "guard 开启时 values 段必须 > 0（否则值事实被并进 other，看不见花了多少）");
+  t.ok(on.sections.total >= on.sections.values, "total 必须 >= 任一分段（它是各段之和）");
+};
+
+tests["AX-08 连预算 1 都不许静默丢值：显式 over-budget + 值仍在"] = (t) => {
+  const facts = extractValueFacts({ tool: "write", result: createdFileResult("D:/x/keep.mjs"), resultKind: "success", evidenceSeq: 40 });
+  const g = withValueFacts(mkGraph(manyFailures()), facts);
+  const r = renderLedger(g, { maxTokens: 1, factGuard: true });
+  t.eq(r.fallback, "over-budget", "超预算必须显式（不假装装下）");
+  t.ok(r.overBudgetBy > 0, "超出量必须 > 0");
+  t.includes(r.text, "D:/x/keep.mjs", "值事实不许因为超预算消失（诚实超限 > 静默省略）");
+  t.includes(r.text, "(seq 40)", "出处同样不许消失");
+};
+
+tests["AX-08 只陈述事实：值事实行不带行动建议（压缩的职责边界）"] = (t) => {
+  const facts = extractValueFacts({ tool: "write", result: createdFileResult("D:/x/a.mjs"), resultKind: "success", evidenceSeq: 40 });
+  const g = withValueFacts(mkGraph([]), facts);
+  const row = renderLedger(g, { maxTokens: 2000, factGuard: true })
+    .text.split(String.fromCharCode(10))
+    .find((line) => line.includes("file_created"));
+  t.ok(row !== undefined, "必须有值事实行");
+  t.notIncludes(row ?? "", "建议", "值事实行不许给行动指令（那是 AGENTS/persona 的职责）");
+  t.notIncludes(row ?? "", "should", "英文行动建议同样不许");
+  t.notIncludes(row ?? "", "请", "不许夹带请求式措辞");
 };

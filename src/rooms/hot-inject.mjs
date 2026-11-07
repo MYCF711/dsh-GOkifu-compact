@@ -19,13 +19,20 @@
  *   ⑤ 替换锚点失效 ⇒ 退回追加，绝不丢信息；
  *   ⑥ 清单被 fold 遮蔽后同源 ⇒ **绕过限流**立刻补回。
  *
+ * ★ AX-08（2026-11-07）补第 ⑦ 条 —— **值型事实的送达**：
+ *   `config.factGuard === true` 时，`edge.valueFacts` 的**值集合**也参与「要不要注入」的判定。
+ *   成功工具结果**不产生失败边**，所以上面 ③ 的判据（事件间隔 / 失败边增量 / digest）会让
+ *   「一条新的 `Created file` 值」被静默挡到下一次失败为止（AX-08 卡说的「存了但没注入」）。
+ *   现在：值集合变了 ⇒ 绕过限流立刻送达；值集合没变 ⇒ 仍按原判据跳过（不重复注入同值）。
+ *   **guard 关掉时** `factsUnchanged` 恒真、`factDigest` 恒 `""` ⇒ ③ 的判据逐字不变。
+ *
  * 错误语义：**全部吞错并返回原 decision** —— 注入失败绝不阻塞对话。
  *
  * 依赖：R00（`failureEdges`/`sha`）、R06（`renderLedger`）。
  */
 
 import { failureEdges, sha } from "./kifu-model.mjs";
-import { renderLedger, renderMinimalLedger } from "./ledger.mjs";
+import { renderLedger, renderMinimalLedger, valueFactDigest } from "./ledger.mjs";
 
 /** 限流：两次注入至少隔这么多事件。 */
 export const INJECT_MIN_EVENTS = 40;
@@ -283,6 +290,16 @@ export function decideInjection({
     const zeroFailure = failureCount === 0 && warning === "";
     if (zeroFailure && !hasLedgerState(graph)) return { decision, action: "skip", reason: "no-ledger" };
 
+    // ★ AX-08：**值型事实也要能送达**（「存了但没注入」的根因就在这一层）。
+    //   既有判据全是「失败边」口径：事件间隔 + 失败边增量 + digest。而成功工具结果**不产生失败边** ——
+    //   一条新的 `Created file` / API `id` 值在旧判据下会被 `throttled-events` / `throttled-failures`
+    //   挡到下一次失败出现为止，成功的值于是永远进不了下一步的热清单。
+    //   做法：guard 开启时额外算一份**值事实 digest**（guard 关掉 ⇒ `""` 且 `factsUnchanged` 恒真，
+    //   旧判据一个字节都不动）；值变了就当成「有新的必须送达的信息」，绕过限流立刻注入；
+    //   值没变则继续按原判据跳过（**不重复注入同值**）。
+    const factGuardOn = config?.factGuard === true;
+    const factDigest = factGuardOn ? valueFactDigest(graph) : "";
+    const factsUnchanged = !factGuardOn || (state.lastLedgerFactDigest ?? "") === factDigest;
     // ★ C563：**先判"这次到底要不要写"，再渲染**。渲染是这条路上最贵的一步
     //   （真机最大会话 142.4ms → 优化后 ~25ms/次），而实测 3,418 步里只写了 28 次（1%）。
     //   以前是先渲染再限流 ⇒ **99% 的渲染白做**。这里把限流判据提前（它们不需要渲染文本），
@@ -294,10 +311,10 @@ export function decideInjection({
       existingEarly === null && state.lastLedgerDigest === digestEarly && state.lastLedgerFailureCount !== undefined;
     // 清单还在、且 digest 与上次注入相同 ⇒ 内容没变（digest 只由根目标/约束/失败数决定）。
     // 这条必须在限流之前判，否则"内容没变"会被报成 "throttled-events"（语义没变，但原因变了）。
-    if (existingEarly && warning === "" && state.lastLedgerDigest === digestEarly) {
+    if (existingEarly && warning === "" && state.lastLedgerDigest === digestEarly && factsUnchanged) {
       return { decision, action: "skip", reason: "identical" };
     }
-    if (!lostToFoldEarly && warning === "") {
+    if (!lostToFoldEarly && warning === "" && factsUnchanged) {
       const minEventsEarly = (() => {
         const raw = Number(config?.hotLedgerMinEvents);
         return Number.isFinite(raw) && raw >= 1 ? Math.min(500, Math.trunc(raw)) : INJECT_MIN_EVENTS;
@@ -315,12 +332,14 @@ export function decideInjection({
     }
 
     const ledger = zeroFailure
-      ? renderMinimalLedger(graph, { maxTokens: config.hotLedgerMaxTokens ?? 500 })
+      ? renderMinimalLedger(graph, { maxTokens: config.hotLedgerMaxTokens ?? 500, factGuard: factGuardOn })
       : renderLedger(graph, {
           maxTokens: config.hotLedgerMaxTokens ?? 500,
           markers: config.hotLedgerMarkers,
           treeDir: sessionDir,
           traceRoot: config.hotLedgerTraceRoot,
+          // ★ AX-08：只有 guard 开启时值事实才进清单（关掉 ⇒ 渲染逐字不变）
+          factGuard: factGuardOn,
         });
     // ★ P7：消费 fallback（over-budget 记 warn + overBudgetBy；impossible 记 error），并落盘给 doctor。
     try {
@@ -339,13 +358,19 @@ export function decideInjection({
     const digest = ledgerDigest(graph, { foldFailures: state.foldFailures ?? 0 });
     const existing = findLedgerNode(session);
     // 内容一字不差：不动（既不写日志，也不碰 surface 的 contentGeneration）
-    if (existing && messageText(existing.message) === ledgerText) return { decision, action: "skip", reason: "identical" };
+    if (existing && messageText(existing.message) === ledgerText) {
+      // ★ AX-08：值集合可能变了、但渲染出来的那几条一模一样（例如新值落在省略计数里）——
+      //   记下 digest，别让「值变了」每步都重渲染一次；省略行本身的数字一变，上面那条就不成立了。
+      state.lastLedgerFactDigest = factDigest;
+      return { decision, action: "skip", reason: "identical" };
+    }
 
     // 限流（与旧版一致：两次注入至少隔 40 个事件、失败边至少多 5 条）
     // 唯一例外：清单被 fold 压掉了（surface 上没有它）却又和上次同源 ⇒ 必须补回来。
     const lostToFold = existing === null && state.lastLedgerDigest === digest && state.lastLedgerFailureCount !== undefined;
     // 告警不走限流：它出现的那一刻就是必须被看见的那一刻。
-    if (!lostToFold && warning === "") {
+    // ★ AX-08：值事实变了同样不走限流 —— 成功工具结果不产生失败边，按失败边口径永远等不到。
+    if (!lostToFold && warning === "" && factsUnchanged) {
       // ★ C248：间隔可配（默认 40 = 旧行为）。见 config-schema 里 `hotLedgerMinEvents` 的说明。
       const minEvents = (() => {
         const raw = Number(config?.hotLedgerMinEvents);
@@ -420,6 +445,9 @@ export function decideInjection({
         state.lastLedgerDigest = digest;
         state.lastLedgerInjectSeq = session.seq;
         state.lastLedgerFailureCount = ledger.failureCount;
+        // ★ AX-08：记住这次送达的值事实 —— 下一次同样的值就回到「identical / same-digest」跳过
+        //   （**不重复注入同值**）。guard 关掉时这里恒是 `""`，状态形状不新增语义。
+        state.lastLedgerFactDigest = factDigest;
         log("debug", `chess-context: 替换失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens（surface 仍只有一条）`);
         // ★ C460：**这次替换到底作废了多少缓存**，取决于清单后面还有几条消息。
         //   doctor 一直说"replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配"，但没说"中间"是哪儿。
@@ -439,6 +467,7 @@ export function decideInjection({
     state.lastLedgerDigest = digest;
     state.lastLedgerInjectSeq = session.seq;
     state.lastLedgerFailureCount = ledger.failureCount;
+    state.lastLedgerFactDigest = factDigest;
     log(
       "debug",
       `chess-context: 注入失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens` +
