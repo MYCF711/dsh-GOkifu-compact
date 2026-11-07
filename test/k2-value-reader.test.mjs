@@ -26,6 +26,7 @@ import {
   assertReaderPayload,
   assertValidQuestions,
   buildContexts,
+  buildContextsFromGraph,
   buildFixturesDocument,
   buildMessages,
   buildPrereg,
@@ -38,6 +39,8 @@ import {
   summarize,
   validateQuestions,
 } from "../scripts/k2-value-reader.mjs";
+import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
+import { extractValueFacts } from "../src/rooms/tool-value-facts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = nodePath.join(HERE, "..", "scripts", "k2-value-reader.mjs");
@@ -255,4 +258,74 @@ tests["K2-11 summarize：分母保留、退化逐题列出、NOT_RUN 不冒充 P
   t.eq(report.degraded.length, fixtures.length, "退化清单逐题");
   t.eq(report.maxCalls, LIMITS.maxCalls, "上限随报告带出");
   t.eq(normalizeAnswer("  `UNKNOWN` \n"), "UNKNOWN", "答案归一化只去一层包裹");
+};
+
+/* ═════════════════ AX-20：K-2 复跑只看「compact 臂有没有开 factGuard」 ═════════════════
+ *
+ * AX-12 已证实：候选上下文里**没有**成功结果的字面值 ⇒ 10 题退化 7 题。
+ * AX-18 把字面 quote（`— Created file`）补进了值事实行，但 `factGuard !== true` 时
+ * `valueFactLines()` 一行都不产出 ⇒ 不显式开开关，AX-18 的修复**逐字等于没做**。
+ * 这两个用例钉住「compact 臂默认开」+「题集与 ax03 冻结预注册逐字相同」。
+ */
+
+/** K-2 S1-Q1 的真实形状：成功 `write` 的回执（字面值长在 `<content>` 里）。 */
+const createdFileResult = (path) => `<path>${path}</path>\n<type>file</type>\n<content>\nCreated file\n</content>`;
+
+/** 一张「成功工具结果」图：user →（成功边）→ agent，边上挂着 AX-02 抽出的值事实。 */
+function valueFactGraph() {
+  const g = createGraph({ sessionId: "ax20", cwd: "/tmp" });
+  const u = addUserNodeId(g, { seq: 1, text: "把 a.mjs 建出来。" });
+  const edgeId = addEdge(g, { from: u, intent: "写文件", action: "write(file_path=D:/x/a.mjs)", evidence: { start: 4, end: 5 } });
+  const agent = addAgentNode(g, { seq: 6, goal: "写文件", worldHash: "W1", constraintHash: "C1", via: edgeId }).id;
+  const settled = settleEdge(g, edgeId, { to: agent, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  settled.valueFacts = extractValueFacts({ tool: "write", result: createdFileResult("D:/x/a.mjs"), resultKind: "success", evidenceSeq: 5 });
+  return g;
+}
+
+tests["K2-12 compact 臂默认开 factGuard：AX-18 的字面 quote 必须进上下文（否则 K2-O1 必然答不出）"] = (t) => {
+  const events = [
+    { type: "user/message", data: { message: { content: [{ type: "text", text: "U" }] } } },
+    { type: "assistant/message", data: { message: { content: [{ type: "text", text: "A" }] } } },
+    { type: "tool/result", data: { message: { content: [{ type: "text", text: "TOOLTEXT" }] } } },
+  ];
+  const g = valueFactGraph();
+  t.eq(extractValueFacts({ tool: "write", result: createdFileResult("D:/x/a.mjs"), resultKind: "success", evidenceSeq: 5 }).length > 0, true, "夹具必须先抽出事实（否则本用例什么都没证明）");
+
+  const on = buildContextsFromGraph(g, events, { factGuard: true });
+  t.includes(on.facts, "VALUE_FACTS_VERBATIM", "guard 打开必须有值事实段");
+  t.includes(on.facts, "— Created file", "行尾必须带 AX-18 的字面 quote");
+  t.eq(on.contexts.compact, "UA" + on.facts, "compact = 文本 + facts（逐字拼接）");
+  t.notIncludes(on.contexts.compact, "TOOLTEXT", "compact 臂不得含原始工具结果");
+  t.eq(on.contexts.full, "UATOOLTEXT", "full 臂保持原始 tool/result 逐字不变");
+
+  const dflt = buildContextsFromGraph(g, events);
+  t.eq(dflt.factGuard, true, "factGuard 默认值必须为 true（compact 臂定义的一部分）");
+  t.eq(dflt.facts, on.facts, "省略选项时必须等于显式 true");
+
+  const off = buildContextsFromGraph(g, events, { factGuard: false });
+  t.notIncludes(off.facts, "VALUE_FACTS_VERBATIM", "guard 关闭时不得出现值事实段");
+  t.notIncludes(off.facts, "Created file", "guard 关闭时字面 quote 不得渲染（零差异契约）");
+
+  // 源码钉住：compact 臂的渲染入口必须把 factGuard 传进生产 renderFacts，且默认 true。
+  const source = sourceOf();
+  t.includes(source, "{ factGuard = true }", "默认值必须写死 true");
+  t.includes(source, "renderFacts(graph, { factGuard: factGuard === true })", "renderFacts 必须收到 factGuard（production 渲染入口）");
+};
+
+tests["K2-13 题集/判分/路由与 ax03 冻结预注册逐字相同（复跑不得改题）"] = (t) => {
+  const preregPath = nodePath.join(HERE, "..", "tmp", "axiom-2026-11-07", "ax03", "prereg.json");
+  t.eq(nodeFs.existsSync(preregPath), true, "ax03 冻结预注册必须存在（只读对照）");
+  const prereg = JSON.parse(nodeFs.readFileSync(preregPath, "utf8"));
+  t.eq(questionsSha256(QUESTIONS), prereg.questionsSha256, "题集哈希必须与冻结预注册逐字相同");
+  t.eq(QUESTIONS.map((item) => item.id), prereg.questionIds, "题号与顺序必须相同");
+  t.eq(LIMITS.maxCalls, prereg.limits.maxCalls, "调用上限必须相同");
+  t.eq(LIMITS.retries, prereg.limits.retries, "retries 必须相同（0）");
+  t.eq(READER.model, prereg.reader.model, "reader 模型必须相同");
+  t.eq(READER.endpoint, prereg.reader.endpoint, "reader 端点必须相同");
+  t.eq(READER.temperature, prereg.reader.temperature, "解码温度必须相同");
+  t.eq(READER.stream, prereg.reader.stream, "流式开关必须相同");
+  t.eq(JSON.stringify(ARM_MAPPING), JSON.stringify(prereg.armMapping), "臂映射必须逐字相同");
+  t.eq(ABSTENTION.answer, prereg.abstention.answer, "弃答答案必须相同");
+  t.eq([...GRADERS], [...prereg.graders], "判分器集合必须相同");
+  t.eq(validateQuestions(QUESTIONS).byOrigin["original-4"], prereg.originalQuestionCount, "原 4 题必须保留");
 };

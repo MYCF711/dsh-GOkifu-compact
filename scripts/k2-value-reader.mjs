@@ -24,6 +24,12 @@
  *   full    = baseline   ：user/assistant 文本 + **原始** tool/result（当前生产行为，未清理）
  *   compact = every-step ：user/assistant 文本 + 生产 `renderFacts(graph)`；原始 tool/result 不进入上下文
  *
+ *   ★ AX-20（K-2 复跑）：compact 臂固定 `renderFacts(graph, { factGuard: true })`。`factGuard !== true`
+ *     时 `valueFactLines()` 一行都不产出（AX-08 ① 的零差异契约），AX-18 补的**字面 quote**
+ *     （`— Created file` / `— "private": false`）就永远不渲染；而 K2-O1 问的正是
+ *     「write 结果的 `<content>` 里写的是什么」—— 那个字面值只存在于 `edge.valueFacts[*].quote` 里。
+ *     两臂的差异仍然**只有**「原始 tool/result 是否保留」，其余全部相同。
+ *
  * 注意：compact 臂**必须在 AX-12 用当时的代码现场生成**，不得用冻结的 compact 文本冒充
  * 候选实现（任务书 AX-10 对 K-27 的同一条纪律）。本文件只冻结**题目、金标准、判分、
  * 弃答、调用上限与上下文构造规则**，不冻结上下文正文。
@@ -653,15 +659,32 @@ export function loadGraphFor(home, sessionId) {
 }
 
 /**
- * 用**当前代码**构造某一冻结会话的两臂上下文（只读）。
- * compact 臂的 facts 来自生产 `renderFacts(graph)`，不是冻结文本。
+ * 由**已构造好的图**生成两臂上下文（纯函数，只读）。
+ *
+ * ★ AX-20（K-2 复跑）：compact 臂**必须**开 `factGuard`，且默认就是开。
+ *   关掉时 `valueFactLines()` 一行都不产出（AX-08 ① 的零差异契约）⇒ AX-18 补的**字面 quote**
+ *   （`— Created file` / `— "private": false`）永远不渲染，K2-O1 这类「问结果原文里写了什么」的题
+ *   必然答不出。`factGuard: true` 是 compact 臂定义的一部分，不是可调参数 —— 只有需要复现
+ *   AX-12 基线时才会显式传 `false`。
+ *
+ * @param {object} graph 图（冻结图，或已把值事实派到副本上的图）
+ * @param {any[]} events 会话事件（已解析）
+ * @param {{factGuard?:boolean}} [options]
  */
-export function buildSessionContexts(home, sessionHash) {
+export function buildContextsFromGraph(graph, events, { factGuard = true } = {}) {
+  const facts = renderFacts(graph, { factGuard: factGuard === true });
+  return { facts, contexts: buildContexts(events, facts), factGuard: factGuard === true };
+}
+
+/**
+ * 用**当前代码**构造某一冻结会话的两臂上下文（只读）。
+ * compact 臂的 facts 来自生产 `renderFacts(graph, { factGuard: true })`，不是冻结文本。
+ */
+export function buildSessionContexts(home, sessionHash, { factGuard = true } = {}) {
   const session = resolveSession(home, sessionHash);
   const graph = loadGraphFor(home, session.sessionId);
-  const facts = renderFacts(graph);
   const parsed = parseEvents(nodeFs.readFileSync(session.logFile));
-  const contexts = buildContexts(parsed.events, facts);
+  const { facts, contexts } = buildContextsFromGraph(graph, parsed.events, { factGuard });
   return { session, facts, contexts, events: parsed.events.length, badEventLines: parsed.badEventLines, frames: parsed.frames };
 }
 
