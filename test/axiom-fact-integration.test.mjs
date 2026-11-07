@@ -463,7 +463,7 @@ tests["AX-09 ③ 成功值可见且可回证：keeper 边 / 离线抽取 / 热�
   t.includes(ledger.text, `- e2 boolean private=${FIXTURE.values.apiPrivate} (seq ${seqOf("t2")})`, "S2-Q3：private 必须带键名 + 可回证");
   t.includes(ledger.text, `- e4 file_updated ${WRITTEN_PATH} (seq ${seqOf("t4")})`, "修正后的写回执同样可见");
   t.eq(/VALUE FACTS \(verbatim; source seq per line\):/.test(ledger.text), true, "值事实段必须有固定标题（不是隐身字段）");
-  // 长值（3000 字 description）**一条都没进**热清单：只留短值，不回灌
+  // 长值（936 字 description）**一条都没进**热清单：只留短值，不回灌
   t.eq(ledger.text.includes("这是一个刻意做长的仓库描述"), false, "长 description 不许进热清单（只留短值）");
 
   /* ③ 离线提示词：同一批值以 `seq + quote` 的形式喂给模型（不是全文回灌） */
