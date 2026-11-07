@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安装 / 升级 / 回滚
+    url: https://github.com/MYCF711/dsh-GOkifu-compact/blob/main/SETUP.md
+    about: 装不上、重启后没变化、--profile 怎么填、想退回官方压缩
+  - name: 发版与维护流程
+    url: https://github.com/MYCF711/dsh-GOkifu-compact/blob/main/UPDATING.md
+    about: 版本号 bump、tag、npm publish、cordis.patch.yml 是生成物
+  - name: 维护台账（当前状态与已知缺口）
+    url: https://github.com/MYCF711/dsh-GOkifu-compact/blob/main/MAINTENANCE.md
+    about: 先看这里，避免重复提问
+  - name: 指标口径（每个数字从哪来）
+    url: https://github.com/MYCF711/dsh-GOkifu-compact/blob/main/docs/%E6%8C%87%E6%A0%87%E5%8F%A3%E5%BE%84.md
+    about: 417 tokens / p50 419 / 失败保留 8-8 这些数分别是什么意思、从哪跑
+  - name: 安全策略
+    url: https://github.com/MYCF711/dsh-GOkifu-compact/blob/main/SECURITY.md
+    about: 漏洞怎么私密上报（不要开公开 issue）

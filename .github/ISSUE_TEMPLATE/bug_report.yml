@@ -1,0 +1,77 @@
+name: Bug 报告
+description: 压缩没触发 / 摘要丢了失败边 / 面板打不开 / doctor 报错
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先跑这两条，把输出贴上来 —— 八成的「没生效」是**没重启宿主**或**跑的是旧构建**：
+
+        ```bash
+        npx dsh-gokifu-compact doctor
+        node scripts/accept-after-restart.mjs   # 只读；会直说「跑的不是仓库里这份代码」
+        ```
+
+        报 bug 前请先确认：`doctor` 的「运行实例版本」里 buildId 与磁盘一致。
+        不一致 = 改动还没生效，不是 bug（服务端 `src/**` 必须重启宿主）。
+  - type: textarea
+    id: what
+    attributes:
+      label: 你看到的现象
+      description: 具体显示什么（有截图最好），以及你期望它显示什么
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本
+      description: README 版本行、面板「状态」卡，或 `node -p "require('./package.json').version"`（例如 1.18.5）
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: 宿主版本与系统
+      description: 例如 DSH 0.2.2-rc.1 / Windows 11 / Node 22
+    validations:
+      required: true
+  - type: dropdown
+    id: restarted
+    attributes:
+      label: 改动后重启过宿主吗
+      description: 服务端（`src/**`）的改动必须重启才生效；`lib/client.js` 刷新即可
+      options:
+        - 已重启
+        - 没重启
+        - 不知道要重启
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 出问题的是哪一层
+      multiple: true
+      options:
+        - 自动压缩没触发（阈值 / 增长闸）
+        - fold 触发但摘要有问题（丢约束 / 丢失败边 / 编造 id）
+        - 归档收尾 / 补账（closeout、欠账清单）
+        - 面板（状态 / 检查更新 / 补账 / 最近活跃会话 / 配置）
+        - 安装与挂载（preset 没换成棋谱引擎、设置页消失）
+        - 落盘与回滚（graph.json / delta 帧 / 崩溃恢复）
+        - 不确定
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关输出
+      description: |
+        `doctor` / `handoff-check` / 面板上的错误原文。**请先脱敏**：会话 id 换成 `<sid>`，
+        本机路径换成 `<DSH_HOME>`。本仓的门禁会把未脱敏的原文判红。
+      render: text
+  - type: textarea
+    id: graph
+    attributes:
+      label: 出问题的棋谱（可选）
+      description: |
+        `<DSH_HOME>/chess-context/sessions/<sid>/graph.json` 的**结构摘要**即可
+        （节点数 / 边数 / `foldMarks.length` / 最后一次 fold 的 `trigger`），不要贴全文。
+      render: text
