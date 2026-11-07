@@ -857,12 +857,15 @@ export function estimateTokens(text) {
 export function foldBudgetFor(input, configured = 8192) {
   const base = Number(configured) || 8192;
   const tokens = typeof input === "string" ? estimateTokens(input) : Math.ceil((Number(input) || 0) * 0.6);
-  if (!Number.isFinite(tokens) || tokens <= 0) return Math.max(1024, Math.min(16384, base));
-  return Math.max(1024, Math.min(16384, Math.max(base, tokens)));
+  if (!Number.isFinite(tokens) || tokens <= 0) return Math.max(1024, Math.min(HARD_MAX_TOKENS, base));
+  return Math.max(1024, Math.min(HARD_MAX_TOKENS, Math.max(base, tokens)));
 }
 
 /** ★ C599：所有 `max_tokens` 的硬上限（与 `foldBudgetFor` 的夹取上界、配置的 16,384 同一口径）。 */
-export const HARD_MAX_TOKENS = 32_768;
+/** 单次折叠预算的硬上界（`offlineBudget` / 提示词长度估算用；C648 钉死 16384）。 */
+export const HARD_MAX_TOKENS = 16_384;
+/** 截断重试的硬上界：只用于「已撞顶再放大 2×」的重试，比预算上界高一档（AX-26）。 */
+export const RETRY_MAX_TOKENS = 32_768;
 
 /**
  * ★ C599：**按「剩余预算 ÷ 实测段耗时」算还能开几轮**。纯函数，便于单测。
@@ -1381,7 +1384,7 @@ export async function runOfflineFold({
     //   默认模型换成 `kimi-k3.1-pro` 后实测：8,192 预算 ≈ 169 秒/段；若按 C582 的语言估算
     //   放到 16,384，生成时间翻倍 ⇒ 撞上 C590 的 240 秒截止 ⇒ **每次都判 deadline、一段都不折**。
     //   摘要本身受 `suggestedLength` 约束（真机 8.8k 字符已够），没必要为了"给足"而让它慢一倍。
-    const budgetCap = Math.max(1024, Math.min(16_384, Number(maxTokensCap) || 8_192));
+    const budgetCap = Math.max(1024, Math.min(HARD_MAX_TOKENS, Number(maxTokensCap) || 8_192));
     const budget = Math.min(budgetCap, foldBudgetFor(String(prompt ?? ""), maxTokens));
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ T49：**付了钱的调用都要进账**。`out` 只回答「采用谁的正文」，`billed` / `billedCalls` 回答
@@ -1426,7 +1429,7 @@ export async function runOfflineFold({
       //       ⇒ **第一段能用的摘要连同这段时间一起作废**（24h 内 15 个会话落在 `offline:deadline`）。
       //   所以：只有"剩余时间 ≥ 已花时间 × 1.2"才开重试；算不下就保留第一次的结果并标 `truncated`
       //   —— 有据可查的"短摘要"远比"零产出"有用，而且不再多付一次模型钱。
-      const retryBudget = Math.min(HARD_MAX_TOKENS, Math.max(1024, budget * 2));
+      const retryBudget = Math.min(RETRY_MAX_TOKENS, Math.max(1024, budget * 2));
       const spentMs = Date.now() - startedAt;
       const roomMs = deadline === null || !Number.isFinite(Number(deadline)) ? Infinity : Number(deadline) - Date.now();
       if (roomMs > spentMs * 1.2) {
