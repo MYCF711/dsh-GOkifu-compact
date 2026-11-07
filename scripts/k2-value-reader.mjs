@@ -674,9 +674,9 @@ export function loadGraphFor(home, sessionId) {
  * @param {any[]} events 会话事件（已解析）
  * @param {{factGuard?:boolean}} [options]
  */
-export function buildContextsFromGraph(graph, events, { factGuard = true, maxValueFacts = 64 } = {}) {
-  // K-2 实验臂：值事实渲染上限 64（生产默认 8）。冻结会话里 read 正文/API 数组会产
-  // 30+ 条短值；只渲染 8 条会把「答案在上下文里」误判成「答案不存在」。
+export function buildContextsFromGraph(graph, events, { factGuard = true, maxValueFacts = 8 } = {}) {
+  // 默认与生产 renderFacts 一致（8 条）。64 只允许由 tmp 实验运行器显式传入，
+  // 不能写进冻结契约，否则 K-2 的 compact 臂不再等于生产输出。
   const facts = renderFacts(graph, { factGuard: factGuard === true, maxValueFacts });
   return { facts, contexts: buildContexts(events, facts), factGuard: factGuard === true };
 }
