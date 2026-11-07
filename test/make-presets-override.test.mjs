@@ -17,6 +17,7 @@ import nodeCrypto from "node:crypto";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import * as generator from "../scripts/make-presets-override.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -61,4 +62,32 @@ tests["C84-3 仓库里的 cordis.patch.yml 覆盖四个官方 preset，且不再
   }
   t.eq(/- id: compaction-basic/.test(patch), false, "patch 里不许再有 compaction-basic 行（否则引擎没被换掉）");
   t.includes(patch, "dsh-gokifu-compact", "patch 必须把引擎指向本插件");
+};
+
+tests["C84-4 自动探测：不设 DSH_APP_ASAR 也能定位到真实存在的 app.asar"] = (t) => {
+  const detected = generator.resolveAsar();
+  t.ok(nodeFs.existsSync(detected), `自动探测到的 asar 必须真实存在：${detected}`);
+};
+
+tests["C84-5 子路径守卫：已提交 patch 全部可解析；坏子路径被点名、合法子路径不误报"] = (t) => {
+  const asarPath = generator.resolveAsar();
+  if (!nodeFs.existsSync(asarPath)) {
+    t.skip("本机没有可用 asar，跳过子路径守卫");
+    return;
+  }
+  const asar = generator.openAsar(asarPath);
+  const patch = nodeFs.readFileSync(PATCH, "utf8");
+  t.eq(generator.findUnresolvableSpecifiers(asar, patch), [], "已提交 patch 不得含不可解析的子路径");
+
+  // 本次故障的精确回归：宿主已移除 list-agents 子路径，守卫必须抓到
+  const bad = "name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'";
+  t.eq(
+    generator.findUnresolvableSpecifiers(asar, bad),
+    ["@deepseek-ai/dsh-tool-subagent-control/list-agents"],
+    "失效的 list-agents 子路径必须被识别",
+  );
+
+  // 合法子路径不应被误报（package.json 始终在 exports 内）
+  const good = "name: '@deepseek-ai/dsh-tool-subagent-control/package.json'";
+  t.eq(generator.findUnresolvableSpecifiers(asar, good), [], "合法子路径不应误报");
 };
