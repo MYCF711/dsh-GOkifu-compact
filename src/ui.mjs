@@ -112,8 +112,28 @@ function uiDefaults() {
   return { ...DEFAULTS, autoArchiveBackfill: AUTO_ARCHIVE_BACKFILL_CONFIG.default };
 }
 
+/**
+ * DSH home 的**唯一**解析口径。
+ *
+ * ★ 修复（真机 2026-11-07）：这里原本回落成 `$USERPROFILE/DeepSeek Harness/home`，
+ *   而引擎侧（`src/engine.mjs:resolveHome`）回落成 `~/.dsh`。**两个都是「DSH_HOME 没设」时的
+ *   正确回落，但它们不是同一个目录**：`~/.dsh` 存在（棋谱 / build.json / 心跳全在里面），
+ *   `DeepSeek Harness/home` 根本不存在。
+ *
+ *   后果是 UI 半看到的是一个**空 home**：`findPresetFiles()` 返回 `[]` ⇒ `health()` 报
+ *   `installed:false, mounted:false, notInBundles:true` ⇒ 面板 pill 显示
+ *   「未启用 · 插件未安装或未接管」，而同一时刻引擎正在**正常折叠**（`today.folds` 也是 0，
+ *   因为扫描扫的是空目录）。自检接口说假话，排障第一眼就被带偏。
+ *
+ *   现在与引擎**逐字同源**：`DSH_HOME`（非空）→ 否则 `~/.dsh`。
+ *   两半读到同一份 home，是 `health()` 能说真话的前提。
+ *
+ * @returns {string}
+ */
 function resolveHome() {
-  return process.env.DSH_HOME ?? nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", "DeepSeek Harness", "home");
+  const env = process.env.DSH_HOME;
+  if (typeof env === "string" && env.length > 0) return env;
+  return nodePath.join(nodeOs.homedir(), ".dsh");
 }
 
 /** 读 profile 的 `dsh.profile.bundles[]`；任何异常都当成「没有」（发现函数不许抛）。 */
@@ -1624,9 +1644,29 @@ function applyInner(ctx) {
               error: "压缩引擎不在这个进程里（插件未加载，或代码已更新但还没重载宿主）",
             });
           }
+          // ★ 修复（真机 2026-11-07）：引擎挂在 agent preset 的 compaction group（isolate realm）里，
+          //   那一层**拿不到** `subagents` / `agents` —— 真机上按「开始补账」直接报
+          //   「宿主没有 subagents.startActivation」，按钮永远失败。
+          //   而本路由所在的 UI 行（`inject = ["webServer","llm"]`）跑在**根 realm**，根上有这两个服务。
+          //   所以这里把根上的服务递进引擎；引擎侧 `options.subagents` / `options.agents`
+          //   本来就是为这种情况留的入口（engine.mjs:runBackfillSubagentOnce），只是一直没人传。
+          //   取不到就**不传**（保持 `undefined`），引擎照旧走自己的 ctx 兜底 —— 不改变既有语义。
+          const rootService = (key) => {
+            try {
+              return ctx?.get?.(key) ?? ctx?.[key] ?? undefined;
+            } catch {
+              return undefined;
+            }
+          };
+          const forward = {};
+          const rootSubagents = rootService("subagents");
+          const rootAgents = rootService("agents");
+          if (rootSubagents !== undefined && rootSubagents !== null) forward.subagents = rootSubagents;
+          if (rootAgents !== undefined && rootAgents !== null) forward.agents = rootAgents;
           const report = await bridge.runBackfillWithModel({
             provider: body.summarizationProvider,
             model: body.summarizationModel,
+            ...forward,
           });
           return sendJson(res, 200, report);
         }
