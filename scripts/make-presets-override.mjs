@@ -26,7 +26,9 @@
  *   node scripts/make-presets-override.mjs            # dry-run，打印摘要与自检结果
  *   node scripts/make-presets-override.mjs --write    # 写仓库根 cordis.patch.yml（先备份）
  * 环境变量：
- *   DSH_APP_ASAR  —— app.asar 路径，默认 D:/fixture/Desktop/resources/app.asar
+ *   DSH_APP_ASAR  —— 显式指定 app.asar；不设时按平台自动探测真实安装目录
+ *                   （Windows %LOCALAPPDATA%/Programs/DeepSeek Harness、macOS /Applications、
+ *                    Linux /opt），都找不到才回退到历史写死的 D: fixture。
  */
 
 import nodeFs from "node:fs";
@@ -36,7 +38,43 @@ import { fileURLToPath } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const OUT = nodePath.join(ROOT, "cordis.patch.yml");
-const ASAR = process.env.DSH_APP_ASAR ?? ["D:", "DeepSeek Harness", "Desktop", "resources", "app.asar"].join("/");
+
+/**
+ * 解析宿主 app.asar：DSH_APP_ASAR 环境变量优先；否则按平台探测真实安装目录，
+ * 找不到再回退到历史写死的 D: fixture（保留旧报错路径）。
+ * @returns {string}
+ */
+export function resolveAsar() {
+  const fromEnv = process.env.DSH_APP_ASAR;
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv;
+
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+  const localAppData = process.env.LOCALAPPDATA
+    ?? (home ? nodePath.join(home, "AppData", "Local") : "");
+  const programFiles = process.env.PROGRAMFILES ?? "C:/Program Files";
+
+  const candidates = [];
+  const add = (p) => { if (p && !candidates.includes(p)) candidates.push(p); };
+
+  if (process.platform === "win32") {
+    add(localAppData ? nodePath.join(localAppData, "Programs", "DeepSeek Harness", "resources", "app.asar") : "");
+    add(nodePath.join(programFiles, "DeepSeek Harness", "resources", "app.asar"));
+    if (process.env.PROGRAMFILES_X86) {
+      add(nodePath.join(process.env.PROGRAMFILES_X86, "DeepSeek Harness", "resources", "app.asar"));
+    }
+  } else if (process.platform === "darwin") {
+    add("/Applications/DeepSeek Harness.app/Contents/Resources/app.asar");
+  } else {
+    add("/opt/DeepSeek Harness/resources/app.asar");
+    if (home) add(nodePath.join(home, ".local", "share", "DeepSeek Harness", "resources", "app.asar"));
+  }
+  // 历史写死的构建机路径（作者机器），放最后兜底
+  add(["D:", "DeepSeek Harness", "Desktop", "resources", "app.asar"].join("/"));
+
+  return candidates.find((p) => nodeFs.existsSync(p)) ?? candidates[0];
+}
+
+const ASAR = resolveAsar();
 
 /** 四个内置 preset 的 id（宿主 `@deepseek-ai/dsh-web-app` bundle 层）。 */
 const PRESET_NAMES = Object.freeze(["standard", "ptc", "minimal", "cordis"]);
@@ -65,7 +103,7 @@ const OFFICIAL_ENGINE = "@deepseek-ai/dsh-compaction-basic";
  *   文件数据偏移 = 8 + headerPickleSize
  * @param {string} archive
  */
-function openAsar(archive) {
+export function openAsar(archive) {
   const fd = nodeFs.openSync(archive, "r");
   const head = Buffer.alloc(16);
   nodeFs.readSync(fd, head, 0, 16, 0);
@@ -238,6 +276,61 @@ export function validateBundlePatch(text, officialTexts) {
   return problems;
 }
 
+/* ───────────────────────── 子路径可解析性守卫 ───────────────────────── */
+
+/**
+ * 解析一个 `@scope/pkg[/subpath]` 说明符；非此形态返回 null。
+ * @param {string} specifier
+ * @returns {{scope:string,pkg:string,subpath:string|null}|null}
+ */
+export function parseScopedSpecifier(specifier) {
+  const m = /^(@[^/]+)\/([^/]+)(?:\/(.+))?$/.exec(String(specifier));
+  if (!m) return null;
+  return { scope: m[1], pkg: m[2], subpath: m[3] ?? null };
+}
+
+/**
+ * 找出 patch 里「宿主包存在、但子路径无法解析」的 @deepseek-ai 说明符。
+ *
+ * 这正是本次故障的机器判据：宿主 0.2.2-rc.1 已移除
+ * `@deepseek-ai/dsh-tool-subagent-control/list-agents` 子路径，而随包发布的旧快照
+ * 仍引用它 ⇒ 该插件 never started、preset 校验失败。
+ *
+ * 只校验宿主 asar 内真实存在的 @deepseek-ai 包；本插件自己的
+ * `dsh-gokifu-compact/engine` 等不在 asar，运行时由 profile 解析，不在此误报。
+ * @param {{has:(p:string)=>boolean,readFile:(p:string)=>string|null}} asar openAsar 返回值
+ * @param {string} text 待校验的 patch 文本
+ * @returns {string[]}
+ */
+export function findUnresolvableSpecifiers(asar, text) {
+  const names = [...String(text).matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
+  const bad = [];
+  for (const name of [...new Set(names)]) {
+    const parsed = parseScopedSpecifier(name);
+    if (!parsed || parsed.scope !== "@deepseek-ai" || !parsed.subpath) continue;
+    const pkgDir = ["dsh", "node_modules", "@deepseek-ai", parsed.pkg].join("/");
+    const pjPath = `${pkgDir}/package.json`;
+    if (!asar.has(pjPath)) continue; // 宿主里没有这个包，交给其它校验，不在此误报
+    let exportsMap = {};
+    const pjText = asar.readFile(pjPath);
+    if (pjText) {
+      try {
+        exportsMap = JSON.parse(pjText).exports ?? {};
+      } catch {
+        exportsMap = {};
+      }
+    }
+    const target = `./${parsed.subpath}`;
+    const exact = Object.keys(exportsMap).includes(target);
+    const wildcard = Object.keys(exportsMap).some(
+      (k) => k.endsWith("/*") && target.startsWith(k.slice(0, -1)),
+    );
+    const fileExists = asar.has(`${pkgDir}/${parsed.subpath}`);
+    if (!exact && !wildcard && !fileExists) bad.push(name);
+  }
+  return bad;
+}
+
 /* ───────────────────────── 主流程 ───────────────────────── */
 
 function main() {
@@ -283,6 +376,7 @@ function main() {
 
   const patch = buildPatch(entries);
   const problems = validateBundlePatch(patch, officialTexts);
+  const unresolvable = findUnresolvableSpecifiers(asar, patch);
 
   console.log(`宿主 asar：${ASAR}`);
   for (let i = 0; i < entries.length; i += 1) {
@@ -298,6 +392,12 @@ function main() {
   if (problems.length > 0) {
     console.error("✗ 自检失败：");
     for (const p of problems) console.error(`  - ${p}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (unresolvable.length > 0) {
+    console.error("✗ 自检失败：patch 引用了宿主不存在的子路径（对应插件 never started）：");
+    for (const s of unresolvable) console.error(`  - ${s}`);
     process.exitCode = 1;
     return;
   }
