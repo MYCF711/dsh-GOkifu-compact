@@ -20,7 +20,12 @@ export const tests = {};
 
 tests["T69 真机 1100+ 折痕：完整 small-window --json 在 1 GiB 堆内跑完且退出 0"] = (t) => {
   const home = resolveHome();
-  t.eq(nodeFs.existsSync(nodePath.join(home, "chess-context", "sessions")), true, `真机棋谱目录必须存在：${home}`);
+  // 真机棋谱目录（隐私数据，不在 git 里）：干净检出 / CI 上必然没有 ⇒ 显式跳过。
+  // 真机上目录在，下面的规模断言（>400 会话 / 1100+ 折痕 / 1 GiB 内 exit 0）一条都不放松。
+  if (!nodeFs.existsSync(nodePath.join(home, "chess-context", "sessions"))) {
+    t.skip(`干净检出没有真机棋谱目录：${home}`);
+    return;
+  }
 
   const run = spawnSync(process.execPath, ["--max-old-space-size=1024", SCRIPT, "--json"], {
     cwd: REPO,

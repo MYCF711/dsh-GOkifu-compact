@@ -1,0 +1,57 @@
+# 最小可信 CI：只跑两条门禁（全量测试 + 边界审计）。
+#
+# 零依赖：package.json 的 dependencies / devDependencies 都是空对象，
+# 所以这里不装任何依赖，只用 runner 自带的 node + npm（npm 只被测试内部用于
+# `npm pack --dry-run`，不联网、零依赖）。
+#
+# 三个平台结论（都已在干净 clone 上实测，见交付说明）：
+#   1) windows-latest：install-link / ws-install / p6c-preflight 依赖
+#      junction / mklink / tasklist / 大小写不敏感路径，ubuntu 上语义不同。
+#   2) fetch-depth: 0：test/usability-by-age.test.mjs 用 git log 现取 55b2d19 等
+#      三个历史提交的时间；默认 depth=1 的检出会让这条用例必红。
+#   3) 关掉 CRLF 转换：Git for Windows 的系统级 core.autocrlf=true 会把 LF 检出成
+#      CRLF，test/doc-numbers.test.mjs（解析 CHANGELOG）在 CRLF 下必红；
+#      actions/checkout 不会改这个配置 —— 用 job 级 GIT_CONFIG_*（等价 git -c，
+#      优先级高于 system/global）把它压掉，对 checkout 本身也生效。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: gates (windows)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      # Git for Windows 的 system config 是 core.autocrlf=true（检出会把 LF 变 CRLF）。
+      # GIT_CONFIG_* 等价于给每条 git 命令加 -c，优先级高于 system/global，
+      # 因此 checkout 也按 LF 落盘；不依赖「checkout 之前有没有步骤 / 工作区是否存在」。
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 几秒出结果；先跑它，红了不必等全量测试。
+      - name: Boundary audit
+        run: node scripts/boundary-audit.mjs
+
+      - name: Full test suite
+        run: node test/run.mjs

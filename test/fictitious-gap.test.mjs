@@ -84,7 +84,12 @@ tests["T64 ② 混合头部 3 条消息 + 5 个非消息：uncoveredHead = 3"] =
 tests["T64 ③ 真机复放 010c3b44：欠账区间 [1,8] 的缺口 8 → 0"] = async (t) => {
   const home = resolveHome();
   const log = findSessionLog(home, "010c3b44");
-  if (log === null) throw new Error(`真机复放找不到 010c3b44 日志（home=${home}）`);
+  // 010c3b44 是**真机日志**（隐私数据，不在 git 里）：干净检出 / CI 上必然没有。
+  // 数据不在就显式跳过（输出里看得到原因）；真机上数据在，仍然逐字段全断言、不跳过。
+  if (log === null) {
+    t.skip(`干净检出没有真机日志 010c3b44（home=${home}）`);
+    return;
+  }
   const events = readSessionEvents(log);
   const leading = events.filter((e) => Number(e.seq) >= 1 && Number(e.seq) <= 8);
   t.eq(leading.length, 8, "真机 seq 1–8 共 8 个事件");

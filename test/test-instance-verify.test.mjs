@@ -1,7 +1,12 @@
 /**
  * test-instance-verify.test.mjs —— 把真 Engine + 真机日志 + 隔离 home 的四条验证固化成守卫。
- * 任一实际值偏离都会红；没有 skip，也不以「脚本自己说 pass」代替字段断言。
+ * 任一实际值偏离都会红；有真机数据时没有 skip，也不以「脚本自己说 pass」代替字段断言。
+ * （干净检出 / CI 没有真机日志与棋谱目录 ⇒ 显式 skip 并点名 home，真机上的断言一条不放松。）
  */
+import nodeFs from "node:fs";
+import nodePath from "node:path";
+
+import { findSessionLog } from "../src/rooms/zstd-log.mjs";
 import {
   verifySmallWindows,
   verifyFictitiousGap,
@@ -11,7 +16,32 @@ import {
 
 export const tests = {};
 
+/**
+ * 真机夹具（与 scripts/test-instance-verify.mjs 的 liveHome 同一口径）。
+ * 010c3b44 的日志与 chess-context/ 都是**真机数据**（隐私，不在 git 里）：
+ * 干净检出 / CI 上必然没有 ⇒ 显式跳过（原因里点名 home）；
+ * 真机上数据在，仍然保持本文件原来的「没有 skip、逐字段断言」。
+ */
+function liveHome() {
+  const env = String(process.env.DSH_HOME ?? "").trim();
+  return env !== "" ? nodePath.resolve(env) : nodePath.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".dsh");
+}
+
+function skipIfNoRealSession(t) {
+  if (findSessionLog(liveHome(), "010c3b44") !== null) return false;
+  t.skip(`干净检出没有真机日志 010c3b44（home=${liveHome()}）`);
+  return true;
+}
+
+function skipIfNoRealGraph(t) {
+  const dir = nodePath.join(liveHome(), "chess-context", "sessions");
+  if (nodeFs.existsSync(dir)) return false;
+  t.skip(`干净检出没有真机棋谱目录：${dir}`);
+  return true;
+}
+
 tests["T63 真机 1–8 小缺口：真 Engine 合并成大窗口且不写 live 日志"] = async (t) => {
+  if (skipIfNoRealGraph(t)) return;
   const result = await verifySmallWindows();
   t.ok((result.cases ?? []).length > 0, `必须有真机小缺口样本：${JSON.stringify(result.actual ?? result)}`);
   for (const item of result.cases ?? []) {
@@ -25,6 +55,7 @@ tests["T63 真机 1–8 小缺口：真 Engine 合并成大窗口且不写 live 
 };
 
 tests["T64 真机 010c3b44：seq 1–8 非消息事件的 uncoveredHead 8→0"] = async (t) => {
+  if (skipIfNoRealSession(t)) return;
   const result = await verifyFictitiousGap();
   t.eq(result.actual?.leadingEvents, 8, "真机 seq 1–8 共 8 个事件");
   t.eq(result.actual?.leadingFoldable, 0, "seq 1–8 没有可折消息");
@@ -36,6 +67,7 @@ tests["T64 真机 010c3b44：seq 1–8 非消息事件的 uncoveredHead 8→0"] 
 };
 
 tests["T66 finish.kind=error + TRANSPORT：结局 offline:error 而非 empty-response"] = async (t) => {
+  if (skipIfNoRealSession(t)) return;
   const result = await verifyTransportClassification();
   t.eq(result.actual?.foldNote, "offline:error", "传输错误分类");
   t.ne(result.actual?.foldNote, "offline:empty-response", "TRANSPORT 不得谎报空回答");
@@ -46,6 +78,7 @@ tests["T66 finish.kind=error + TRANSPORT：结局 offline:error 而非 empty-res
 };
 
 tests["T67 两次 TRANSPORT 后第三次成功：30/60s 退避、抖动与 deadline"] = async (t) => {
+  if (skipIfNoRealSession(t)) return;
   const result = await verifyTransportRetry();
   const centered = result.cases?.centered;
   const jittered = result.cases?.jittered;
