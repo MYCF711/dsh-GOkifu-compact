@@ -653,3 +653,111 @@ tests["C564/C565 失败边一步只数一次（含 digest 也不再重算）"] =
   t.includes(body, "failures: failureList", "digest 必须复用同一个列表");
   t.includes(src, "export function ledgerDigest(graph, { foldFailures = 0, failures = null } = {})", "digest 要接受预计算列表（保留兜底）");
 };
+
+/* ═════════════════ AX-08：值型事实的**送达**（2026-11-07） ═════════════════
+ *
+ * 「存了但没注入」是 AX-08 卡点名的失效形态：成功工具结果**不产生失败边**，而既有判据
+ * （事件间隔 / 失败边增量 / digest）全是失败边口径 ⇒ 一条新的 `Created file` 值会被
+ * `throttled-*` 静默挡到下一次失败为止。下面五条是这条链的机器判据。
+ */
+
+const createdFileResult = (path) => `<path>${path}</path>\n<type>file</type>\n<content>\nCreated file\n</content>`;
+
+/**
+ * 一条失败边（保证走 `renderLedger` 而不是零失败最小清单）
+ * + 一条**成功 write** 边（经真 keeper 结算，边上挂着 AX-02/AX-04 的值事实）。
+ */
+function graphWithValueFact({ withFacts = true } = {}) {
+  const g = graphWithFailure();
+  const st = makeState();
+  observeEvent(g, assistantEvent("w1", "write", { file_path: "D:/x/a.mjs", content: "x" }, 20), st);
+  observeEvent(g, resultEvent("w1", createdFileResult("D:/x/a.mjs"), 21), st);
+  if (!withFacts) for (const edge of Object.values(g.edges)) delete edge.valueFacts;
+  return g;
+}
+
+/** 注入清单的纯文本（没有清单就返回空串，别让用例在 undefined 上崩）。 */
+const injectedText = (result) => messageText(result.decision.messages.find((message) => message?.source?.kind === "chess-context") ?? {});
+
+tests["AX-08 guard=false 零差异：注入的消息逐字相同（有没有 valueFacts 都一样）"] = (t) => {
+  const withFacts = graphWithValueFact();
+  const withoutFacts = graphWithValueFact({ withFacts: false });
+  t.eq(
+    Object.values(withFacts.edges).some((edge) => Array.isArray(edge.valueFacts) && edge.valueFacts.length > 0),
+    true,
+    "夹具必须真的挂了 valueFacts（否则本用例什么都没证明）",
+  );
+  const a = run(makeSession({ id: "ax08-off-a" }), withFacts, makeState());
+  const b = run(makeSession({ id: "ax08-off-b" }), withoutFacts, makeState());
+  t.eq(a.action, "append", "首次注入");
+  t.eq(injectedText(a), injectedText(b), "guard 关掉时值事实不许改变注入内容（一个字符都不许）");
+  t.eq(injectedText(a).includes("VALUE FACTS"), false, "guard 关掉时不许出现值事实段");
+  // 反向：guard 打开必须真的多出值（否则上面两条零差异是恒真）
+  const on = run(makeSession({ id: "ax08-off-on" }), withFacts, makeState(), { config: { ...CONFIG, factGuard: true } });
+  t.includes(injectedText(on), "VALUE FACTS", "guard 打开必须多出值事实段");
+};
+
+tests["AX-08 guard=true：成功 write 的 Created file 值进注入清单，带原文 seq"] = (t) => {
+  const g = graphWithValueFact();
+  const session = makeSession({ id: "ax08-on" });
+  const r = run(session, g, makeState(), { config: { ...CONFIG, factGuard: true } });
+  t.eq(r.action, "append", "首次注入");
+  const text = messageText(commitAppend(session, r));
+  t.includes(text, "VALUE FACTS", "值事实段必须在注入的消息里");
+  t.includes(text, "D:/x/a.mjs", "K-2 S1-Q1 的路径必须可见");
+  t.includes(text, "file_created", "类别要能认出来");
+  t.includes(text, "(seq 21)", "必须带原文 seq（可回证）");
+  t.includes(text, "</chess-ledger>", "仍是既有清单格式（不是新的消息类型）");
+};
+
+tests["AX-08 存了但没注入（修）：新值事实在事件间隔不足时也必须立刻送达"] = (t) => {
+  // ① guard 打开：新的成功结果必须立刻送达
+  const g = graphWithValueFact();
+  const session = makeSession({ id: "ax08-deliver" });
+  const state = makeState();
+  const config = { ...CONFIG, factGuard: true };
+  commitAppend(session, run(session, g, state, { config }));
+  // 只多一条**成功**结果（不产生失败边），事件距离远小于 40
+  observeEvent(g, assistantEvent("w2", "write", { file_path: "D:/x/b.mjs", content: "y" }, 30), state);
+  observeEvent(g, resultEvent("w2", createdFileResult("D:/x/b.mjs"), 31), state);
+  session.setSeq(session.seq + 1);
+  const second = run(session, g, state, { config });
+  t.ne(second.action, "skip", `新的值必须送达（旧判据会 throttled-*；实际 ${second.reason}）`);
+  t.eq(second.action, "replace", "已有清单 ⇒ 就地替换送达（surface 仍只有一条）");
+  // replace 路径把新清单直接写进 surface（decision 原样返回），所以从 surface 取文本
+  const delivered = messageText(session.eventAt(ledgerMessagesIn(session).at(-1))?.data ?? {});
+  t.includes(delivered, "D:/x/b.mjs", "新值必须在清单里");
+
+  // ② 反例（guard 关掉）：同样的图必须仍按旧判据跳过 —— 证明上面那条不是「限流被改坏了」
+  const offGraph = graphWithValueFact();
+  const offSession = makeSession({ id: "ax08-deliver-off" });
+  const offState = makeState();
+  commitAppend(offSession, run(offSession, offGraph, offState));
+  const offStep = makeState();
+  observeEvent(offGraph, assistantEvent("w2", "write", { file_path: "D:/x/b.mjs", content: "y" }, 30), offStep);
+  observeEvent(offGraph, resultEvent("w2", createdFileResult("D:/x/b.mjs"), 31), offStep);
+  offSession.setSeq(offSession.seq + 1);
+  const offSecond = run(offSession, offGraph, offState);
+  t.eq(offSecond.action, "skip", "guard 关掉时必须保持旧行为（不许顺手放宽限流）");
+  t.eq(offSecond.reason, "identical", "guard 关掉时同 digest ⇒ identical 跳过（旧判据逐字不变）");
+};
+
+tests["AX-08 不得重复注入同值：同一批值事实第二次必须跳过（identical）"] = (t) => {
+  const g = graphWithValueFact();
+  const session = makeSession({ id: "ax08-reinject" });
+  const state = makeState();
+  const config = { ...CONFIG, factGuard: true };
+  commitAppend(session, run(session, g, state, { config }));
+  const again = run(session, g, state, { config });
+  t.eq(again.action, "skip", "值没变 ⇒ 不许再注入（不重复注入同值）");
+  t.eq(again.reason, "identical", "原因 identical");
+  t.eq(ledgerMessagesIn(session).length, 1, "surface 上仍只有一条清单");
+};
+
+tests["AX-08 开关只认字面 true（'true' / 1 / null / false 都不开启实验线）"] = (t) => {
+  const g = graphWithValueFact();
+  for (const factGuard of ["true", 1, null, undefined, false]) {
+    const r = run(makeSession({ id: `ax08-literal-${String(factGuard)}` }), g, makeState(), { config: { ...CONFIG, factGuard } });
+    t.eq(injectedText(r).includes("VALUE FACTS"), false, `factGuard=${String(factGuard)} 不许开启值事实段`);
+  }
+};

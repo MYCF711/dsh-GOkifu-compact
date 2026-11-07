@@ -2,7 +2,8 @@ import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode, failureE
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderLedger, renderFacts, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, _internal } from "../src/rooms/ledger.mjs";
+import { renderLedger, renderFacts, renderMinimalLedger, estimateTokens, renderFailureLine, collectConstraints, currentGoalOf, isInformativeAsk, collectValueFacts, planValueFacts, renderValueFactLine, valueFactDigest, VALUE_FACT_RENDER_LIMIT, _internal } from "../src/rooms/ledger.mjs";
+import { extractValueFacts, isValueFact, VALUE_FACT_KINDS } from "../src/rooms/tool-value-facts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
@@ -579,4 +580,233 @@ tests["C449 currentGoalOf：最新一条只是「继续」⇒ 宁可不给（更
   // 真渲染：最新是「继续」⇒ 不出这行
   const noLine = renderLedger(mk("继续"), { maxTokens: 500, now: 1_760_000_000_000 });
   t.eq(noLine.text.includes("CURRENT GOAL"), false, "「继续」不该在清单里出现");
+};
+
+/* ═════════════════ AX-08：成功结果的值型事实如何进热清单（2026-11-07） ═════════════════
+ *
+ * 判据（AX-08 卡）：K-2 两形状必须**可见且可回证**；guard 关掉零渲染差异；预算不足先裁叙事、
+ * 不静默丢值；超预算/省略必须有计数与 graph.json 指针；不得重复注入同值；
+ * 与 AX-04 的 `edge.valueFacts` 契约完全一致（用 AX-02 的 `isValueFact` 交叉钉住）。
+ */
+
+/** K-2 S1-Q1 的真实形状：成功 `write` 的回执。 */
+const createdFileResult = (path) => `<path>${path}</path>\n<type>file</type>\n<content>\nCreated file\n</content>`;
+
+/** K-2 S2-Q3 的真实形状：仓库 API 的 JSON（description 故意很长，测「只留短值」）。 */
+const repoJsonResult = () =>
+  `{"id": 4242, "node_id": "R_demo4242", "name": "demo-repo", "full_name": "octo/demo-repo", "private": false, "default_branch": "main", "description": "${"长".repeat(3000)}"}`;
+
+/**
+ * 一张「成功工具结果」图：user →（成功边）→ agent，边上挂着 AX-02 抽出来的值事实
+ * （= AX-04 落盘后的形状）。`failures` 给失败叙事，用来验「预算不足先裁叙事」。
+ */
+function valueFactGraph({ facts = [], sessionId = "ax08", failures = 0 } = {}) {
+  const g = createGraph({ sessionId, cwd: "/tmp" });
+  const u = addUserNodeId(g, { seq: 1, text: "把 a.mjs 建出来。" });
+  const edgeId = addEdge(g, { from: u, intent: "写文件", action: "write(file_path=D:/x/a.mjs)", evidence: { start: 4, end: 5 } });
+  const agent = addAgentNode(g, { seq: 6, goal: "写文件", worldHash: "W1", constraintHash: "C1", via: edgeId }).id;
+  const settled = settleEdge(g, edgeId, { to: agent, result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  if (facts.length > 0) settled.valueFacts = facts;
+  for (let i = 0; i < failures; i += 1) {
+    const fe = addEdge(g, { from: agent, intent: `第 ${i + 1} 次：换个写法再试一遍`, action: `bash(npm test ${i})`, evidence: { start: 10 + i * 2, end: 11 + i * 2 } });
+    settleEdge(g, fe, {
+      to: agent,
+      result: "failure",
+      verify: { kind: "exit", summary: "exit 1" },
+      errorSnippet: `AssertionError: case${i} expected 1 got 2 at tests/case${i}.test.js:42`,
+    });
+  }
+  return g;
+}
+
+const createdFacts = (path = "D:/主工作区/repos/x/src/a.mjs", evidenceSeq = 5) =>
+  extractValueFacts({ tool: "write", result: createdFileResult(path), resultKind: "success", evidenceSeq });
+
+const apiFacts = (evidenceSeq = 7) => extractValueFacts({ tool: "github", result: repoJsonResult(), resultKind: "weak", evidenceSeq });
+
+/** 渲染文本里的值事实行（标题行、省略行都不算）。 */
+const valueFactRows = (text) =>
+  String(text ?? "")
+    .split(String.fromCharCode(10))
+    .filter((line) => /^- e\d+ (?:file_created|file_updated|file_path|id|boolean|config|value) /.test(line));
+
+tests["AX-08 ①：guard=false 零渲染差异 —— 有 valueFacts 的图与没有它的图逐字相同"] = (t) => {
+  const facts = createdFacts();
+  t.eq(facts.length > 0, true, "夹具必须先抽出事实（否则本用例什么都没证明）");
+  const withFacts = valueFactGraph({ facts, sessionId: "ax08-off" });
+  const withoutFacts = valueFactGraph({ facts: [], sessionId: "ax08-off" });
+  for (const budget of [2000, 500, 300]) {
+    const on = renderLedger(withFacts, { maxTokens: budget });
+    const off = renderLedger(withoutFacts, { maxTokens: budget });
+    t.eq(on.text, off.text, `maxTokens=${budget}：guard 关掉时 valueFacts 不许改变渲染（一个字符都不许）`);
+    t.eq(on.tokens, off.tokens, `maxTokens=${budget}：token 数必须相同`);
+  }
+  const r = renderLedger(withFacts, { maxTokens: 2000 });
+  t.eq(r.text.includes("VALUE FACTS"), false, "guard 关掉时不许出现值事实段");
+  t.eq(r.valueFactStats.total, 0, "guard 关掉时统计口径是「没有值」（不假装渲染了 0 条）");
+  // 反向：guard 打开必须真的多出东西（否则上面几条零差异是恒真）
+  const on = renderLedger(withFacts, { maxTokens: 2000, factGuard: true });
+  t.eq(on.text.length > r.text.length, true, "guard 打开必须真的多出值事实段（否则零差异是恒真）");
+};
+
+tests["AX-08 ②：K-2 S1-Q1 —— 成功 write 的 Created file 路径进热清单，带原文 seq 可回证"] = (t) => {
+  const path = "D:/主工作区/repos/x/src/a.mjs";
+  const facts = createdFacts(path, 5);
+  const created = facts.find((fact) => fact.kind === "file_created");
+  t.eq(created !== undefined, true, "AX-02 必须抽出 file_created");
+  t.eq(createdFileResult(path).includes(created.quote), true, "quote 必须是结果原文的连续子串（回证物）");
+  const g = valueFactGraph({ facts, sessionId: "ax08-k2a" });
+  const r = renderLedger(g, { maxTokens: 2000, factGuard: true });
+  t.includes(r.text, "VALUE FACTS", "必须出现值事实段");
+  t.includes(r.text, path, "K-2 S1-Q1 的退化点就是这条路径：必须可见");
+  t.includes(r.text, "file_created", "类别要能认出来（哪种值）");
+  t.includes(r.text, "(seq 5)", "必须带原文 seq（不可回证的值等于没留下）");
+  t.eq(valueFactRows(r.text).length, 1, "只该有一条值事实行");
+  t.eq(r.valueFactStats.shown, 1, "统计要一致");
+};
+
+tests["AX-08 ③：K-2 S2-Q3 —— 仓库 API 的 id / private 进热清单，长 description 不许进"] = (t) => {
+  const facts = apiFacts(7);
+  const idFact = facts.find((fact) => fact.kind === "id" && fact.value === 4242);
+  const privFact = facts.find((fact) => fact.kind === "boolean" && fact.value === false);
+  t.eq(idFact !== undefined, true, "id 4242 必须被抽出");
+  t.eq(privFact !== undefined, true, "private=false 必须被抽出（false 不是「没有」）");
+  t.eq(repoJsonResult().includes(privFact.quote), true, "quote 逐字可回证");
+  const g = valueFactGraph({ facts, sessionId: "ax08-k2b" });
+  const r = renderLedger(g, { maxTokens: 2000, factGuard: true });
+  t.includes(r.text, "id 4242", "id 必须可见（键名已由 kind 说清）");
+  t.includes(r.text, "private=false", "boolean 必须带键名，否则模型不知道哪个键是 false");
+  t.includes(r.text, "(seq 7)", "两条都指向原文 seq");
+  t.eq(r.text.includes("长".repeat(200)), false, "长 description 不许进热清单（只留短值）");
+};
+
+tests["AX-08 ④：与 AX-04 契约完全一致 —— 种类闭集逐字相同，且每条渲染事实都过 AX-02 的 isValueFact"] = (t) => {
+  // ① ledger 的白名单必须与 AX-02 的 VALUE_FACT_KINDS 覆盖同一批种类（新增种类要回来补样例）。
+  const samples = { file_created: "D:/x/a.mjs", file_updated: "D:/x/b.mjs", file_path: "D:/x/c.mjs", id: 4242, boolean: false, config: "main", value: "MINGW64_NT-10.0" };
+  t.eq(VALUE_FACT_KINDS.length, Object.keys(samples).length, `夹具必须覆盖全部种类（AX-02 现有 ${VALUE_FACT_KINDS.length} 种）`);
+  for (const kind of VALUE_FACT_KINDS) t.eq(Object.hasOwn(samples, kind), true, `AX-02 新增了种类 ${kind} —— 本夹具与 ledger 的白名单必须同步`);
+  // ② 每一种都能渲染，且渲染出来的条目满足 AX-02 的六字段契约
+  const facts = VALUE_FACT_KINDS.map((kind) => {
+    const value = samples[kind];
+    const quote = kind === "boolean" || kind === "id" || kind === "config" ? `"${kind === "id" ? "id" : kind}": ${JSON.stringify(value)}` : String(value);
+    return { kind, value, quote, evidenceSeq: 5, validAtSeq: 5, source: "tool:write" };
+  });
+  for (const fact of facts) t.eq(isValueFact(fact), true, `夹具必须满足 AX-02 六字段契约：${fact.kind}`);
+  const g = valueFactGraph({ facts, sessionId: "ax08-kinds" });
+  const r = renderLedger(g, { maxTokens: 4000, factGuard: true });
+  t.eq(r.valueFactStats.shown, facts.length, `每一种都必须能渲染（实际 ${r.valueFactStats.shown}/${facts.length}）`);
+  t.eq(r.valueFactStats.malformed, 0, "合法事实不许被计成坏数据");
+  for (const kind of VALUE_FACT_KINDS) t.includes(r.text, ` ${kind} `, `渲染行必须标出种类 ${kind}`);
+  // ③ 坏数据（未知种类 / 类型不符 / 缺 quote / 负 seq / 超长值）⇒ 一条都不渲成事实，只计 malformed
+  const bad = [
+    { kind: "bogus", value: "x", quote: "x", evidenceSeq: 1, validAtSeq: 1, source: "tool:write" },
+    { kind: "file_created", value: 5, quote: "5", evidenceSeq: 1, validAtSeq: 1, source: "tool:write" },
+    { kind: "id", value: 1, quote: "   ", evidenceSeq: 1, validAtSeq: 1, source: "tool:write" },
+    { kind: "id", value: 1, quote: '"id": 1', evidenceSeq: -1, validAtSeq: 1, source: "tool:write" },
+    { kind: "value", value: "x".repeat(201), quote: "x", evidenceSeq: 1, validAtSeq: 1, source: "tool:write" },
+  ];
+  const g2 = valueFactGraph({ facts: bad, sessionId: "ax08-bad" });
+  const r2 = renderLedger(g2, { maxTokens: 2000, factGuard: true });
+  t.eq(r2.valueFactStats.malformed, bad.length, `坏数据必须逐条计 malformed（实际 ${r2.valueFactStats.malformed}）`);
+  t.eq(r2.text.includes("VALUE FACTS"), false, "坏数据一条都不许渲成事实");
+};
+
+tests["AX-08 ⑤：不得重复注入同值 —— 两条边记同一个值只渲染一条"] = (t) => {
+  const fact = { kind: "file_created", value: "D:/x/a.mjs", quote: "D:/x/a.mjs", evidenceSeq: 5, validAtSeq: 5, source: "tool:write" };
+  const g = valueFactGraph({ facts: [fact], sessionId: "ax08-dup" });
+  const dup = addEdge(g, { from: g.order[0], intent: "再写一次同一个文件", action: "write(file_path=D:/x/a.mjs)", evidence: { start: 30, end: 31 } });
+  settleEdge(g, dup, { to: g.order[0], result: "success", verify: { kind: "exit", summary: "exit 0" } });
+  g.edges[dup].valueFacts = [{ ...fact, evidenceSeq: 31, validAtSeq: 31 }];
+  const r = renderLedger(g, { maxTokens: 2000, factGuard: true });
+  t.eq(valueFactRows(r.text).length, 1, "同一个值只许出现一次（重复注入白烧预算，还会误导模型）");
+  t.eq(r.valueFactStats.total, 1, "去重后的总数必须是 1");
+  t.eq(r.text.includes("(seq 5)"), true, "保留**第一条**（更早的证据）");
+  t.eq(r.text.includes("(seq 31)"), false, "后面的同值不再重复注入");
+};
+
+tests["AX-08 ⑥：超条数上限 ⇒ 计数 + graph.json 指针（不静默丢）"] = (t) => {
+  const facts = [0, 1, 2].map((i) => ({ kind: "value", value: `值${i}`, quote: `值${i}`, evidenceSeq: 10 + i, validAtSeq: 10 + i, source: "tool:bash" }));
+  const g = valueFactGraph({ facts, sessionId: "ax08-cap" });
+  const r = renderLedger(g, { maxTokens: 4000, factGuard: true, maxValueFacts: 2, treeDir: "D:/DeepSeek Harness/home/chess-context/sessions/ax08", traceRoot: "sessions" });
+  t.eq(r.valueFactStats.shown, 2, "上限 2 ⇒ 只渲染 2 条");
+  t.eq(r.valueFactStats.omitted, 1, "省略数必须真实");
+  t.includes(r.text, "另有 1 条值事实未展开", "省略必须印出计数（沉默 = 断言没有）");
+  t.includes(r.text, "sessions/ax08/graph.json", "省略行必须给可解析的位置（相对化）");
+  t.notIncludes(r.text, "DeepSeek Harness", "不许把绝对路径写进热清单（P6a）");
+  // 没有 treeDir 时也必须留一个可解析指向
+  const bare = renderLedger(g, { maxTokens: 4000, factGuard: true, maxValueFacts: 2 });
+  t.includes(bare.text, "graph.json", "无 treeDir 时退化为 graph.json，但仍有指向");
+  // 没有省略时不许出这一行（零成本）
+  const all = renderLedger(g, { maxTokens: 4000, factGuard: true, maxValueFacts: VALUE_FACT_RENDER_LIMIT });
+  t.eq(all.valueFactStats.omitted, 0, "没有省略时省略数必须是 0");
+  t.eq(all.text.includes("未展开"), false, "没有省略却印了省略行");
+};
+
+tests["AX-08 ⑦：预算不足先裁叙事 —— 值事实一条不缩，失败边先降到最近若干条"] = (t) => {
+  const facts = createdFacts("D:/x/keep.mjs", 5);
+  const g = valueFactGraph({ facts, failures: 40, sessionId: "ax08-budget" });
+  const wide = renderLedger(g, { maxTokens: 4000, factGuard: true });
+  const tight = renderLedger(g, { maxTokens: 300, factGuard: true });
+  t.eq(tight.level >= 4, true, `紧预算必须降到兜底档（实际 L${tight.level}）—— 这就是「先裁叙事」的实现形式`);
+  t.eq(tight.shownFailures < wide.shownFailures, true, `叙事（失败边）必须真的被裁掉（${tight.shownFailures} < ${wide.shownFailures}）`);
+  t.includes(tight.text, "VALUE FACTS", "值事实段不许被裁掉");
+  t.includes(tight.text, "D:/x/keep.mjs", "成功 write 的路径必须还在（K-2 S1-Q1 不许被预算挤没）");
+  t.includes(tight.text, "(seq 5)", "seq 也不许被裁");
+  t.eq(tight.valueFactStats.shown, 1, "值事实条数不随档位缩水");
+  t.eq(["none", "over-budget"].includes(tight.fallback), true, `兜底三态必须显式（实际 ${tight.fallback}）`);
+};
+
+tests["AX-08 ⑧：摘要硬事实块与零失败最小清单 —— guard 关掉一行不加，开启时带 evidence=seq"] = (t) => {
+  const facts = createdFacts("D:/x/facts.mjs", 5);
+  const g = valueFactGraph({ facts, sessionId: "ax08-surfaces" });
+  // renderFacts（摘要臂）
+  const factsOff = renderFacts(g);
+  t.eq(factsOff.includes("VALUE_FACTS"), false, "guard 关掉时摘要硬事实块一个字符都不加");
+  const factsOn = renderFacts(g, { factGuard: true });
+  t.includes(factsOn, "VALUE_FACTS_VERBATIM (1 of 1", "摘要臂要带条数");
+  t.includes(factsOn, "evidence=seq 5", "摘要臂同样要带 seq");
+  t.includes(factsOn, "D:/x/facts.mjs", "值必须在");
+  // renderMinimalLedger（零失败会话）
+  const minimalGraph = valueFactGraph({ facts, sessionId: "ax08-min" });
+  t.eq(renderLedger(minimalGraph, { maxTokens: 500 }).failureCount, 0, "夹具必须零失败边");
+  const minOff = renderMinimalLedger(minimalGraph);
+  t.eq(minOff.text.includes("VALUE FACTS"), false, "最小清单 guard 关掉时一行不加");
+  const minOn = renderMinimalLedger(minimalGraph, { factGuard: true });
+  t.includes(minOn.text, "VALUE FACTS", "零失败会话同样要能看到成功结果值（存了就得注入）");
+  t.includes(minOn.text, "D:/x/facts.mjs", "路径必须在");
+  t.includes(minOn.text, "(seq 5)", "seq 必须在");
+  t.eq(minOn.valueFactStats.shown, 1, "最小清单的统计口径要一致");
+};
+
+tests["AX-08 ⑨：valueFactDigest —— 值没变同 digest、值变了必变、没有值就是空串"] = (t) => {
+  const empty = valueFactGraph({ facts: [], sessionId: "ax08-digest" });
+  t.eq(valueFactDigest(empty), "", "没有值事实时必须返回空串（hot-inject 据此保持旧判据）");
+  const facts = createdFacts();
+  const a = valueFactGraph({ facts, sessionId: "ax08-digest-a" });
+  const b = valueFactGraph({ facts, sessionId: "ax08-digest-b" });
+  t.eq(valueFactDigest(a), valueFactDigest(b), "同样的值 ⇒ 同一个 digest（「不重复注入」的前提）");
+  const more = valueFactGraph({ facts: [...facts, ...apiFacts(9)], sessionId: "ax08-digest-a" });
+  t.ne(valueFactDigest(more), valueFactDigest(a), "多出值事实 ⇒ digest 必须变（否则新的值永远送不到）");
+};
+
+tests["AX-08 ⑩：collectValueFacts / planValueFacts / renderValueFactLine 的纯函数契约"] = (t) => {
+  const facts = createdFacts();
+  const g = valueFactGraph({ facts, sessionId: "ax08-pure" });
+  const collected = collectValueFacts(g);
+  t.eq(collected.total, 1, "一条事实");
+  t.eq(collected.malformed, 0, "合法事实不许计坏数据");
+  t.eq(isValueFact(facts[0]), true, "源事实必须满足 AX-02 契约");
+  const [fact] = collected.facts;
+  t.eq(fact.text, facts[0].value, "渲染用的文本必须逐字等于原值（不改写、不截断）");
+  t.eq(fact.evidenceSeq, 5, "证据指针 = 结果事件 seq");
+  t.eq(fact.validAtSeq, 5, "缺省 validAtSeq = evidenceSeq");
+  t.eq(renderValueFactLine(fact), `- ${fact.edgeId} file_created ${facts[0].value} (seq 5)`, "行格式冻结（改它 = 改行为）");
+  const plan = planValueFacts(collected.facts, { limit: 1 });
+  t.eq(plan.shown.length, 1, "限额内全渲染");
+  t.eq(plan.omitted, 0, "没有省略");
+  t.eq(plan.pointer, "graph.json", "没有 treeDir 时指针退化为 graph.json");
+  // 坏数组（不是数组）也要计入 malformed，而不是抛
+  const brokenGraph = valueFactGraph({ facts: [], sessionId: "ax08-pure-b" });
+  Object.values(brokenGraph.edges)[0].valueFacts = "not-an-array";
+  t.eq(collectValueFacts(brokenGraph).malformed, 1, "非数组必须计 malformed（不静默、不抛）");
 };

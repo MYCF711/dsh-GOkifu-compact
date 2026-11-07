@@ -17,7 +17,7 @@
  *   而不是假装不存在。摘要 prompt 的 renderFacts 仍然全量（那是一次性成本）。
  */
 
-import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass, evidenceEndSeq, evidenceStartSeq } from "./kifu-model.mjs";
+import { failureEdges, openEdges, currentPath, latestAgentNode, norm, tewariAnalysis, failureClass, evidenceEndSeq, evidenceStartSeq, sha } from "./kifu-model.mjs";
 import { weakKindOf } from "./verify.mjs";
 
 /* ───────────────── P6-A：悬空边（to=null）的分类与排除 ───────────────── */
@@ -182,6 +182,207 @@ export function estimateTokens(text) {
 
 /** 预算数学的专用别名：`token 预算 × 它 = 单位预算`（与 `UNITS_PER_TOKEN` 同值，写出来只为了说明「这是预算域」）。 */
 const BUDGET_UNITS_PER_TOKEN = UNITS_PER_TOKEN;
+
+/* ═════════════ AX-08：成功结果的值型事实（`edge.valueFacts`）如何进热清单 ═════════════
+ *
+ * 由来（K-2 已证实，不是假设）：每步清理工具结果后有两题从答对变成答不出，而丢的都不是长文，
+ * 是**短值** —— 成功 `write` 回执里的 `Created file` + 路径、仓库 API JSON 里的 `id` / `private`。
+ * AX-02 已经把短值抽出来（`src/rooms/tool-value-facts.mjs`），AX-04 已经把它挂在边的
+ * `valueFacts` 上；但**存了不等于注入**：没有渲染方读它，模型照样看不到。本段就是那个读取方。
+ *
+ * 四条硬约束（AX-08 卡，逐条对应）：
+ *   ① **guard=false 零渲染差异**：`factGuard !== true` 时下面所有函数一行都不产出，
+ *      旧图/旧行为**逐字不变**（`sha` 基线不动）；
+ *   ② **只读** `edge.valueFacts`：不写图、不重新抽取、不改 quote —— R06（本房间）的依赖面仍是
+ *      R00 + R04，**不 import 抽取器**（契约形状由 `test/ledger.test.mjs` 用 `isValueFact` 交叉钉住）；
+ *   ③ **预算不足先裁叙事**：值事实段与根目标/约束同级（每个档位都渲染），紧档位只裁 LEARNED 的
+ *      条数（L4 的 20 条 / L5 的 10 条），**值事实一条都不缩**；
+ *   ④ **不许静默丢**：超过条数上限、或值本身坏掉（类型不符 / 无 quote / seq 不是非负整数 /
+ *      值超长），都必须给**计数 + graph.json 指针**（`edges[*].valueFacts`）。
+ *
+ * 每行都带 `(seq N)`：这是「可回证」的唯一机械形式 —— 模型拿着 seq 能回到会话原文，
+ * 与失败边行的出处口径一致（见 `provenanceCoverageOf` 的口径说明）。**不写行动建议**，
+ * 只陈述「哪个成功结果留下了什么值、在哪一条事件里」（边界见 `docs/压缩的职责边界.md`）。
+ */
+
+/**
+ * 事实种类闭集：与 AX-02 的 `VALUE_FACT_KINDS` **同一份契约**。
+ * 这里刻意不 import 抽取器（R06 的允许依赖只有 R00/R04，登记在 `test/rooms.test.mjs`），
+ * 改为在测试里断言「两边集合逐字相同 + 每条渲染出来的事实都过 `isValueFact`」。
+ */
+const RENDERABLE_FACT_KINDS = Object.freeze(["file_created", "file_updated", "file_path", "id", "boolean", "config", "value"]);
+const RENDERABLE_FACT_KIND_SET = new Set(RENDERABLE_FACT_KINDS);
+/** 文件类事实：值就是路径本身，不带「键名」（quote 是整块回执，太贵）。 */
+const FILE_FACT_KINDS = new Set(["file_created", "file_updated", "file_path"]);
+
+/** 一次清单最多渲染几条值事实（再多就回到「回灌」；超出必须给计数 + 指针）。 */
+export const VALUE_FACT_RENDER_LIMIT = 8;
+/** 单个值的字符上限：**超了就丢弃**（截断的值 = 假值），并计入省略数。 */
+const VALUE_FACT_VALUE_MAX_CHARS = 200;
+/** 从 quote 里取 JSON 成员名的长度上限（防御坏数据，不是正常路径）。 */
+const VALUE_FACT_KEY_MAX_CHARS = 80;
+
+/**
+ * 从图里收集**可渲染**的值事实（纯读、确定性）。
+ *
+ * 去重口径：`kind + 值类型 + 值` 相同 ⇒ 只留**第一条**（图边插入顺序 = 时间顺序）。
+ * 为什么必须去重：同一个值常常被多条边各记一次（重试、重读），逐条渲染等于把同一句话
+ * 注入 N 遍 —— 白烧预算，且会让模型以为「这么多次都在说同一件事」有什么特别含义。
+ *
+ * @param {object} g 图（R00 形状）
+ * @returns {{facts: Array<object>, total: number, malformed: number}}
+ *   `total` = 去重后的条数；`malformed` = 形状不合契约、被丢弃的条数（可观测，不静默）。
+ */
+export function collectValueFacts(g) {
+  const facts = [];
+  const seen = new Set();
+  let malformed = 0;
+  for (const edge of Object.values(g?.edges ?? {})) {
+    if (edge?.valueFacts === undefined || edge?.valueFacts === null) continue;
+    if (!Array.isArray(edge.valueFacts)) {
+      malformed += 1;
+      continue;
+    }
+    for (const raw of edge.valueFacts) {
+      const fact = normalizeValueFact(raw, edge.id);
+      if (fact === null) {
+        malformed += 1;
+        continue;
+      }
+      const key = `${fact.kind}\u0000${typeof fact.value}\u0000${String(fact.text)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      facts.push(fact);
+    }
+  }
+  return { facts, total: facts.length, malformed };
+}
+
+/**
+ * 单条 `edge.valueFacts` 条目的渲染期形状判定。**与 AX-02 的 `isValueFact` 同口径**
+ * （六字段、种类-类型一致、seq 非负整数、quote 非空），但只保留渲染需要的那几个值。
+ * 任何一条不满足 ⇒ `null`（调用方计入 `malformed`，不渲成事实）。
+ */
+function normalizeValueFact(fact, edgeId) {
+  if (fact === null || typeof fact !== "object" || Array.isArray(fact)) return null;
+  if (typeof fact.kind !== "string" || !RENDERABLE_FACT_KIND_SET.has(fact.kind)) return null;
+  const value = fact.value;
+  const type = typeof value;
+  if (type !== "string" && type !== "number" && type !== "boolean") return null;
+  if (type === "number" && !Number.isFinite(value)) return null;
+  // 种类 ↔ 类型必须一致：`false` 不是「没有值」，但 `"false"` 字符串也不能冒充 boolean。
+  if (FILE_FACT_KINDS.has(fact.kind) && type !== "string") return null;
+  if (fact.kind === "boolean" && type !== "boolean") return null;
+  if (fact.kind === "id" && type === "boolean") return null;
+  if (fact.kind === "config" && type === "boolean") return null;
+  if (fact.kind === "value" && type !== "string") return null;
+  // 值必须能安全地放在**一行**里（换行/控制字符会破坏「一行一条」的清单契约）。
+  const text = type === "string" ? value : String(value);
+  if (text === "" || text.trim() === "") return null;
+  if (text.length > VALUE_FACT_VALUE_MAX_CHARS) return null;
+  if (text.includes("\n") || text.includes("\r") || text.includes("\u0000")) return null;
+  // 没有 quote 就没有回证物：宁可不渲染，也不给一条「说得对但查不到」的值。
+  if (typeof fact.quote !== "string" || fact.quote.trim() === "") return null;
+  if (!Number.isSafeInteger(fact.evidenceSeq) || fact.evidenceSeq < 0) return null;
+  const validAtSeq = Number.isSafeInteger(fact.validAtSeq) && fact.validAtSeq >= 0 ? fact.validAtSeq : fact.evidenceSeq;
+  return {
+    edgeId: String(edgeId ?? "?"),
+    kind: fact.kind,
+    value,
+    text,
+    evidenceSeq: fact.evidenceSeq,
+    validAtSeq,
+    key: quoteKeyOf(fact.kind, fact.quote),
+  };
+}
+
+/**
+ * 从 quote 里取 JSON 成员名（`"private": false` ⇒ `private`）。
+ *
+ * 为什么需要：`boolean` / `config` 这类事实的**值**（`false` / `1.19.0`）本身不带键名，
+ * 而「哪个键」正是 K-2 S2-Q3 要答的东西。键名只存在于 quote 里，所以从 quote 机械解析；
+ * 解析不出来就退回只印值（不猜、不编）。
+ */
+function quoteKeyOf(kind, quote) {
+  if (kind === "value" || FILE_FACT_KINDS.has(kind)) return "";
+  const m = /^\s*"((?:[^"\\]|\\.)*)"\s*:/.exec(String(quote ?? ""));
+  if (m === null) return "";
+  try {
+    const key = JSON.parse(`"${m[1]}"`);
+    return typeof key === "string" && key !== "" && key.length <= VALUE_FACT_KEY_MAX_CHARS ? key : "";
+  } catch {
+    return "";
+  }
+}
+
+/** 一条值事实的显示标签：`private=false` / `id` 的值 / 文件路径（逐字，不改写）。 */
+function valueFactLabel(fact) {
+  if (FILE_FACT_KINDS.has(fact.kind)) return fact.text;
+  if (fact.key === "") return fact.text;
+  // `id` 这一种 Kind 已经把键说完了（`id 4242` 比 `id id=4242` 好读）；`*_id` 才需要键名。
+  if (fact.kind === "id" && fact.key === "id") return fact.text;
+  return `${fact.key}=${fact.text}`;
+}
+
+/** 热清单里的一行值事实：`- e12 file_created D:/x/a.mjs (seq 5)`。 */
+export function renderValueFactLine(fact) {
+  return `- ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} (seq ${fact.evidenceSeq})`;
+}
+
+/**
+ * 挑选要渲染的那批值事实（纯函数）。超出上限的部分**不静默丢**：调用方拿到
+ * `total / shown / omitted / pointer`，必须把省略数 + 指针印出来。
+ *
+ * @param {Array<object>} facts `collectValueFacts().facts`
+ * @param {{limit?:number, relTree?:string}} [options]
+ */
+export function planValueFacts(facts, { limit = VALUE_FACT_RENDER_LIMIT, relTree = "" } = {}) {
+  const list = Array.isArray(facts) ? facts : [];
+  const raw = Number(limit);
+  const cap = Number.isFinite(raw) ? Math.max(1, Math.min(64, Math.trunc(raw))) : VALUE_FACT_RENDER_LIMIT;
+  const shown = list.slice(0, cap);
+  return {
+    shown,
+    total: list.length,
+    omitted: list.length - shown.length,
+    // 省略行必须给**可解析的位置**（与失败边的 `graph.json / nodes/<id>.md` 同一套口径），
+    // 且绝不泄漏绝对路径（P6a：treeDir 先相对化成 `sessions/<sid>`）。
+    pointer: relTree ? `${relTree}/graph.json` : "graph.json",
+  };
+}
+
+/**
+ * 值事实的「骨架摘要」：给 hot-inject 判「这一批值有没有变过」。
+ *
+ * 为什么要（AX-08：「避免**存了但没注入**」）：注入侧的限流判据是「事件间隔 + 失败边增量」，
+ * 而成功结果**不产生失败边** —— 一条新的 `Created file` 值在旧判据下会被 `throttled-failures`
+ * 静默挡住，直到下一次失败为止。有了这个 digest，hot-inject 才能在「值变了」时立刻送达，
+ * 同时在「值没变」时继续跳过（**不重复注入同值**）。
+ *
+ * 只由 `edgeId + kind + 值 + evidenceSeq` 组成：`validAtSeq/source` 与渲染文本同源，
+ * 放进来只会让「同样的清单」算出不同的 digest。
+ */
+export function valueFactDigest(g) {
+  const { facts } = collectValueFacts(g);
+  if (facts.length === 0) return "";
+  return sha(facts.map((fact) => `${fact.edgeId}\u0000${fact.kind}\u0000${typeof fact.value}\u0000${fact.text}\u0000${fact.evidenceSeq}`).join("\u0001"));
+}
+
+/**
+ * 热清单里的值事实段（**行数组**，空数组 = 一行都不加）。
+ * 顺序：标题 → 每条一行 → （有省略时）计数 + 指针。
+ */
+function valueFactLines(g, { factGuard = false, maxValueFacts = VALUE_FACT_RENDER_LIMIT, relTree = "" } = {}) {
+  if (factGuard !== true) return { lines: [], facts: [], total: 0, shown: 0, omitted: 0, malformed: 0 };
+  const { facts, total, malformed } = collectValueFacts(g);
+  if (total === 0) return { lines: [], facts: [], total: 0, shown: 0, omitted: 0, malformed };
+  const plan = planValueFacts(facts, { limit: maxValueFacts, relTree });
+  const lines = [`VALUE FACTS (verbatim; source seq per line):`];
+  for (const fact of plan.shown) lines.push(renderValueFactLine(fact));
+  // 省略行：**只陈述事实**（还有几条没展开、去哪里查），不给「该不该用」的指导。
+  if (plan.omitted > 0) lines.push(`# 另有 ${plan.omitted} 条值事实未展开（见 ${plan.pointer} 的 edges[*].valueFacts）`);
+  return { lines, facts: plan.shown, total: plan.total, shown: plan.shown.length, omitted: plan.omitted, malformed };
+}
 
 /**
  * ★ P5（2026-10-30）：渲染结果的预算状态三态。**必须显式**，不许把超预算内容静默返回。
@@ -771,11 +972,14 @@ export function provenanceCoverageOf(text, edgesById = null) {
  * 纯函数、零副作用；按行首归类，同段累加，未识别归 other。
  */
 export function measureLedgerSections(text) {
-  const sizes = { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 };
+  // ★ AX-08：多一段 `values`（成功结果的值型事实）。它是**独立预算**的一段 ——
+  //   把它并进 other 就看不出「值事实到底花了多少」，而它正是「先裁叙事」时要保的那一份。
+  const sizes = { root: 0, constraints: 0, values: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 };
   let mode = "other";
   for (const line of String(text ?? "").split("\n")) {
     if (line.startsWith("ROOT USER")) mode = "root";
     else if (line.startsWith("CONSTRAINTS")) mode = "constraints";
+    else if (line.startsWith("VALUE FACTS")) mode = "values";
     else if (line.startsWith("LEARNED") || line.startsWith("FAILED_ATTEMPTS")) mode = "failures";
     else if (line.startsWith("OPTIONS")) mode = "options";
     else if (line.startsWith("UNVERIFIED")) mode = "unverified";
@@ -833,7 +1037,10 @@ export function measureLedgerTimings(g, { reps = 10, now = Date.now() } = {}) {
   return { total, parts, split };
 }
 
-export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now() } = {}) {
+export function renderLedger(
+  g,
+  { maxTokens = 500, tailFailures = 20, markers = "semantic", treeDir = "", traceRoot = "", now = Date.now(), factGuard = false, maxValueFacts = VALUE_FACT_RENDER_LIMIT } = {},
+) {
   // ★ P6-A（task-56）：热清单只展示「有终点」的失败边。`to=null` 且已结算（或 untested 超 10 分钟）
   //   的是 rewash 历史残留，占全库失败边的 27.8%（268/964）——它们没有终点，构不成「哪一步失败了」，
   //   留在清单里只是噪声。**live_unsettled（新产生、≤10min 的 untested）必须保留**，否则会把
@@ -982,6 +1189,13 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
   const traceRecentSeg = traceBaseLine === null ? "" : traceRecentSegment(path);
   const traceRecentLine = traceRecentSeg === "" ? null : `${traceBaseLine} · ${traceRecentSeg}`;
 
+  // ★ AX-08：成功结果的值型事实段。`factGuard !== true` ⇒ 空数组（**一个字符都不加**，
+  //   旧图/旧行为逐字不变）。这一段与根目标/约束同级：每个档位都渲染，紧档位只裁 LEARNED 的条数
+  //   —— 这就是「预算不足时先裁叙事，不静默丢值」。
+  const valueFacts = valueFactLines(g, { factGuard, maxValueFacts, relTree });
+  /** 值事实段占用的**单位**数（含各行换行）—— 必须进 `doomed` 的固定开销，否则会少算预算。 */
+  const valueFactUnits = valueFacts.lines.reduce((n, line) => n + unitsOf(line) + 1, 0);
+
   /**
    * 某一档「注定装不下」的下界（只会跳过铁定超预算的档，不误伤）。
    *
@@ -1006,7 +1220,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     const shownCount = lv === 4 ? Math.min(failures.length, tailFailures) : lv === 5 ? Math.min(failures.length, 10) : failures.length;
     const slice = lv >= 4 ? failures.slice(-shownCount) : failures;
     // 固定开销 300 **按 ASCII 保守处理**（宁可少跳过一档）。
-    let units = 300;
+    // ★ AX-08：值事实段是**不可裁**的一段（与根目标/约束同级），必须算进这个下界。
+    let units = 300 + valueFactUnits;
     for (const edge of slice) units += failureLineUnits(edge, lv);
     return units > maxTokens * BUDGET_UNITS_PER_TOKEN;
   };
@@ -1054,6 +1269,13 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         unyieldingText += `${line} `;
         lines.push(line);
       }
+    }
+    // ★ AX-08：值型事实段（`factGuard` 开启才非空）。放在根目标/约束之后、路径与失败叙事之前：
+    //   「预算不足先裁叙事」在结构上成立 —— 这条段的条数**不随档位缩水**，紧档位只砍 LEARNED 的条数。
+    //   它同时进 `unyieldingText`：值事实是不可裁的一段（超预算归因时要算进去）。
+    for (const valueLine of valueFacts.lines) {
+      unyieldingText += `${valueLine} `;
+      lines.push(valueLine);
     }
     // ★ C-17（2026-10-30，verifier 抓到的回归修复）：失败边块**先算成字符串数组**（先不 push），
     //   这样路径行的预算能扣掉它的**真实长度**。
@@ -1339,6 +1561,9 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
         provenanceCoverage: provenanceCoverageOf(chosen.text, failuresById),
         evidenceMissing,
         sections: measureLedgerSections(chosen.text),
+        // ★ AX-08：值事实的条数账（total / 渲染了几条 / 省略几条 / 坏数据几条）——
+        //   「省略」必须可观测：doctor 与审计据此判断「是不是有值被静默丢了」。
+        valueFactStats: { total: valueFacts.total, shown: valueFacts.shown, omitted: valueFacts.omitted, malformed: valueFacts.malformed },
         // C63：所有尝试的 tokens（归因据此判断「所选是否已是最省的一份」）
         attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
       };
@@ -1360,6 +1585,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
       evidenceMissing,
       attemptTokens: attempts.map((a) => ({ level: a.level, tokens: a.tokens })),
       sections: measureLedgerSections(best.text),
+      valueFactStats: { total: valueFacts.total, shown: valueFacts.shown, omitted: valueFacts.omitted, malformed: valueFacts.malformed },
     };
   }
   /* istanbul ignore next -- 循环必然返回 */
@@ -1375,7 +1601,8 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
     overBudgetBy: 0,
     provenanceCoverage: 1,
     evidenceMissing,
-    sections: { root: 0, constraints: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 },
+    sections: { root: 0, constraints: 0, values: 0, failures: 0, options: 0, unverified: 0, path: 0, other: 0 },
+    valueFactStats: { total: valueFacts.total, shown: 0, omitted: valueFacts.total, malformed: valueFacts.malformed },
   };
 }
 
@@ -1395,7 +1622,7 @@ export function renderLedger(g, { maxTokens = 500, tailFailures = 20, markers = 
  *
  * @returns {{text:string, tokens:number, level:number, omittedEdges:number, failureCount:number, shownFailures:number, fallback:string, budgetMax:number, overBudgetBy:number}}
  */
-export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {}) {
+export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now(), factGuard = false, maxValueFacts = VALUE_FACT_RENDER_LIMIT } = {}) {
   const root = g?.rootNode ?? (g?.rootUserNodeIds ?? []).map((id) => g?.nodes?.[id]).filter(Boolean)[0];
   const latest = latestAgentNode(g);
   const goalText = clip(String(latest?.goal ?? root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
@@ -1408,6 +1635,11 @@ export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {
   if (goalText && goalText !== rootText) lines.push(`GOAL: ${goalText}`);
   else if (!rootText && goalText) lines.push(`GOAL: ${goalText}`);
   lines.push(`CONSTRAINTS: ${constraints.length}`);
+  // ★ AX-08：零失败**不等于**没有值型事实 —— 成功 write/read 的短值完全可能出现在一个没有
+  //   任何失败边的会话里（K-2 S1-Q1 正是这个形状）。最小清单是「零失败会话」的唯一注入内容，
+  //   这里不读 `edge.valueFacts` 就等于把它们静默丢掉。guard 关掉时一行都不加（逐字不变）。
+  const minimalValueFacts = valueFactLines(g, { factGuard, maxValueFacts, relTree: "" });
+  for (const valueLine of minimalValueFacts.lines) lines.push(valueLine);
   // ★ C223：零失败边的会话占真实会话的约 26%，而旧版最小清单**完全没有当前位置** ——
   //   模型只拿到「目标 + 约束个数 + 没有失败」，不知道自己在哪一步、手里那条工作路径是什么。
   //   契约 ⑥（图有路径 ⇒ 清单必须有当前位置）在这里被违反了：handoff-check 在 live 上抓到 2 个会话
@@ -1441,6 +1673,8 @@ export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now() } = {
     budgetMax: maxTokens,
     overBudgetBy: over,
     minimal: true,
+    // ★ AX-08：最小清单同样要报值事实的条数账（省略必须可观测）。
+    valueFactStats: { total: minimalValueFacts.total, shown: minimalValueFacts.shown, omitted: minimalValueFacts.omitted, malformed: minimalValueFacts.malformed },
   };
 }
 
@@ -1498,7 +1732,7 @@ export function collectConstraints(g) {
  */
 export function renderFacts(
   g,
-  { maxFailures = 800, headFailures = 80, range = null, treeDir = "", traceRoot = "", now = Date.now() } = {},
+  { maxFailures = 800, headFailures = 80, range = null, treeDir = "", traceRoot = "", now = Date.now(), factGuard = false, maxValueFacts = VALUE_FACT_RENDER_LIMIT } = {},
 ) {
   // ★ 2026-11-01（调研候选 #3）：省略行必须给出**可解析的位置**，且不允许泄漏绝对路径（P6a）。
   //   与热清单的 TRACE 行同一套相对化规则：`treeDir` → `sessions/<sid>`（或配置的 traceRoot）。
@@ -1571,6 +1805,22 @@ export function renderFacts(
     lines.push(`CURRENT_PATH: ${path.map((n) => n.id).join(" -> ")}`);
     if (latest?.goal) lines.push(`CURRENT_GOAL: ${latest.goal}`);
     lines.push(`CURRENT_STATE_KEY: ${shortHash(latest?.worldHash)}/${shortHash(latest?.constraintHash)}`);
+  }
+  // ★ AX-08：成功结果的**值型事实**（K-2 的退化点：`Created file` 路径、API 的 `id` / `private`）。
+  //   摘要臂同样要看到它们 —— 否则「压缩后重灌」这件事只对失败边成立，对被清理掉的工具结果不成立。
+  //   guard 关掉时一行都不加（`renderFacts(graph)` 的既有调用方逐字不变）。
+  //   每条都带 `evidence=seq N`（回证物）；超出上限的部分给计数 + 指针，**不静默丢**。
+  const factsValue = valueFactLines(g, { factGuard, maxValueFacts, relTree });
+  if (factsValue.shown > 0) {
+    lines.push(`VALUE_FACTS_VERBATIM (${factsValue.shown} of ${factsValue.total}; keep every line, never merge, never drop):`);
+    for (const fact of factsValue.facts) {
+      lines.push(`* ${fact.edgeId} ${fact.kind} ${valueFactLabel(fact)} evidence=seq ${fact.evidenceSeq}`);
+    }
+  }
+  if (factsValue.omitted > 0) {
+    lines.push(
+      `VALUE_FACTS_OMITTED: ${factsValue.omitted} more short values are NOT listed here for budget — full text: ${relTree ? `${relTree}/graph.json` : "graph.json"} (edges[*].valueFacts); do not invent or merge them, just note that they exist.`,
+    );
   }
   // ★ P6-A（task-56）：硬事实仍列**全部**失败边（失败记忆不能丢），但必须显式区分
   //   「无终点残留」—— 否则读者会把 rewash 残留当成真失败，或反过来以为清单被裁剪过。
