@@ -562,16 +562,25 @@ export function k2Plan(questions, limit) {
 export function k27Plan(fixtures, limit) {
   const list = Array.isArray(fixtures) ? fixtures.filter((q) => isPlainObject(q) && typeof q.id === "string") : [];
   const want = Math.max(0, Math.min(Number(limit) || 0, LIMITS.k27PilotQuestions));
+  // 预注册 pilot 选择：五类各取前 2 题（与 scripts/lme-pilot-reader.mjs selectPilot 同口径）。
+  // 旧实现取「前 N 个」在 50 题夹具上只会得到 IE-01..IE-10，五类覆盖不成立。
+  const types = ["IE", "MR", "KU", "TR", "ABS"];
+  const selected = [];
+  for (let round = 0; round < 2 && selected.length < want; round += 1) {
+    for (const type of types) {
+      if (selected.length >= want) break;
+      const index = list.findIndex((fixture, i) => String(fixture.type ?? "") === type && !selected.some((entry) => entry.index === i));
+      if (index < 0) continue;
+      const fixture = list[index];
+      selected.push({ index, questionId: fixture.id, type });
+    }
+  }
   return {
     corpus: "k27",
     requested: want,
     available: list.length,
-    missing: Math.max(0, want - list.length),
-    selected: list.slice(0, want).map((fixture, index) => ({
-      index,
-      questionId: fixture.id,
-      type: String(fixture.type ?? ""),
-    })),
+    missing: Math.max(0, want - selected.length),
+    selected,
   };
 }
 
