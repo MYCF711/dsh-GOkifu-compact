@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.18.5**（稳定版，1.18.4 之后）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2149 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
+| 版本 | **1.18.5**（稳定版，1.18.4 之后）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2152 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
@@ -29,7 +29,7 @@
 node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
 node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
 npm run gate                                # 7 判分门；跑完把实测 passed 回写 test/counts-baseline.json
-node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成基线值（**8 份文档 / 14 处锚点**一次改完）
+node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成权威值（**9 份文档 / 20 处锚点**一次改完）
 node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
 ```
 
@@ -40,8 +40,9 @@ node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有
 > `scripts/changelog-index.mjs` 的 `parseEntries` 解析），由 `scripts/sync-doc-numbers.mjs` 写回；
 > `--check` 也挂在 `npm run gate` 的「仅供参考」区，每次门禁都会出现一次。
 > **不要再手改那 10 处** —— 改了要么被下一次 `--write` 覆盖，要么被 `--check` 点名。
-> bench tokens / doctor 警告数 / live fold 数 **不在**本机制内：它们各自由 `bench-repro` /
-> `doctor` / `live-folds` 重新生成。
+> bench tokens / doctor 警告数 **不在**本机制内：它们各自由 `bench-repro` / `doctor` 重新生成。
+> live fold 数字只认 `live-folds --write` 落盘的 JSON；本脚本同步现状行，并复用
+> `fold-per-session.mjs` 的 `renderPerSession` 重生成逐会话表，不重新采集、不另造口径。
 
 ## 🗒 追加日志（旧在上、新在下；最后更新到 C171）
 

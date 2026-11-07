@@ -21,9 +21,13 @@
  *      绝不"估一个数"写进文档 —— 猜出来的数字比过期更坏（过期至少还能被守卫抓到）。
  *
  * **不碰**的东西（它们各自有生成脚本，在这里再抄一遍就是第四个来源）：
- *   bench tokens（`bench-repro`）· doctor 警告数（`doctor`）· live fold 次数/会话数（`live-folds`）
+ *   bench tokens（`bench-repro`）· doctor 警告数（`doctor`）
  *   · handoff-check 的 FAIL/WARN（`handoff-check`）· 门禁门数（`gate.mjs` 的 `GATES`，且被
  *   `test/gate.test.mjs` 逐项钉死，不许手改）。
+ *
+ * live fold 数字的权威源是 `live-folds --write` 已经落盘的 `evidence/live-folds.json`：
+ * 本脚本**不重新采集**，只把 JSON 现值同步到现状文档；逐会话表则复用
+ * `fold-per-session.mjs` 的 `renderPerSession` 重新生成，避免另写一套 bySession 口径。
  *
  * 用法：
  *   node scripts/sync-doc-numbers.mjs            # 预演：只报告差异，不落盘
@@ -38,6 +42,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEntries } from "./changelog-index.mjs";
+import { renderPerSession } from "./fold-per-session.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 
@@ -48,9 +53,12 @@ export const REPO = nodePath.resolve(HERE, "..");
 export const PASSED_FILE = nodePath.join("test", "counts-baseline.json");
 
 export const CHANGELOG_FILE = "CHANGELOG.md";
+export const LIVE_FOLDS_FILE = nodePath.join("evidence", "live-folds.json");
+export const PER_SESSION_FILE = "evidence/fold质量-多会话-2026-11-02.md";
 
 /**
- * 只在这 8 份文档里同步。
+ * 基础 passed / CHANGELOG 计数只在这 8 份文档里同步；live 现状行与逐会话生成物由
+ * `LIVE_TARGETS` 额外覆盖（其中逐会话表是第 9 份文档）。
  *
  * 前 4 份是 C603 时的范围（现状块 / 总览 / 调研结论 / 进度页）；后 4 份是「面向用户的手写契约」
  * —— 读者按它们判断「这东西到底过没过测试」，所以里面的 `passed` 过期比别处更贵。
@@ -168,6 +176,12 @@ export function readChangelog(root = REPO) {
 export const TARGETS = Object.freeze([
   {
     file: "HANDOFF.md",
+    what: "版本行 · 全量测试通过数（C485 的第一处全量计数）",
+    re: /(\| 版本 \|[^\n]*?全量 \*\*)(\d+)( passed)/g,
+    want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
+  },
+  {
+    file: "HANDOFF.md",
     what: "门禁行 · 全量测试通过数",
     re: /(\| 门禁 \|[^\n]*?全量 \*\*)(\d+)( passed)/g,
     want: (m, v) => `${m[1]}${v.passed}${m[3]}`,
@@ -262,6 +276,126 @@ export const TARGETS = Object.freeze([
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ②b live-folds 落点（独立表：采集仍归 live-folds，本脚本只同步已落盘的 JSON）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 读 live 权威源。旧的 doc-numbers 单元夹具只复制基础 DOCS / CHANGELOG / counts-baseline，
+ * 没有 package.json、live-folds.json 与逐会话表；这种**基础夹具**不启用 live 锚点。
+ * 真实仓库或完整副本缺权威源时必须报错，不许把「没文件」当「全部一致」。
+ */
+export function readLiveFolds(root = REPO) {
+  const file = nodePath.join(root, LIVE_FOLDS_FILE);
+  if (!nodeFs.existsSync(file)) {
+    const completeRoot =
+      nodePath.resolve(root) === nodePath.resolve(REPO) ||
+      nodeFs.existsSync(nodePath.join(root, "package.json")) ||
+      nodeFs.existsSync(nodePath.join(root, PER_SESSION_FILE));
+    if (completeRoot) throw new Error(`找不到 ${LIVE_FOLDS_FILE} —— 先跑 \`node scripts/live-folds.mjs --write\`；本脚本不猜`);
+    return null;
+  }
+  let json;
+  try {
+    json = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`${LIVE_FOLDS_FILE} 不是合法 JSON：${error.message}`);
+  }
+  const summary = json?.summary;
+  const required = {
+    total: summary?.total,
+    sessionsWithFolds: summary?.bySession?.sessionsWithFolds,
+    qualityCount: summary?.quality?.count,
+    constraintRecallMin: summary?.quality?.constraintRecallMin,
+    failureRecallMin: summary?.quality?.failureRecallMin,
+    compressionRatioMin: summary?.quality?.compressionRatioMin,
+    compressionRatioMax: summary?.quality?.compressionRatioMax,
+    unknownIdsTotal: summary?.quality?.unknownIdsTotal,
+    shadowedShareMin: summary?.cost?.shadowedShareMin,
+    shadowedShareMax: summary?.cost?.shadowedShareMax,
+    thrashSessions: summary?.thrash?.sessions,
+  };
+  for (const [name, value] of Object.entries(required)) {
+    if (!Number.isFinite(value)) throw new Error(`${LIVE_FOLDS_FILE} 缺少数值 summary.${name}（当前 ${JSON.stringify(value)}）；本脚本不猜`);
+  }
+  if (!Array.isArray(json?.folds)) throw new Error(`${LIVE_FOLDS_FILE} 缺少 folds 数组；无法生成逐会话表`);
+  if (typeof json?.generatedAt !== "string" || json.generatedAt.length === 0) {
+    throw new Error(`${LIVE_FOLDS_FILE} 缺少 generatedAt；现状文档不能伪造生成时间`);
+  }
+  const boundaryCount = json.folds.filter((x) => x.boundary && typeof x.boundary.openAtEnd === "number").length;
+  const openAtEnd = json.folds.reduce((sum, x) => sum + (x.boundary?.openAtEnd ?? 0), 0);
+  return {
+    json,
+    summary,
+    generatedAt: json.generatedAt,
+    records: json.folds.length,
+    manual: Number.isFinite(summary.manual) ? summary.manual : json.folds.length - summary.total,
+    boundaryCount,
+    openAtEnd,
+    costMin: Math.round(summary.cost.shadowedShareMin * 100),
+    costMax: Math.round(summary.cost.shadowedShareMax * 100),
+    perSessionText: renderPerSession(json),
+  };
+}
+
+function renderEvidenceLiveRow(live) {
+  const s = live.summary;
+  return `| \`live-folds.json\` / \`.md\` | \`node scripts/live-folds.mjs --write\`（**默认只打印**，显式 \`--write\` 才落盘） | ${live.generatedAt} | **${s.total} 次 live fold / ${s.bySession.sessionsWithFolds} 会话**（另有 ${live.manual} 条手工压缩记录，无区间）；quality ${s.quality.count}、质量 c=${s.quality.constraintRecallMin} / f=${s.quality.failureRecallMin}、压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}、幻觉探针 ${s.quality.unknownIdsTotal} 次；成本 ${live.costMin}–${live.costMax}%（${live.costMax}% 是那次走到 \`wps-lingxi\` 的异常样本）；\`foldThrash\` ${s.thrash.sessions}；注意其中 1 次走了 \`wps-lingxi/kimi-k3.1-pro\`（不是 DeepSeek，见 C467） |`;
+}
+
+function renderEvidencePerSessionRow(live) {
+  const s = live.summary;
+  return `| \`fold质量-多会话-2026-11-02.md\` | \`node scripts/fold-per-session.mjs --write\`（**生成物**，从 \`live-folds.json\` 摊开，勿手改） | ${live.generatedAt} | **${s.bySession.sessionsWithFolds} 个有 fold 的会话 / ${live.records} 条 fold 记录**（= ${s.total} 次 fold + ${live.manual} 条手工记录）：quality ${s.quality.count} 次召回最小 ${s.quality.constraintRecallMin}、**failureRecall 最小 ${s.quality.failureRecallMin}**；带 boundary 的 **${live.boundaryCount}** 次 openAtEnd 全 ${live.openAtEnd}；\`foldThrash\` ${s.thrash.sessions} |`;
+}
+
+function renderResearchLiveRow(live) {
+  const s = live.summary;
+  const triggers = s.triggerCounts ?? {};
+  return `| live fold | **${s.total} 次 / ${s.bySession.sessionsWithFolds} 会话**（thrash ${s.thrash.sessions}；trigger: pressure ${triggers.pressure ?? 0} / tier2 ${triggers.tier2 ?? 0} / context-overflow ${triggers["context-overflow"] ?? 0} / archive-offline ${triggers["archive-offline"] ?? 0}）；**quality ${s.quality.count}/${s.total}**，\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（**不是"召回全 1"**）；boundary 切在工具调用中间 **${live.openAtEnd}** 次；压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}；成本 ${live.costMin}–${live.costMax}%（${live.costMax}% 是 1 次走到 \`wps-lingxi/*\` 的异常样本，见 C467） |`;
+}
+
+function renderOverviewLiveRow(live) {
+  const s = live.summary;
+  return `| live 证据 | **${s.total} 次 fold / ${s.bySession.sessionsWithFolds} 会话**：quality ${s.quality.count} 次、\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（有 1 次掉到 0，别再说"召回全 1"）、boundary 切点落在工具调用中间 **${live.openAtEnd}** 次、\`foldThrash\` ${s.thrash.sessions}；逐项见 \`evidence/live-folds.json\`（生成于 ${live.generatedAt}；逐会话表由 \`scripts/fold-per-session.mjs\` 生成） |`;
+}
+
+export const LIVE_TARGETS = Object.freeze([
+  {
+    file: "evidence/README.md",
+    what: "live-folds 索引行 · 总数 / 会话 / quality / 区间 / 成本 / 生成时间",
+    re: /^\| `live-folds\.json` \/ `\.md` \|.*$/gm,
+    want: (m, v) => renderEvidenceLiveRow(v.live),
+  },
+  {
+    file: "evidence/README.md",
+    what: "逐会话索引行 · 记录数 / 会话 / quality / boundary / 生成时间",
+    re: /^\| `fold质量-多会话-2026-11-02\.md` \|.*$/gm,
+    want: (m, v) => renderEvidencePerSessionRow(v.live),
+  },
+  {
+    file: "docs/research/00-蒸馏-对本插件的可执行结论.md",
+    what: "§11.1 live 行 · 总数 / 会话 / trigger / quality / 区间 / 成本",
+    re: /^\| live fold \|.*$/gm,
+    want: (m, v) => renderResearchLiveRow(v.live),
+  },
+  {
+    file: "evidence/持续优化-总览-2026-11-02.md",
+    what: "总览 live 行 · 总数 / 会话 / quality / boundary / 生成时间",
+    re: /^\| live 证据 \|.*$/gm,
+    want: (m, v) => renderOverviewLiveRow(v.live),
+  },
+  {
+    file: PER_SESSION_FILE,
+    what: "逐会话表 · 由 renderPerSession(live-folds.json) 全量重生成",
+    re: /^# 逐会话折叠质量（\*\*生成物\*\*，勿手改）[\s\S]*$/,
+    want: (m, v) => v.live.perSessionText,
+    report: (hit, v) => ({
+      haveLabel: hit.have.split("\n").find((line) => line.startsWith("> 共 ")) ?? "旧逐会话生成物",
+      wantLabel: v.live.perSessionText.split("\n").find((line) => line.startsWith("> 共 ")) ?? "新逐会话生成物",
+    }),
+  },
+]);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ③ 扫描 / 落盘
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -305,15 +439,18 @@ export function scanText(text, target, values) {
 export function planSync({ root = REPO } = {}) {
   const { passed, at, passedAtUtcZ } = readPassed(root);
   const changelog = readChangelog(root);
-  const values = { passed, passedAt: at, passedAtUtcZ, ...changelog };
+  const live = readLiveFolds(root);
+  const values = { passed, passedAt: at, passedAtUtcZ, ...changelog, live };
+  const activeTargets = live === null ? TARGETS : [...TARGETS, ...LIVE_TARGETS];
+  const docs = live === null ? DOCS : [...new Set([...DOCS, ...LIVE_TARGETS.map((target) => target.file)])];
 
   const problems = [];
   const files = [];
   let anchors = 0;
   let drifted = 0;
 
-  for (const rel of DOCS) {
-    const targets = TARGETS.filter((t) => t.file === rel);
+  for (const rel of docs) {
+    const targets = activeTargets.filter((t) => t.file === rel);
     if (targets.length === 0) continue;
     const abs = nodePath.join(root, rel);
     if (!nodeFs.existsSync(abs)) {
@@ -330,7 +467,8 @@ export function planSync({ root = REPO } = {}) {
         continue;
       }
       for (const hit of scanned.hits) {
-        hits.push({ ...hit, line: lineOf(text, hit.at), what: target.what });
+        const report = target.report?.(hit, values) ?? {};
+        hits.push({ ...hit, ...report, line: lineOf(text, hit.at), what: target.what });
       }
     }
     // 同一文件里多处的行号顺序（报告好读）
@@ -339,7 +477,7 @@ export function planSync({ root = REPO } = {}) {
     files.push({ file: rel, abs, text, hits });
   }
 
-  return { values, files, problems, drifted, anchors };
+  return { values, files, problems, drifted, anchors, coveredDocs: docs.length };
 }
 
 /** 就地应用命中（从后往前改，索引不会互相弄乱）。 */
@@ -361,12 +499,16 @@ export function renderReport(plan, { wrote = false } = {}) {
   out.push(
     `        CHANGELOG = ${values.entries} 条条目 / ${values.ids} 个编号 / 最大 C${values.max}（经 changelog-index.parseEntries）`,
   );
-  out.push(`覆盖 ${DOCS.length} 份文档 / ${plan.anchors} 处锚点`);
+  if (values.live) {
+    const s = values.live.summary;
+    out.push(`        live-folds = ${s.total} 次 / ${s.bySession.sessionsWithFolds} 会话 / quality ${s.quality.count}（${LIVE_FOLDS_FILE}）`);
+  }
+  out.push(`覆盖 ${plan.coveredDocs ?? DOCS.length} 份文档 / ${plan.anchors} 处锚点`);
 
   for (const file of files) {
     for (const hit of file.hits) {
       out.push(`  ${wrote ? "✎" : "✗"} ${file.file}:${hit.line} ［${hit.what}］`);
-      out.push(`      「${hit.have}」→「${hit.want}」`);
+      out.push(`      「${hit.haveLabel ?? hit.have}」→「${hit.wantLabel ?? hit.want}」`);
     }
   }
   for (const problem of problems) out.push(`  ! ${problem}`);
