@@ -862,7 +862,7 @@ export function foldBudgetFor(input, configured = 8192) {
 }
 
 /** ★ C599：所有 `max_tokens` 的硬上限（与 `foldBudgetFor` 的夹取上界、配置的 16,384 同一口径）。 */
-export const HARD_MAX_TOKENS = 16_384;
+export const HARD_MAX_TOKENS = 32_768;
 
 /**
  * ★ C599：**按「剩余预算 ÷ 实测段耗时」算还能开几轮**。纯函数，便于单测。

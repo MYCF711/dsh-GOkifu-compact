@@ -307,7 +307,7 @@ export function parseArgs(argv = []) {
     else if (name === "k2-sessions") options.k2Sessions = Math.max(0, Number(value) || 0);
     else if (name === "k27-questions") options.k27Questions = Math.max(0, Number(value) || 0);
     else if (name === "max-calls") options.maxCalls = Math.max(1, Number(value) || LIMITS.maxCalls);
-    else if (name === "max-tokens-cap") options.maxTokensCap = Math.max(1024, Math.min(16_384, Number(value) || 8192));
+    else if (name === "max-tokens-cap") options.maxTokensCap = Math.max(1024, Math.min(32_768, Number(value) || 8192));
     else if (name === "max-chars") options.maxChars = Math.max(500, Number(value) || 60_000);
     else if (name === "timeout") options.timeoutMs = Math.max(1000, Number(value) || DEFAULT_TIMEOUT_MS);
   }
@@ -1348,9 +1348,15 @@ export function privacyCheck(text, needles) {
  */
 export function privacyNeedles(items) {
   const needles = new Set();
+  /**
+   * 公开配置路径不是私有串：默认模型的来源是 `profiles/desktop/cordis.patch.yml`，
+   * 这个字符串会出现在产物的 `defaultModel.source` 里，属于可公开的坐标。
+   * 允许清单只放**仓库里的公开路径**，不放任何正文。
+   */
+  const PUBLIC_OK = new Set(["cordis.patch.yml"]);
   const add = (value) => {
     const text = String(value ?? "");
-    if (text.length >= 12) needles.add(text);
+    if (text.length >= 12 && !PUBLIC_OK.has(text)) needles.add(text);
   };
   for (const item of Array.isArray(items) ? items : []) {
     // ★ sessionId 是会话坐标（私有）；sampleId / sessionHash 是冻结证据里本来就有的短哈希，
