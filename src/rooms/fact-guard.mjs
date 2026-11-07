@@ -8,7 +8,8 @@
  *   ② 无源负向断言    —— 「日志无 X」这类否定句，引文里根本没有否定的来源
  *   ③ 过期「当前」    —— 节点当时的「当前」被后续修改推翻，却仍按当前陈述
  *   ④ 实参当返回值    —— 把 `fn(false)` 的实参写成「fn 返回 false」
- *   ⑤ 状态过度声称    —— 把「决定改」写成「已改完」
+ *   ⑤ 状态过度声称    —— 把「决定改」写成「已改完」；**也包括**把「现在发 / 将发布」
+ *                        写成「发布」（发布类动词必须按**体**判，不能只做词表匹配）
  *
  * 本房间只做一件事：**模型产出的事实候选 + 叙事，必须能被冷代码机械判定「能不能算事实」**。
  * 它不生成事实、不润色摘要、不调用模型 —— 判据全部是确定性的字符串/编号检查。
@@ -32,6 +33,17 @@
  *     text      必填 · 叙事正文
  *     factRefs  必填 · 引用的**事实 id** 列表；空数组 ⇒ 降级 UNVERIFIED（不能当事实渲染）
  *     validAtSeq 可选 · 叙事成立的时点
+ *
+ *   FactVerdict（裁决记录 · **自足**，AX-19/P1-3 起）
+ *     id / kind / subject / claim   原样转写（模型当时交的那条候选）
+ *     quote                         **有界 quote 原文**（≤ MAX_QUOTE_CHARS；无 quote ⇒ null）
+ *     quoteTruncated                quote 是否被截断（原文更长）
+ *     verdict / reasons / evidenceSeq / validAtSeq / sourceRole
+ *     quoteVerbatim                 quote 是否逐字命中证据事件
+ *     entailmentProven              **恒 false**（逐字命中 ≠ 语义蕴含）
+ *
+ *   ⇒ 只拿一条裁决记录（`quote` + `evidenceSeq` + `sourceRole`）就能回到证据事件复判，
+ *     **不需要**再翻模型的 `rawOutputs`。这是 P1-3 的可复核性要求，不是缓存。
  *
  * ── 三条不可妥协的语义（写进返回值，不写在注释里靠人记）────────────────────
  *
@@ -182,6 +194,41 @@ const NEGATIVE_MARKERS = Object.freeze(["没有任何", "没有", "不存在", "
 /** 完成体标记：claim 声称「已经……」时，引文里必须也有一个。 */
 const COMPLETED_MARKERS = Object.freeze(["已", "完成", "修好", "修复", "解决", "通过", "合入", "落地"]);
 
+/**
+ * ★ AX-19（P2-1）：**发布类动词**必须按「体（aspect）」判，不能只做集合匹配。
+ *
+ * 中文里「0.2.13 发布」是**完成体标题**（= 已发布），但同一个动词也能做意愿动词：
+ * 「现在发 `0.2.13` 并装回」「将上线」「准备发版」。只把「发布 / 上线 / 装回」塞进
+ * `COMPLETED_MARKERS` 会**两头都错**（AX-14 的 f11 就是这么漏的）：
+ *
+ *   · 引文里的「并**装回**」也会命中完成体集合 ⇒ `!hasAny(quote, COMPLETED_MARKERS)` 为假
+ *     ⇒ 「claim 已发布、引文只是现在发」照样放行；
+ *   · 引文里的「**现在**发」不在 `INTENT_MARKERS` 里 ⇒ 意愿体根本没有被识别。
+ *
+ * ⇒ 判据是**同一次出现的上下文**，不是词表里有没有这个词：
+ *   · 动词前紧邻「已 / 刚刚」或动词后紧跟「了 / 完 / 成功 / 完成」⇒ **完成体**；
+ *   · 动词前紧邻「现在 / 将 / 要 / 准备 / 决定」⇒ **意愿体**（将来/祈使）。
+ * 裸动词（「0.2.13 发布」）在 claim 侧算完成体标题，在引文侧算「没有完成证据」，
+ * 于是「claim 完成体 + 引文意愿体」这一对才触发 ⑤。
+ *
+ * 裸「发」只在带**发布宾语**（版本号 / 反引号 / 版 / 包）时才算发布动词 ——
+ * 否则「发现」「开发」会被当成发布，制造假红。`(?<!开)` 挡的是「开发」。
+ */
+const RELEASE_VERB_RE = /发出去|发布|发版|发包|上线|装回|推送|(?<![开])发(?=\s*(?:`|v?\d|版本|版|包))/g;
+
+/** 完成体的**前缀**（紧邻动词前）：已发布 / 刚刚上线 / 早已装回。 */
+const COMPLETION_PREFIXES = Object.freeze(["已", "已经", "早已", "刚刚", "刚"]);
+
+/** 完成体的**后缀**（紧邻动词后）：发布了 / 发完 / 装回好了 / 发布成功 / 上线完成。 */
+const COMPLETION_SUFFIXES = Object.freeze(["了", "完", "好", "成功", "完成", "掉", "出去"]);
+
+/** 意愿 / 将来 / 祈使前缀（紧邻动词前）：现在发 / 将上线 / 准备装回 / 决定发布。 */
+const INTENT_PREFIXES = Object.freeze(["决定", "将", "即将", "要", "准备", "计划", "打算", "待", "现在", "马上", "立刻", "立即", "这就", "先", "该", "再", "然后"]);
+
+/** 紧邻判断前先削掉空白与中文标点（「现在，发……」与「现在发」同体）。 */
+const TRAILING_PUNCT = /[\s，,。.、；;：:！!？?…·．]+$/;
+const LEADING_PUNCT = /^[\s，,。.、；;：:！!？?…·．]+/;
+
 /** 意愿标记：引文只有「决定/将/要/计划」这类时，不能支撑完成体 claim。 */
 const INTENT_MARKERS = Object.freeze(["决定", "将", "计划", "打算", "准备", "要", "需要", "待"]);
 
@@ -198,6 +245,39 @@ const RETURN_MARKERS = Object.freeze(["返回", "return", "回传"]);
 const RETURN_SIGNAL = Object.freeze(["返回", "return", "=>", "→", "⇒", "="]);
 
 const hasAny = (text, markers) => markers.some((marker) => text.includes(marker));
+const endsWithAny = (text, markers) => markers.some((marker) => text.endsWith(marker));
+const startsWithAny = (text, markers) => markers.some((marker) => text.startsWith(marker));
+
+/**
+ * 判一段文本里「发布类动词」的体（纯函数、无隐藏状态、可重入）。
+ *
+ * @param {string} text 归一化前的任意文本
+ * @returns {{occurrences:number, completed:boolean, intent:boolean, bare:boolean}}
+ *   `occurrences` = 发布类动词出现次数；`completed` = 至少一次是完成体；
+ *   `intent` = 至少一次带意愿/将来/祈使前缀；
+ *   `bare` = **最后一次出现收尾**（后面只剩标点/空白）—— 中文里「0.2.13 发布」这种
+ *   裸谓词收尾是**完成体标题**，而「发布 0.2.13 前先跑测试」这种带宾语/状语的**不是**
+ *   （这一条把计划句排除掉，否则「X 前先……」会被当成完成体 claim）。
+ */
+function releaseAspect(text) {
+  const norm = normalizeText(text);
+  let occurrences = 0;
+  let completed = false;
+  let intent = false;
+  let last = null;
+  // `matchAll` 不读写正则的 `lastIndex` ⇒ 同一输入两次调用逐字段相同（确定性要求）。
+  for (const match of norm.matchAll(RELEASE_VERB_RE)) {
+    occurrences += 1;
+    const at = match.index;
+    const verb = match[0];
+    const before = norm.slice(0, at).replace(TRAILING_PUNCT, "");
+    const after = norm.slice(at + verb.length).replace(LEADING_PUNCT, "");
+    if (endsWithAny(before, COMPLETION_PREFIXES) || startsWithAny(after, COMPLETION_SUFFIXES)) completed = true;
+    if (endsWithAny(before, INTENT_PREFIXES)) intent = true;
+    last = { after, intent: endsWithAny(before, INTENT_PREFIXES) };
+  }
+  return { occurrences, completed, intent, bare: last !== null && last.after === "" && last.intent === false };
+}
 
 /** 取 claim 里「返回 X」的 X（取不到返回 null）。 */
 function returnedValueToken(claim) {
@@ -239,12 +319,37 @@ function findEvent(events, seq) {
 
 /* ───────────────────────────── 事实裁决 ───────────────────────────── */
 
+/**
+ * ★ AX-19（P1-3）：record 必须**自足可复核** —— 只拿这一条裁决就能回证。
+ *
+ * 旧 record 只有 `quoteVerbatim:true` 一个布尔，复核必须回到模型的 `rawOutputs`，
+ * 于是「裁决记录」本身证明不了任何东西（AX-14 的 P1-3）。这里保留 **quote 原文**，
+ * 按既有的 `MAX_QUOTE_CHARS`（120）截断，并显式标出是否截断：
+ *   `quoteFound(record.quote, 证据事件文本)` + `record.evidenceSeq` + `record.sourceRole`
+ * 三条即可独立复判。**不归一化**（空白/零宽原样留着）—— 归一化会把假阴性藏起来。
+ *
+ * 代理对保护：`slice(0, 120)` 可能劈出半个字符，`JSON` 会把它转义成 `\ud83d`，
+ * 回证时字符串就对不上了 ⇒ 截断点落在高代理位时退一格。
+ *
+ * @param {unknown} value 候选的 `quote`
+ * @returns {string|null} 有界原文；没有 quote（undefined / 非字符串 / 空串）⇒ null
+ */
+function boundedQuote(value) {
+  if (typeof value !== "string" || value === "") return null;
+  if (value.length <= MAX_QUOTE_CHARS) return value;
+  const head = value.slice(0, MAX_QUOTE_CHARS);
+  return /[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head;
+}
+
 function factVerdict(candidate, verdict, reasons, extra = {}) {
   return {
     id: typeof candidate?.id === "string" ? candidate.id : null,
     kind: typeof candidate?.kind === "string" ? candidate.kind : null,
     subject: typeof candidate?.subject === "string" ? candidate.subject : null,
     claim: typeof candidate?.claim === "string" ? candidate.claim : null,
+    // ★ AX-19（P1-3）：有界 quote 原文 —— record 自足复核的锚点（≤ MAX_QUOTE_CHARS）。
+    quote: boundedQuote(candidate?.quote),
+    quoteTruncated: typeof candidate?.quote === "string" && candidate.quote.length > MAX_QUOTE_CHARS,
     verdict,
     reasons,
     evidenceSeq: isSeq(candidate?.evidenceSeq) ? candidate.evidenceSeq : null,
@@ -262,7 +367,7 @@ function factVerdict(candidate, verdict, reasons, extra = {}) {
  * @param {object} candidate   FactCandidate
  * @param {{sessionId:string, events:Array<{seq:number, role:string, text:string}>}} source
  * @param {{seenIds?: Set<string>}} [state] 同批次判重用的 id 集合
- * @returns {object} 裁决（含 verdict / reasons / evidenceSeq / validAtSeq / quoteVerbatim / entailmentProven）
+ * @returns {object} 裁决（含 verdict / reasons / evidenceSeq / validAtSeq / quote / quoteTruncated / quoteVerbatim / sourceRole / entailmentProven）
  */
 export function evaluateFactCandidate(candidate, source, state = {}) {
   const seenIds = state.seenIds ?? new Set();
@@ -367,9 +472,19 @@ export function evaluateFactCandidate(candidate, source, state = {}) {
     reasons.push(reason(REASONS.UNSOURCED_NEGATIVE, "claim 是否定句，但引文全是肯定表述"));
   }
 
-  // ⑤ 状态过度声称：claim 是完成体，引文只有意愿。
-  if (hasAny(claim, COMPLETED_MARKERS) && !hasAny(quoteText, COMPLETED_MARKERS) && hasAny(quoteText, INTENT_MARKERS)) {
-    reasons.push(reason(REASONS.STATUS_OVERCLAIM, "claim 声称「已经……」，引文只到「决定/将/要」"));
+  // ⑤ 状态过度声称：claim 是完成体，引文只有意愿/将来体。
+  //    ★ AX-19（P2-1）：**发布类动词按体判**（`releaseAspect`），不是「词表里有没有这个词」——
+  //    claim「0.2.13 发布」是完成体标题，引文「现在发 `0.2.13` 并装回」是意愿体 ⇒ 过度声称。
+  //    反过来，「已发布 / 发布完成」这种**同体**引文必须照样放行（真正的完成句不误杀）。
+  const claimRelease = releaseAspect(claim);
+  const quoteRelease = releaseAspect(quoteText);
+  // claim 侧：通用完成词，或「完成体 / 裸谓词收尾」的发布动词（意愿体不算 —— 「准备发布」不是完成体 claim；
+  //          「发布 0.2.13 前先跑测试」也不是 —— 裸谓词必须**收尾**，见 `releaseAspect().bare`）。
+  const claimCompleted = hasAny(claim, COMPLETED_MARKERS) || claimRelease.completed || (claimRelease.bare && claimRelease.intent === false);
+  const quoteCompleted = hasAny(quoteText, COMPLETED_MARKERS) || quoteRelease.completed;
+  const quoteIntent = hasAny(quoteText, INTENT_MARKERS) || quoteRelease.intent;
+  if (claimCompleted && !quoteCompleted && quoteIntent) {
+    reasons.push(reason(REASONS.STATUS_OVERCLAIM, "claim 声称「已经……」，引文只到「决定/将/要/现在」"));
   }
 
   // ③ 过期「当前」：claim 说当前态，且它之后有带变更标记的证据，而该证据里没有这段引文。
