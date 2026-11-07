@@ -14,7 +14,10 @@ import { classify } from "./verify.mjs";
 // ★ AX-04（2026-11-07）：成功工具结果的**短值**落边（K-2 已证实的退化，见 tool-value-facts.mjs 头注释）。
 //   依赖面新增 R03 → AX-02 房间；`test/rooms.test.mjs` 的 keeper.allowed 需同步登记
 //   `./tool-value-facts.mjs`，否则 C3 方向门禁会红（本任务可写路径不含该文件，见 REPORT「未验项」）。
-import { extractValueFacts } from "./tool-value-facts.mjs";
+// ★ AX-21（2026-11-08）：**「结果算不算可信」的判据搬去 AX-02 房间**（`resultKindForValueFacts`）——
+//   原先本文件有一份私有实现，而离线路径（offline-fold）漏了 GitHub 读形映射，两条路径因此分叉
+//   （K-2 S2-Q3 的 id/private 在离线路径一条都抽不出来）。现在两边 import 同一对纯函数。
+import { extractValueFacts, resultKindForValueFacts } from "./tool-value-facts.mjs";
 
 /**
  * extract.mjs —— 从会话事件里抽取「意图 / 动作 / 约束」
@@ -505,58 +508,10 @@ function guessToolFromEdge(g, edgeId) {
   return m ? m[1] : "unknown";
 }
 
-/* ─────────────── AX-04：成功工具结果的短值落边（K-2 退化修复） ─────────────── */
-
-/**
- * **工具本身就是 GitHub REST 端点**的几种名字。
+/* ─────────────── AX-04：成功工具结果的短值落边（K-2 退化修复） ───────────────
  *
- * 只认这几种，是因为「HTTP 方法在实参里」这件事只有这类工具成立：
- *   · `github`（DSH 的 github 工具：`{path, method?, body?, confirm?}`，method 缺省 GET）；
- *   · 少数命名空间形态（`mcp__github` / `github_api` …）。
- * **绝不能**用 `includes("github")` 之类的一刀切 ——
- *   `mcp__github__create_pull_request` 这类 MCP 工具的方法在**名字**里、实参里没有 `method`，
- *   按「无 method ⇒ GET」判就会把写调用标成弱成功（任务书 AX-04 明令禁止）。
- *   它们的 `toolClass` 已经是 mcp-read / mcp-write，走 classify 自己的 weak，不需要这里兜。
+ * 边上的 `valueFacts` 由 `extractValueFacts` 产出（AX-02 房间）。
+ * 「这次结果算不算可信」的判据（`githubReadShaped` / `resultKindForValueFacts`）**不在这里** ——
+ * AX-21 起它是 `./tool-value-facts.mjs` 的导出，离线路径（`collectFoldValueFacts`）import 的是同一份，
+ * 两条路径不可能再出现「在线抽得出、离线抽不出」的分叉。
  */
-const GITHUB_REST_TOOLS = new Set(["github", "github_api", "github__api", "mcp__github", "mcp__github_api"]);
-
-/** HTTP 的读形方法（无副作用、结果就是「读到的值」）。 */
-const GITHUB_READ_METHODS = new Set(["GET", "HEAD"]);
-
-/** 这次 github 调用是不是**读形**（GET/HEAD，或没给 method 的缺省 GET）。 */
-function githubReadShaped(toolName, args) {
-  const name = String(toolName ?? "").trim().toLowerCase();
-  if (!GITHUB_REST_TOOLS.has(name)) return false;
-  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-  const method = typeof a.method === "string" ? a.method.trim().toUpperCase() : "";
-  // 显式给了方法：只有 GET/HEAD 算读（POST/PATCH/PUT/DELETE/其它一律不是）
-  if (method !== "") return GITHUB_READ_METHODS.has(method);
-  // 没给方法 ⇒ 工具缺省 GET。但**出现写形状的实参**就不是读：
-  //   `body` 只有写方法才带；`confirm: true` 是写方法的确认闸（读调用永远不会设）。
-  if (a.body !== undefined && a.body !== null) return false;
-  if (a.confirm === true) return false;
-  return true;
-}
-
-/**
- * 给 `extractValueFacts` 的 `resultKind`（抽取器的**信任闸**，不是边上的 result）。
- *
- * ⚠ 这个函数**不许改 `verdict`**：边的 `result` 永远是 classify 的判定。
- *   github 读形在这里被当成 `weak` 只是「结果里的 id/private 是可回证的读到的值」，
- *   **不是**「这次调用成功了」—— 边仍然是 `unverified`（S2a 的弱成功语义）。
- *
- * @param {{result:string, weak?:string|null}} verdict classify 的返回值
- * @param {string} toolName tool-call 的工具名
- * @param {unknown} args tool-call 的实参
- * @returns {"success"|"failure"|"unverified"|"weak"|"read"|"shell"}
- */
-function resultKindForValueFacts(verdict, toolName, args) {
-  if (verdict.result === "success") return "success";
-  if (verdict.result === "failure") return "failure";
-  // 剩下的只有 unverified：classify 自己的弱成功（read / shell）优先
-  if (verdict.weak) return verdict.weak;
-  // K-2 S2-Q3 的真实形状：github 读形结果被 classify 判 unverified 且**没有** weak
-  if (githubReadShaped(toolName, args)) return "weak";
-  return "unverified";
-}
-

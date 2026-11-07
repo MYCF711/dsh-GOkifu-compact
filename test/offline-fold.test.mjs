@@ -842,3 +842,62 @@ tests["AX-07⑩ 守卫的标记不破坏机械补回（缺约束仍补、且只�
   t.eq(chunk.text.split("## 约束（逐字补充").length - 1, 1, "只补一次");
   t.eq(chunk.text.split(offlineFold.GUARD_MARK_PREFIX).length - 1, 1, "标记行只有一行（补回不许复制它）");
 };
+
+/* ══════════════════════ AX-21 · 离线路径复用「结果算不算可信」的同一份判据 ══════════════════════
+ *
+ * 由来（AX-20 已证实，不是假设）：旧版 `collectFoldValueFacts` 自己写了一个三元判 resultKind，
+ * 漏掉 keeper 私有的 `githubReadShaped` 映射 ⇒ GitHub **读形**结果（classify 给 unverified 且
+ * 不带 weak）在离线路径**一条值都抽不出来**。K-2 的 K2-O3（id / private）与 K2-N4（node_id）
+ * 的答案片段因此根本不在折叠上下文里。
+ *
+ * 本节的判据：**同一个工具结果文本，在线与离线给出的 resultKind 必须逐字段相同**（不是「各有一套
+ * 差不多」）—— 所以正例与反例成对出现，且反例必须在两条路径都不产事实。
+ */
+
+const ax21Call = (seq, callId, name, args) => ({ type: "tool/call", seq, data: { callId, name, arguments: JSON.stringify(args) } });
+const ax21Result = (seq, callId, text) => ({ type: "tool/result", seq, data: { message: { content: [{ type: "text", text }], isError: false, source: { callId } } } });
+/** K-2 S2-Q3 的真实形状：GitHub 仓库 API 的 JSON。 */
+const AX21_REPO_JSON = '{"id": 4242, "node_id": "R_demo4242", "private": false, "default_branch": "main"}';
+
+tests["AX-21① GitHub 读形（缺省 method / GET / HEAD）⇒ 离线也抽出 id / node_id / private"] = (t) => {
+  const shapes = [
+    ["缺省 method", { path: "repos/octo/demo-repo" }],
+    ["显式 GET", { path: "repos/octo/demo-repo", method: "GET" }],
+    ["HEAD", { path: "repos/octo/demo-repo", method: "HEAD" }],
+  ];
+  for (const [label, args] of shapes) {
+    const facts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", args), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+    const pairs = facts.map((fact) => [fact.kind, fact.value]);
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === 4242), true, `${label}：仓库 id 必须留下（K2-O3 的答案片段）`);
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === "R_demo4242"), true, `${label}：node_id 必须留下（K2-N4 的答案片段）`);
+    t.eq(pairs.some(([kind, value]) => kind === "boolean" && value === false), true, `${label}：private=false 必须留下（false 不是「没有」）`);
+    t.eq(facts.every((fact) => fact.evidenceSeq === 35), true, `${label}：证据指针 = 结果事件 seq`);
+    t.eq(facts.every((fact) => fact.source === "tool:github"), true, `${label}：source 归一成工具名（派生挂边靠它匹配）`);
+    t.eq(facts.every((fact) => isValueFact(fact)), true, `${label}：每条都必须满足 AX-02 的契约`);
+  }
+};
+
+tests["AX-21② GitHub 写形（POST/PATCH/PUT/DELETE / body / confirm）⇒ 离线一条事实都不产"] = (t) => {
+  const shapes = [
+    ["POST", { path: "repos/o/r", method: "POST", body: { name: "x" } }],
+    ["PATCH", { path: "repos/o/r", method: "PATCH", body: { private: true } }],
+    ["PUT", { path: "repos/o/r", method: "PUT", body: { a: 1 } }],
+    ["DELETE", { path: "repos/o/r", method: "DELETE" }],
+    ["缺省 method 但带 body", { path: "repos/o/r", body: { name: "x" } }],
+    ["缺省 method 但 confirm:true", { path: "repos/o/r", confirm: true }],
+  ];
+  for (const [label, args] of shapes) {
+    const facts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", args), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+    t.eq(facts, [], `${label}：写调用不许被当成弱成功（任务书 AX-04 明令）`);
+  }
+  // 反例必须是「工具名/实参」在起作用，不是「什么 github 结果都抽不出」：
+  const readFacts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", { path: "repos/o/r" }), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+  t.ok(readFacts.length > 0, "同一份结果文本，读形必须抽得出（否则上面的空数组什么都没证明）");
+};
+
+tests["AX-21③ 判据来源（静态）：离线 import 共享判据，不再自己写 resultKind 三元"] = async (t) => {
+  const src = (await import("node:fs")).readFileSync(new URL("../src/rooms/offline-fold.mjs", import.meta.url), "utf8");
+  t.includes(src, "resultKindForValueFacts", "离线必须复用 AX-02 的信任闸判据");
+  t.includes(src, "resultKindForValueFacts(verdict", "必须真的调用它（import 了不用 = 还是自己判）");
+  t.notIncludes(src, 'verdict?.result === "success"', "旧的私有三元已经删掉（两份实现迟早只修好一份）");
+};

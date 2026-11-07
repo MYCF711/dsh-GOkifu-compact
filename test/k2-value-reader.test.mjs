@@ -30,6 +30,7 @@ import {
   buildFixturesDocument,
   buildMessages,
   buildPrereg,
+  deriveValueFacts,
   leakPrecheck,
   makeReaderPayload,
   normalizeAnswer,
@@ -40,7 +41,7 @@ import {
   validateQuestions,
 } from "../scripts/k2-value-reader.mjs";
 import { addAgentNode, addEdge, addUserNodeId, createGraph, settleEdge } from "./graph-fixtures.mjs";
-import { extractValueFacts } from "../src/rooms/tool-value-facts.mjs";
+import { extractValueFacts, isValueFact } from "../src/rooms/tool-value-facts.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = nodePath.join(HERE, "..", "scripts", "k2-value-reader.mjs");
@@ -328,4 +329,146 @@ tests["K2-13 题集/判分/路由与 ax03 冻结预注册逐字相同（复跑�
   t.eq(ABSTENTION.answer, prereg.abstention.answer, "弃答答案必须相同");
   t.eq([...GRADERS], [...prereg.graders], "判分器集合必须相同");
   t.eq(validateQuestions(QUESTIONS).byOrigin["original-4"], prereg.originalQuestionCount, "原 4 题必须保留");
+};
+
+/* ═══════════════ K2-14+ · AX-21 派生挂边：唯一匹配才挂（K2-N4 形状） ═══════════════
+ *
+ * 由来（AX-20 已证实）：K2-N4 的候选回答是上下文里**另一条**响应的 `node_id` ——
+ * 值事实被挂到了「`evidence.end` 恰好等于 evidenceSeq」的那条边上，而那条边属于**另一个**
+ * GitHub 响应。旧实现的「多义」判据只看 end 的条数，一旦工具名能消歧也不会用它。
+ *
+ * 现在的判据（宁可不答，不许挂错）：
+ *   ① `evidence.end === evidenceSeq` 只有一条 ⇒ 挂它（旧行为逐字不变）；
+ *   ② 多于一条 ⇒ 用 `edge.action` 的工具名与 `fact.source` 的 `tool:<name>` 消歧；
+ *      唯一命中才挂；0 条命中 ⇒ `unmapped`；仍多于一条 ⇒ `multi`（**都不挂**）。
+ */
+
+const k2Call = (seq, callId, name, args) => ({ type: "tool/call", seq, data: { callId, name, arguments: JSON.stringify(args) } });
+const k2Result = (seq, callId, text) => ({ type: "tool/result", seq, data: { message: { content: [{ type: "text", text }], isError: false, source: { callId } } } });
+/** 仓库 JSON：id / node_id / private 三条短值（K2-O3 + K2-N4 的答案来源）。 */
+const REPO_JSON = '{"id": 1436032364, "node_id": "R_kgDOVZgdbA", "private": false}';
+/** 另一条响应（commits/main）的 JSON：只有 node_id 是短值 —— 正是「另一条响应的 node_id」。 */
+const COMMIT_JSON = '{"sha": "a3a49a38c44a2d3166c50f42cf18f631062c44ad", "node_id": "C_kwDOVZgdbNoAKGEzYTQ5"}';
+const K2_N4_EVENTS = [
+  k2Call(34, "c1", "github", { path: "repos/Betsy20/magpie-Jet-Hub" }),
+  k2Result(35, "c1", REPO_JSON),
+  k2Call(116, "c2", "github", { path: "repos/Betsy20/magpie-Jet-Hub/commits/main" }),
+  k2Result(117, "c2", COMMIT_JSON),
+];
+const edgeOf = (graph, id) => graph.edges[id];
+
+tests["K2-14 K2-N4 形状：两条响应的 node_id 各挂各的边（不许把另一条响应的值当答案）"] = (t) => {
+  const graph = {
+    rootUserNodeIds: [],
+    nodes: {},
+    edges: {
+      e4: { id: "e4", action: "github(path=repos/Betsy20/magpie-Jet-Hub)", evidence: { start: 34, end: 35 } },
+      e18: { id: "e18", action: "github(path=repos/Betsy20/magpie-Jet-Hub/commits/main)", evidence: { start: 116, end: 117 } },
+    },
+  };
+  const before = JSON.stringify(graph);
+  const derived = deriveValueFacts(graph, K2_N4_EVENTS, { rangeStart: 1, rangeEnd: 1_000_000 });
+
+  t.eq(JSON.stringify(graph), before, "输入图必须一个字节都没变（不写 live 图）");
+  t.eq(derived.facts, 4, "抽到 4 条值事实（仓库 3 条 + 提交 1 条）");
+  t.eq(derived.attached.length, 4, "4 条全部唯一命中");
+  t.eq(derived.unmapped, 0, "没有未命中");
+  t.eq(derived.multi, 0, "没有多义");
+  t.eq(derived.before, 0, "派生前图上 0 条值事实");
+  t.eq(derived.before + derived.attached.length, 4, "派生后 4 条");
+
+  const repoEdge = edgeOf(derived.graph, "e4").valueFacts;
+  const commitEdge = edgeOf(derived.graph, "e18").valueFacts;
+  t.eq(repoEdge.every((fact) => fact.evidenceSeq === 35), true, "e4 上的事实必须全部来自 seq 35（仓库 JSON）");
+  t.eq(commitEdge.every((fact) => fact.evidenceSeq === 117), true, "e18 上的事实必须全部来自 seq 117（commits JSON）");
+  t.eq(repoEdge.some((fact) => fact.kind === "id" && fact.value === "R_kgDOVZgdbA"), true, "仓库的 node_id 必须挂在仓库那条边上（K2-N4 的答案片段）");
+  t.eq(repoEdge.some((fact) => fact.kind === "id" && fact.value === 1436032364), true, "仓库 id 必须留下（K2-O3）");
+  t.eq(repoEdge.some((fact) => fact.kind === "boolean" && fact.value === false), true, "private=false 必须留下（K2-O3）");
+  t.eq(commitEdge.some((fact) => fact.value === "R_kgDOVZgdbA"), false, "仓库的值**不许**挂到提交那条边上");
+  t.eq(repoEdge.some((fact) => fact.value === "C_kwDOVZgdbNoAKGEzYTQ5"), false, "提交的值**不许**挂到仓库那条边上");
+  for (const fact of [...repoEdge, ...commitEdge]) t.eq(isValueFact(fact), true, "每条都必须满足 AX-02 的六字段契约");
+};
+
+tests["K2-15 同 end 多边：工具名唯一匹配才挂；多义（multi）与无匹配（unmapped）都不挂"] = (t) => {
+  /** 每次都给一条 seq 117 的边当对照：证明消歧只影响 seq 35 那组。 */
+  const deriveWith = (edges) =>
+    deriveValueFacts(
+      { rootUserNodeIds: [], nodes: {}, edges: { ...edges, e18: { id: "e18", action: "github(path=repos/o/r/commits/main)", evidence: { start: 116, end: 117 } } } },
+      K2_N4_EVENTS,
+      { rangeStart: 1, rangeEnd: 1_000_000 },
+    );
+
+  // ① 同 end 两条边、工具名不同 ⇒ 工具名唯一匹配，挂 github 那条
+  const byTool = deriveWith({
+    e4: { id: "e4", action: "github(path=repos/o/r)", evidence: { start: 34, end: 35 } },
+    e5: { id: "e5", action: "bash(command=gh api repos/o/r)", evidence: { start: 34, end: 35 } },
+  });
+  t.eq(byTool.multi, 0, "工具名能消歧 ⇒ 不算多义");
+  t.eq(byTool.unmapped, 0, "两边都有对应边 ⇒ 没有未命中");
+  t.eq(byTool.attached.filter((row) => row.edge === "e4").length, 3, "seq 35 的 3 条挂到 github 那条边");
+  t.eq(byTool.attached.filter((row) => row.edge === "e18").length, 1, "seq 117 的 1 条挂到 commits 那条边");
+  t.eq(edgeOf(byTool.graph, "e5").valueFacts, undefined, "不许挂到 bash 那条边（挂错 = 把另一条响应的值当答案）");
+
+  // ② 同 end 两条边、工具名相同 ⇒ 多义，只计数不挂（宁可不答）
+  const multi = deriveWith({
+    e4: { id: "e4", action: "github(path=repos/o/r)", evidence: { start: 34, end: 35 } },
+    e6: { id: "e6", action: "github(path=repos/o/other)", evidence: { start: 34, end: 35 } },
+  });
+  t.eq(multi.multi, 3, "seq 35 的 3 条全部多义");
+  t.eq(multi.attached.filter((row) => row.edge === "e4" || row.edge === "e6").length, 0, "多义时两条边都不挂（不猜）");
+  t.eq(edgeOf(multi.graph, "e4").valueFacts, undefined, "e4 不许挂");
+  t.eq(edgeOf(multi.graph, "e6").valueFacts, undefined, "e6 不许挂");
+  t.eq(multi.attached.filter((row) => row.edge === "e18").length, 1, "对照组的 seq 117 照旧唯一命中");
+
+  // ③ 同 end 但有边、且没有一条是这次调用的工具 ⇒ unmapped（有边 ≠ 可挂）
+  const unmapped = deriveWith({
+    e5: { id: "e5", action: "bash(command=gh api repos/o/r)", evidence: { start: 34, end: 35 } },
+    e7: { id: "e7", action: "read(file_path=x)", evidence: { start: 34, end: 35 } },
+  });
+  t.eq(unmapped.unmapped, 3, "工具名都对不上 ⇒ 3 条计入 unmapped");
+  t.eq(unmapped.attached.filter((row) => row.edge === "e5" || row.edge === "e7").length, 0, "一条都不许挂");
+
+  // ④ 边没有可解析的工具名（旧图/夹具）⇒ 不构成排除证据，唯一命中照旧挂
+  const legacy = deriveWith({
+    e9: { id: "e9", evidence: { start: 34, end: 35 } },
+    e5: { id: "e5", action: "bash(command=x)", evidence: { start: 34, end: 35 } },
+  });
+  t.eq(legacy.attached.filter((row) => row.edge === "e9").length, 3, "旧图（无 action）与正确工具名等价 ⇒ 唯一命中");
+  t.eq(edgeOf(legacy.graph, "e5").valueFacts, undefined, "仍然不许挂到 bash 那条边");
+};
+
+tests["K2-16 派生开关与无命中：derive=false 不抽不挂；没有对应边只计数"] = (t) => {
+  const graph = {
+    rootUserNodeIds: [],
+    nodes: {},
+    edges: { e4: { id: "e4", action: "github(path=repos/o/r)", evidence: { start: 34, end: 35 } } },
+  };
+  const before = JSON.stringify(graph);
+  const off = deriveValueFacts(graph, K2_N4_EVENTS, { derive: false });
+  t.eq(off.derive, false, "derive=false 原样带出");
+  t.eq(off.facts, 0, "derive=false 不抽");
+  t.eq(off.attached.length, 0, "derive=false 不挂");
+  t.eq(off.before, 0, "derive=false 时 before 仍如实统计");
+  t.eq(JSON.stringify(off.graph), before, "derive=false 时图内容不变（深拷贝，逐字相同）");
+  t.eq(JSON.stringify(graph), before, "输入图不变");
+
+  // 只有 seq 117 的边：seq 35 的 3 条没有对应边 ⇒ unmapped，一条都不挂
+  const partial = deriveValueFacts(
+    { rootUserNodeIds: [], nodes: {}, edges: { e18: { id: "e18", action: "github(path=commits)", evidence: { start: 116, end: 117 } } } },
+    K2_N4_EVENTS,
+    { rangeStart: 1, rangeEnd: 1_000_000 },
+  );
+  t.eq(partial.unmapped, 3, "seq 35 的 3 条没有对应边");
+  t.eq(partial.attached.length, 1, "只有 seq 117 的那条挂上");
+  t.eq(partial.attached[0].edge, "e18", "挂到唯一命中的边");
+  t.eq(partial.attached[0].evidenceSeq, 117, "明细里带 evidenceSeq（可逐条回源）");
+
+  // 证据区间不完整的边（没有 evidence.end）不参与挂边（不猜）
+  const noEnd = deriveValueFacts(
+    { rootUserNodeIds: [], nodes: {}, edges: { e4: { id: "e4", action: "github(path=repos/o/r)", evidence: { start: 34 } } } },
+    K2_N4_EVENTS,
+    { rangeStart: 1, rangeEnd: 1_000_000 },
+  );
+  t.eq(noEnd.attached.length, 0, "没有 evidence.end 的边不许被挂（否则就是按 start 猜）");
+  t.eq(noEnd.unmapped, 4, "4 条全部计入 unmapped");
 };
