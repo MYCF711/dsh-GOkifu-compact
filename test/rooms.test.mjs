@@ -142,6 +142,12 @@ const ROOMS = {
     allowed: ["./config-schema.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "tool-value-facts": {
+    // AX-02：成功工具结果的短值抽取（只依赖 R15 配置单一来源；零模型/零 fs）
+    file: "tool-value-facts.mjs",
+    allowed: ["./config-schema.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "facts-prompt": {
     file: "facts-prompt.mjs",
     // 契约 R07：零依赖（纯文本拼装，不 import 任何东西）
@@ -516,7 +522,7 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "touched-files", "user-patch", "verify", "world", "zstd-log"],
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "tool-value-facts", "touched-files", "user-patch", "verify", "world", "zstd-log"],
       "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检
