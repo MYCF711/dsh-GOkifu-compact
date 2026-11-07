@@ -24,14 +24,18 @@ import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@d
 
 import { peekDirty, restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
 import { writeBuildStamp } from "./rooms/build-stamp.mjs";
-import { observeEvent } from "./rooms/keeper.mjs";
+import { observeEvent, messageText } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph, closeoutSettles, listDebts, rankDebts } from "./rooms/closeout-backfill.mjs";
 import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
 import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
-import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
+import { buildChessInstruction, extractConstraintsBlock, parseFactGuardEnvelope, renderFactGuardedSummary } from "./rooms/facts-prompt.mjs";
+// ★ AX-06（2026-11-07）：事实守卫（K-26 实验线）。只在 `factGuard:true` 时被调用；
+//   默认 false ⇒ 下面的 summarize 一行都不走它（零解析、零裁决）。冷代码、零模型调用。
+import { guardModelOutput } from "./rooms/fact-guard.mjs";
+import { isValueFact } from "./rooms/tool-value-facts.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
@@ -1644,6 +1648,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       shadowedEnd: range?.end,
       priorFold,
       preGraph: preGraphFold,
+      // ★ AX-06：只有 guard 开启时才多传两个键 —— 关掉时这次调用与旧版**逐字相同**
+      //   （不传 `factGuard:false` 这种"看起来一样"的写法，避免未来某天默认值反转）。
+      ...(this.chess.factGuard === true ? { factGuard: true, valueFacts: collectValueFacts(g, range) } : {}),
     });
 
     // ★ B1（2026-11-01）：`let` —— 下面的「摘要模型不可用 ⇒ 改走当前路由」分支要**换引用**，
@@ -1727,6 +1734,33 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // 「如果去掉机械兜底，模型会丢多少约束」—— 它是决定「机械兜底值不值得维护」的唯一观测。
     // 必须在下面 push 机械段**之前**取，否则它就不是「模型自己的输出」了。
     const modelText = summary.map((block) => String(block.text ?? "")).join(String.fromCharCode(10));
+    // ★ AX-06（2026-11-07）：`factGuard` 开启时，hybrid 产物先过**冷代码**守卫再渲染。
+    //   约束（任务卡）：
+    //     · 同一次模型调用 —— 这里只读已经拿到的 `blocks()`，**不**为裁决再发请求；
+    //     · 默认 false ⇒ 整段不执行：零解析、零裁决、零新增字段，旧输出逐字不变；
+    //     · 非法结构显式 degraded（`degradedReason` 来自 `fact-guard.mjs` 的 reason code），
+    //       且**不把模型内容渲染成事实** —— 退回机械规则摘要（宁可少模型润色，不可多无源事实）；
+    //     · 被拒事实 / 引用被拒事实的叙事永远到不了 `renderFactGuardedSummary` 的已验证段。
+    let modelContribution = modelText;
+    let factGuardReport = null;
+    if (this.chess.factGuard === true) {
+      const guarded = guardSummaryOutput(modelText, session, range);
+      factGuardReport = guarded.report;
+      if (guarded.applied !== true) {
+        this.ctx.logger?.warn?.(
+          `chess-context: factGuard 判定模型结构不可用（${String(factGuardReport.degradedReason ?? "UNKNOWN")}）—— 不把模型内容渲染成事实，退回机械规则摘要`,
+        );
+        this.#markFoldMode(g, "rules");
+        const degradedResult = { ...ruleResult(), degraded: "facts", factGuard: factGuardReport };
+        this._lastSummaryFactGuard = factGuardReport;
+        return degradedResult;
+      }
+      const rendered = renderFactGuardedSummary(guarded.envelope, { range });
+      summary.length = 0;
+      summary.push({ type: "text", text: rendered.text });
+      modelContribution = rendered.modelText;
+      this._lastSummaryFactGuard = factGuardReport;
+    }
     // ★ 机械追加约束段：实测模型在 15 条失败边的压力下会把 3 条约束全丢（多规模测试 B 场景 0/3）。
     //   约束丢失 = 任务漂移，比失败边丢失更致命。所以约束不经过模型 —— 规则抽什么，产物里就有什么。
     const constraintsBlock = extractConstraintsBlock(renderFacts(g));
@@ -1774,7 +1808,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummarySanitizeRange =
         range === null || range === undefined || !Number.isFinite(range.end) ? null : `${range.start}-${range.end}`;
     }
-    this._lastSummaryModelText = modelText;
+    this._lastSummaryModelText = modelContribution;
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
@@ -1831,6 +1865,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       provider: used.provider,
       model: used.model,
       maxTokens: this.chess.maxTokens,
+      // ★ AX-06：守卫报告只在**开启时**出现 —— guard=false 的返回值形状与旧版逐字一致。
+      ...(factGuardReport === null ? {} : { factGuard: factGuardReport }),
       ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
     };
   }
@@ -3752,6 +3788,9 @@ const RESOLVE_ORDER = [
   "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
   "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
   "onLedgerBudget", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "graphDir", "worldHashMaxFiles",
+  // ★ AX-06（2026-11-07）：事实守卫开关（默认 false，语义在 `resolveConfig` 里净化：只有字面 true 才开）。
+  //   不加进这张白名单 ⇒ 宿主传进来的 `factGuard` 会被 `resolveChess` 静默丢掉（开关永远打不开）。
+  "factGuard",
 ];
 
 /** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */
@@ -3907,6 +3946,139 @@ function edgeTouchedPaths(edge) {
 
 /** ★ C487：规则摘要每行里 action / error 的字符上限（超出部分可按 evidence seq 回读）。 */
 const RULE_LINE_FIELD_CHARS = 80;
+
+/* ═══════════════════ AX-06：factGuard 的证据源与值型事实 ═══════════════════ */
+
+/** 事件类型 → 主体（与 `fact-guard.mjs` 的 `SUBJECTS` 同一枚举）。 */
+const GUARD_ROLE_BY_EVENT_TYPE = Object.freeze({
+  "user/message": "user",
+  "assistant/message": "assistant",
+  "tool/result": "tool",
+  "system/message": "system",
+});
+const GUARD_ROLES = new Set(["user", "assistant", "tool", "harness", "system"]);
+/** 证据源上限：一次 fold 的区间不会这么大，但它们是外部输入，不许撑爆内存。 */
+const GUARD_MAX_EVENTS = 4000;
+/** 值型事实进事实块的上限（一行一条，再多就变成回灌）。 */
+const VALUE_FACTS_LIMIT = 40;
+
+/** 取事件携带的消息对象（`user/message` 的 event.data 本身就是消息，assistant/tool 在 data.message 里）。 */
+function guardEventMessage(event) {
+  const data = event?.data;
+  if (data === null || typeof data !== "object") return null;
+  if (data.message !== null && typeof data.message === "object") return data.message;
+  if (typeof data.role === "string") return data;
+  return null;
+}
+
+function guardEventRole(event) {
+  const message = guardEventMessage(event);
+  const role = typeof message?.role === "string" ? message.role : null;
+  if (role !== null && GUARD_ROLES.has(role)) return role;
+  return GUARD_ROLE_BY_EVENT_TYPE[String(event?.type ?? "")] ?? null;
+}
+
+function guardEventText(event) {
+  const message = guardEventMessage(event);
+  if (message === null) return "";
+  try {
+    return messageText(message);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 守卫的证据源 = **本段折叠区间内**的会话事件 `{seq, role, text}`。
+ *
+ * 为什么不是全量：摘要只折叠这一段，模型能引用的 seq 也只能是这一段里出现过的；
+ * 把区间外的事件也当证据，等于允许「拿别的段落的话给这一段背书」（跨段引用）。
+ * `range` 为空（宿主直调 / 单测直调 `summarize`）时退回 surface 全量 —— **不放水**：
+ * 守卫生成的裁决里每条都带 `evidenceSeq`，读者能自己核对这段证据当时在不在。
+ *
+ * @param {object} session 宿主 session（读 `surface.nodes` 与 `eventAt(seq)`）
+ * @param {{start:number,end:number}|null} range
+ * @returns {Array<{seq:number, role:string, text:string}>}
+ */
+function collectGuardEvents(session, range) {
+  const events = [];
+  const seen = new Set();
+  const start = Number.isFinite(range?.start) ? range.start : 0;
+  const end = Number.isFinite(range?.end) ? range.end : Number.POSITIVE_INFINITY;
+  const nodes = Array.isArray(session?.surface?.nodes) ? session.surface.nodes : [];
+  const at = typeof session?.eventAt === "function" ? session.eventAt.bind(session) : null;
+  if (at === null) return events;
+  for (const seq of nodes) {
+    if (!Number.isSafeInteger(seq) || seq < start || seq > end || seen.has(seq)) continue;
+    let event = null;
+    try {
+      event = at(seq);
+    } catch {
+      event = null;
+    }
+    if (event === null || event === undefined) continue;
+    const role = guardEventRole(event);
+    const text = guardEventText(event);
+    if (role === null || text === "") continue;
+    seen.add(seq);
+    events.push({ seq, role, text });
+    if (events.length >= GUARD_MAX_EVENTS) break;
+  }
+  return events;
+}
+
+/**
+ * AX-06：把模型输出过一遍事实守卫（**冷代码、零模型调用**）。
+ * @returns {{applied:boolean, envelope:object, report:object}}
+ */
+function guardSummaryOutput(rawText, session, range) {
+  const source = { sessionId: session?.id ?? null, events: collectGuardEvents(session, range) };
+  const parsed = parseFactGuardEnvelope(rawText);
+  // 解析不出信封 ⇒ 把原文交给守卫，让它用**同一套 reason code** 出降级信封（不自己造码）。
+  const envelope = parsed.ok
+    ? guardModelOutput(parsed.value, { factGuard: true, session: source })
+    : guardModelOutput(rawText, { factGuard: true, session: source });
+  const summary = envelope?.summary ?? {};
+  const report = {
+    enabled: true,
+    applied: envelope?.applied === true,
+    degraded: envelope?.degraded === true,
+    degradedReason: envelope?.degradedReason ?? parsed.reason ?? null,
+    facts: Number(summary.total ?? 0),
+    supported: Number(summary.supported ?? 0),
+    unverified: Number(summary.unverified ?? 0),
+    pending: Number(summary.pending ?? 0),
+    rejected: Number(summary.rejected ?? 0),
+    narratives: Number(summary.narratives?.total ?? 0),
+    narrativesSupported: Number(summary.narratives?.supported ?? 0),
+    evidenceEvents: source.events.length,
+  };
+  return { applied: report.applied, envelope, report };
+}
+
+/**
+ * AX-06：本段折叠区间里的**值型事实**（AX-02 抽、AX-04 落边）。
+ * 只在 `factGuard:true` 时进事实块 —— 它们是机械抽取、带 evidence seq 的可回证短值，
+ * 不是「模型自己说的」。`isValueFact` 是 AX-02 的契约校验器，这里再验一次（旧图/脏图不长假值）。
+ */
+function collectValueFacts(graph, range, limit = VALUE_FACTS_LIMIT) {
+  const rows = [];
+  const seen = new Set();
+  const bounded = Number.isFinite(range?.start) && Number.isFinite(range?.end);
+  for (const edge of Object.values(graph?.edges ?? {})) {
+    if (!Array.isArray(edge?.valueFacts)) continue;
+    for (const fact of edge.valueFacts) {
+      if (isValueFact(fact) !== true) continue;
+      if (bounded && (fact.evidenceSeq < range.start || fact.evidenceSeq > range.end)) continue;
+      const key = `${fact.kind}\u0000${String(fact.value)}\u0000${fact.evidenceSeq}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(fact);
+    }
+  }
+  rows.sort((a, b) => a.evidenceSeq - b.evidenceSeq);
+  return rows.slice(0, limit);
+}
 
 /** 规则摘要：零模型调用，结构与棋谱摘要一致。 */
 function ruleSummary(g, range) {
