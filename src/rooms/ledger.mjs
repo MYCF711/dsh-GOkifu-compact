@@ -222,7 +222,7 @@ const RENDERABLE_FACT_KIND_SET = new Set(RENDERABLE_FACT_KINDS);
 const FILE_FACT_KINDS = new Set(["file_created", "file_updated", "file_path"]);
 
 /** 一次清单最多渲染几条值事实（再多就回到「回灌」；超出必须给计数 + 指针）。 */
-export const VALUE_FACT_RENDER_LIMIT = 8;
+export const VALUE_FACT_RENDER_LIMIT = 32;
 /** 单个值的字符上限：**超了就丢弃**（截断的值 = 假值），并计入省略数。 */
 const VALUE_FACT_VALUE_MAX_CHARS = 200;
 /** 从 quote 里取 JSON 成员名的长度上限（防御坏数据，不是正常路径）。 */

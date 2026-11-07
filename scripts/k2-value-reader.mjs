@@ -75,7 +75,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { renderFacts } from "../src/rooms/ledger.mjs";
+import { renderFacts, VALUE_FACT_RENDER_LIMIT } from "../src/rooms/ledger.mjs";
 import { collectFoldValueFacts, plainText } from "../src/rooms/offline-fold.mjs";
 import { extractValueFacts, readShapeForValueFacts, resultKindForValueFacts, toolNameFromAction, toolNameFromSource } from "../src/rooms/tool-value-facts.mjs";
 import { classify } from "../src/rooms/verify.mjs";
@@ -674,9 +674,9 @@ export function loadGraphFor(home, sessionId) {
  * @param {any[]} events 会话事件（已解析）
  * @param {{factGuard?:boolean}} [options]
  */
-export function buildContextsFromGraph(graph, events, { factGuard = true, maxValueFacts = 8 } = {}) {
-  // 默认与生产 renderFacts 一致（8 条）。64 只允许由 tmp 实验运行器显式传入，
-  // 不能写进冻结契约，否则 K-2 的 compact 臂不再等于生产输出。
+export function buildContextsFromGraph(graph, events, { factGuard = true, maxValueFacts = VALUE_FACT_RENDER_LIMIT } = {}) {
+  // 默认跟随生产 renderFacts 的 VALUE_FACT_RENDER_LIMIT（AX-25 后为 32）；
+  // 只有 tmp 实验运行器才会显式覆盖，正式 K-2 不得偏离产线默认。
   const facts = renderFacts(graph, { factGuard: factGuard === true, maxValueFacts });
   return { facts, contexts: buildContexts(events, facts), factGuard: factGuard === true };
 }
