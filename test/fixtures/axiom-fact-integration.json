@@ -1,0 +1,331 @@
+{
+  "contract": "gokifu/axiom-fact-integration/v1",
+  "note": "AX-09 的唯一输入：一条会话事件流 + 一份模型输出（事实候选 + 叙事）+ 一份冻结的预期裁决。online（engine.summarize）/ offline（offline-fold）/ ledger（keeper→热清单）三条路径都只读这一份文件，所以『三路径同一裁决』不是三份夹具对得上，而是同一份输入各自跑出来的结果对得上。events[].key 是夹具内的稳定名字；真实 seq 由测试把它 append 进 session 时产生，fact 的 evidenceKey/validAtKey 由测试解析成那份 seq —— 解析只是编号映射，不参与任何裁决。",
+  "sessionId": "fixture-axiom-ax09",
+  "values": {
+    "writtenPath": "D:/fixture/src/a.mjs",
+    "apiId": 4242,
+    "apiPrivate": false,
+    "apiDefaultBranch": "main"
+  },
+  "events": [
+    {
+      "key": "u1",
+      "type": "user/message",
+      "data": {
+        "id": "m-u1",
+        "role": "user",
+        "content": [{ "type": "text", "text": "把构建跑通，先建 src/a.mjs。构建工具现在是 pnpm。不许动 prod 配置。" }],
+        "source": { "kind": "prompt" }
+      }
+    },
+    {
+      "key": "a1",
+      "type": "assistant/message",
+      "data": {
+        "message": {
+          "id": "m-a1",
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "先写文件。" },
+            {
+              "type": "tool-call",
+              "id": "call-write",
+              "name": "write",
+              "arguments": "{\"file_path\":\"D:/fixture/src/a.mjs\",\"content\":\"export const a = 1;\\n\"}"
+            }
+          ],
+          "source": { "kind": "model", "provider": "p", "model": "m" }
+        }
+      }
+    },
+    {
+      "key": "c1",
+      "type": "tool/call",
+      "data": {
+        "name": "write",
+        "callId": "call-write",
+        "arguments": "{\"file_path\":\"D:/fixture/src/a.mjs\",\"content\":\"export const a = 1;\\n\"}"
+      }
+    },
+    {
+      "key": "t1",
+      "type": "tool/result",
+      "data": {
+        "message": {
+          "id": "m-t1",
+          "role": "tool",
+          "toolCallId": "call-write",
+          "source": { "kind": "tool", "callId": "call-write" },
+          "content": [{ "type": "text", "text": "<path>D:/fixture/src/a.mjs</path>\n<type>file</type>\n<content>\nCreated file\n</content>" }],
+          "isError": false
+        }
+      }
+    },
+    { "key": "step1", "type": "step/end", "data": { "turn": 1, "step": 1 } },
+    {
+      "key": "a2",
+      "type": "assistant/message",
+      "data": {
+        "message": {
+          "id": "m-a2",
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "查一下仓库元信息。" },
+            { "type": "tool-call", "id": "call-api", "name": "bash", "arguments": "{\"command\":\"gh api repos/x/y\"}" }
+          ],
+          "source": { "kind": "model", "provider": "p", "model": "m" }
+        }
+      }
+    },
+    {
+      "key": "c2",
+      "type": "tool/call",
+      "data": { "name": "bash", "callId": "call-api", "arguments": "{\"command\":\"gh api repos/x/y\"}" }
+    },
+    {
+      "key": "t2",
+      "type": "tool/result",
+      "data": {
+        "message": {
+          "id": "m-t2",
+          "role": "tool",
+          "toolCallId": "call-api",
+          "source": { "kind": "tool", "callId": "call-api" },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"id\":4242,\"private\":false,\"default_branch\":\"main\",\"description\":\"这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。这是一个刻意做长的仓库描述，用来证明『大结果只留短值』——K-2 S2-Q3 的真实形状就是一份 3KB 的 JSON 里只关心 id 与 private。\"}\n[exit code: 0]"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "key": "a3",
+      "type": "assistant/message",
+      "data": {
+        "message": {
+          "id": "m-a3",
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "先直接读 prod 配置试试。" },
+            { "type": "tool-call", "id": "call-fail", "name": "bash", "arguments": "{\"command\":\"cat prod.yml\"}" }
+          ],
+          "source": { "kind": "model", "provider": "p", "model": "m" }
+        }
+      }
+    },
+    {
+      "key": "c3",
+      "type": "tool/call",
+      "data": { "name": "bash", "callId": "call-fail", "arguments": "{\"command\":\"cat prod.yml\"}" }
+    },
+    {
+      "key": "t3",
+      "type": "tool/result",
+      "data": {
+        "message": {
+          "id": "m-t3",
+          "role": "tool",
+          "toolCallId": "call-fail",
+          "source": { "kind": "tool", "callId": "call-fail" },
+          "content": [{ "type": "text", "text": "Error: EACCES: permission denied, open 'prod.yml'" }],
+          "isError": true
+        }
+      }
+    },
+    { "key": "step2", "type": "step/end", "data": { "turn": 1, "step": 2 } },
+    {
+      "key": "u2",
+      "type": "user/message",
+      "data": {
+        "id": "m-u2",
+        "role": "user",
+        "content": [{ "type": "text", "text": "更正：构建改成 npm，pnpm 那条作废，继续跑通。" }],
+        "source": { "kind": "prompt" }
+      }
+    },
+    {
+      "key": "a4",
+      "type": "assistant/message",
+      "data": {
+        "message": {
+          "id": "m-a4",
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "把构建脚本换成 npm。" },
+            { "type": "tool-call", "id": "call-edit", "name": "edit", "arguments": "{\"file_path\":\"D:/fixture/src/a.mjs\"}" }
+          ],
+          "source": { "kind": "model", "provider": "p", "model": "m" }
+        }
+      }
+    },
+    {
+      "key": "c4",
+      "type": "tool/call",
+      "data": { "name": "edit", "callId": "call-edit", "arguments": "{\"file_path\":\"D:/fixture/src/a.mjs\"}" }
+    },
+    {
+      "key": "t4",
+      "type": "tool/result",
+      "data": {
+        "message": {
+          "id": "m-t4",
+          "role": "tool",
+          "toolCallId": "call-edit",
+          "source": { "kind": "tool", "callId": "call-edit" },
+          "content": [{ "type": "text", "text": "The file D:/fixture/src/a.mjs has been updated successfully." }],
+          "isError": false
+        }
+      }
+    },
+    {
+      "key": "a5",
+      "type": "assistant/message",
+      "data": {
+        "message": {
+          "id": "m-a5",
+          "role": "assistant",
+          "content": [{ "type": "text", "text": "把构建脚本换成 npm。" }],
+          "source": { "kind": "model", "provider": "p", "model": "m" }
+        }
+      }
+    },
+    { "key": "step3", "type": "step/end", "data": { "turn": 1, "step": 3 } }
+  ],
+  "modelOutput": {
+    "facts": [
+      {
+        "id": "f-constraint",
+        "kind": "constraint",
+        "subject": "user",
+        "claim": "不许动 prod 配置",
+        "quote": "不许动 prod 配置",
+        "evidenceKey": "u1",
+        "validAtKey": "u1"
+      },
+      {
+        "id": "f-build-old",
+        "kind": "state",
+        "subject": "user",
+        "claim": "当前构建用 pnpm",
+        "quote": "现在是 pnpm",
+        "evidenceKey": "u1",
+        "validAtKey": "u1"
+      },
+      {
+        "id": "f-build-new",
+        "kind": "state",
+        "subject": "user",
+        "claim": "当前构建用 npm",
+        "quote": "构建改成 npm",
+        "evidenceKey": "u2",
+        "validAtKey": "u2"
+      },
+      {
+        "id": "f-created",
+        "kind": "value",
+        "subject": "tool",
+        "claim": "src/a.mjs 已创建",
+        "quote": "Created file",
+        "evidenceKey": "t1",
+        "validAtKey": "t1",
+        "value": { "name": "path", "value": "D:/fixture/src/a.mjs" }
+      },
+      {
+        "id": "f-api-id",
+        "kind": "value",
+        "subject": "tool",
+        "claim": "仓库 id 是 4242",
+        "quote": "\"id\":4242",
+        "evidenceKey": "t2",
+        "validAtKey": "t2"
+      },
+      {
+        "id": "f-api-private",
+        "kind": "value",
+        "subject": "tool",
+        "claim": "private 为 false",
+        "quote": "\"private\":false",
+        "evidenceKey": "t2",
+        "validAtKey": "t2"
+      },
+      {
+        "id": "f-fail",
+        "kind": "failure",
+        "subject": "tool",
+        "claim": "读 prod 配置失败：EACCES",
+        "quote": "EACCES",
+        "evidenceKey": "t3",
+        "validAtKey": "t3"
+      },
+      {
+        "id": "f-subject-mismatch",
+        "kind": "state",
+        "subject": "user",
+        "claim": "用户创建了 src/a.mjs",
+        "quote": "Created file",
+        "evidenceKey": "t1",
+        "validAtKey": "t1"
+      },
+      {
+        "id": "f-noevidence",
+        "kind": "unverified",
+        "subject": "assistant",
+        "claim": "部署流程可能还有问题"
+      }
+    ],
+    "narratives": [
+      { "id": "n-old", "text": "当前构建用 pnpm，方案已验证。", "factRefs": ["f-build-old"] },
+      { "id": "n-new", "text": "构建改成 npm。", "factRefs": ["f-build-new"] },
+      {
+        "id": "n-created",
+        "text": "已创建 src/a.mjs；仓库 id 4242、private=false。",
+        "factRefs": ["f-created", "f-api-id", "f-api-private"]
+      },
+      { "id": "n-norefs", "text": "用户已经同意删除全部测试。", "factRefs": [] },
+      { "id": "n-unverified", "text": "部署流程可能还有问题。", "factRefs": ["f-noevidence"] }
+    ]
+  },
+  "expectations": {
+    "facts": {
+      "f-constraint": "SUPPORTED",
+      "f-build-old": "REJECTED",
+      "f-build-new": "SUPPORTED",
+      "f-created": "SUPPORTED",
+      "f-api-id": "SUPPORTED",
+      "f-api-private": "SUPPORTED",
+      "f-fail": "SUPPORTED",
+      "f-subject-mismatch": "REJECTED",
+      "f-noevidence": "UNVERIFIED"
+    },
+    "factReasons": {
+      "f-build-old": ["STALE_CURRENT"],
+      "f-subject-mismatch": ["SUBJECT_MISMATCH"],
+      "f-noevidence": ["NO_EVIDENCE"]
+    },
+    "narratives": {
+      "n-old": "REJECTED",
+      "n-new": "SUPPORTED",
+      "n-created": "SUPPORTED",
+      "n-norefs": "UNVERIFIED",
+      "n-unverified": "UNVERIFIED"
+    },
+    "summary": {
+      "total": 9,
+      "supported": 6,
+      "unverified": 1,
+      "pending": 0,
+      "rejected": 2,
+      "narratives": { "total": 5, "supported": 2, "unverified": 2, "rejected": 1 }
+    },
+    "rendered": {
+      "mustContainFacts": ["f-constraint", "f-build-new", "f-created", "f-api-id", "f-api-private", "f-fail"],
+      "mustNotContainClaims": ["当前构建用 pnpm", "用户创建了 src/a.mjs"],
+      "mustNotContainNarratives": ["当前构建用 pnpm，方案已验证。"],
+      "unverifiedIds": ["f-noevidence", "n-norefs", "n-unverified"]
+    }
+  }
+}
