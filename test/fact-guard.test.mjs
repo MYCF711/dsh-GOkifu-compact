@@ -462,4 +462,160 @@ export const tests = {
     );
     t.eq(fixedFuture.facts[0].verdict, VERDICT.SUPPORTED, "时点补对 ⇒ 必须绿");
   },
+
+  /* ───────── AX-19 · P2-1：发布类完成体**按体判**，不按词表 ───────── */
+
+  "AX19-P2-1 ⑤ 状态过度声称：声称「发布/上线/装回」而引文只是「现在发/将发」必须红（f11 形状）"(t) {
+    // 真机形状（AX-14 §2 A2 / REVIEW.md 表）：claim 是**完成体标题**，引文是**意愿体**。
+    // 旧判据漏掉它有两个原因：COMPLETED_MARKERS 不含「发布」，且「现在发」不在 INTENT_MARKERS 里。
+    const session = {
+      sessionId: "fixture-fact-guard-publish",
+      events: [
+        { seq: 6344, role: "assistant", text: "现在发 `0.2.13` 并装回。" },
+        { seq: 6380, role: "assistant", text: "现在上线 `0.2.13` 到网关。" },
+        { seq: 6382, role: "assistant", text: "将装回 `0.2.13`，先备份。" },
+      ],
+    };
+    const judge = (candidate) => evaluateFactCandidate(candidate, session, { seenIds: new Set() });
+    const overclaims = [
+      ["f11", "value", "assistant", "0.2.13 发布。", "现在发 `0.2.13` 并装回。", 6344],
+      ["p2-1-上线", "state", "assistant", "0.2.13 上线", "现在上线 `0.2.13` 到网关。", 6380],
+      ["p2-1-装回", "state", "assistant", "0.2.13 装回完成", "将装回 `0.2.13`，先备份。", 6382],
+    ];
+    for (const [id, kind, subject, claim, quote, evidenceSeq] of overclaims) {
+      const verdict = judge({ id, kind, subject, claim, quote, evidenceSeq, validAtSeq: evidenceSeq });
+      t.eq(verdict.verdict, VERDICT.REJECTED, `「${claim}」声称完成体、引文「${quote}」只是意愿 ⇒ 必须红`);
+      t.eq(codesOf(verdict).includes(REASONS.STATUS_OVERCLAIM), true, `${id} 原因码必须是 STATUS_OVERCLAIM（实际 ${codesOf(verdict).join(",") || "（无）"}）`);
+      t.eq(verdict.quoteVerbatim, true, `${id} 的 quote 本身逐字命中（拒的是体，不是引文）`);
+    }
+
+    // 同一批事件：claim 也降到意愿体 ⇒ **同体**，必须过（证明不是「凡是发布就拒」）
+    const intentClaim = judge({
+      id: "p2-1-意愿claim",
+      kind: "decision",
+      subject: "assistant",
+      claim: "准备发 `0.2.13` 并装回",
+      quote: "现在发 `0.2.13` 并装回。",
+      evidenceSeq: 6344,
+      validAtSeq: 6344,
+    });
+    t.eq(intentClaim.verdict, VERDICT.SUPPORTED, "意愿 claim + 意愿引文 ⇒ 同体，必须过");
+    t.eq(codesOf(intentClaim).includes(REASONS.STATUS_OVERCLAIM), false, "同体不许带 STATUS_OVERCLAIM");
+  },
+
+  "AX19-P2-1 完成体同体放行：真正「已发布 / 装回完成」必须过，「发现」不许被当成发布"(t) {
+    const session = {
+      sessionId: "fixture-fact-guard-completed",
+      events: [
+        { seq: 1, role: "tool", text: "npm dist-tag: latest = 0.2.13（已发布）" },
+        { seq: 2, role: "tool", text: "已装回本机，网关 200。" },
+        { seq: 3, role: "assistant", text: "0.2.13 发布完成，四张卡都 200。" },
+        { seq: 4, role: "assistant", text: "现在发现 0.2.13 有问题。" },
+        { seq: 5, role: "assistant", text: "0.2.13 发布。" },
+        { seq: 6, role: "assistant", text: "现在发 `0.2.13` 并装回。" },
+      ],
+    };
+    const judge = (candidate) => evaluateFactCandidate(candidate, session, { seenIds: new Set() });
+
+    // 正的完成句：claim 与引文**同为完成体** ⇒ 一条都不许误杀。
+    const completed = [
+      ["完成-已发布", "value", "tool", "0.2.13 已发布", "latest = 0.2.13（已发布）", 1],
+      ["完成-已装回", "state", "tool", "0.2.13 已装回本机", "已装回本机", 2],
+      ["完成-发布完成", "state", "assistant", "0.2.13 发布完成", "0.2.13 发布完成", 3],
+    ];
+    for (const [id, kind, subject, claim, quote, evidenceSeq] of completed) {
+      const verdict = judge({ id, kind, subject, claim, quote, evidenceSeq, validAtSeq: evidenceSeq });
+      t.eq(verdict.verdict, VERDICT.SUPPORTED, `真正完成句「${claim}」+ 完成引文必须过（实际 ${verdict.verdict}：${codesOf(verdict).join(",") || "（无）"}）`);
+      t.eq(codesOf(verdict).includes(REASONS.STATUS_OVERCLAIM), false, `${id} 不许带 STATUS_OVERCLAIM`);
+    }
+
+    // 反假阳性 ①：裸「发」只在带发布宾语时才算发布动词 ——「发现」不是发布。
+    const discover = judge({ id: "假阳性-发现", kind: "failure", subject: "assistant", claim: "0.2.13 发布", quote: "现在发现 0.2.13 有问题。", evidenceSeq: 4, validAtSeq: 4 });
+    t.eq(discover.verdict, VERDICT.SUPPORTED, "「现在发现」不是发布意愿 —— 不许拿它制造假红");
+    t.eq(codesOf(discover).includes(REASONS.STATUS_OVERCLAIM), false, "「发现」不许触发 STATUS_OVERCLAIM");
+
+    // 反假阳性 ②：claim 与引文都是裸标题（同体）⇒ 机械上不是过度声称。
+    const sameAspect = judge({ id: "假阳性-同体裸标题", kind: "value", subject: "assistant", claim: "0.2.13 发布", quote: "0.2.13 发布。", evidenceSeq: 5, validAtSeq: 5 });
+    t.eq(sameAspect.verdict, VERDICT.SUPPORTED, "claim 与引文同为裸标题 ⇒ 同体，不许拒");
+
+    // 反假阳性 ③：裸谓词必须**收尾**才算完成体标题 ——「发布 0.2.13 前先跑测试」是**计划句**。
+    const plan = judge({ id: "假阳性-计划句", kind: "decision", subject: "assistant", claim: "发布 0.2.13 前先跑测试", quote: "现在发 `0.2.13` 并装回。", evidenceSeq: 6, validAtSeq: 6 });
+    t.eq(plan.verdict, VERDICT.SUPPORTED, "「发布 X 前先跑测试」带宾语+状语，不是完成体标题");
+  },
+
+  /* ───────── AX-19 · P1-3：裁决记录自足（保留有界 quote 原文）───────── */
+
+  "AX19-P1-3 裁决记录自足：保留**有界** quote 原文，只拿 record 就能回证"(t) {
+    const longText = "只改 fact-guard.mjs，不要动 engine.mjs。".repeat(8);
+    const emojiText = `${"a".repeat(MAX_QUOTE_CHARS - 1)}😀尾巴`;
+    const session = {
+      sessionId: "fixture-fact-guard-record",
+      events: [
+        { seq: 1, role: "assistant", text: "现在发 `0.2.13` 并装回。" },
+        { seq: 2, role: "user", text: longText },
+        { seq: 3, role: "user", text: emojiText },
+      ],
+    };
+    const judge = (candidate) => evaluateFactCandidate(candidate, session, { seenIds: new Set() });
+
+    /* ① 短 quote：原文逐字留在 record 里（不再是只有一个布尔） */
+    const short = judge({ id: "q1", kind: "value", subject: "assistant", claim: "0.2.13 发布。", quote: "现在发 `0.2.13` 并装回。", evidenceSeq: 1, validAtSeq: 1 });
+    t.eq(short.quote, "现在发 `0.2.13` 并装回。", "record 必须逐字保留 quote 原文");
+    t.eq(short.quoteTruncated, false, "短 quote 不截断");
+    t.eq(short.quoteVerbatim, true, "逐字命中仍以布尔声明（与原文并存，不是二选一）");
+    t.eq(short.entailmentProven, false, "留 quote 原文 ≠ 宣称语义蕴含（恒 false 不变）");
+    t.eq(short.verdict, VERDICT.REJECTED, "f11 形状必须红（P1-3 与 P2-1 同一条记录上成立）");
+    t.eq(codesOf(short).includes(REASONS.STATUS_OVERCLAIM), true, "复核时看得到判据");
+
+    /* 回证链：record 自己（quote + evidenceSeq + sourceRole）就能回到证据事件复判 */
+    const event = session.events.find((item) => item.seq === short.evidenceSeq);
+    t.eq(short.sourceRole, event.role, "record.sourceRole 必须就是证据事件的 role");
+    t.eq(quoteFound(short.quote, event.text), true, "只拿 record 就能复算「quote 逐字命中」（不需要 rawOutputs）");
+
+    /* ② 长 quote：有界（≤ MAX_QUOTE_CHARS）+ 显式标截断 */
+    const long = judge({ id: "q2", kind: "constraint", subject: "user", claim: "用户要求只改 fact-guard", quote: `${longText}（这一段是截断后才有的尾巴，不在原文里）`, evidenceSeq: 2, validAtSeq: 2 });
+    t.ok(long.quote !== null && long.quote.length <= MAX_QUOTE_CHARS, "record.quote 必须按 MAX_QUOTE_CHARS 有界");
+    t.eq(long.quote, longText.slice(0, MAX_QUOTE_CHARS), "截断口径 = 前 MAX_QUOTE_CHARS 个字符（与 quoteFound 同一口径）");
+    t.eq(long.quoteTruncated, true, "被截断必须显式标记（否则复核的人会以为原文就这么长）");
+    t.eq(long.verdict, VERDICT.SUPPORTED, "超长 quote 的截断容忍是既有判据，不是放水");
+
+    /* ③ 代理对：截断点不许劈出半个字符（lone surrogate 回证时对不上） */
+    const emoji = judge({ id: "q3", kind: "constraint", subject: "user", claim: "用户要求", quote: emojiText, evidenceSeq: 3, validAtSeq: 3 });
+    t.eq(/[\uD800-\uDBFF]$/.test(emoji.quote ?? ""), false, "截断不许留下半个代理对");
+    t.ok((emoji.quote ?? "").length <= MAX_QUOTE_CHARS, "代理对保护后仍然有界");
+    t.eq(emoji.quoteTruncated, true, "代理对被截断同样要标出来");
+
+    /* ④ 没有 quote 的裁决：null（不是空串），也不谎称截断 */
+    const noQuote = judge({ id: "q4", kind: "state", subject: "user", claim: "待补证", status: "PENDING" });
+    t.eq(noQuote.quote, null, "没有 quote ⇒ record.quote 为 null");
+    t.eq(noQuote.quoteTruncated, false, "没有 quote 就谈不上截断");
+    t.eq(noQuote.verdict, VERDICT.PENDING, "PENDING 声明照旧保留");
+  },
+
+  "AX19 回归：新判据对旧 GOLD 形状**惰性**（68 条零误杀，一条都不带 STATUS_OVERCLAIM）"(t) {
+    // 旧夹具里没有任何发布类动词 ⇒ 新判据对它是**惰性**的。
+    // 这不是「调参躲过去」：旧合成夹具根本没覆盖这一类（f11 来自真机会话，见 AX-14 §2 A2）。
+    const releaseHits = [];
+    for (const sample of fixture.samples) {
+      for (const candidate of sample.facts) {
+        const text = `${String(candidate.claim ?? "")}\n${String(candidate.quote ?? "")}`;
+        if (/(?:发出去|发布|发版|发包|上线|装回|推送)/.test(text)) releaseHits.push(`${sample.id}/${candidate.id}`);
+      }
+    }
+    t.eq(releaseHits, [], "旧夹具不含发布类动词（新判据对它惰性）");
+
+    let gold = 0;
+    let overclaims = 0;
+    for (const sample of fixture.samples) {
+      const verdicts = byId(guardSample(sample).facts);
+      for (const expected of sample.expectFacts.filter((entry) => entry.verdict === "SUPPORTED")) {
+        const verdict = verdicts.get(expected.id);
+        t.eq(verdict?.verdict, VERDICT.SUPPORTED, `${sample.id}/${expected.id} 被新判据误杀：${codesOf(verdict).join(",") || "（无原因）"}`);
+        if (codesOf(verdict).includes(REASONS.STATUS_OVERCLAIM)) overclaims += 1;
+        gold += 1;
+      }
+    }
+    t.eq(gold, 68, "GOLD 复判条数（与 K-26 同源）");
+    t.eq(overclaims, 0, "旧 GOLD 一条都不许带 STATUS_OVERCLAIM");
+  },
 };
