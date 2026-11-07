@@ -418,7 +418,7 @@ tests["k2Plan 按会话去重且带上该会话的题"] = (t) => {
 tests["k27Plan 取前 N 题且受 pilot 上限约束"] = (t) => {
   const fixtures = [{ id: "IE-01", type: "IE" }, { id: "IE-02", type: "IE" }, { id: "MR-01", type: "MR" }];
   const plan = k27Plan(fixtures, 2);
-  t.eq(plan.selected.map((entry) => entry.questionId), ["IE-01", "IE-02"], "顺序即夹具顺序");
+  t.eq(plan.selected.map((entry) => entry.questionId), ["IE-01", "MR-01"], "五类各取前 2 题（不是前 N 个 IE）");
   t.eq(plan.available, 3, "可用题数");
   const capped = k27Plan(fixtures, 99);
   t.ok(capped.requested <= LIMITS.k27PilotQuestions, "不得超过 pilot 上限");
