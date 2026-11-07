@@ -76,8 +76,9 @@ import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderFacts } from "../src/rooms/ledger.mjs";
-import { collectFoldValueFacts } from "../src/rooms/offline-fold.mjs";
-import { toolNameFromAction, toolNameFromSource } from "../src/rooms/tool-value-facts.mjs";
+import { collectFoldValueFacts, plainText } from "../src/rooms/offline-fold.mjs";
+import { extractValueFacts, readShapeForValueFacts, resultKindForValueFacts, toolNameFromAction, toolNameFromSource } from "../src/rooms/tool-value-facts.mjs";
+import { classify } from "../src/rooms/verify.mjs";
 import { decodeMultiFrameZstd } from "../src/rooms/zstd-log.mjs";
 import { loadSessionGraph } from "./graph-audit.mjs";
 import { gradeAnswer } from "./lme-task50.mjs";
@@ -673,8 +674,10 @@ export function loadGraphFor(home, sessionId) {
  * @param {any[]} events 会话事件（已解析）
  * @param {{factGuard?:boolean}} [options]
  */
-export function buildContextsFromGraph(graph, events, { factGuard = true } = {}) {
-  const facts = renderFacts(graph, { factGuard: factGuard === true });
+export function buildContextsFromGraph(graph, events, { factGuard = true, maxValueFacts = 64 } = {}) {
+  // K-2 实验臂：值事实渲染上限 64（生产默认 8）。冻结会话里 read 正文/API 数组会产
+  // 30+ 条短值；只渲染 8 条会把「答案在上下文里」误判成「答案不存在」。
+  const facts = renderFacts(graph, { factGuard: factGuard === true, maxValueFacts });
   return { facts, contexts: buildContexts(events, facts), factGuard: factGuard === true };
 }
 
@@ -710,6 +713,16 @@ export function buildSessionContexts(home, sessionHash, { factGuard = true } = {
  *      两者都**不挂**，也不猜。
  *   ④ **可审计**：返回 `attached` 明细（边 id + 事实种类 + evidenceSeq），产物里能逐条对回源。
  *
+ * ★ AX-22（2026-11-08）：抽取分**两趟**，因为两个新形状的开关**默认关闭**（线上 keeper 不传）：
+ *   · 第 ① 趟 = `collectFoldValueFacts`（AX-02/AX-07 的同一个抽取器，**不传 options**）——
+ *     旧形状（文件回执 / 路径 / JSON 对象短值）逐字不变；
+ *   · 第 ② 趟 = `collectReadShapeValueFacts`（本文件）—— **只对读形**（`read` / `read_file` /
+ *     GitHub REST 读形）打开 `allowReadContent` + `allowTopLevelArray`，补上 K-2 剩下的两条根因：
+ *       read 正文行值（K2-N2 / K2-N3）、顶层 JSON 数组的标量（K2-N5 / K2-N6，`contents` API）。
+ *   「这次结果算不算读」「算不算可信」两个判据仍然只来自 `src/rooms/tool-value-facts.mjs`
+ *   （`readShapeForValueFacts` / `resultKindForValueFacts`）—— 本文件不写第二份。
+ *   两趟按 `(kind, value, evidenceSeq)` 去重（同一份文本第 ② 趟会重复产出第 ① 趟的旧形状）。
+ *
  * @param {object} graph 冻结图（只读）
  * @param {Array<object>} events 会话事件（只读）
  * @param {{rangeStart?:number, rangeEnd?:number, derive?:boolean}} [options]
@@ -722,7 +735,10 @@ export function deriveValueFacts(graph, events, { rangeStart = 1, rangeEnd = Num
   // ★ 注意：`collectFoldValueFacts` 的默认参数（`rangeStart=null/rangeEnd=null`）会被
   //   `Number(null) === 0` 判成合法区间，于是「不传区间」= 一条都抽不到（AX-07 的默认路径坑）。
   //   这里**必须显式传区间**。
-  const facts = collectFoldValueFacts(events, { rangeStart, rangeEnd });
+  const facts = mergeValueFacts(
+    collectFoldValueFacts(events, { rangeStart, rangeEnd }),
+    collectReadShapeValueFacts(events, { rangeStart, rangeEnd }),
+  );
   result.facts = facts.length;
 
   const byEnd = new Map();
@@ -745,6 +761,95 @@ export function deriveValueFacts(graph, events, { rangeStart = 1, rangeEnd = Num
     result.attached.push({ edge: edge.id, kind: String(fact.kind), evidenceSeq: Number(fact.evidenceSeq) });
   }
   return { graph: copy, ...result };
+}
+
+/**
+ * ★ AX-22：K-2 派生的**第二趟** —— 只对**读形**结果打开 `allowReadContent` / `allowTopLevelArray`。
+ *
+ * 为什么需要单独一趟：`collectFoldValueFacts`（`src/rooms/offline-fold.mjs`）不在本任务可写路径内，
+ * 它调 `extractValueFacts` 时**不传 options**（线上 keeper 也不传）—— 两个新开关默认关闭是契约，
+ * 所以「读形」这一趟只能在派生侧补。**判据本身不复制**：
+ *   · 这次结果算不算读   → `readShapeForValueFacts`（room 的唯一来源）
+ *   · 这次结果算不算可信 → `resultKindForValueFacts(classify(…))`（与 keeper / 离线路径同一对纯函数）
+ *   · 真正的抽取         → `extractValueFacts(…, { allowReadContent:true, allowTopLevelArray:true })`
+ * 本函数只做「事件 → (工具名, 实参, 文本, seq) 配对」这一件机械事（与 `collectFoldValueFacts`
+ * 的配对口径逐字一致：`plainText(content)` + `source.callId` → `toolCallId` → `event.data.callId`
+ * → 最近一次 `tool/call` 兜底），非读形结果**直接跳过**（连抽取都不调）。
+ *
+ * @param {Array<object>} events 会话事件（升序、只读）
+ * @param {{rangeStart?:number, rangeEnd?:number}} [options] 与第一趟同一个区间（两趟必须同区间）
+ * @returns {Array<{kind:string, value:string, quote:string, evidenceSeq:number, validAtSeq:number, source:string}>}
+ */
+function collectReadShapeValueFacts(events, { rangeStart = 1, rangeEnd = Number.MAX_SAFE_INTEGER } = {}) {
+  const list = Array.isArray(events) ? events : [];
+  const from = Number(rangeStart);
+  const to = Number(rangeEnd);
+  /** callId → {name, args}（与 `collectFoldValueFacts` 同一配对口径）。 */
+  const calls = new Map();
+  let lastCall = null;
+  const out = [];
+  for (const event of list) {
+    if (event === null || typeof event !== "object") continue;
+    const seq = Number(event.seq);
+    if (!Number.isSafeInteger(seq) || seq < 0) continue;
+    if (event.type === "tool/call") {
+      let args = event.data?.arguments;
+      if (typeof args === "string") {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          /* 实参不是 JSON 就原样留着：形状判定只读 method/body/confirm 三个键 */
+        }
+      }
+      const call = { name: String(event.data?.name ?? "").trim(), args };
+      const callId = event.data?.callId ?? event.data?.message?.toolCallId ?? event.data?.toolCallId ?? null;
+      if (callId !== null && callId !== undefined) calls.set(String(callId), call);
+      lastCall = call;
+      continue;
+    }
+    if (event.type !== "tool/result") continue;
+    if (!(seq >= from && seq <= to)) continue;
+    const message = event.data?.message;
+    const text = plainText(message?.content ?? event.data?.content);
+    if (text.trim() === "") continue;
+    const callId = message?.source?.callId ?? message?.toolCallId ?? event.data?.callId ?? null;
+    const call = (callId === null || callId === undefined ? null : calls.get(String(callId))) ?? lastCall;
+    const name = call?.name ?? "";
+    // ★ 只有读形才开闸；非读形（write/bash/todo_write/…）连抽取都不调 —— 线上行为不可能的到这里。
+    if (!readShapeForValueFacts(name, call?.args)) continue;
+    const isError = message?.isError === true;
+    const resultKind = resultKindForValueFacts(classify({ tool: name, text, isError }), name, call?.args);
+    const facts = extractValueFacts(
+      { tool: name, result: text, resultKind, isError, evidenceSeq: seq },
+      { allowReadContent: true, allowTopLevelArray: true },
+    );
+    for (const fact of facts) {
+      if (out.some((seen) => seen.kind === fact.kind && seen.value === fact.value && seen.evidenceSeq === fact.evidenceSeq)) continue;
+      out.push(fact);
+    }
+  }
+  return out;
+}
+
+/**
+ * 两趟事实按 `(kind, value, evidenceSeq)` 合并（保持第一趟顺序）。
+ *
+ * 为什么要去重：第二趟对读形结果会**重复产出**第一趟的旧形状（`file_path`、JSON 对象的
+ * `id`/`boolean`/`config`）—— **同一份文本、同一个 seq**，去重后事实集与「只跑第一趟」逐字段相同，
+ * 只多出 read 正文行值与顶层数组标量这两类新事实。不去重会让 `facts` 计数翻倍、挂边重复。
+ *
+ * @param {...Array<object>} groups
+ * @returns {Array<object>}
+ */
+function mergeValueFacts(...groups) {
+  const out = [];
+  for (const group of groups) {
+    for (const fact of Array.isArray(group) ? group : []) {
+      if (out.some((seen) => seen.kind === fact.kind && seen.value === fact.value && seen.evidenceSeq === fact.evidenceSeq)) continue;
+      out.push(fact);
+    }
+  }
+  return out;
 }
 
 /**

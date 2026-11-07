@@ -61,6 +61,38 @@ function deepFreeze(value) {
 
 const FACT_KEYS = ["evidenceSeq", "kind", "quote", "source", "validAtSeq", "value"];
 
+/**
+ * ★ AX-22 夹具：`read` 回的文件正文（形状逐字来自 K-2 真机会话 —— `N: ` 行号前缀 + 文档注释 +
+ * 对象字面量；路径与 provider 名是**合成值**，不含任何私有会话正文）。
+ */
+const READ_CONTENT_JS = [
+  "<path>/d/work/demo/src/providers.js</path>",
+  "<type>file</type>",
+  "<content>",
+  "1: /**",
+  "2:  * 文档注释：这一行是散文，不是值。",
+  "3:  */",
+  "4: export const PROVIDERS = [",
+  "5:   {",
+  "6:     id: 'codearts',",
+  "7:     label: 'CodeArts (华为云)',",
+  "8:   },",
+  "9: ];",
+  "</content>",
+].join("\n");
+
+/**
+ * ★ AX-22 夹具：GitHub `contents` API 的**顶层 JSON 数组**（K2-N5 / K2-N6 的真实形状：
+ * 目录列表 → 每个元素是 {name, path, sha, size, url, …}；`url` 这类长字段必须被跳过）。
+ * 尾部还挂了标量元素（字符串 / 数字 / 布尔）证明「标量元素」这一支也抽。
+ */
+const CONTENTS_ARRAY_JSON = [
+  '[{"name":"accio-adapter.d.ts","path":"vendor/lib/accio-adapter.d.ts",',
+  '"sha":"c6f9d7a186c54e87f79007f6e08626dcb8701e8c","size":23738,',
+  '"url":"https://api.github.com/repos/o/r/contents/vendor/lib/accio-adapter.d.ts?ref=x","type":"file"},',
+  '"plain-scalar",42,true]',
+].join("");
+
 export const tests = {
   "夹具完整性：每条都有 id/why/input/expect，且 K-2 两个退化形状都在"(t) {
     t.ok(Array.isArray(FIXTURE.cases) && FIXTURE.cases.length >= 15, "夹具必须有足够用例（防止被删空后全绿）");
@@ -395,5 +427,143 @@ export const tests = {
     const fact = extractValueFacts({ tool: "GitHub", result: '{"id":1}', evidenceSeq: 1 })[0];
     t.eq(toolNameFromSource(fact.source), toolNameFromAction("github(path=repos/o/r)"), "source 与 action 必须能对上");
     t.eq(toolNameFromSource(fact.source), "github", "而且对上的就是工具名本身");
+  },
+
+  /* ═══════════ AX-22：read 正文行值 / 顶层 JSON 数组（两个开关**默认关闭**） ═══════════
+   *
+   * 由来（AX-21 已证实，不是假设）：`evidence/k2-reader-expand-2026-11-07.json` 剩下的 4 题里，
+   *   · K2-N2 / K2-N3 的答案长在 `read` 的**文件正文**里（`id: 'codearts',` / `'accio',`）；
+   *   · K2-N5 / K2-N6 的答案长在 GitHub `contents` API 的**顶层 JSON 数组**里（`sha` / `size`）。
+   * 两个形状过去都被契约挡住（read 正文只产 `file_path`；顶层数组「一律不抽」）。
+   * 现在各配一个**默认 false** 的开关，且**只有读形**（`read` / `read_file` / GitHub REST GET）
+   * 能打开 —— 默认关闭 ⇒ 线上 keeper / 旧语料一个字节都不变（下面第 6 条用例钉住）。
+   */
+
+  "AX-22 read 正文行值（正例）：读形 + allowReadContent ⇒ 每个短值行一条 value 事实（quote 逐字）"(t) {
+    const facts = extractValueFacts({ tool: "read", result: READ_CONTENT_JS, resultKind: "read", evidenceSeq: 171 }, { allowReadContent: true });
+    t.eq(kindValuePairs(facts), [
+      ["file_path", "/d/work/demo/src/providers.js"],
+      ["value", "id: 'codearts',"],
+      ["value", "label: 'CodeArts (华为云)',"],
+    ], "路径 + 两条带值的行；注释行与语句骨架行不是值");
+    for (const fact of facts) {
+      t.eq(isValueFact(fact), true, `六字段契约：${JSON.stringify(fact)}`);
+      t.ok(READ_CONTENT_JS.includes(fact.quote), `quote 必须是结果原文的逐字连续子串：${JSON.stringify(fact.quote)}`);
+    }
+    const id = facts.find((fact) => fact.kind === "value");
+    t.eq(id.value, id.quote, "value 与 quote 同源（行文本）");
+    t.eq(id.evidenceSeq, 171, "evidenceSeq 原样（回证链路不补 0）");
+    t.eq(id.source, "tool:read", "source 看得出是 read");
+    t.eq(facts.some((fact) => fact.value === "/**" || fact.value === "*/"), false, "注释行不得成为值");
+    t.eq(facts.some((fact) => fact.value.includes("export const PROVIDERS")), false, "无标量字面量的语句骨架不是值");
+    // 反证：同一份正文在**旧契约**（不开开关）下一条行值都没有 —— 证明「行值可见」确实由开关带来。
+    t.eq(kindValuePairs(extractValueFacts({ tool: "read", result: READ_CONTENT_JS, resultKind: "success", evidenceSeq: 171 })), [["file_path", "/d/work/demo/src/providers.js"]], "默认关闭 ⇒ 只有路径（旧契约逐字不变）");
+  },
+
+  "AX-22 read 正文行值（反例）：默认关闭 / 非读形工具 / 失败与未验证结果，都不产行值"(t) {
+    const input = { tool: "read", result: READ_CONTENT_JS, evidenceSeq: 171 };
+    t.eq(extractValueFacts({ ...input, resultKind: "read" }), [], "resultKind=read 且不开开关 ⇒ 旧信任闸仍拒绝（read 过去连路径都不产）");
+    t.eq(extractValueFacts({ ...input, resultKind: "success" }).filter((fact) => fact.kind === "value"), [], "不开开关 ⇒ 一条行值都没有");
+    // 非读形工具：即使调用方开了开关，也不产行值（工具形闸在抽取器里，防调用方乱传）。
+    const write = extractValueFacts({ ...input, tool: "write", resultKind: "success" }, { allowReadContent: true });
+    t.eq(kindValuePairs(write), [["file_path", "/d/work/demo/src/providers.js"]], "write 不是读形 ⇒ 只留路径，正文行值一条都不许产");
+    const bash = extractValueFacts({ ...input, tool: "bash", resultKind: "success" }, { allowReadContent: true });
+    t.eq(kindValuePairs(bash), [["file_path", "/d/work/demo/src/providers.js"]], "bash 也不是读形");
+    // 结果信任闸优先：失败 / 无 weak 的未验证结果，开关打开也必须空。
+    t.eq(extractValueFacts({ ...input, resultKind: "failure" }, { allowReadContent: true }), [], "failure ⇒ 空（错误结果不得进成功值事实）");
+    t.eq(extractValueFacts({ ...input, resultKind: "unverified" }, { allowReadContent: true }), [], "unverified（无 weak）⇒ 空");
+    t.eq(extractValueFacts({ ...input, resultKind: "success", isError: true }, { allowReadContent: true }), [], "isError 优先于一切开关");
+  },
+
+  "AX-22 顶层 JSON 数组（正例）：可信读形 + allowTopLevelArray ⇒ 标量元素与对象里的标量字段"(t) {
+    const facts = extractValueFacts({ tool: "github", result: CONTENTS_ARRAY_JSON, resultKind: "weak", evidenceSeq: 129 }, { allowTopLevelArray: true });
+    t.eq(kindValuePairs(facts), [
+      ["value", "accio-adapter.d.ts"],
+      ["value", "vendor/lib/accio-adapter.d.ts"],
+      ["value", "c6f9d7a186c54e87f79007f6e08626dcb8701e8c"],
+      ["value", "23738"],
+      ["value", "file"],
+      ["value", "plain-scalar"],
+      ["value", "42"],
+      ["value", "true"],
+    ], "对象字段按文档顺序、标量元素字符串化（数字/布尔不丢）");
+    for (const fact of facts) {
+      t.eq(isValueFact(fact), true, `六字段契约：${JSON.stringify(fact)}`);
+      t.ok(CONTENTS_ARRAY_JSON.includes(fact.quote), `quote 必须是原 JSON 片段：${JSON.stringify(fact.quote)}`);
+    }
+    const sha = facts.find((fact) => fact.value === "c6f9d7a186c54e87f79007f6e08626dcb8701e8c");
+    t.eq(sha.quote, '"sha":"c6f9d7a186c54e87f79007f6e08626dcb8701e8c"', "quote 带键名（value 本身只看得出是个 sha）");
+    t.eq(facts.some((fact) => String(fact.quote).includes("api.github.com")), false, "URL 字段占额度却不是短值 ⇒ 跳过");
+    // 反证：同一份数组在默认关闭下**一条都没有**（契约第 3 条仍是默认行为）。
+    t.eq(extractValueFacts({ tool: "github", result: CONTENTS_ARRAY_JSON, resultKind: "weak", evidenceSeq: 129 }), [], "默认关闭 ⇒ 顶层数组仍一律空");
+  },
+
+  "AX-22 顶层数组（反例）：非读形工具即使开开关也不按元素抽；args 数组仍绝不抽"(t) {
+    for (const tool of ["todo_write", "write", "bash", "mcp__github__create_pull_request"]) {
+      t.eq(
+        extractValueFacts({ tool, result: CONTENTS_ARRAY_JSON, resultKind: "success", evidenceSeq: 5 }, { allowTopLevelArray: true, allowReadContent: true }),
+        [],
+        `${tool} 不是读形 ⇒ 数组一条都不许抽（契约第 3 条：数组实参不得当返回值）`,
+      );
+    }
+    // github **写形**（method 在实参里）也不是读形：结果里带 id 也一样。
+    t.eq(
+      extractValueFacts(
+        { tool: "github", result: CONTENTS_ARRAY_JSON, resultKind: "success", evidenceSeq: 6, args: { path: "repos/o/r", method: "POST", body: { a: 1 } } },
+        { allowTopLevelArray: true },
+      ),
+      [],
+      "github 写形（POST + body）⇒ 不是读形，数组不抽",
+    );
+    // args 里的数组/短值绝不成为事实（即使两个开关都开、结果是顶层数组）。
+    const withArgs = extractValueFacts(
+      { tool: "read", result: CONTENTS_ARRAY_JSON, resultKind: "success", evidenceSeq: 7, args: { ids: [1, 2, 3], id: 777, private: true } },
+      { allowTopLevelArray: true, allowReadContent: true },
+    );
+    t.eq(withArgs.every((fact) => fact.source === "tool:read"), true, "source 只能是结果来源");
+    t.eq(withArgs.some((fact) => fact.value === 777 || fact.value === "777"), false, "args 的 id 不许出现");
+    t.eq(withArgs.some((fact) => fact.value === "1" || fact.value === "2"), false, "args 的数组元素不许出现");
+  },
+
+  "AX-22 有界：长正文 / 大数组只留 maxFacts 条，单值不超 maxValueChars，条数与结果规模无关"(t) {
+    // ① 长正文：200 行带值，默认只留 maxFacts 条（8），且每条都短。
+    const manyLines = Array.from({ length: 200 }, (_, index) => `${index + 1}:   id: 'provider-${index}',`).join("\n");
+    const longRead = `<path>/d/work/demo/big.js</path>\n<type>file</type>\n<content>\n${manyLines}\n</content>`;
+    const readFacts = extractValueFacts({ tool: "read", result: longRead, resultKind: "read", evidenceSeq: 900 }, { allowReadContent: true });
+    t.eq(readFacts.length, VALUE_FACT_LIMITS.maxFacts, "条数由 maxFacts 封顶（1 条路径 + 7 条行值）");
+    for (const fact of readFacts) {
+      t.ok(String(fact.value).length <= VALUE_FACT_LIMITS.maxValueChars, `单值不得超过 maxValueChars：${fact.value.length}`);
+      t.ok(fact.quote.length <= VALUE_FACT_LIMITS.maxQuoteChars, "quote 不得超过 maxQuoteChars");
+    }
+    const totalChars = readFacts.reduce((sum, fact) => sum + fact.quote.length, 0);
+    t.ok(totalChars < longRead.length / 4, `事实总量必须远小于正文（${totalChars} / ${longRead.length}）`);
+    // 超长行不是「短值」：整条丢弃，绝不截断（截断的值 = 假值）。
+    const longLine = `1:   name: '${"x".repeat(VALUE_FACT_LIMITS.maxValueChars + 50)}',`;
+    const dropped = extractValueFacts(
+      { tool: "read", result: `<path>/d/work/demo/l.js</path>\n<type>file</type>\n<content>\n${longLine}\n</content>`, resultKind: "read", evidenceSeq: 901 },
+      { allowReadContent: true },
+    );
+    t.eq(dropped.map((fact) => fact.kind), ["file_path"], "超过 maxValueChars 的行整条丢弃（不截断）");
+
+    // ② 大数组：500 个元素也只留 maxFacts 条；maxFacts 可显式调小。
+    const bigArray = JSON.stringify(Array.from({ length: 500 }, (_, index) => ({ name: `n-${index}`, size: index })));
+    t.ok(bigArray.length > 5000, "夹具必须真的很大");
+    const arrayFacts = extractValueFacts({ tool: "github", result: bigArray, resultKind: "weak", evidenceSeq: 902 }, { allowTopLevelArray: true });
+    t.eq(arrayFacts.length, VALUE_FACT_LIMITS.maxFacts, "大数组同样由 maxFacts 封顶");
+    t.eq(extractValueFacts({ tool: "github", result: bigArray, resultKind: "weak", evidenceSeq: 902, maxFacts: 3 }, { allowTopLevelArray: true }).length, 3, "maxFacts 可调小");
+  },
+
+  "AX-22 旧 GOLD 零误杀：默认选项下现有夹具逐条不变（缺省 / {} / 两个 false 三者逐字相同）"(t) {
+    for (const entry of FIXTURE.cases) {
+      const byDefault = extractValueFacts(entry.input);
+      t.eq(extractValueFacts(entry.input, {}), byDefault, `${entry.id}: 空 options 必须逐字相同`);
+      t.eq(
+        extractValueFacts(entry.input, { allowReadContent: false, allowTopLevelArray: false }),
+        byDefault,
+        `${entry.id}: 显式 false 必须逐字相同`,
+      );
+    }
+    // 真实 K-2 形状的四个既有退化点（O1/O3/N4 的答案片段 + 读到的 JSON 配置）在默认下仍然抽得出。
+    t.eq(kindValuePairs(extractValueFacts({ tool: "read", result: '<path>/d/work/demo/settings.json</path>\n<type>file</type>\n<content>\n1: {"thresholdRatio": 0.45, "factGuard": false}\n</content>', resultKind: "success", evidenceSeq: 7 })), [["file_path", "/d/work/demo/settings.json"], ["config", 0.45], ["boolean", false]], "read 到的 JSON 配置值仍按旧契约抽");
   },
 };

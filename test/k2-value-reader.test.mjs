@@ -30,6 +30,7 @@ import {
   buildFixturesDocument,
   buildMessages,
   buildPrereg,
+  coverageOf,
   deriveValueFacts,
   leakPrecheck,
   makeReaderPayload,
@@ -310,7 +311,8 @@ tests["K2-12 compact 臂默认开 factGuard：AX-18 的字面 quote 必须进上
   // 源码钉住：compact 臂的渲染入口必须把 factGuard 传进生产 renderFacts，且默认 true。
   const source = sourceOf();
   t.includes(source, "{ factGuard = true }", "默认值必须写死 true");
-  t.includes(source, "renderFacts(graph, { factGuard: factGuard === true })", "renderFacts 必须收到 factGuard（production 渲染入口）");
+  t.includes(source, "factGuard: factGuard === true", "renderFacts 必须收到 factGuard（production 渲染入口）");
+  t.includes(source, "maxValueFacts", "K-2 实验臂必须显式给出值事实渲染上限（否则 30+ 条短值会被 8 条截断）");
 };
 
 tests["K2-13 题集/判分/路由与 ax03 冻结预注册逐字相同（复跑不得改题）"] = (t) => {
@@ -471,4 +473,193 @@ tests["K2-16 派生开关与无命中：derive=false 不抽不挂；没有对应
   );
   t.eq(noEnd.attached.length, 0, "没有 evidence.end 的边不许被挂（否则就是按 start 猜）");
   t.eq(noEnd.unmapped, 4, "4 条全部计入 unmapped");
+};
+
+/* ═══════════════ K2-17+ · AX-22 派生路径的两个新形状（read 正文 / 顶层数组） ═══════════════
+ *
+ * 由来（AX-21 已证实，不是假设）：K-2 剩下的 4 题**不是**「派生挂边」的问题，是抽取器**根本不产**：
+ *   · K2-N2 / K2-N3 的答案在 `read` 的**文件正文**里（`id: 'codearts',` / `'accio',`）；
+ *   · K2-N5 / K2-N6 的答案在 GitHub `contents` 的**顶层 JSON 数组**里（`sha` / `size`）。
+ * AX-22 给抽取器加了两个**默认关闭**的开关，**只有读形**打开；K-2 派生路径必须显式开
+ * （否则 `collectFoldValueFacts` 不传 options ⇒ 一条都不产）。
+ *
+ * 这两组用例钉住的判据：
+ *   ① 派生路径对 read/github 读形**打开**两个开关 ⇒ 值事实真的挂到那条边；
+ *   ② 非读形工具（write / bash / todo_write）**保持默认 false** ⇒ 一条都不产（契约第 3 条）；
+ *   ③ 答案片段的字符串覆盖（compact 臂）在「只有这两条边」的图上为真 —— 证明可见性来自派生。
+ */
+
+/** K2-N2 形状：`read` 回 provider-registry.js（前 50 行是文档注释，答案行在中间）。 */
+const K2_READ_PROVIDERS = [
+  "<path>/d/work/demo/vendor/lib/provider-registry.js</path>",
+  "<type>file</type>",
+  "<content>",
+  "1: /**",
+  "2:  * 各 provider 的元数据与能力声明。",
+  "3:  */",
+  "4: export const PROVIDER_REGISTRY = Object.freeze([",
+  "5:   {",
+  "6:     id: 'codearts',",
+  "7:     label: 'CodeArts (华为云)',",
+  "8:   },",
+  "9: ]);",
+  "</content>",
+].join("\n");
+
+/** K2-N3 形状：`read` 回 plugin.mjs，`DSH_PROVIDERS` 的前三个元素各占一行。 */
+const K2_READ_PROVIDERS_LIST = [
+  "<path>/d/work/demo/src/plugin.mjs</path>",
+  "<type>file</type>",
+  "<content>",
+  "100:  * 注释：这一行是散文，不是值。",
+  "101:  */",
+  "102: export const DSH_PROVIDERS = [",
+  "103:   'accio',",
+  "104:   'astudio',",
+  "105:   'autoclaw',",
+  "106:   'autoclawintl',",
+  "107: ];",
+  "</content>",
+].join("\n");
+
+/** K2-N5 / K2-N6 形状：GitHub `contents` 目录列表（顶层 JSON 数组；sha / size 是答案）。 */
+const K2_CONTENTS_ARRAY = [
+  '[{"name":"accio-adapter.d.ts","path":"vendor/lib/accio-adapter.d.ts",',
+  '"sha":"c6f9d7a186c54e87f79007f6e08626dcb8701e8c","size":23738,',
+  '"url":"https://api.github.com/repos/o/r/contents/vendor/lib/accio-adapter.d.ts?ref=x","type":"file"}]',
+].join("");
+
+const K2_READ_EVENTS = [
+  k2Call(170, "r1", "read", { file_path: "provider-registry.js" }),
+  k2Result(171, "r1", K2_READ_PROVIDERS),
+  k2Call(172, "r2", "read", { file_path: "plugin.mjs" }),
+  k2Result(173, "r2", K2_READ_PROVIDERS_LIST),
+];
+
+/**
+ * 一张**真图**（`createGraph` 的完整结构）：每条 span 一条边，边结算成 classify 的 read 弱成功。
+ * 为什么不手写 `{nodes:{}, edges:{}}`：`renderFacts` 要读 `order` / `latestAgentNode`，
+ * 手写对象会在渲染期 TypeError —— 那样用例测的是夹具形状，不是派生行为。
+ */
+function derivedGraphFor(spans) {
+  const g = createGraph({ sessionId: "ax22", cwd: "/tmp" });
+  const u = addUserNodeId(g, { seq: 1, text: "把这些结果读出来。" });
+  const edgeIds = [];
+  for (const [index, span] of spans.entries()) {
+    const edgeId = addEdge(g, { from: u, intent: `第 ${index + 1} 步`, action: span.action, evidence: { start: span.start, end: span.end } });
+    const agent = addAgentNode(g, { seq: span.end + 1, goal: `第 ${index + 1} 步`, worldHash: `W${index + 1}`, constraintHash: "C1", via: edgeId }).id;
+    settleEdge(g, edgeId, { to: agent, result: "unverified", verify: { kind: "read", summary: "read" }, weak: "read" });
+    edgeIds.push(edgeId);
+  }
+  return { graph: g, edgeIds };
+}
+
+tests["K2-17 AX-22 read 正文行值：派生路径把 <content> 短值行挂到 read 边（K2-N2/N3 形状）"] = (t) => {
+  const { graph, edgeIds } = derivedGraphFor([
+    { action: "read(file_path=provider-registry.js)", start: 170, end: 171 },
+    { action: "read(file_path=plugin.mjs)", start: 172, end: 173 },
+  ]);
+  const before = JSON.stringify(graph);
+  const derived = deriveValueFacts(graph, K2_READ_EVENTS, { rangeStart: 1, rangeEnd: 1_000_000 });
+
+  t.eq(JSON.stringify(graph), before, "输入图必须一个字节都没变（不写 live 图）");
+  t.eq(derived.facts, 8, "两条 read 各 1 条路径 + 2 / 4 条正文行值");
+  t.eq(derived.attached.length, 8, "全部唯一命中（evidence.end === 结果 seq）");
+  t.eq(derived.unmapped, 0, "没有未命中");
+  t.eq(derived.multi, 0, "没有多义");
+
+  const e31 = edgeOf(derived.graph, edgeIds[0]).valueFacts;
+  const e32 = edgeOf(derived.graph, edgeIds[1]).valueFacts;
+  t.eq(e31.map((fact) => fact.kind), ["file_path", "value", "value"], "e31 = 路径 + 两条带值行（注释/骨架不是值）");
+  t.eq(e31[1].value, "id: 'codearts',", "K2-N2 的答案行（值 = 行文本）");
+  t.eq(e31[1].quote, "id: 'codearts',", "quote 逐字（模型能照抄、守卫能回证）");
+  t.eq(e31.every((fact) => fact.evidenceSeq === 171), true, "证据指针 = 这条结果事件的 seq");
+  t.eq(e32.map((fact) => fact.value), ["/d/work/demo/src/plugin.mjs", "'accio',", "'astudio',", "'autoclaw',", "'autoclawintl',"], "K2-N3 的前几个元素各占一条");
+  for (const fact of [...e31, ...e32]) {
+    t.eq(isValueFact(fact), true, "每条都必须满足 AX-02 的六字段契约");
+    t.eq(fact.source, "tool:read", "source 必须是 read");
+  }
+
+  // 字符串覆盖：只有这两条边时，两题的答案片段都在 compact 上下文里（≤ 8 条渲染上限）。
+  const { facts, contexts } = buildContextsFromGraph(derived.graph, K2_READ_EVENTS, { factGuard: true });
+  t.includes(facts, "VALUE_FACTS_VERBATIM", "值事实段必须渲染");
+  t.eq(coverageOf({ answer: "codearts" }, contexts).compact, true, "K2-N2 的答案片段必须出现在 compact 上下文里");
+  t.eq(coverageOf({ answer: ["accio", "astudio", "autoclaw"] }, contexts).compact, true, "K2-N3 的三个元素必须全部出现（ordered 判分前提）");
+};
+
+tests["K2-18 AX-22 顶层 JSON 数组：contents 结果的 sha / size 派生并挂边（K2-N5/N6 形状）"] = (t) => {
+  const events = [k2Call(128, "c9", "github", { path: "repos/o/r/contents/vendor/lib?ref=abc" }), k2Result(129, "c9", K2_CONTENTS_ARRAY)];
+  const { graph, edgeIds } = derivedGraphFor([
+    { action: "github(path=repos/o/r/contents/vendor/lib)", start: 128, end: 129 },
+  ]);
+  const before = JSON.stringify(graph);
+  const derived = deriveValueFacts(graph, events, { rangeStart: 1, rangeEnd: 1_000_000 });
+
+  t.eq(JSON.stringify(graph), before, "输入图必须一个字节都没变");
+  const facts = edgeOf(derived.graph, edgeIds[0]).valueFacts;
+  t.eq(facts.map((fact) => fact.value), ["accio-adapter.d.ts", "vendor/lib/accio-adapter.d.ts", "c6f9d7a186c54e87f79007f6e08626dcb8701e8c", "23738", "file"], "对象字段按文档顺序（URL 长串跳过），数字字符串化");
+  t.eq(facts.every((fact) => fact.kind === "value"), true, "顶层数组一律产 value 事实（不冒充 id/config）");
+  t.eq(facts.every((fact) => isValueFact(fact)), true, "六字段契约");
+  for (const fact of facts) t.ok(K2_CONTENTS_ARRAY.includes(fact.quote), `quote 必须是原 JSON 片段：${JSON.stringify(fact.quote)}`);
+
+  const { contexts } = buildContextsFromGraph(derived.graph, events, { factGuard: true });
+  t.eq(coverageOf({ answer: "c6f9d7a186c54e87f79007f6e08626dcb8701e8c" }, contexts).compact, true, "K2-N5 的 sha 必须出现在 compact 上下文里");
+  t.eq(coverageOf({ answer: "23738" }, contexts).compact, true, "K2-N6 的 size 必须出现在 compact 上下文里");
+};
+
+tests["K2-19 AX-22 反例：非读形工具（write/bash/todo_write）的数组/正文一条都不派生；args 数组仍绝不抽"] = (t) => {
+  const graph = { rootUserNodeIds: [], nodes: {}, edges: { e1: { id: "e1", action: "write(file_path=a.json)", evidence: { start: 1, end: 2 } } } };
+  const shapes = [
+    ["write", "write(file_path=a.json)", K2_CONTENTS_ARRAY],
+    ["bash", "bash(command=cat a.json)", K2_READ_PROVIDERS],
+    ["todo_write", "todo_write(todos=[object Object])", K2_CONTENTS_ARRAY],
+  ];
+  for (const [tool, action, result] of shapes) {
+    const events = [k2Call(1, "c1", tool, { file_path: "a.json" }), k2Result(2, "c1", result)];
+    const derived = deriveValueFacts(
+      { rootUserNodeIds: [], nodes: {}, edges: { e1: { id: "e1", action, evidence: { start: 1, end: 2 } } } },
+      events,
+      { rangeStart: 1, rangeEnd: 1_000_000 },
+    );
+    t.eq(derived.facts, 0, `${tool}：非读形 ⇒ 一条事实都不许产（顶层数组/正文都不是返回值）`);
+    t.eq(derived.attached.length, 0, `${tool}：不许挂任何边`);
+  }
+
+  // args 里的数组绝不成为事实（即使结果是空数组、两个开关都会被打开）。
+  const argsEvents = [
+    k2Call(10, "c1", "read", { file_path: "todos.json" }),
+    k2Result(11, "c1", "[]"),
+  ];
+  const derived = deriveValueFacts(
+    { rootUserNodeIds: [], nodes: {}, edges: { e9: { id: "e9", action: "read(file_path=todos.json)", evidence: { start: 10, end: 11 } } } },
+    argsEvents,
+    { rangeStart: 1, rangeEnd: 1_000_000 },
+  );
+  t.eq(derived.facts, 0, "空顶层数组 ⇒ 没有元素可抽（也不许回落去抽 args）");
+  t.eq(derived.attached.length, 0, "一条都不挂");
+};
+
+tests["K2-20 AX-22 有界与幂等：长正文只留 maxFacts 条；两趟合并后旧形状不重复"] = (t) => {
+  // ① 长正文：一条 read 结果里 200 行带值，派生出的该边事实仍 ≤ maxFacts（每边封顶）。
+  const manyLines = Array.from({ length: 200 }, (_, index) => `${index + 1}:   id: 'provider-${index}',`).join("\n");
+  const longRead = `<path>/d/work/demo/big.js</path>\n<type>file</type>\n<content>\n${manyLines}\n</content>`;
+  const events = [k2Call(1, "c1", "read", { file_path: "big.js" }), k2Result(2, "c1", longRead)];
+  const graph = { rootUserNodeIds: [], nodes: {}, edges: { e1: { id: "e1", action: "read(file_path=big.js)", evidence: { start: 1, end: 2 } } } };
+  const derived = deriveValueFacts(graph, events, { rangeStart: 1, rangeEnd: 1_000_000 });
+  const facts = edgeOf(derived.graph, "e1").valueFacts;
+  t.eq(facts.length, 8, "每边由 maxFacts 封顶（1 条路径 + 7 条行值）");
+  t.ok(derived.facts <= 8, `总事实数也必须封顶，实际 ${derived.facts}`);
+
+  // ② 幂等 / 去重：GitHub 对象结果（旧形状）走两趟，事实集必须与只跑第一趟逐字段相同。
+  const base = deriveValueFacts(
+    { rootUserNodeIds: [], nodes: {}, edges: { e4: { id: "e4", action: "github(path=repos/o/r)", evidence: { start: 34, end: 35 } } } },
+    K2_N4_EVENTS,
+    { rangeStart: 1, rangeEnd: 1_000_000 },
+  );
+  const pairs = edgeOf(base.graph, "e4").valueFacts.map((fact) => [fact.kind, fact.value, fact.quote]);
+  t.eq(pairs, [
+    ["id", 1436032364, '"id": 1436032364'],
+    ["id", "R_kgDOVZgdbA", '"node_id": "R_kgDOVZgdbA"'],
+    ["boolean", false, '"private": false'],
+  ], "旧形状逐字不变（两趟合并去重后不许翻倍，也不许新增 value 事实）");
 };

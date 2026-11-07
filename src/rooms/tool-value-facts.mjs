@@ -41,6 +41,22 @@
  *   （离线）里 —— 后者漏了 GitHub 读形映射，于是 K-2 S2-Q3 的 `id` / `private` 在离线路径
  *   **一条都抽不出来**（`evidence/k2-reader-expand-2026-11-07.json` 的 6 题退化里有 4 题是 API 值）。
  *   两条路径现在共用同一对纯函数：判据改一处，两条路径同时改（不可能再分叉）。
+ *
+ * ★ AX-22（2026-11-08）：K-2 剩下的**两条**退化根因也在这里收口，但**默认关闭**：
+ *
+ *   · 根因③ —— `read` 的**文件正文行值**：AX-21 之后 read 结果只产 `file_path` 一条，
+ *     正文里 `id: 'codearts',` 这种短值一条都不进图（K2-N2 / K2-N3）。
+ *   · 根因④ —— **顶层 JSON 数组**：契约第 3 条为了防「数组实参当返回值」一律不抽，
+ *     于是 GitHub `contents` API 的 `[{name, path, sha, size, …}]` 整份丢弃（K2-N5 / K2-N6）。
+ *
+ *   两个新形状各配一个**默认 `false`** 的开关（`options.allowReadContent` /
+ *   `options.allowTopLevelArray`），且**只有「这次结果是读形」**（`readShapeForValueFacts`：
+ *   `read` / `read_file`，或 GitHub REST 的 GET/HEAD/缺省）才生效。
+ *   默认关闭 ⇒ 线上 keeper / 旧语料**逐字节不变**（契约第 3 条仍是默认行为）；
+ *   只有 K-2 的派生路径（`scripts/k2-value-reader.mjs` 的 `deriveValueFacts`）显式打开。
+ *   为什么必须再宽一档信任闸：read 结果的 `resultKind` 是 classify 的 `weak:"read"`，
+ *   旧契约只认 `success`/`weak` 两个字面量 ⇒ 正文行值连门都进不去（`read` 连 `file_path`
+ *   都不产）。新形状额外接受 `read` / `shell` 两种**弱成功**，且**只在开关打开 + 读形**时。
  */
 
 import { SCHEMA } from "./config-schema.mjs";
@@ -81,6 +97,26 @@ function isIdKey(key) {
 /** 结果来源的信任闸：只有这两种可以产事实（`weak` 必须由调用方显式给，不自己升格）。 */
 const TRUSTED_RESULT_KINDS = new Set(["success", "weak"]);
 
+/**
+ * ★ AX-22：**read 正文行值 / 顶层 JSON 数组**两个新形状额外接受的「弱成功」结果种类。
+ *
+ * 为什么需要额外一档：read 结果的 `resultKind` 是 classify 的 `weak:"read"`
+ * （`{result:"unverified", weak:"read"}`，R04 的只读兜底分支），**不是**字面量 `"weak"`
+ * —— 旧信任闸只认 `success`/`weak`，于是 read 结果连 `file_path` 都产不出来。
+ * 这一档**只在「开关打开 + 这次是读形」时**生效（见 `readShapeForValueFacts`），
+ * 所以线上 keeper（不传 options）的行为逐字节不变。
+ */
+const EXTRA_TRUSTED_READ_KINDS = new Set(["read", "shell"]);
+
+/**
+ * ★ AX-22：会产出 `<path>…</path>\n<content>…</content>` 包络的**只读**工具。
+ *
+ * 只列真会回正文的工具名（`read` / `read_file`）—— 不按「像 read」猜：
+ * `web_fetch` / `read_page` 的结果是网页正文（没有 `<content>` 包络），
+ * `grep` / `glob` 的结果是命中列表（不是文件正文）。列错一个就等于给别的工具开闸。
+ */
+const READ_CONTENT_TOOLS = new Set(["read", "read_file"]);
+
 /** 单行短值的寒暄/回执词：它们不是「值」，不该占一条事实。 */
 const ACK_RE = /^(?:ok|okay|done|success|successful|no changes?|created file|updated file|完成|成功|已创建|已更新|已写入|好的|收到)$/i;
 
@@ -99,29 +135,45 @@ const TEXT_ERROR_RE = /^(?:[A-Za-z_$][\w$]*(?:Error|Exception)\b|Traceback\b|Err
  *   isError?: boolean,         // 宿主标记；true 一律 []
  *   evidenceSeq: number,       // 必填：这条结果的会话事件 seq（给不出就不产事实）
  *   validAtSeq?: number,       // 可选：事实生效时点；默认 = evidenceSeq
- *   args?: unknown,            // **只接收、绝不读取** —— 数组实参不得当返回值（契约第 3 条）
+ *   args?: unknown,            // 只在「GitHub 读形」判定里读 method/body/confirm 三个键（AX-22）；
+ *                             //   **绝不把实参里的任何值当事实**（契约第 3 条：数组实参不得当返回值）
  *   maxFacts?: number,
  *   maxValueChars?: number,
  *   maxQuoteChars?: number,
  *   maxResultChars?: number,
  * }} input
+ * @param {{
+ *   allowReadContent?: boolean,   // ★ AX-22：read 正文的短值行（默认 false）
+ *   allowTopLevelArray?: boolean, // ★ AX-22：顶层 JSON 数组的标量（默认 false）
+ * }} [options] 两个开关都**只在「这次结果是读形」时**有效（见 `readShapeForValueFacts`）
  * @returns {Array<{kind:string, value:string|number|boolean, quote:string, evidenceSeq:number, validAtSeq:number, source:string}>}
  */
-export function extractValueFacts(input = {}) {
+export function extractValueFacts(input = {}, options = {}) {
   try {
-    return extractUnsafe(input);
+    return extractUnsafe(input, options);
   } catch {
     // 抽取器永远不抛：坏输入 = 没有事实（空数组），不是错误。
     return [];
   }
 }
 
-function extractUnsafe(input) {
+function extractUnsafe(input, options) {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return [];
 
   // ① 成功闸：错误结果不得进入成功值事实（宿主标记优先，其次调用方给的 resultKind）。
   if (input.isError === true) return [];
-  if (input.resultKind !== undefined && input.resultKind !== null && !TRUSTED_RESULT_KINDS.has(String(input.resultKind))) return [];
+  // ★ AX-22：两个新形状各有一个**默认关闭**的开关；两者都关时，这里的判据与 AX-21 逐字相同。
+  const opts = options !== null && typeof options === "object" && !Array.isArray(options) ? options : {};
+  const rawKind = input.resultKind === undefined || input.resultKind === null ? "success" : String(input.resultKind);
+  const wantReadContent = opts.allowReadContent === true;
+  const wantTopLevelArray = opts.allowTopLevelArray === true;
+  // 「这次结果算不算读」只在开关打开时才有意义（省掉无谓的 args 形状判定）。
+  const readShaped = (wantReadContent || wantTopLevelArray) && readShapeForValueFacts(input.tool, input.args);
+  const trusted =
+    TRUSTED_RESULT_KINDS.has(rawKind) || (readShaped && EXTRA_TRUSTED_READ_KINDS.has(rawKind));
+  if (!trusted) return [];
+  const readContentOn = wantReadContent && readShaped;
+  const topLevelArrayOn = wantTopLevelArray && readShaped;
 
   // ② seq 闸：没有证据指针就不产事实（编号是回证链路，不许补 0/补时间戳）。
   const evidenceSeq = input.evidenceSeq;
@@ -163,20 +215,23 @@ function extractUnsafe(input) {
   const seen = new Set();
 
   const add = (kind, value, quote) => {
-    if (out.length >= limits.maxFacts) return;
+    if (out.length >= limits.maxFacts) return false;
     if (typeof value === "string") {
-      if (value.length === 0 || value.length > limits.maxValueChars) return;
-    } else if (typeof value !== "number" && typeof value !== "boolean") return;
-    if (typeof value === "number" && !Number.isFinite(value)) return;
+      if (value.length === 0 || value.length > limits.maxValueChars) return false;
+    } else if (typeof value !== "number" && typeof value !== "boolean") return false;
+    if (typeof value === "number" && !Number.isFinite(value)) return false;
     const q = String(quote ?? "").trim();
-    if (q === "" || q.length > limits.maxQuoteChars || q.includes("\u0000")) return;
+    if (q === "" || q.length > limits.maxQuoteChars || q.includes("\u0000")) return false;
     // 逐字兜底：构造成本再低，也不允许一条「原文里找不到」的 quote 流出去。
-    if (!text.includes(q)) return;
+    if (!text.includes(q)) return false;
     const key = `${kind}\u0000${typeof value}\u0000${String(value)}`;
-    if (seen.has(key)) return;
+    if (seen.has(key)) return false;
     seen.add(key);
     out.push({ kind, value, quote: q, evidenceSeq: ctx.evidenceSeq, validAtSeq: ctx.validAtSeq, source: ctx.source });
+    return true;
   };
+  /** 满额就不再扫（大结果 / 长正文里继续扫只是白烧 CPU）。 */
+  const full = () => out.length >= limits.maxFacts;
 
   // ⑤ 文件回执/路径：先于 JSON 分支（write 的 `<content>` 里只有 Created file，不是 JSON）。
   if (envelope !== null) {
@@ -207,6 +262,9 @@ function extractUnsafe(input) {
         collectJsonFacts({ jsonText: trimmed, add });
       } else if (trimmed.startsWith("[")) {
         // 契约第 3 条：顶层数组不当返回值（`todo_write` 之类会把入参数组回显成结果）。
+        // ★ AX-22：只有「可信读形 + 调用方显式开 allowTopLevelArray」才按元素抽
+        //   （GitHub contents API 的真实形状就是顶层数组）。默认 false ⇒ 逐字回到旧契约。
+        if (topLevelArrayOn) collectJsonArrayFacts({ jsonText: trimmed, add, full });
       } else if (trimmed.startsWith("<")) {
         // 其它 XML 形状：不猜。
       } else {
@@ -220,7 +278,11 @@ function extractUnsafe(input) {
     if (first.startsWith("{")) {
       collectJsonFacts({ jsonText: stripped.slice(stripped.indexOf(first)), add });
     } else if (first.startsWith("[")) {
-      // 读到的文件是 JSON 数组：同「顶层数组」规则，不按元素抽。
+      // 读到的文件是 JSON 数组：同「顶层数组」规则，默认不按元素抽（★ AX-22 开关打开才抽）。
+      if (topLevelArrayOn) collectJsonArrayFacts({ jsonText: stripped.slice(stripped.indexOf(first)), add, full });
+    } else if (readContentOn) {
+      // ★ AX-22：read 正文不是 JSON（源码/文本）时，短值行本身就是 K-2 要留的值（K2-N2 / K2-N3）。
+      collectReadContentValues({ contentText: stripped, add, full, limits });
     }
   }
 
@@ -310,6 +372,28 @@ export function githubReadShaped(toolName, args) {
   if (a.body !== undefined && a.body !== null) return false;
   if (a.confirm === true) return false;
   return true;
+}
+
+/**
+ * ★ AX-22：「这次结果算不算**读**」—— 两个新形状（read 正文行值 / 顶层 JSON 数组）
+ * 共用的**工具形闸**，判据的唯一来源。
+ *
+ * 只认两种：
+ *   · 会回 `<path>/<content>` 包络的只读工具（`read` / `read_file`）；
+ *   · GitHub REST 端点的读形（GET / HEAD / 缺省 GET —— 写形的实参 `body` / `confirm:true` 不算）。
+ *
+ * 为什么必须是纯函数并导出：K-2 的派生路径（`scripts/k2-value-reader.mjs`）要在**打开开关前**
+ * 先判一次工具形（只有读形才传 `true`），而抽取器内部还要再判一次（防调用方乱传）。
+ * 两处各写一份正则，等于给「什么算读」造出两个答案 —— 那正是 AX-21 收口掉的错误。
+ *
+ * @param {unknown} toolName tool-call 的工具名
+ * @param {unknown} args tool-call 的实参（只读 `method` / `body` / `confirm` 三个键）
+ * @returns {boolean}
+ */
+export function readShapeForValueFacts(toolName, args) {
+  const name = normalizeToolName(toolName);
+  if (READ_CONTENT_TOOLS.has(name)) return true;
+  return githubReadShaped(name, args);
 }
 
 /**
@@ -587,6 +671,146 @@ function skipJsonValue(text, from) {
   let i = from;
   while (i < text.length && !",}]".includes(text[i]) && !/\s/.test(text[i])) i += 1;
   return i > from ? i : -1;
+}
+
+/* ═══════════════════ AX-22：read 正文行值 / 顶层 JSON 数组 ═══════════════════
+ *
+ * 这两个形状都是**默认关闭**的（`allowReadContent` / `allowTopLevelArray`），且只在
+ * 「这次结果是读形」时生效。为什么默认关：线上 keeper 的 `extractValueFacts` 调用不传 options，
+ * 于是 `graph.json` 的字节形状、旧语料的事实集、契约第 3 条（数组实参不得当返回值）全部逐字不变。
+ */
+
+/** 行首是注释标记 ⇒ 这行是**散文**，不是值（K-2 的 read 正文前 50 行全是文档注释）。 */
+const COMMENT_LINE_RE = /^(?:\/\/|\/\*|\*|#)/;
+
+/**
+ * 行内必须至少有一个**标量字面量**（引号串 / 数字 / `true|false`），否则只是语句骨架。
+ *
+ * 为什么需要：`<content>` 是整份源码，`export const X = [` / `{` / `});` 这类骨架行
+ * 挤进 `maxFacts` 的额度后，真正带值的行（`id: 'codearts',`）反而落选 ——
+ * K2-N2 / K2-N3 的答案行就会因为「前 N 行全是散文/骨架」而永远进不了图。
+ */
+const SCALAR_LITERAL_RE = /'[^'\n]*'|"[^"\n]*"|`[^`\n]*`|-?\b\d+(?:\.\d+)?\b|\b(?:true|false)\b/;
+
+/**
+ * 从 **read 正文**（已剥掉 `N: ` 行号前缀）里抽短值行。
+ *
+ * 判据（与 `collectPlainValue` 同一精神，只是一行一行看）：
+ *   · 非空、≤ `maxValueChars`、含字母/数字、不是注释行、不是寒暄/错误行、含标量字面量；
+ *   · `value` = 该行（去首尾空白），`quote` = 同一行逐字（`add` 的 `includes` 兜底再验一次）；
+ *   · 条数由 `maxFacts` 封顶（`full()` 一到就停）。
+ *
+ * @param {{contentText:string, add:(kind:string,value:any,quote:string)=>boolean, full:()=>boolean, limits:{maxFacts:number,maxValueChars:number}}} args
+ */
+function collectReadContentValues({ contentText, add, full, limits }) {
+  for (const line of String(contentText ?? "").split("\n")) {
+    if (full()) return;
+    const value = line.trim();
+    if (value === "") continue;
+    if (value.length > limits.maxValueChars) continue;
+    if (COMMENT_LINE_RE.test(value)) continue;
+    if (value.includes("\u0000") || value.includes("[exit code:")) continue;
+    if (ACK_RE.test(value) || TEXT_ERROR_RE.test(value)) continue;
+    if (!SCALAR_LITERAL_RE.test(value)) continue;
+    add("value", value, value);
+  }
+}
+
+/** 顶层数组里要跳过的键：URL 类字段动辄上百字符，占额度却不是「短值」。 */
+const ARRAY_VALUE_EXCLUDE_RE = /(?:^|_)(?:url|uri|href|link)$/i;
+
+/**
+ * 从**顶层 JSON 数组**里抽标量：数组元素本身是标量就抽它；是对象就抽它的**顶层标量字段**
+ * （`name` / `path` / `sha` / `size` 这种；嵌套对象/数组整块跳过）。
+ *
+ * 为什么需要：GitHub `contents` API 的结果就是 `[{name, path, sha, size, …}, …]`
+ * （K2-N5 / K2-N6），而契约第 3 条为了防「`todo_write` 把入参数组回显成结果」一律不抽数组 ——
+ * 于是这两题的答案（`sha` / `size`）在压缩上下文里一条都没有。
+ *
+ * `quote` 一律是**原 JSON 片段**（对象字段是 `"sha":"…"`，数组元素是元素原文），
+ * 所以模型能逐字回证、守卫能 `includes` 复核；`value` 取标量的字符串形（数字 `23738` → `"23738"`），
+ * 与 `kind:"value"` 的渲染契约（`normalizeValueFact` 只接受字符串值）对齐。
+ *
+ * @param {{jsonText:string, add:(kind:string,value:any,quote:string)=>boolean, full:()=>boolean}} args
+ *   `jsonText` 既是被扫描的那段，也是 quote 的来源（read 的行号前缀已剥掉）
+ */
+function collectJsonArrayFacts({ jsonText, add, full }) {
+  for (const element of scanTopLevelElements(jsonText)) {
+    if (full()) return;
+    const elementFirst = jsonText[element.start];
+    if (elementFirst === "[") continue; // 嵌套数组整块跳过（大结果只留短标量）
+    if (elementFirst === "{") {
+      const slice = jsonText.slice(element.start, element.end);
+      for (const member of scanTopLevelMembers(slice)) {
+        if (full()) return;
+        if (ARRAY_VALUE_EXCLUDE_RE.test(member.key)) continue; // URL/URI 这类长串不是短值
+        const memberFirst = slice[member.valueStart];
+        if (memberFirst === "{" || memberFirst === "[") continue;
+        const quote = slice.slice(member.keyStart, member.valueEnd);
+        let value;
+        try {
+          value = JSON.parse(`{${quote}}`)[member.key];
+        } catch {
+          continue;
+        }
+        const scalar = scalarText(value);
+        if (scalar === null) continue;
+        add("value", scalar, quote);
+      }
+      continue;
+    }
+    const raw = jsonText.slice(element.start, element.end);
+    let value;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      continue; // 截断处之后的元素不猜
+    }
+    const scalar = scalarText(value);
+    if (scalar === null) continue;
+    add("value", scalar, raw);
+  }
+}
+
+/** 标量 → `kind:"value"` 的字符串值；对象/数组/超长串/控制字符 ⇒ null。 */
+function scalarText(value) {
+  if (typeof value === "string") return acceptableString(value) ? value : null;
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  if (typeof value === "boolean") return String(value);
+  return null;
+}
+
+/**
+ * 扫顶层**数组**的元素 span（只要边界，不做语义判断）：`{start, end}`。
+ * 与 `scanTopLevelMembers` 同一条纪律：截断/语法坏 ⇒ 返回**已经扫完的完整前缀**。
+ *
+ * @returns {Array<{start:number, end:number}>}
+ */
+function scanTopLevelElements(text) {
+  const elements = [];
+  let i = 0;
+  const n = text.length;
+  const skipWs = () => {
+    while (i < n && /\s/.test(text[i])) i += 1;
+  };
+  skipWs();
+  if (text[i] !== "[") return elements;
+  i += 1;
+  for (;;) {
+    skipWs();
+    if (text[i] === "]") return elements;
+    const start = i;
+    const end = skipJsonValue(text, i);
+    if (end < 0) return elements;
+    elements.push({ start, end });
+    i = end;
+    skipWs();
+    if (text[i] === ",") {
+      i += 1;
+      continue;
+    }
+    return elements;
+  }
 }
 
 /* ───────────────────────────── read 的行号前缀 ───────────────────────────── */
