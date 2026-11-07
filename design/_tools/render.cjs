@@ -12,7 +12,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = "E:\\Workplace\\extension\\dsh-GOkifu-compact\\design";
+// 相对本文件定位（`design/`），**不写死本机绝对路径** —— 别人 clone 下来也能直接跑
+const ROOT = path.resolve(__dirname, "..");
 const sprite = fs.readFileSync(path.join(ROOT, "assets", "icons.svg"), "utf8").trim();
 
 const icon = (name, cls = "ico") =>

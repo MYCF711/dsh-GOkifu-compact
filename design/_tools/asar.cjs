@@ -9,8 +9,40 @@
  *   JSON 从 offset 16 开始，文件内容从 8 + headerSize 开始
  */
 const fs = require("fs");
+const path = require("path");
 
-const ASAR = "C:\\APP\\agent\\DeepSeek Harness\\resources\\app.asar";
+/**
+ * 定位本机 DSH 安装目录里的 app.asar。
+ *
+ * **不写死任何人的本机路径**（仓库要能在别人机器上跑）。顺序：
+ *   1. `DSH_APP_ASAR` 环境变量（显式指定，最优先）
+ *   2. 从 `DSH_HOME` / `DSH_INSTALL_DIR` / 当前目录 逐级向上找 `<某级>/resources/app.asar`
+ *   3. 都没有 ⇒ 抛错并告诉你怎么设，**不猜**
+ */
+function resolveAsar() {
+  const explicit = process.env.DSH_APP_ASAR;
+  if (explicit && fs.existsSync(explicit)) return explicit;
+
+  const roots = [process.env.DSH_INSTALL_DIR, process.env.DSH_HOME, process.cwd()].filter(
+    (value) => typeof value === "string" && value !== "",
+  );
+  for (const root of roots) {
+    let dir = path.resolve(root);
+    for (let depth = 0; depth < 6; depth += 1) {
+      const candidate = path.join(dir, "resources", "app.asar");
+      if (fs.existsSync(candidate)) return candidate;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  throw new Error(
+    "找不到 app.asar：请设 DSH_APP_ASAR 指向 <DSH 安装目录>/resources/app.asar" +
+      "（例如 macOS 的 /Applications/DeepSeek Harness.app/Contents/Resources/app.asar）",
+  );
+}
+
+const ASAR = resolveAsar();
 
 let cache = null;
 

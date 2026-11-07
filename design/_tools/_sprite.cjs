@@ -6,9 +6,11 @@
  * 产物： design/assets/icons.svg（被 render.cjs 内联进每屏）
  */
 const fs = require("fs");
+const path = require("path");
 
-const ROOT = "E:\\Workplace\\extension\\dsh-GOkifu-compact\\design";
-const icons = JSON.parse(fs.readFileSync(ROOT + "\\_tools\\_icons.json", "utf8"));
+// 相对本文件定位（`design/`），**不写死本机绝对路径**
+const ROOT = path.resolve(__dirname, "..");
+const icons = JSON.parse(fs.readFileSync(path.join(ROOT, "_tools", "_icons.json"), "utf8"));
 
 /** 可读 id → 官方组件名 */
 const map = {
@@ -70,5 +72,5 @@ const sprite = [
   "</svg>"
 ].join("\n");
 
-fs.writeFileSync(ROOT + "\\assets\\icons.svg", sprite, "utf8");
+fs.writeFileSync(path.join(ROOT, "assets", "icons.svg"), sprite, "utf8");
 console.log("symbols=" + symbols.length + " bytes=" + Buffer.byteLength(sprite));

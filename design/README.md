@@ -120,6 +120,20 @@ design/
 
 链：**app.asar → 图标 + 令牌 → sprite → 四屏 HTML**。
 
+> **前置：`app.asar` 从哪来。** 第 1/2/3 步要读本机 DSH 安装里的 `app.asar`，
+> 脚本**不写死任何人的本机路径**（那会让别人 clone 下来直接跑不起来）。定位顺序：
+> ① 环境变量 `DSH_APP_ASAR`；② 从 `DSH_INSTALL_DIR` / `DSH_HOME` / 当前目录逐级向上找
+> `<某级>/resources/app.asar`；③ 都没有就报错并告诉你怎么设。
+>
+> ```powershell
+> # 本机（Windows）示例
+> $env:DSH_APP_ASAR = "<DSH 安装目录>\resources\app.asar"
+> ```
+>
+> 只跑第 4–6 步（`_sprite.cjs` / `render.cjs` / `smoke.cjs`）**不需要** asar ——
+> 它们只读仓库里的 `_tools/_icons.json` 与 `assets/icons.svg`，任何机器都能跑。
+> 脚本内部的路径一律 `path.resolve(__dirname, …)` 相对本文件定位。
+
 ```bash
 # 1) 官方各包 CSS → tmp/design-official-css/（派生，不进 git）
 node design/_tools/extract-official-css.cjs
