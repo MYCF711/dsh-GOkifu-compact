@@ -873,6 +873,8 @@ export async function runK26Item({ home, sample, callModel, requestedModel = nul
   for (const arm of ARMS) {
     const prompts = [];
     const servedModels = [];
+    /** 模型原始回答（私有：含 claims/quotes，只落 tmp 的条目 JSON，不进 run.json / report.md）。 */
+    const rawOutputs = [];
     const callStart = Array.isArray(callLedger) ? callLedger.length : 0;
     const wrapped = async (prompt, opts) => {
       if (keepPrompts && outDir !== "") {
@@ -882,6 +884,7 @@ export async function runK26Item({ home, sample, callModel, requestedModel = nul
       }
       const out = await callModel(prompt, opts);
       if (typeof out?.servedModel === "string" && out.servedModel !== "") servedModels.push(out.servedModel);
+      rawOutputs.push({ chars: String(out?.text ?? "").length, sha256: sha256(String(out?.text ?? "")), text: String(out?.text ?? "") });
       return out;
     };
     const startedAt = Date.now();
@@ -924,6 +927,8 @@ export async function runK26Item({ home, sample, callModel, requestedModel = nul
         armRecord.prompts = prompts;
         armRecord.servedModels = [...new Set(servedModels)];
         armRecord.calls = Array.isArray(callLedger) ? callLedger.slice(callStart).map(callView) : [];
+        armRecord.rawOutputs = rawOutputs;
+        armRecord.guardRecord = result.guard ?? null;
         item.arms[arm.id] = armRecord;
         continue;
       }
@@ -954,6 +959,10 @@ export async function runK26Item({ home, sample, callModel, requestedModel = nul
       armRecord.prompts = prompts;
       armRecord.servedModels = [...new Set(servedModels)];
       armRecord.calls = Array.isArray(callLedger) ? callLedger.slice(callStart).map(callView) : [];
+      armRecord.rawOutputs = rawOutputs;
+      // ★ AX-11/13 要复判的是**候选事实本身**（claim / quote / evidenceSeq），
+      //   所以逐条裁决的原文必须留在私有条目里；公开投影只吃 `guard`（计数）。
+      armRecord.guardRecord = chunk.guard ?? null;
       armRecord.ms = Date.now() - startedAt;
       const frozen = frozenVerdict(chunk.text, frozenText);
       armRecord.frozen = { usedFrozen: frozen.usedFrozen, candidateSha256: frozen.candidateSha256, frozenSha256: frozen.frozenSha256 };
@@ -1101,6 +1110,8 @@ export async function runK27Item({ fixture, callModel, requestedModel = null, ca
   for (const arm of ARMS) {
     const prompts = [];
     const servedModels = [];
+    /** 模型原始回答（私有：含 claims/quotes，只落 tmp 的条目 JSON，不进 run.json / report.md）。 */
+    const rawOutputs = [];
     const callStart = Array.isArray(callLedger) ? callLedger.length : 0;
     const wrapped = async (prompt, opts) => {
       if (keepPrompts && outDir !== "") {
@@ -1110,6 +1121,7 @@ export async function runK27Item({ fixture, callModel, requestedModel = null, ca
       }
       const out = await callModel(prompt, opts);
       if (typeof out?.servedModel === "string" && out.servedModel !== "") servedModels.push(out.servedModel);
+      rawOutputs.push({ chars: String(out?.text ?? "").length, sha256: sha256(String(out?.text ?? "")), text: String(out?.text ?? "") });
       return out;
     };
     const startedAt = Date.now();
@@ -1149,6 +1161,8 @@ export async function runK27Item({ fixture, callModel, requestedModel = null, ca
         armRecord.prompts = prompts;
         armRecord.servedModels = [...new Set(servedModels)];
         armRecord.calls = Array.isArray(callLedger) ? callLedger.slice(callStart).map(callView) : [];
+        armRecord.rawOutputs = rawOutputs;
+        armRecord.guardRecord = result.guard ?? null;
         item.arms[arm.id] = armRecord;
         continue;
       }
@@ -1175,6 +1189,10 @@ export async function runK27Item({ fixture, callModel, requestedModel = null, ca
       armRecord.prompts = prompts;
       armRecord.servedModels = [...new Set(servedModels)];
       armRecord.calls = Array.isArray(callLedger) ? callLedger.slice(callStart).map(callView) : [];
+      armRecord.rawOutputs = rawOutputs;
+      // ★ AX-11/13 要复判的是**候选事实本身**（claim / quote / evidenceSeq），
+      //   所以逐条裁决的原文必须留在私有条目里；公开投影只吃 `guard`（计数）。
+      armRecord.guardRecord = chunk.guard ?? null;
       armRecord.ms = Date.now() - startedAt;
       const frozen = frozenVerdict(chunk.text, fullContext === "" ? "" : String(fixture?.compactContext ?? ""));
       armRecord.frozen = { usedFrozen: frozen.usedFrozen, candidateSha256: frozen.candidateSha256, frozenSha256: frozen.frozenSha256 };
@@ -1503,9 +1521,8 @@ function readGitRev() {
     }
     const packed = nodePath.join(common, "packed-refs");
     if (nodeFs.existsSync(packed)) {
-      for (const line of nodeFs.readFileSync(packed, "utf8").split("
-")) {
-        const [sha, ref] = line.trim().split(/s+/);
+      for (const line of nodeFs.readFileSync(packed, "utf8").split(String.fromCharCode(10))) {
+        const [sha, ref] = line.trim().split(/\s+/);
         if (ref === name) return sha;
       }
     }
@@ -1639,7 +1656,7 @@ export async function main(argv = process.argv.slice(2)) {
     run.defaultModel = { ok: false, file: defaultModel.file, sha256: defaultModel.sha256, provider: null, model: null, source: null };
     run.endpoint = options.endpoint;
     writeJson(nodePath.join(out, "run.json"), run);
-    writeText(nodePath.join(out, "REPORT.md"), renderReport(run));
+    writeText(nodePath.join(out, "report.md"), renderReport(run));
     console.error(`✗ 默认模型不可用：${defaultModel.errors.join("；")}`);
     return 3;
   }
@@ -1766,10 +1783,10 @@ export async function main(argv = process.argv.slice(2)) {
     run.privacy.violations = privacy.violations.length;
     const again = `${JSON.stringify(run, null, 2)}\n`;
     writeText(nodePath.join(out, "run.json"), again);
-    writeText(nodePath.join(out, "REPORT.md"), renderReport(run));
+    writeText(nodePath.join(out, "report.md"), renderReport(run));
   } else {
     writeText(nodePath.join(out, "run.json"), finalRunJson);
-    writeText(nodePath.join(out, "REPORT.md"), finalReportText);
+    writeText(nodePath.join(out, "report.md"), finalReportText);
   }
 
   const parityViolations = run.totals.parityViolations;

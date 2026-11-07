@@ -557,7 +557,7 @@ tests["main 模型不可用 ⇒ NOT_RUN 退出码 3，且不产物假结果"] = 
     t.eq(run.status, "NOT_RUN", "状态 NOT_RUN");
     t.eq(run.defaultModel.model, null, "不许补一个模型名");
     t.eq(run.corpora.k26.items.length, 0, "没有条目（不伪造）");
-    t.ok(fs.existsSync(path.join(out, "REPORT.md")), "报告仍要写（说明为什么 NOT_RUN）");
+    t.ok(fs.existsSync(path.join(out, "report.md")), "报告仍要写（说明为什么 NOT_RUN）");
   } finally {
     cleanup(dir);
   }
