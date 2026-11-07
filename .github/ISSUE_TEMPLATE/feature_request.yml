@@ -1,0 +1,46 @@
+name: 功能建议
+description: 希望这个压缩后端还能做什么
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **先说场景，不要先说方案** —— 同一个场景往往有更简单的做法。
+        本项目有一条「**没有消费者的指标不许进代码**」的纪律：提之前先想清楚**谁读它**。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你现在卡在哪
+      description: 描述真实的会话 / 真实的一轮工作，不要抽象成「希望能更智能」
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你想到的做法（可选）
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 现在怎么绕过去的（可选）
+      description: 有临时方案的话，说明这个问题有多疼
+  - type: dropdown
+    id: layer
+    attributes:
+      label: 你认为它属于哪一层
+      description: 本仓的边界很硬 —— 越界的功能会被直接关掉（见「压缩的职责边界」）
+      options:
+        - 压缩策略（fold 范围 / 阈值 / 保真度）
+        - 热上下文（热清单渲染 / 预算 / 标记）
+        - 落盘（graph.json / delta / 回滚）
+        - 面板（状态 / 补账 / 配置）
+        - 诊断（doctor / 各类审计脚本）
+        - 不在本仓范围（长期记忆 / 工具治理 / UI 美化）
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 有证据吗（可选）
+      description: |
+        本仓的规矩是「**没有数字的不进结论表**」。如果手上有 `evidence/` 里的数据、
+        或能复跑的命令，贴上来 —— 有证据的建议排期会快很多。

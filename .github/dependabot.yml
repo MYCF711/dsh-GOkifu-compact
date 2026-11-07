@@ -1,0 +1,20 @@
+# 只管 GitHub Actions：本项目**零运行时依赖**（package.json 的 dependencies / devDependencies
+# 都是空对象，`peerDependencies` 是宿主提供的 @deepseek-ai/*，不装也不发）。
+#
+# 那为什么仍然要开 dependabot：**workflow 里的 action 版本会悄悄落后**。
+# `.github/workflows/ci.yml` 用 `actions/checkout@v4` + `actions/setup-node@v4`，
+# 没人会主动去 GitHub 看它们出了第几版；而 action 的大版本一过弃用期，CI 会直接在
+# runner 上告警甚至失败 —— 那时代码一行没改，红的是「昨天还好好的」。
+#
+# 只开 github-actions 一个生态：开 npm 会每天为「空依赖」开一个无事可做的 PR。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
