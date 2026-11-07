@@ -354,7 +354,7 @@ tests["AX-09 ① 三路径同一裁决：online 报告 === offline 记录 === �
     [s.narratives.total, s.narratives.supported],
     "online 的叙事计数必须等于参考信封",
   );
-  t.eq(online.out.factGuard.evidenceEvents, engineShape.events.length, "online 实际读到的证据事件数必须等于消息证据源条数");
+  t.eq(online.out.factGuard.evidenceEvents, buildGuardSource(events, { sessionId: SESSION_ID }).events.length, "online 实际读到的证据事件数必须等于完整证据源条数（消息 + tool/call）");
   t.eq(online.out.degraded, undefined, "事实被拒 ≠ 结构降级");
 
   /* ④ offline：真离线编排的留痕记录必须与参考信封**逐字段**相同 */
@@ -806,28 +806,27 @@ tests["AX-09 ⑧ 已知边界（隔离实验）：证据源只差 tool/call 摘�
   // 于是拿不到 chunk —— 那是 AX-07 的既有语义，与本例要证明的「源差异」无关。
   const envelope = { facts: [candidate], narratives: [{ id: "n-toolcall", text: "已经调用过 gh api。", factRefs: ["f-toolcall"] }] };
 
-  /* ① 参考层：同一份候选，只换证据源，裁决就不同 —— 但原因码来自**同一张表** */
-  const engineShape = buildGuardSource(events.filter((e) => e.type !== "tool/call"), { sessionId: SESSION_ID });
+  /* ① 参考层：online / offline 现在都从完整日志取证据源 ⇒ 同裁决 */
+  const engineShape = buildGuardSource(events, { sessionId: SESSION_ID });
   const offlineShape = buildGuardSource(events, { sessionId: SESSION_ID });
   const onlineVerdict = guardModelOutput(envelope, { factGuard: true, session: engineShape }).facts[0];
   const offlineVerdict = guardModelOutput(envelope, { factGuard: true, session: offlineShape }).facts[0];
-  t.eq(onlineVerdict.verdict, "REJECTED", "在线证据源没有 tool/call 行 ⇒ 该候选必须被拒");
-  t.eq(onlineVerdict.reasons.map((r) => r.code), ["EVIDENCE_SEQ_NOT_FOUND"], "拒绝原因必须是「该 seq 不在证据里」");
-  t.eq(offlineVerdict.verdict, "SUPPORTED", "离线证据源有 tool/call 行 ⇒ 同一候选通过");
+  t.eq(onlineVerdict.verdict, "SUPPORTED", "在线证据源含 tool/call 行 ⇒ 该候选必须通过");
+  t.eq(offlineVerdict.verdict, "SUPPORTED", "离线证据源含 tool/call 行 ⇒ 同一候选通过");
+  t.eq(onlineVerdict, offlineVerdict, "两源现在必须给出逐字段相同的裁决");
   t.eq(REASONS.EVIDENCE_SEQ_NOT_FOUND, "EVIDENCE_SEQ_NOT_FOUND", "原因码必须来自 fact-guard 的登记表（不是别处自造）");
-  // 隔离：把 tool/call 从离线源里去掉 ⇒ 与在线源得到同一个裁决 ⇒ 差异的唯一变量就是那一类事件
-  const offlineMinusCall = guardModelOutput(envelope, { factGuard: true, session: buildGuardSource(events.filter((e) => e.type !== "tool/call"), { sessionId: SESSION_ID }) }).facts[0];
-  t.eq(offlineMinusCall, onlineVerdict, "去掉 tool/call 行后，离线源与在线源必须给出**逐字段相同**的裁决");
+  // 隔离：把 tool/call 从两源里一起去掉 ⇒ 同一候选被拒 ⇒ 差异的唯一变量就是那一类事件
+  const minusCall = buildGuardSource(events.filter((e) => e.type !== "tool/call"), { sessionId: SESSION_ID });
+  const minusVerdict = guardModelOutput(envelope, { factGuard: true, session: minusCall }).facts[0];
+  t.eq(minusVerdict.verdict, "REJECTED", "去掉 tool/call 行后必须因 EVIDENCE_SEQ_NOT_FOUND 被拒");
+  t.eq(minusVerdict.reasons.map((r) => r.code), ["EVIDENCE_SEQ_NOT_FOUND"], "拒绝原因必须是「该 seq 不在证据里」");
 
-  /* ② 两条真路径复现同一差异（不是只在参考层成立） */
+  /* ② 两条真路径复现同一裁决（不是只在参考层成立） */
   const online = await runOnline({ id: "ax09-boundary-on", graph, session, range, factGuard: true, modelText: JSON.stringify(envelope) });
-  t.eq(online.out.factGuard.rejected, 1, "online 必须拒掉这条候选");
-  t.eq(online.out.factGuard.supported, 0, "online 一条都不许接受");
-  t.notIncludes(online.text, "调用过 gh api", "被拒候选不许出现在摘要里");
+  t.eq(online.out.factGuard.rejected, 0, "online 不许拒掉这条候选");
+  t.eq(online.out.factGuard.supported, 1, "online 必须接受这条候选");
+  t.includes(online.text, "调用过 gh api", "接受的事实必须出现在摘要里");
   const offline = await runOffline({ graph, events, range, factGuard: true, modelText: JSON.stringify(envelope) });
   t.eq(offline.chunk.guard.facts[0].verdict, "SUPPORTED", "offline 会接受同一条候选（证据源里真有那一行）");
   t.includes(offline.chunk.guard.facts[0].reasons.length === 0 ? "ok" : "bad", "ok", "接受时不许带原因码");
-  // 台账（写进 REPORT 的边界结论）：这一类差异只可能发生在「引用 tool/call seq」的候选上；
-  // 本夹具的主候选集（用例 ①②③④）全部引用消息事件，两个源的裁决逐字段相同。
-  t.eq(FIXTURE.modelOutput.facts.every((fact) => fact.evidenceKey !== "c1" && fact.evidenceKey !== "c2" && fact.evidenceKey !== "c3" && fact.evidenceKey !== "c4"), true, "主候选集不许引用 tool/call seq（否则上面的「同一裁决」就不成立）");
 };
