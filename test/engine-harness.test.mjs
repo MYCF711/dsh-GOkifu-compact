@@ -17,7 +17,7 @@ import { foldBoundaryOf, foldClosureOf } from "../src/rooms/kifu-model.mjs";
 import { collectConstraints } from "../src/rooms/ledger.mjs";
 // ★ AX-06（2026-11-07）：事实守卫的契约镜像与纯函数（渲染器/抽取器）从**真源码**导入，
 //   不经 harness 的 engine 副本 —— 这样「渲染规则」和「引擎接线」是两条独立判据。
-import { GUARD_VERDICTS, parseFactGuardEnvelope, renderFactGuardedSummary } from "../src/rooms/facts-prompt.mjs";
+import { GUARD_VERDICTS, describeFactGuardPrompt, parseFactGuardEnvelope, renderFactGuardedSummary } from "../src/rooms/facts-prompt.mjs";
 import { VERDICT } from "../src/rooms/fact-guard.mjs";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const SRC = nodePath.join(HERE, "..", "src", "engine.mjs");
@@ -3603,6 +3603,9 @@ tests["AX06-6 valueFacts 只在 guard 开启时进事实块（guard=false 的指
 
 tests["AX06-7 契约镜像与抽取器：GUARD_VERDICTS === VERDICT；围栏/带前后缀的 JSON 都能抽"] = async (t) => {
   t.eq([...GUARD_VERDICTS], Object.values(VERDICT), "facts-prompt 的裁决枚举镜像必须与 fact-guard 一致");
+  const described = describeFactGuardPrompt();
+  t.eq(described.verdicts, [...GUARD_VERDICTS], "契约自述里的裁决枚举必须与导出常量一致");
+  t.includes(described.contract.join("\n"), "\"narratives\"", "契约自述必须包含 narratives 形状（防止契约被悄悄改窄）");
   const pure = parseFactGuardEnvelope('```json\n{"facts":[],"narratives":[]}\n```');
   t.eq(pure.ok, true, "代码围栏里的 JSON 必须能抽");
   t.eq(pure.value, { facts: [], narratives: [] }, "抽出来的必须是那个对象");
