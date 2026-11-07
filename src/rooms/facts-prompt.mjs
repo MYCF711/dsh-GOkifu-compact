@@ -60,6 +60,24 @@ export function buildChessInstruction({ facts, shadowedStart, shadowedEnd, prior
   lines.push("- If you must cut for length: cut narrative, cut pleasantries, cut redundant explanation — NEVER a constraint, NEVER a failed attempt.");
   lines.push("- EVERY line under FAILED_ATTEMPTS must appear in your output — one line each, with its reason and evidence seq. Never merge two of them, never drop one because it looks obsolete. They are why the next model will not walk into the same wall.");
   lines.push("- Never promote an UNVERIFIED_CLAIM to a verified fact. Only exit codes, test counts, diffs and explicit tool errors count as verification.");
+  // ★ 真机（2026-11-07）：对话里出现「上下文已到 ~87%，后面我只报退出码」，而同一时刻
+  //   宿主状态栏是 39%。根因不是模型算错，是**摘要把瞬时测量当事实存了下来**：
+  //   历次折叠写进「压力 89% / 97% / 100%」「上下文压缩连续 4 次失败」，
+  //   于是每一步注入（热清单 + 摘要）都在告诉下一个模型「你快满了」—— 而真实占用早就降下来了。
+  //   瞬时量每步都在变，**只有宿主能给出当下值**；把它折进摘要 = 刻舟求剑，
+  //   而且越折越吓人（连续失败次数会不断累积成一段恐怖叙事）。
+  lines.push(
+    "- NEVER carry a TRANSIENT MEASUREMENT into the summary: context-usage percentage (「压力 89%」「上下文已到 87%」), " +
+      "remaining-token counts, TPS, cache-hit rate. They were true only for the instant they were observed; the next step " +
+      "re-reads them from the host. A summary that says \"pressure 92%\" makes the next model believe a past instant is the " +
+      "present — the exact opposite of what compression is for. Compress the WORK, not the gauge.",
+  );
+  // ★ 边界（boundary-audit 抓到过我的第一版）：只许写**输出格式**，不许解释「什么是事实」——
+  //   那是 persona / AGENTS 的职责，压缩产物越界去教模型「怎么看待」就违反职责边界。
+  lines.push(
+    "- A compression failure is recorded as its raw error text only, with no gauge beside it: " +
+      "write 「折叠失败：compactRegion: no open turn」, never 「折叠失败，压力 89%」.",
+  );
   // ★ C455：**"别发明 id"这条规矩以前只在 preGraph 分支里出现** —— 常规折叠反而没写。
   //   而真机上确实有摘要写出「这次折叠时还不存在的 id」（doctor 的 outOfRangeLater，19 次，
   //   含 pressure 折叠；重渲染事实块确认那些 id 不在块里 ⇒ 不是我们喂的，是模型自己补的）。

@@ -89,3 +89,22 @@ tests["C455 规则不许挤掉原有约束（指令变长但关键条款一条�
     t.includes(text, must, `缺条款：${must}`);
   }
 };
+
+tests["T90 瞬时状态不许进摘要：上下文百分比/剩余 token/TPS 一律压缩成工作，不压仪表"] = (t) => {
+  const text = buildChessInstruction({ facts: "FACTS-BLOCK", shadowedStart: 10, shadowedEnd: 20 });
+  // ★ 真机（2026-11-07）：对话里说「上下文已到 ~87%」，而宿主状态栏同时是 39%。
+  //   根因是历次折叠把「压力 89%/97%/100%」「压缩连续 4 次失败」当事实存进摘要，
+  //   每一步注入都在告诉下一个模型「你快满了」—— 而真实占用早就降下来了。
+  t.includes(text, "NEVER carry a TRANSIENT MEASUREMENT", "必须有「瞬时量不进摘要」这条禁令");
+  t.includes(text, "context-usage percentage", "要点名上下文占用百分比");
+  t.includes(text, "remaining-token counts", "要点名剩余 token");
+  t.includes(text, "TPS", "要点名 TPS");
+  t.includes(text, "Compress the WORK, not the gauge", "要给出判据：压工作，不压仪表");
+  // 但「压缩失败」本身是**持久事实**，必须仍然能记 —— 只许去掉仪表读数
+  t.includes(text, "compactRegion: no open turn", "压缩失败的**事实**仍要记（只去掉百分比）");
+  t.includes(text, "never 「折叠失败，压力 89%」", "要给出「带仪表的失败记录」的反例格式");
+  // 不许因为加规则把老条款挤掉
+  for (const must of ["ROOT_USER_REQUEST_VERBATIM", "CONSTRAINTS_VERBATIM", "FAILED_ATTEMPTS", "Cite ONLY ids that literally appear"]) {
+    t.includes(text, must, `新规则挤掉了老条款：${must}`);
+  }
+};
