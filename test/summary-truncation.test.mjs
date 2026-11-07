@@ -145,8 +145,8 @@ async function loadMutant() {
     throw new Error(`变异点没找到（源码改了？）—— 这条自检必须跟着改：${target}`);
   }
   const patched = original
-    .replace('from "./kifu-model.mjs"', `from ${JSON.stringify(kifuUrl)}`)
-    .replace('from "./fold-quality.mjs"', `from ${JSON.stringify(qualityUrl)}`)
+    // AX-07：offline-fold 新增多个相对 import；副本只改写这两条会加载失败，改为全量改写。
+    .replace(/from "(\.\/[a-z0-9-]+\.mjs)"/g, (_m, rel) => `from ${JSON.stringify(pathToFileURL(nodePath.join(ROOT, "src", "rooms", rel)).href)}`)
     .replace(target, "const filled = { text: chunk.text, repaired: [] };");
   if (patched === original || patched.includes(target)) throw new Error("变异没生效 —— 自检会变成假绿");
   const file = nodePath.join(TMP, "offline-fold-mutant.mjs");
