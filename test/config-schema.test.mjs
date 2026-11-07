@@ -21,12 +21,12 @@ const ROOT = nodePath.resolve(HERE, "..");
 const ROOM = pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href;
 const PRESET_FORMAT = pathToFileURL(nodePath.join(ROOT, "src", "rooms", "preset-format.mjs")).href;
 
-const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, resolveConfig, describeConfig, validatePatch } = await import(ROOM);
+const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, resolveConfig, describeConfig, validatePatch, FACT_GUARD_DEFAULT } = await import(ROOM);
 
 /* ───────────────────────── golden（A2-4 之前的实测输出） ───────────────────────── */
 
 // ★ C248：有意新增 `hotLedgerMinEvents`（注入节流间隔可配，默认 40 = 旧行为）—— 以下 golden 一并更新。
-const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles"];
+const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles", "factGuard"];
 
 const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "autoBackfill", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens"];
 
@@ -36,7 +36,7 @@ const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3,
 
 const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", autoBackfill: "自动补账", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", closeoutMaxFoldTokens: "收尾单段上限(tokens)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
 
-const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200 };
+const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200, factGuard: false };
 
 const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
 
@@ -46,8 +46,8 @@ const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["sem
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "SCHEMA：30 行、键集合与顺序逐键一致"(t) {
-    t.eq(SCHEMA.length, 31, "SCHEMA 行数（C524 新增 autoBackfill）");
+  "SCHEMA：32 行、键集合与顺序逐键一致"(t) {
+    t.eq(SCHEMA.length, 32, "SCHEMA 行数（C524 新增 autoBackfill；AX-01 新增 factGuard）");
     t.eq(SCHEMA.map((e) => e.key), GOLDEN_KEYS, "键与顺序");
   },
 
@@ -59,6 +59,9 @@ export const tests = {
       t.eq(entry.where === "preset" || entry.where === "engine", true, `${key}.where 只能是 preset/engine`);
       if (key === "retainTokens") {
         t.eq(entry.default, undefined, "retainTokens 默认必须是 undefined（写成 0 会走绝对 token 分支）");
+      } else if (key === "factGuard") {
+        // ★ AX-01：实验线未通过总采纳门槛前**不许**默认开启（任务书 §1「默认状态」）。
+        t.eq(entry.default, false, "factGuard 默认必须 false（未达标就默认开 = 在用户不知情时引入实验行为）");
       } else if (GOLDEN_DEFAULTS[key] !== undefined) {
         t.eq(entry.default, GOLDEN_DEFAULTS[key], `${key} 默认值`);
       }
@@ -106,6 +109,21 @@ export const tests = {
     t.eq(adj.retainRatio, 0.45, "retainRatio ≥ thresholdRatio ⇒ 压到 threshold−0.05");
     const floor = resolveConfig({ thresholdRatio: 0.05, retainRatio: 0.9 });
     t.eq(floor.retainRatio, 0.05, "压低不得低于 0.05");
+  },
+
+  "AX-01：factGuard 是引擎作用域的实验开关（默认关 / 只认字面 true / 不进 UI 表）"(t) {
+    const entry = describe("factGuard");
+    t.ok(entry !== null, "factGuard 必须在 SCHEMA 里（AX-06 要从 ctx.config 读）");
+    t.eq(entry.where, "engine", "必须是引擎作用域（preset 模板由 preset-format.mjs 固定，AX-01 不改格式）");
+    t.eq(FACT_GUARD_DEFAULT, false, "导出的默认值必须 false");
+    t.eq(entry.default, FACT_GUARD_DEFAULT, "SCHEMA 默认值必须与导出常量同源（只有一处字面量）");
+    t.eq(resolveConfig({}).factGuard, false, "空配置 ⇒ false");
+    t.eq(resolveConfig({ factGuard: true }).factGuard, true, "字面 true 才开启");
+    t.eq(resolveConfig({ factGuard: "true" }).factGuard, false, "字符串 \"true\" 不许开启实验线");
+    t.eq(resolveConfig({ factGuard: 1 }).factGuard, false, "1 不许开启实验线");
+    t.eq(resolveConfig({ factGuard: null }).factGuard, false, "null 不许开启实验线");
+    t.eq(Object.keys(configDefaults()).includes("factGuard"), false, "引擎作用域不进 UI 默认表");
+    t.eq(Object.keys(fieldLabels()).includes("factGuard"), false, "引擎作用域不进 UI 标签表");
   },
 
   "describeConfig：四来源（default/preset/sanitized/adjusted）golden"(t) {
