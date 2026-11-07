@@ -290,7 +290,14 @@ function assertOverviewTree(tree) {
   if (primary.length !== 3) throw new Error(`总览必须直接显示状态/今日/最近折痕三张卡，实际 ${primary.length}`);
   const rows = findAll(tree, (node) => node.props?.["data-fold-row"] === "true");
   if (rows.length !== 5) throw new Error(`普通总览最近折痕必须恰好 5 条，实际 ${rows.length}`);
-  if (!rows.every((row) => childrenOf(row).length === 1)) throw new Error("总览每条折痕必须保持单行 foldMain");
+  // ★ 折痕行改成可展开后，结构是「一行头（按钮）+ 一个默认收起的展开区」。
+  //   守卫的意图不变：总览里**看到的**只有一行；展开区必须默认 hidden，
+  //   否则总览会重新变成三行堆叠（这正是当初简化掉的东西）。
+  if (!rows.every((row) => {
+    const kids = childrenOf(row);
+    const detail = kids.find((child) => child?.props?.["data-fold-detail"] !== undefined);
+    return kids.length === 2 && detail !== undefined && detail.props.hidden === true;
+  })) throw new Error("总览每条折痕必须只显示一行（展开区默认收起）");
   if (findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length !== 0) throw new Error("完整折痕列表泄漏到总览");
   if (fieldKeys(tree).length !== 0) throw new Error("配置字段泄漏到总览");
   const text = textOf(tree);
@@ -475,7 +482,9 @@ export const tests = {
     t.eq(T.styles.tab.borderRadius, "14px", "filterTab 胶囊半径14");
     t.eq(T.styles.tab.fontSize, "14px", "filterTab 字号14");
     t.eq(T.styles.tab.lineHeight, "22px", "filterTab 行高22");
-    t.eq(T.styles.tab.color, "var(--dsw-alias-label-tertiary, #81858c)", "未选文字用 tertiary");
+    // 未选 tab 用 **secondary** 而不是官方 filterTab 的 tertiary：tertiary(#81858C) 配白底
+    // 只有 3.71:1，不到 4.5:1（design/README §6 已记为可读性偏离）。
+    t.eq(T.styles.tab.color, "var(--dsw-alias-label-secondary, #61666b)", "未选文字用 secondary（对比度达标）");
     t.eq(T.styles.tabActive.background, "var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,0.08))", "选中背景使用官方 hover token");
     t.eq(T.styles.tabActive.color, "var(--dsw-alias-label-primary, currentColor)", "选中文字使用 primary");
     const group = findAll(DEFAULT_TREE, (node) => node.props?.["data-panel-tabs"] === "true");
@@ -647,8 +656,12 @@ export const tests = {
     //   用户原话就是「健康检查 / 最近活跃会话 / 补账 应该放在明显的地方（总览）」。
     //   诊断卡在总览**正是目标行为**，不再是一个失败分支，故移除该变异（其余失败分支保留）。
 
+    // ★ 换行必须写成 \r?\n：检出的是 Windows 的 CRLF 工作树，
+    //   旧写法（写死 \n）在 CRLF 上**永远匹配不到**，于是变异没生效、
+    //   「必须变红」这条守卫自己被静默跳过（本机实测红）。
+    //   `styles.page` 那一行同样按「行尾空白 + 换行」宽松匹配。
     const flatSource = SOURCE.replace(
-      'h(PanelTabs, { active: activeTab, onChange: setActiveTab }),\n        activePanel);',
+      /h\(PanelTabs, \{ active: activeTab, onChange: setActiveTab \}\),\r?\n\s*activePanel\);/,
       'h(PanelTabs, { active: activeTab, onChange: setActiveTab }),\n        activePanel,\n        h("div", { "data-panel-view": "folds" }, fullFoldListCard));',
     );
     t.ne(flatSource, SOURCE, "双面板平铺变异确实命中源码");
@@ -667,5 +680,70 @@ export const tests = {
     t.ne(numericSource, SOURCE, "数字输入变异确实命中源码");
     const numeric = loadClient(numericSource);
     t.throws(() => assertFixedThresholdControl(numeric.T, numeric.runtime), "退回自由数字输入必须让阈值守卫变红");
+  },
+
+  /**
+   * ⑧ 交互态：折痕行展开 / 自绘开关 / 字段脏标记 / 窗口占用条。
+   * 全部走**真实 React host 树**（点一下再重渲染），不靠源码文本。
+   */
+  "⑧ 交互态：折痕展开、自绘开关、脏标记、窗口占用条都来自真实 host 数据"(t) {
+    const panel = panelRenderer();
+    const toggles = () => findAll(panel.runtime.tree(), (node) => node.type === "button" && node.props?.["data-fold-toggle"] === "true");
+    const expandedRows = () => findAll(panel.runtime.tree(), (node) => node.props?.["data-fold-expanded"] === "true");
+    const detailIn = (node) => findAll(node, (child) => child?.props?.["data-fold-detail"] !== undefined)[0];
+
+    // ── 折痕行：默认全收起；点开一行；再点另一行时前一行必须自己收起 ──
+    t.eq(toggles().length, 5, "总览 5 条折痕各有一个展开按钮");
+    t.eq(toggles().every((node) => node.props["aria-expanded"] === "false"), true, "默认全部收起");
+    t.eq(expandedRows().length, 0, "默认没有任何展开行");
+    toggles()[0].props.onClick();
+    panel.runtime.render(panel.T.Page);
+    t.eq(expandedRows().length, 1, "点开后恰好一行展开");
+    t.eq(toggles()[0].props["aria-expanded"], "true", "aria-expanded 跟着变");
+    const openDetail = detailIn(expandedRows()[0]);
+    t.ok(openDetail !== undefined && openDetail.props.hidden === false, "展开时 hidden 必须移除（否则永远看不见）");
+    toggles()[1].props.onClick();
+    panel.runtime.render(panel.T.Page);
+    t.eq(expandedRows().length, 1, "同一时刻只展开一条（单一展开态）");
+    t.eq(toggles()[0].props["aria-expanded"], "false", "点第二行时第一行必须收起");
+    toggles()[1].props.onClick();
+    panel.runtime.render(panel.T.Page);
+    t.eq(expandedRows().length, 0, "再点一次自己收起");
+
+    // ── 配置 tab：布尔字段是自绘 switch，切一下就有脏标记 ──
+    clickTab(panel, "config");
+    const switches = () => findAll(panel.runtime.tree(), (node) => node.props?.role === "switch");
+    t.eq(switches().length >= 5, true, `布尔字段应全部是 role=switch（实际 ${switches().length}）`);
+    const firstSwitch = switches()[0];
+    t.eq(firstSwitch.props["aria-checked"], "true", "auto 默认打开");
+    t.eq(findAll(panel.runtime.tree(), (node) => node.props?.["data-field-dirty"] === "true").length, 0, "没改之前没有脏标记");
+    firstSwitch.props.onClick();
+    panel.runtime.render(panel.T.Page);
+    t.eq(switches()[0].props["aria-checked"], "false", "点一下必须真的切过去");
+    const dirtyRows = findAll(panel.runtime.tree(), (node) => node.props?.["data-field-dirty"] === "true");
+    t.eq(dirtyRows.length, 1, "改一个字段只有那一行变脏");
+    t.eq(dirtyRows[0].props["data-field-key"], "auto", "脏的正是被改的那个键");
+    t.eq(childrenOf(dirtyRows[0]).some((child) => child?.props?.["aria-hidden"] === "true"), true, "脏标记要真的渲染出那 2px 竖线");
+    // 键盘入口：空格必须和点击等价（否则键盘用户切不了开关）
+    switches()[0].props.onKeyDown({ key: " ", preventDefault() {} });
+    panel.runtime.render(panel.T.Page);
+    t.eq(switches()[0].props["aria-checked"], "true", "空格键也能切回");
+
+    // ── 窗口占用条：分子来自 latest.totalAfter，分母来自宿主模型目录 ──
+    //   ⚠ 模型目录是 Page 的**独立 state**（panelRenderer 第 5 个参数），
+    //     不会从 state.models 自动灌进去 —— 不显式传就永远没有目录，占用条也不会画。
+    const catalog = fixture().models;
+    const withCatalog = panelRenderer(fixture(), SOURCE, null, null, catalog);
+    const barsIn = (renderer) => findAll(renderer.runtime.tree(), (node) => node.props?.["data-window-occupancy"] !== undefined);
+    const bars = () => barsIn(withCatalog);
+    t.eq(bars().length, 1, "有 totalAfter + 有目录时必须画占用条");
+    t.eq(bars()[0].props["data-window-occupancy"], "0.598", "占用率 = 76543 / 128000");
+    t.includes(bars()[0].props["aria-label"], "59.8%", "读屏文案带百分比");
+    // 目录为空 ⇒ 不画（绝不退回写死的窗口大小）
+    const noCatalog = panelRenderer(fixture(), SOURCE, null, null, { providers: [] });
+    t.eq(barsIn(noCatalog).length, 0, "拿不到窗口就不画占用条");
+    // 没有 totalAfter ⇒ 也不画
+    const noUsage = panelRenderer(fixture({ latest: null }), SOURCE, null, null, catalog);
+    t.eq(barsIn(noUsage).length, 0, "没有 fold 记录就不画占用条");
   },
 };

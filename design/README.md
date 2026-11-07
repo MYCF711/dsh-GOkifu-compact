@@ -173,3 +173,38 @@ node design/_tools/smoke.cjs
 - **真实数据**：折痕 / 用量 / 会话名全是示意值，接 `src/ui.mjs` 的 `/gokifu/api` 才有真数据。
 - **模型目录**：模型选择器只弹提示，没画两级目录（宿主 `modelCatalog()` 才有）。
 - **附件 / 语音 / 权限预设**：只有 toast 占位。
+
+---
+
+## 8 · 已落回真实插件（`lib/client.js`）
+
+四屏定稿后，把设计里**能落到真实数据上**的部分移植进了插件本体（`lib/client.js`，React inline style）。
+下表是「设计 → 代码」的对照，以及**为什么有几条没搬**。
+
+| 设计里的 | 落回代码的方式 | 证据 |
+|---|---|---|
+| `.gk-card__head` 两端对齐 | 新增 `styles.cardHead`（`justify-content: space-between`），状态卡的标题与 pill 分开到两端 | `panel-layout` ① |
+| `.gk-bar` + `--ratio` | 状态卡那一行里加**窗口占用条**：分子 = `state.latest.totalAfter`，分母 = 宿主模型目录的 `contextWindow`；**拿不到目录就不画**（绝不退回写死的 100 万） | `panel-layout` ⑧ |
+| `.gk-fold__head` / `__detail` + 旋转箭头 | 折痕行整行是按钮，`aria-expanded` 驱动展开区；**同一时刻只展开一条** | `panel-layout` ⑧ |
+| `.gk-switch`（36×20 + 16 拇指） | 布尔字段从原生 `<input type=checkbox>` 换成自绘 `role="switch"`，点击 / 空格 / Enter 三个入口都能切 | `panel-layout` ⑧ |
+| `.gk-field[data-dirty]` 左侧 2px 竖线 | 行根 `position:relative` + 一个 `aria-hidden` 的绝对定位 `<span>`（inline 没有 `::before`），标签同时加粗到 500 | `panel-layout` ⑧ |
+| `.gk-pill--ok/--warn/--error` 的对比度 | 文字改成 `color-mix(…, label-primary)`：绿 2.28:1 / 红 3.69:1 在浅色底上不达标，混完两套主题都 ≥4.5:1 | `ui-layout` ⑨（gap 扫描）+ 人眼 |
+| `.gk-warning` | 同上，底与描边也换成 `color-mix`（原来写死 `rgba(229,72,77,…)`） | 同上 |
+| `.gk-pop` 官方 menu 令牌 | 弹层从 `Canvas/CanvasText`（**系统色**，不跟 DSH 主题）改成 `--dsw-specific-menu` / `--dsw-elevation-prominent` / 背景模糊，全部带系统色兜底 | `ui.test` C511 |
+| `.gk-sub` / `.gk-code` / `.gk-metric__label` 用 `label-secondary` | 三处 `opacity: 0.55–0.7` 改成**颜色令牌**（opacity 在深色下会把灰字压糊） | `ui-layout` ⑨ |
+| `.gk-page { background: bg-base }` | 根容器补 `background: var(--dsw-alias-bg-base, transparent)` | — |
+| 窄窗 `padding: 16px` | `<600px` 时根容器收到 16px（与字段行两行断点同源） | `ui-layout` ① |
+
+### 没搬的三条（**不是漏了，是设计稿在这几处落后于实现**）
+
+1. **今日投入产出的 Metric 横排**（`render.cjs:468-472`）：`test/panel-simple.test.mjs` 的①④明确禁止总览重新堆指标
+   （`FORBIDDEN_METRICS` + `metricNodes === 0` 双守卫）。这是**用户拍过的简化**，搬回来等于把守卫删掉。
+2. **折痕行的「摘要摘录」**（`.gk-fold__excerpt`）：`state.foldMarks` 的白名单只有 `summaryChars`（**字符数**），
+   没有摘要正文；`test/fold-list.test.mjs:65,84` 还明确禁止 `summaryText` 进列表 payload。
+   **没有真实数据就不画假文本框**（AGENTS §2.0a）。展开区里放的是**用量 + 完成度**（这两个是真的）。
+3. **字段行三列 → 两列**（去掉「默认 X」第三格）：第三格是**真信息**（`state.defaults`），
+   设计稿为了紧凑省掉了它，但代码这边没有理由丢掉。
+
+> 另外设计稿里 tab 用 `<a href>` 互跳（四屏原型需要），插件里没有路由 —— 代码仍用
+> `<button role="group" aria-pressed>`（与官方自动化任务页的 filter chip 一致），这是**有意分歧**。
+
