@@ -126,8 +126,8 @@ const ROOMS = {
   },
   "keeper": {
     file: "keeper.mjs",
-    // 契约 R03：允许 R00（图函数）+ R04（classify）
-    allowed: ["./kifu-model.mjs", "./verify.mjs"],
+    // 契约 R03：允许 R00（图函数）+ R04（classify）+ AX-02 短值抽取（AX-04 起）
+    allowed: ["./kifu-model.mjs", "./verify.mjs", "./tool-value-facts.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
   "ledger": {
