@@ -362,7 +362,7 @@ export function tierCensus(facts) {
  * @param {{facts:number,GOLD:number,REJECTED:number,PENDING:number}} got
  * @param {object} audit
  */
-export function checkFrozenAlignment(got, audit) {
+export function checkFrozenAlignment(got, audit, censusSamples = null, sampleIds = null) {
   const expect = {
     facts: Number(audit?.totals?.facts ?? NaN),
     GOLD: Number(audit?.totals?.gold ?? NaN),
@@ -373,7 +373,36 @@ export function checkFrozenAlignment(got, audit) {
   for (const [key, want] of Object.entries(expect)) {
     if (got[key] !== want) mismatches.push({ scope: "totals", key, got: got[key], expect: want });
   }
-  return { ok: mismatches.length === 0, expect, got, mismatches };
+  // 逐样本对账：总数对上但某个样本错位，一样是语料抽取坏了。
+  const perSample = [];
+  const auditSamples = Array.isArray(audit?.samples) ? audit.samples : [];
+  if (Array.isArray(censusSamples) && Array.isArray(sampleIds) && auditSamples.length > 0) {
+    const byId = new Map(auditSamples.map((s) => [asText(s.sampleId), s]));
+    for (const sample of censusSamples) {
+      const sampleId = sampleIds[sample.sampleIndex] ?? null;
+      const frozen = byId.get(sampleId) ?? null;
+      const row = {
+        sampleIndex: sample.sampleIndex,
+        facts: sample.facts,
+        GOLD: sample.GOLD,
+        REJECTED: sample.REJECTED,
+        PENDING: sample.PENDING,
+        expectFacts: frozen ? Number(frozen.facts) : null,
+        expectGold: frozen ? Number(frozen.gold) : null,
+        expectRejected: frozen ? Number(frozen.rejected) : null,
+        expectPending: frozen ? Number(frozen.pending) : null,
+      };
+      row.ok =
+        frozen !== null &&
+        row.facts === row.expectFacts &&
+        row.GOLD === row.expectGold &&
+        row.REJECTED === row.expectRejected &&
+        row.PENDING === row.expectPending;
+      if (!row.ok) mismatches.push({ scope: "sample", key: `s${sample.sampleIndex}`, got: row, expect: frozen ? { facts: row.expectFacts, gold: row.expectGold, rejected: row.expectRejected, pending: row.expectPending } : null });
+      perSample.push(row);
+    }
+  }
+  return { ok: mismatches.length === 0, expect, got, mismatches, perSample };
 }
 
 /* ───────────────────────────── 事件源 ───────────────────────────── */
@@ -898,6 +927,7 @@ export function buildReport({ rev, corpus, census, alignment, sources, rows, sta
       expect: alignment.expect,
       got: alignment.got,
       mismatches: alignment.mismatches,
+      perSample: alignment.perSample ?? [],
     },
     corpus: { ...corpus.provenance, size: corpus.facts.length },
     sources: {
@@ -950,7 +980,7 @@ export function renderMarkdown(report) {
   lines.push(`- 复判：守卫放行 **${report.instrument.acceptsSome}** 条、拒绝 **${report.instrument.rejectsSome}** 条 ⇒ 仪器**既不恒真也不恒假**（恒真则 rejectsSome=0，恒假则 acceptsSome=0）。`);
   lines.push(`- 五类合成反例 **${report.instrument.probes.passed}/${report.instrument.probes.batch}** 全绿：每类都有一条被拒的红例 + 一条通过的对照。`);
   lines.push(`- **机械形状 ≠ 语义 precision**：守卫放行的口径是 ${pct(p.guardAccepted.value)}（${p.guardAccepted.numerator}/${p.guardAccepted.denominator}），人工裁决口径仍是 ${pct(p.labelAdjudicated.value)}（${p.labelAdjudicated.numerator}/${p.labelAdjudicated.denominator}）。前者只证明「seq 同会话 + 事件在 + 主体一致 + quote 逐字 + 四条文本判据没过度触发」，**不证明** claim 被 quote 语义蕴含（守卫每次裁决都带 \`entailmentProven:false\`）。`);
-  lines.push(`- PENDING ${report.frozen.pending} 条：**一条都没有被当成 GOLD**；其中 ${report.replay.pending.shapeAcceptedOnly} 条只是「形状被接受」，仍记 PENDING 语义。`);
+  lines.push(`- PENDING ${report.frozen.pending} 条：**一条都没有被当成 GOLD**（不计入任何 precision 分子/分母）；形状被守卫接受 ${report.replay.pending.shapeAcceptedOnly}/${report.frozen.pending} 条，但语义上仍记 PENDING。`);
   lines.push("");
   lines.push("## 2 · 冻结分母对账");
   lines.push("");
@@ -964,6 +994,16 @@ export function renderMarkdown(report) {
   }
   lines.push("");
   lines.push(`语料来源：labels.jsonl ${report.corpus.fromLabels} 条 + 审稿档案 ${report.corpus.fromDossiers} 条 = ${report.corpus.size} 条；有 claim ${report.corpus.withClaim} 条、有 quote ${report.corpus.withQuote} 条、有 evidenceSeq ${report.corpus.withEvidenceSeq} 条。`);
+  if (Array.isArray(report.alignment.perSample) && report.alignment.perSample.length > 0) {
+    lines.push("");
+    lines.push("逐样本（样本只给序号，不给 id）：");
+    lines.push("");
+    lines.push("| 样本 | 事实 | GOLD | REJECTED | PENDING | 与冻结一致 |");
+    lines.push("|---|---:|---:|---:|---:|:--:|");
+    for (const row of report.alignment.perSample) {
+      lines.push(`| s${row.sampleIndex} | ${row.facts} | ${row.GOLD} | ${row.REJECTED} | ${row.PENDING} | ${row.ok ? "✅" : "❌"} |`);
+    }
+  }
   lines.push("");
   lines.push("## 3 · 复判交叉表（冻结档位 × 守卫裁决）");
   lines.push("");
@@ -1012,7 +1052,7 @@ export function renderMarkdown(report) {
   }
   lines.push("## 5 · 五类硬失败：合成反例 + 冻结命中");
   lines.push("");
-  lines.push("| 类别 | 合成红例 | 合成对照 | 冻结语料命中 | 命中样本/编号（档位） |");
+  lines.push("| 类别 | 合成红例 | 合成对照 | 冻结语料触发次数 | 触发位置（档位） |");
   lines.push("|---|:--:|:--:|---:|---|");
   for (const item of report.hardFailures) {
     const row = report.instrument.probes.rows.filter((r) => r.klass === item.class);
@@ -1021,6 +1061,9 @@ export function renderMarkdown(report) {
     const hits = item.frozenTierHits.map((h) => `s${h.sampleIndex}/${h.factId}(${h.tier})`).join("、") || "—";
     lines.push(`| \`${item.class}\` | ${red?.pass ? "✅被拒" : "❌未拒"} | ${green?.pass ? "✅通过" : "❌被拒"} | ${item.guardHits} | ${hits} |`);
   }
+  const goldTriggered = report.hardFailures.reduce((sum, item) => sum + item.frozenTierHits.filter((h) => h.tier === "GOLD").length, 0);
+  lines.push("");
+  lines.push(`⚠ **触发 ≠ 判对**：冻结语料上一共触发 ${report.hardFailures.reduce((sum, item) => sum + item.guardHits, 0)} 次，其中 ${goldTriggered} 次打在人工 GOLD 上（全部来自 \`UNSOURCED_NEGATIVE\`，见 §6 的 claim 口径说明）。所以这一列是「这条规则动过几次」，不是「抓对几条」。`);
   lines.push("");
   lines.push("## 6 · 冷代码看不见的部分（必须单列，不许并入“已证明”）");
   lines.push("");
@@ -1137,7 +1180,12 @@ export function runEval(options) {
   const dossiers = options.dossiers ?? [];
   const corpus = buildCorpus({ manifest, labelsText, dossiers });
   const census = tierCensus(corpus.facts);
-  const alignment = checkFrozenAlignment(census.totals, audit);
+  const alignment = checkFrozenAlignment(
+    census.totals,
+    audit,
+    census.samples,
+    corpus.samples.map((s) => s.sampleId),
+  );
   const sources = options.skipSources ? [] : loadSources({ home: options.home, samples: corpus.samples });
   const replayAll = (subjectMode) =>
     corpus.facts.map((fact) => replayFact(fact, sources.get(fact.sampleIndex) ?? { events: [] }, { subjectMode }));
