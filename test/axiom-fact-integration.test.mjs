@@ -490,6 +490,11 @@ tests["AX-09 ③ 成功值可见且可回证：keeper 边 / 离线抽取 / 热�
   t.includes(factsOn, "VALUE_FACTS_VERBATIM (5 of 5", "摘要硬事实块必须列全 5 条");
   for (const fact of keeperFacts) t.includes(factsOn, `evidence=seq ${fact.evidenceSeq}`, `摘要硬事实块必须带 evidence=seq：${fact.kind}`);
 
+  /* ⑤.b 零失败最小清单（renderMinimalLedger）：零失败会话的唯一注入内容，同样必须带值 */
+  const minimal = renderMinimalLedger(graph, { factGuard: true });
+  t.includes(minimal.text, `- e1 file_created ${WRITTEN_PATH} (seq ${seqOf("t1")})`, "零失败最小清单也必须带值事实（否则零失败会话静默丢值）");
+  t.eq(minimal.valueFactStats.total, 5, "最小清单同样要报值事实的条数账");
+
   /* ⑥ 热清单注入（R08）：guard 开启时同一批值真的到达下一步 */
   const injectSession = makeInjectSession("ax09-inject-values");
   const injected = injectRun(injectSession, graph, makeInjectState(), { ...INJECT_CONFIG, factGuard: true });
