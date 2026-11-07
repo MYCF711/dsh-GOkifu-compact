@@ -12,7 +12,7 @@
  * 这三条都只改**压缩产物怎么呈现**，不碰历史、不碰工具、不碰系统提示词。
  */
 
-import { provenanceCoverageOf, renderFailureLine, renderFacts, renderLedger } from "../src/rooms/ledger.mjs";
+import { provenanceCoverageOf, renderFailureLine, renderFacts, renderLedger, VALUE_FACT_QUOTE_MAX_CHARS } from "../src/rooms/ledger.mjs";
 import { extractValueFacts } from "../src/rooms/tool-value-facts.mjs";
 
 export const tests = {};
@@ -455,4 +455,70 @@ tests["AX-08 只陈述事实：值事实行不带行动建议（压缩的职责�
   t.notIncludes(row ?? "", "建议", "值事实行不许给行动指令（那是 AGENTS/persona 的职责）");
   t.notIncludes(row ?? "", "should", "英文行动建议同样不许");
   t.notIncludes(row ?? "", "请", "不许夹带请求式措辞");
+};
+
+/* ═════════ P0-1 边界：字面 quote 的**保真**与**有界**（2026-11-07，AX-12 已证实） ═════════
+ *
+ * 判据与失败边的「出处 / 中段省略」同源（见本文件头 A / C 两条）：
+ *   · **单行**：清单契约是「一行一条」，多行包络必须折叠成一个空格（只动空白，不动值本身）；
+ *   · **有界**：长 quote 截断到 `VALUE_FACT_QUOTE_MAX_CHARS` 并用 `…` 显式标记，绝不回灌整份结果；
+ *   · **不重复**：标签里已经有的字面值（纯 `<path>…</path>` 包络）不再印一遍 —— 白烧预算；
+ *   · **不静默**：截断不是丢值 —— 值本身、seq、kind 一个都不许少。
+ */
+
+tests["P0-1 边界：多行包络折叠成一行，回执词不被长路径挤出窗口"] = (t) => {
+  // 深路径：整块包络 > 320 字符，`blockQuote` 会退回单行 `<path>…</path>`；
+  // 这里直接喂整块（模拟 quote 上限内的最坏情形），验证回执词仍可见。
+  const deepPath = `D:/${"very-long-dir/".repeat(8)}a.mjs`;
+  const facts = extractValueFacts({ tool: "write", result: createdFileResult(deepPath), resultKind: "success", evidenceSeq: 40 });
+  t.eq(facts.length, 1, "夹具必须抽出一条 file_created");
+  const g = withValueFacts(mkGraph([]), facts);
+  const row = renderLedger(g, { maxTokens: 4000, factGuard: true })
+    .text.split(String.fromCharCode(10))
+    .find((line) => line.includes("file_created")) ?? "";
+  t.ok(row !== "", "值事实行必须在");
+  t.eq(row.includes("\n"), false, "多行包络必须折叠成一行（换行会破坏清单契约）");
+  t.eq(row.includes("\r"), false, "回车同样必须折叠");
+  t.includes(row, "— Created file", "回执词是标签里没有的唯一字面值 —— 长路径不许把它挤出窗口");
+  t.includes(row, deepPath, "路径本身不许被截断（截断的值 = 假值）");
+  t.includes(row, "(seq 40)", "出处不受影响");
+  const excerpt = row.slice(row.indexOf(" — ") + 3);
+  t.eq(excerpt.length <= VALUE_FACT_QUOTE_MAX_CHARS, true, `字面 quote 必须有界（实际 ${excerpt.length}）`);
+};
+
+tests["P0-1 边界：纯 `<path>…</path>` 包络不重复印路径（预算不白烧）"] = (t) => {
+  // `file_path` 的 quote 就是路径包络本身，标签已经是同一段原文 ⇒ 行尾不许再加一段。
+  const path = "D:/x/read.mjs";
+  const facts = [{ kind: "file_path", value: path, quote: `<path>${path}</path>`, evidenceSeq: 9, validAtSeq: 9, source: "tool:read" }];
+  const g = withValueFacts(mkGraph([]), facts);
+  const row = renderLedger(g, { maxTokens: 4000, factGuard: true })
+    .text.split(String.fromCharCode(10))
+    .find((line) => line.includes("file_path")) ?? "";
+  t.eq(row, `- e90 file_path ${path} (seq 9)`, "没有新增字面值时，行必须逐字等于旧格式（一个字符都不多加）");
+};
+
+tests["P0-1 边界：截断不静默 —— 值 / seq / kind 一个都不少，只有一个省略号"] = (t) => {
+  const longQuote = `"default_branch": "main" ${"y".repeat(500)}`;
+  const facts = [{ kind: "config", value: "main", quote: longQuote, evidenceSeq: 12, validAtSeq: 12, source: "tool:github" }];
+  const g = withValueFacts(mkGraph([]), facts);
+  const row = renderLedger(g, { maxTokens: 4000, factGuard: true })
+    .text.split(String.fromCharCode(10))
+    .find((line) => line.includes(" config ")) ?? "";
+  t.includes(row, " config ", "kind 不许少");
+  t.includes(row, "main", "值不许少");
+  t.includes(row, "(seq 12)", "seq 不许少");
+  t.eq(row.split("…").length, 2, "截断标记只该出现一次（多次 = 拼坏了）");
+  t.eq(row.includes("y".repeat(200)), false, "不许回灌长 quote（有界不是口号）");
+};
+
+tests["P0-1 边界：编辑回执整句（无 `<path>` 包络）同样带字面值"] = (t) => {
+  // 形状二：`The file … has been updated successfully.` —— 没有 `<path>` 包络，
+  // 回执整句本身就是「标签里没有的字面值」，必须原样印出来（同样单行、同样有界）。
+  const sentence = "The file D:/x/edited.mjs has been updated successfully.";
+  const facts = [{ kind: "file_updated", value: "D:/x/edited.mjs", quote: sentence, evidenceSeq: 21, validAtSeq: 21, source: "tool:edit" }];
+  const g = withValueFacts(mkGraph([]), facts);
+  const row = renderLedger(g, { maxTokens: 4000, factGuard: true })
+    .text.split(String.fromCharCode(10))
+    .find((line) => line.includes("file_updated")) ?? "";
+  t.eq(row, `- e90 file_updated D:/x/edited.mjs (seq 21) — ${sentence}`, "编辑回执整句必须逐字可见（短句不截断）");
 };

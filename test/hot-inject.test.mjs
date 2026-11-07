@@ -707,6 +707,9 @@ tests["AX-08 guard=true：成功 write 的 Created file 值进注入清单，带
   t.includes(text, "D:/x/a.mjs", "K-2 S1-Q1 的路径必须可见");
   t.includes(text, "file_created", "类别要能认出来");
   t.includes(text, "(seq 21)", "必须带原文 seq（可回证）");
+  // ★ P0-1：K2-O1 问的是「结果的 `<content>` 里写的是什么」⇒ 字面值必须真的在注入文本里，
+  //   只印 kind + 路径 + seq 的话 reader 只能猜（AX-12 实测 compact 臂 3/10 就是这一条）。
+  t.includes(text, "— Created file", "字面 quote 必须随注入送达（K2-O1 的答案在行尾）");
   t.includes(text, "</chess-ledger>", "仍是既有清单格式（不是新的消息类型）");
 };
 
