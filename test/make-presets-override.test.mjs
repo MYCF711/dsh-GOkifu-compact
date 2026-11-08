@@ -10,19 +10,29 @@
  *   · 仓库里的 `cordis.patch.yml` 是否覆盖四个官方 preset 且**不再引用** compaction-basic。
  *
  * 不测 `--write`：它会改仓库文件，测它等于在测试里做发布动作。
+ *
+ * ★ K-31 补（2026-11-08）：本脚本进 packlist，所以它的**注释与默认路径字面量也是发布面**。
+ *   此前注释里写死了本机 home 与系统安装目录，`privacy --pack` 判 3 条 `P3-PATH review`
+ *   （48/53/90 行）。C84-6 起把这三件事变成机器判据：产物逐字不漂、探测顺序不变、源码扫描 0 命中。
  */
 
 import { execFileSync } from "node:child_process";
 import nodeCrypto from "node:crypto";
 import nodeFs from "node:fs";
+import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import * as generator from "../scripts/make-presets-override.mjs";
+import { scanText } from "../scripts/privacy-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
 const SCRIPT = nodePath.join(REPO, "scripts", "make-presets-override.mjs");
 const PATCH = nodePath.join(REPO, "cordis.patch.yml");
+
+/** 宿主 asar 内官方 preset 目录（与脚本里的 `ASAR_PRESET_DIR` 同值；宿主布局变了这里也要跟着改）。 */
+const ASAR_PRESET_DIR = "dsh/node_modules/@deepseek-ai/dsh-web-app/presets";
+const PRESETS = ["standard", "ptc", "minimal", "cordis"];
 
 export const tests = {};
 
@@ -115,4 +125,60 @@ tests["C84-5 子路径守卫：已提交 patch 全部可解析；坏子路径被
   // 合法子路径不应被误报（package.json 始终在 exports 内）
   const good = "name: '@deepseek-ai/dsh-tool-subagent-control/package.json'";
   t.eq(generator.findUnresolvableSpecifiers(asar, good), [], "合法子路径不应误报");
+};
+
+tests["C84-6 产物口径：现跑生成器得到的 patch 必须与已提交的 cordis.patch.yml 逐字一致"] = (t) => {
+  const asarPath = generator.resolveAsar();
+  if (!asarPath || !nodeFs.existsSync(asarPath)) {
+    t.skip("干净检出没有宿主 app.asar（CI 上正常）；本机装了 DSH 时会真跑");
+    return;
+  }
+  const asar = generator.openAsar(asarPath);
+  const entries = [];
+  for (const name of PRESETS) {
+    const official = asar.readFile(`${ASAR_PRESET_DIR}/${name}.patch.yml`);
+    if (!official) {
+      t.skip(`宿主 asar 里读不到 ${name}.patch.yml（宿主版本变了？）；先重跑生成器再验`);
+      return;
+    }
+    entries.push({ id: `preset-${name}`, configBlock: generator.swapEngineRow(generator.liftConfigBlock(official)) });
+  }
+  // ★ 这条是「preset 输出不许漂」的机器判据：改了文本变换或宿主换版，仓库里的产物就必须重生成。
+  t.eq(
+    generator.buildPatch(entries),
+    nodeFs.readFileSync(PATCH, "utf8"),
+    "生成器产物与已提交的 cordis.patch.yml 不一致 —— 要么重跑 --write，要么是文本变换改坏了",
+  );
+};
+
+tests["C84-7 探测顺序：DSH_APP_ASAR 显式指定必须最优先（不被本机真实安装抢先）"] = (t) => {
+  const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "c84-asar-"));
+  const fake = nodePath.join(dir, "app.asar");
+  nodeFs.writeFileSync(fake, "fixture");
+  const saved = process.env.DSH_APP_ASAR;
+  try {
+    process.env.DSH_APP_ASAR = fake;
+    t.eq(generator.resolveAsar(), fake, "设了 DSH_APP_ASAR 就必须用它（① 排在所有自动探测之前）");
+  } finally {
+    if (saved === undefined) delete process.env.DSH_APP_ASAR;
+    else process.env.DSH_APP_ASAR = saved;
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+  // 空白串要当「没设」：否则 `DSH_APP_ASAR=" "` 会静默指向一个空路径。
+  process.env.DSH_APP_ASAR = "   ";
+  try {
+    t.eq(generator.resolveAsar() === "   ", false, "空白 DSH_APP_ASAR 不得当有效值");
+  } finally {
+    if (saved === undefined) delete process.env.DSH_APP_ASAR;
+    else process.env.DSH_APP_ASAR = saved;
+  }
+};
+
+tests["C84-8 发布面：生成器源码过隐私门必须 0 条 P3-PATH（注释写死本机路径曾判 3 条 review）"] = (t) => {
+  const hits = scanText(nodeFs.readFileSync(SCRIPT, "utf8"), { path: "scripts/make-presets-override.mjs" });
+  t.eq(
+    hits.map((hit) => `${hit.line} ${hit.ruleId} ${hit.status}`),
+    [],
+    "本脚本进 packlist，注释与默认路径字面量都不许带路径命中（48/53/90 行的回归）",
+  );
 };

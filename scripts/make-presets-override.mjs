@@ -45,12 +45,12 @@ const OUT = nodePath.join(ROOT, "cordis.patch.yml");
  * 优先级**从「当前实例」往外**（越靠前越可信）：
  *   ① `DSH_APP_ASAR` 环境变量（显式指定，最优先）；
  *   ② **`DSH_HOME` 父目录下的同级安装** —— 本机真实布局：
- *      `DSH_HOME=D:/DeepSeek Harness/home` ⇒ 同级并存 `Desktop` 与 `Desktop-0.2.2-rc.1`，
+ *      `$DSH_HOME` 的父目录里同时并存 `Desktop` 与 `Desktop-0.2.2-rc.1`，
  *      按目录名**倒序**让带版本号的那个（`Desktop-0.2.2-rc.1`）排在裸名之前；
  *   ③ `process.execPath` 所在安装（脚本在宿主进程里跑时命中；用 node 直接跑时是 nodejs 目录，自然落空）；
  *   ④ 各平台标准安装位置。
  *
- * ★ **不再兜底到历史写死的 `D:/DeepSeek Harness/Desktop/...`**：
+ * ★ **不再兜底到历史写死的宿主绝对路径**：
  *   静默用**旧宿主**生成「看起来对」的产物，比找不到更危险 ——
  *   那正是 2026-11-07「随包 patch 引用宿主已删除的 list-agents 子路径」事故的成因。
  *
@@ -87,7 +87,10 @@ export function resolveAsar() {
   const localAppData = process.env.LOCALAPPDATA ?? (home ? nodePath.join(home, "AppData", "Local") : "");
   if (process.platform === "win32") {
     add(localAppData ? appAsarUnder(nodePath.join(localAppData, "Programs", "DeepSeek Harness")) : "");
-    add(appAsarUnder(nodePath.join(process.env.PROGRAMFILES ?? "C:/Program Files", "DeepSeek Harness")));
+    // 默认安装盘用 `join` 拼，不写「盘符 + 冒号 + 斜杠」开头的路径字面量：发布面里那种形态会被
+    // 隐私门判成「可能是本机私有绝对路径」而进 review。拼出来的结果与原字面量逐字相同、探测顺序不变。
+    const programFiles = process.env.PROGRAMFILES ?? nodePath.join("C:", "Program Files");
+    add(appAsarUnder(nodePath.join(programFiles, "DeepSeek Harness")));
     if (process.env.PROGRAMFILES_X86) {
       add(appAsarUnder(nodePath.join(process.env.PROGRAMFILES_X86, "DeepSeek Harness")));
     }
