@@ -44,16 +44,19 @@ export function renderPerSession(evidence) {
     })
     .sort((a, b) => b.folds - a.folds);
   const boundaryTotal = folds.filter((x) => x.boundary && typeof x.boundary.openAtEnd === "number").length;
+  const ranged = folds.filter((x) => x && x.hasRange !== false).length;
+  const manual = folds.length - ranged;
   const lines = [];
   lines.push("# 逐会话折叠质量（**生成物**，勿手改）");
   lines.push("");
   lines.push(`> 生成器：\`node scripts/fold-per-session.mjs --write\` · 数据源：\`evidence/live-folds.json\``);
-  lines.push(`> 共 **${folds.length} 次 fold / ${rows.length} 个有 fold 的会话**；其中 **${boundaryTotal} 次带 boundary**，openAtEnd 合计 **${rows.reduce((n, r) => n + r.openSum, 0)}**。`);
+  lines.push("> 会话标识为**稳定 pseudonym**（`s_<12hex>`）；原始 session id 与 home 路径不写入公开证据（t3）。");
+  lines.push(`> 共 **${folds.length} 条 fold 记录 / ${rows.length} 个有 fold 的会话**（= ${ranged} 次有区间 fold + ${manual} 条手工记录）；其中 **${boundaryTotal} 次带 boundary**，openAtEnd 合计 **${rows.reduce((n, r) => n + r.openSum, 0)}**。`);
   lines.push("");
   lines.push("| fold 次数 | 会话 | quality | boundary | openAtEnd | 约束召回最小值 | tier2 |");
   lines.push("|---|---|---|---|---|---|---|");
   for (const r of rows) {
-    lines.push(`| ${r.folds} | \`${r.sessionId.slice(0, 22)}…\` | ${r.quality} | ${r.boundaryCount} | ${r.openSum} | ${r.minRecall ?? "—"} | ${r.tier2} |`);
+    lines.push(`| ${r.folds} | \`${r.sessionId}\` | ${r.quality} | ${r.boundaryCount} | ${r.openSum} | ${r.minRecall ?? "—"} | ${r.tier2} |`);
   }
   lines.push("");
   return lines.join("\n");

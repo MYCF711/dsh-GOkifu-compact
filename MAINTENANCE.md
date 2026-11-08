@@ -38,11 +38,12 @@
 | `evidence/` | **88 个 .md + .json** | `ls evidence/*` |
 | GitHub Release | `v1.18.5`（158 文件逐一致 / privacy confirmed=0 review=0 / gate 8/8） | `evidence/release-1.18.5.json` |
 
-**live 证据**（生成物，勿手改）：`evidence/live-folds.json` —— **2211 次 fold / 1091 会话**
-（生成于 2026-11-08T07:14:30Z，源 `D:/DeepSeek Harness/home`；旧证据 1674 次 / 633 会话来自
-`home-0.2.2-rc.1`，本次 +537 次 / +458 个有 fold 的会话），
-quality 2204 次（`failureRecall` 最小 **0** —— 别再说「召回全 1」），boundary 249 次中 `openAtEnd` **1** 次
-（manual 折叠，正常应为 0 —— 见 `evidence/live-folds.md` 的「与上次对比」与逐次明细），
+**live 证据**（生成物，勿手改）：`evidence/live-folds.json` —— **2218 次 fold / 1095 会话**
+（生成于 2026-11-08T07:59:18Z，源 `<DSH_HOME>`；会话 id 一律为稳定伪名 `s_<12hex>`，真实 home 与
+session id 不写入公开证据）。相对 2026-11-07 的旧快照（1674 次 / 633 会话，不同 home）净变化
+**+544 次 / +462 个有 fold 的会话** —— 是**两次快照的净差**，不是累计新增；`evidence/live-folds.md`
+的「快照语义」与「与上次对比」有口径说明。quality 2211 次（`failureRecall` 最小 **0** —— 别再说
+「召回全 1」），boundary 251 次中 `openAtEnd` **1** 次（manual 折叠，正常应为 0 —— 见证据页逐次明细），
 `foldThrash` **0**。真机基准见 `docs/真机基准-自动生成.md`（命中率 94.2% / 71 次 fold 中位 11.5s）。
 
 ### 已验证（当次实测）

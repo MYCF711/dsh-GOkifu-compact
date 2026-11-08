@@ -12,7 +12,7 @@ import nodeFs from "node:fs";
 import nodeOs from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { SCHEMA, closureChainOf, collectLiveFolds, main, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
+import { HOME_REDACTED, SCHEMA, closureChainOf, collectLiveFolds, main, pseudonymOf, renderMarkdown, summarizeFolds, trendOf } from "../scripts/live-folds.mjs";
 import { encodeDeltaFrame, sha } from "../src/rooms/kifu-model.mjs";
 import { check as consistencyCheck } from "../scripts/consistency-check.mjs";
 import { createGraph } from "./graph-fixtures.mjs";
@@ -120,6 +120,9 @@ tests["L-1 collect：三个会话三条 fold，按时间升序；字段逐项取
     t.eq(modern.closure.preGraph, true, "C30 起闭包带 preGraph");
     t.eq(records[2].closure.preGraph, false, "有节点在区间内 ⇒ preGraph=false");
     t.eq(records[0].closure, null, "老 fold 没有 closure 记 null");
+    // ★ t3：采集出口就必须是 pseudonym（之后所有消费方不再有机会拿到原始 id）
+    t.eq(records.every((r) => /^s_[0-9a-f]{12}$/.test(r.sessionId)), true, "sessionId 必须全部是稳定 pseudonym");
+    t.eq(records[1].sessionId, pseudonymOf("session-modern0002"), "同一会话必须映射成同一 pseudonym");
   } finally {
     nodeFs.rmSync(home, { recursive: true, force: true });
   }
@@ -169,7 +172,11 @@ tests["L-3 renderMarkdown：带生成时间、覆盖率表、逐次明细"] = (t
     t.includes(md, "2026-11-02T02:40:00Z", "必须写明生成时间（判据：看内容不看 mtime）");
     t.includes(md, "| trigger | 2 / 3 |", "覆盖率行要准");
     t.includes(md, "| quality（保真度） | 2 / 3 |", "quality 覆盖率行要准");
-    t.includes(md, "session-modern0002", "明细里要有会话 id");
+    t.includes(md, pseudonymOf("session-modern0002"), "明细里要有会话 pseudonym");
+    t.eq(md.includes("session-modern0002"), false, "原始会话 id 不许出现在公开证据页（t3）");
+    t.includes(md, HOME_REDACTED, "数据源必须写成 <DSH_HOME>（真实 home 不落盘）");
+    t.eq(md.includes(home), false, "真实 home 路径不许出现在证据页");
+    t.includes(md, "快照语义", "证据页必须显式声明快照语义（非累计）");
     t.includes(md, "pressure", "明细里要有 trigger");
     t.includes(md, "133.76", "明细里要有压缩比");
     t.includes(md, "preGraph", "证据页要解释 preGraph");
@@ -192,6 +199,13 @@ tests["L-4 main：写 json+md；--dry-run 不落盘；json schema 可回读"] = 
     t.eq(json.schema, SCHEMA, "schema 必须写明");
     t.eq(json.folds.length, 3, "json 里也要有 3 条");
     t.eq(json.summary.total, 3, "summary 要一起写");
+    // ★ t3：公开 JSON 的脱敏与快照语义
+    t.eq(json.home, HOME_REDACTED, "home 必须脱敏成 <DSH_HOME>");
+    t.eq(json.homeRedacted, true, "必须显式标明 home 已脱敏");
+    t.eq(json.semantics?.snapshot, true, "必须标明这是快照");
+    t.eq(json.semantics?.notCumulative, true, "必须标明非累计");
+    t.eq(json.semantics?.trendIsNetChange, true, "必须标明对比是净变化口径");
+    t.eq(json.folds.every((f) => /^s_[0-9a-f]{12}$/.test(f.sessionId)), true, "json 里的会话也必须是 pseudonym");
     t.eq(nodeFs.existsSync(`${base}.md`), true, "md 也要写");
 
     const before = nodeFs.readFileSync(`${base}.json`, "utf8");
@@ -247,6 +261,14 @@ tests["L-6 trendOf：新增 fold / 质量变化 / 边界回归 / 成本漂移都
   const same = trendOf(prev, prev.summary && { ...prev.summary });
   t.eq(same.newFolds, 0, "同一快照 ⇒ 0");
   t.eq(same.boundaryRegressed, false, "同一快照 ⇒ 无回归");
+  // ★ t3：口径必须是「净变化」，且跨 home 只能由未脱敏的旧快照判定，判定不了就 null
+  t.eq(trend.netChange, 3, "净变化 = 本次快照 − 上次快照");
+  t.eq(trend.trendKind, "net-change", "必须标明 net-change 口径");
+  t.eq(trend.previousHomeChanged, null, "旧快照没有 home ⇒ 同源判定不许猜");
+  const crossHome = trendOf({ ...prev, home: "/tmp/home-a" }, now, { home: "/tmp/home-b" });
+  t.eq(crossHome.previousHomeChanged, true, "两份未脱敏快照来自不同 home ⇒ 必须报跨 home");
+  const sameHome = trendOf({ ...prev, home: "/tmp/home-b/" }, now, { home: "/tmp/home-b" });
+  t.eq(sameHome.previousHomeChanged, false, "同一 home 的写法差异（斜杠/大小写）不该误报");
 };
 
 tests["L-7 会话分布：同一会话折 ≥3 次进 multiFold；foldThrash≥2 的会话单独列出（C54）"] = (t) => {
@@ -265,6 +287,9 @@ tests["L-7 会话分布：同一会话折 ≥3 次进 multiFold；foldThrash≥2
     t.eq(summary.bySession.top[0].folds, 3, "top 会话折 3 次");
     t.eq(thrash.length, 1, "foldThrash≥2 的会话必须列出");
     t.eq(thrash[0].foldThrash, 3, "thrash 深度如实");
+    // ★ t3：会话分布与 thrash 列表同样只留 pseudonym
+    t.eq(thrash[0].sessionId, pseudonymOf("session-multi0003"), "thrash 列表的会话必须脱敏");
+    t.eq(summary.bySession.top[0].sessionId, pseudonymOf("session-multi0003"), "top 榜的会话必须脱敏");
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
@@ -285,6 +310,40 @@ tests["L-8 默认不写盘（C65）：不传 --write 时证据文件不应被创
     nodeFs.rmSync(home, { recursive: true, force: true });
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
+};
+
+tests["L-9 --previous：对比基线可单独指定（刷新一次不会把 +537 覆盖成 +1）"] = (t) => {
+  const home = makeHome();
+  const outDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-live-prev-"));
+  try {
+    const base = nodePath.join(outDir, "live-folds");
+    const older = nodePath.join(outDir, "older.json");
+    nodeFs.writeFileSync(
+      older,
+      JSON.stringify({ generatedAt: "2026-11-07T00:24:15Z", home: HOME_REDACTED, summary: { total: 1, quality: {}, boundary: {}, cost: {} } }),
+      "utf8",
+    );
+    main(["--home", home, "--out", base, "--write", "--previous", older]);
+    const json = JSON.parse(nodeFs.readFileSync(`${base}.json`, "utf8"));
+    t.eq(json.trend.newFolds, 2, "3 次 − 指定旧快照 1 次 = 净变化 +2");
+    t.eq(json.trend.trendKind, "net-change", "指定基线时也必须是净变化口径");
+    main(["--home", home, "--out", base, "--write"]);
+    const again = JSON.parse(nodeFs.readFileSync(`${base}.json`, "utf8"));
+    t.eq(again.trend.newFolds, 0, "不带 --previous 时默认对比同目录同名快照 ⇒ 净变化 0");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+    nodeFs.rmSync(outDir, { recursive: true, force: true });
+  }
+};
+
+tests["L-10 pseudonym：同 id 稳定、不同 id 不同、可加盐（盐不进证据）"] = (t) => {
+  const a = pseudonymOf("session-x0000001");
+  t.eq(a, pseudonymOf("session-x0000001"), "同一 id 必须每次得到同一个 pseudonym");
+  t.eq(/^s_[0-9a-f]{12}$/.test(a), true, `格式必须是 s_<12hex>（实际 ${a}）`);
+  t.eq(a === pseudonymOf("session-x0000002"), false, "不同 id 必须得到不同 pseudonym");
+  const salted = pseudonymOf("session-x0000001", "private-salt");
+  t.eq(salted === a, false, "换盐必须换映射（可加盐/映射私有）");
+  t.eq(salted, pseudonymOf("session-x0000001", "private-salt"), "同盐同 id 仍必须稳定");
 };
 
 tests["C103 闭包链：相邻 fold 的节点集必须单调不重叠（区间重叠是正常的）"] = (t) => {
@@ -326,7 +385,7 @@ tests["C199 live-folds 必须重放 delta（foldMark 只在 delta 里也要数�
     // 宿主外部折叠记在 ledger-budget.json
     nodeFs.writeFileSync(
       nodePath.join(root, "chess-context", "ledger-budget.json"),
-      JSON.stringify({ samples: 1, none: 1, externalFolds: 3, lastExternalFold: { at: Date.now(), seqStart: 30, seqEnd: 40 } }),
+      JSON.stringify({ samples: 1, none: 1, externalFolds: 3, lastExternalFold: { at: Date.now(), seqStart: 30, seqEnd: 40, session: "session-lf199" } }),
       "utf8",
     );
 
@@ -334,6 +393,8 @@ tests["C199 live-folds 必须重放 delta（foldMark 只在 delta 里也要数�
     t.eq(collected.records.length, 1, `delta 里的 foldMark 必须被数到（实际 ${collected.records.length}）`);
     t.eq(collected.records[0].trigger, "host", "trigger 必须保留");
     t.eq(collected.external.folds, 3, "必须从 ledger-budget 读到 externalFolds");
+    t.eq(collected.external.last.session, pseudonymOf("session-lf199"), "外部折叠里的 session 也必须脱敏（t3）");
+    t.eq(collected.external.last.seqEnd, 40, "脱敏只换 session，其余字段必须原样保留");
     const summary = summarizeFolds(collected.records, collected.external);
     t.eq(summary.total, 1, "汇总总数必须含 delta 里的那条");
     t.eq(summary.external.folds, 3, "汇总必须透传 external");

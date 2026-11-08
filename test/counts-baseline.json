@@ -1,5 +1,5 @@
 {
- "total": 1799,
+ "total": 1809,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -60,6 +60,7 @@
   "engine-harness.test.mjs": 115,
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 21,
+  "evidence-privacy.test.mjs": 8,
   "facts-prompt.test.mjs": 7,
   "fictitious-gap.test.mjs": 3,
   "finish-reason.test.mjs": 12,
@@ -111,7 +112,7 @@
   "ledger-scale.test.mjs": 4,
   "ledger.test.mjs": 29,
   "live-bench.test.mjs": 8,
-  "live-folds.test.mjs": 11,
+  "live-folds.test.mjs": 13,
   "lme-alias-grader.test.mjs": 3,
   "lme-pilot-reader.test.mjs": 9,
   "lme-task50.test.mjs": 13,
@@ -237,6 +238,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2158,
- "passedAt": "2026-11-07T09:09:09.566Z"
+ "passed": 2168,
+ "passedAt": "2026-11-08T08:10:49.545Z"
 }
