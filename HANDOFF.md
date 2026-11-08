@@ -23,6 +23,23 @@
 
 ---
 
+## ⏸ 2026-11-09 停止交接（先看这一节）
+
+**用户已明确要求停止本轮推进。** 不再启动实验、合并或长测试；下面是停止时的真实状态，不是“全部完成”。
+
+- 当前主集成：本工作树 · `task/axiom-integration` · **`6f9202f`**（交接文档提交前）；未 push、未合 main（main `3d3d009`）。
+- 已复核：关系行 checker v2、60 调用对照、BOUNDARY 更正、TR v5cmp-en、约束/省略保真；最近全量 **2431/0**、boundary 0、privacy 0/0、docs-index 0。
+- K-27 关系行：full **10/10**、compact **9/10**，正确档 **BOUNDARY**；KU-01 compact 3/3 答成 `settled`，正确值 `later-ok`。formal **NOT_RUN**，裁决 **NOT_ADOPTED**，`factGuard` 默认关闭。
+- K-27 v5cmp-en：TR 两臂 2/2，整体 compact 9/10、Δ−10%，仍 **NOT_ADOPTED**。
+- 图缓存修复分支 `task/t6-cold-graph`（`4ae0f3c`）已独立复核：91 断言、12 组变异、分支全量 **2439/0** 通过；**按用户停止指令未合入 integration，live 未生效**。后续风险：未收到 `agent/status` 的活跃会话可能被 idle 扫回收、维护缝 fold 后 full flush 前标量记账、sessionRefs 仍留引用、长进程 RSS 未验。原草稿在 `<local-projects>/gokifu-t5-cold-graph`，保留不删。
+- 647 MB 是棋谱磁盘量，不是全常驻；三张巨型图实测累计约 48 MB RSS / 35 MB heap。插件 `graphs` 无释放是本轮已查明问题，宿主会话缓存需另核，不能全算给插件。
+- 停止前的 handoff 快照淘汰检查另有边界红：磁盘 fold 数超过保留上限时现有判据可能误报；不刷新证据掩盖，不在本轮扩修。
+- 运行实例可能仍是旧构建；用 `node scripts/post-restart-check.mjs` 当次输出判断，不凭源码测试宣称已接管。
+
+**完整交接与复跑命令：[`evidence/归档收尾-验证单-2026-11-09.md`](./evidence/归档收尾-验证单-2026-11-09.md)。**
+
+---
+
 ## 🔁 每轮命令（改完代码 / 加完 CHANGELOG 就按顺序跑）
 
 ```bash
