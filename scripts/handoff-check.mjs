@@ -414,7 +414,10 @@ function main() {
             level,
             detail:
               level === "ok"
-                ? `磁盘 ${result.disk.foldMarks} 条 foldMark = 证据 ${result.evidence.evidenceTotal} 次`
+                ? `磁盘 ${result.disk.foldMarks} 条 foldMark；证据快照 ${result.evidence.evidenceTotal} 次` +
+                  (((result.snapshot?.newSinceSnapshot ?? 0) > 0 || (result.snapshot?.evictedSinceSnapshot ?? 0) > 0)
+                    ? `（快照后新增 ${result.snapshot?.newSinceSnapshot ?? 0} 条 / 环形淘汰可解释 ${result.snapshot?.evictedSinceSnapshot ?? 0} 条）`
+                    : "（两者一致）")
                 : result.problems.join("；"),
           },
         ],
