@@ -1,0 +1,748 @@
+{
+  "schema": "k2-normalize-v2-freeze-v1",
+  "version": "k2-normalize-v2",
+  "status": "PASS",
+  "generatedAt": "2026-11-08T05:48:47.707Z",
+  "baseRev": "edd4a9c7a7e824239ea8355e3c0c1504cad4ac8e",
+  "baseBranch": "task/k2-normalize-v2",
+  "adoption": "NOT_ADOPTED",
+  "implementation": "APPLIED_OFFLINE_ONLY",
+  "officialColumn": "raw",
+  "secondaryColumn": "v2",
+  "modelCalls": 0,
+  "prereg": {
+    "publicSha256": "cf7e88c3749ae1800a21df9ea73ddfbf0c3633e932fc7afb9c8689f37d32c40f",
+    "privatePreregSha256": "33cb6dc65cacbe5a359f862402b1f542b32a78258d0569b87c2f930de56fa4e2",
+    "publicSchema": "k2-normalize-v2-prereg-v1",
+    "publicStatus": "FROZEN",
+    "declaredGate6": false
+  },
+  "tools": {
+    "normalizer": {
+      "path": "scripts/k2-normalize-v2.mjs",
+      "sha256": "3d7ca49fd0b43efce8a61daaceecb35f7b356cd75f8f3014dacfab6afff9fed5"
+    },
+    "replay": {
+      "path": "scripts/k2-v2-offline-replay.mjs",
+      "sha256": "6ffb753b083bd78d68ecebaf9db308c3b6d2a230f472fca45f345c143ee4d846"
+    },
+    "test": {
+      "path": "test/k2-normalize-v2.test.mjs",
+      "sha256": "8a964650c81e78034de9527ffdd1ba9b3f5cdbcfaa9566cd5fb17e644f93e773"
+    }
+  },
+  "commands": [
+    "node scripts/k2-v2-offline-replay.mjs --write",
+    "node test/run.mjs k2-normalize-v2"
+  ],
+  "frozenInputs": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "privatePreregSha256",
+        "declared": "33cb6dc65cacbe5a359f862402b1f542b32a78258d0569b87c2f930de56fa4e2",
+        "actual": "33cb6dc65cacbe5a359f862402b1f542b32a78258d0569b87c2f930de56fa4e2",
+        "ok": true
+      },
+      {
+        "name": "testVectorSetSha256",
+        "declared": "e7ed12de8d9fd78e959ef0dc4027d2228dd8d3f94ef088c92419ee958b63c46a",
+        "actual": "e7ed12de8d9fd78e959ef0dc4027d2228dd8d3f94ef088c92419ee958b63c46a",
+        "ok": true
+      },
+      {
+        "name": "readerScriptSha256",
+        "declared": "ea6512a00ce1f16585b198dc2322b13e6bf9813db5cf45c6a596c35d2e38e805",
+        "actual": "ea6512a00ce1f16585b198dc2322b13e6bf9813db5cf45c6a596c35d2e38e805",
+        "ok": true
+      },
+      {
+        "name": "graderScriptSha256",
+        "declared": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+        "actual": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+        "ok": true
+      },
+      {
+        "name": "questionsSha256",
+        "declared": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+        "actual": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+        "ok": true
+      },
+      {
+        "name": "rawManifestSha256",
+        "declared": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+        "actual": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+        "ok": true
+      },
+      {
+        "name": "k2ResultSha256",
+        "declared": "193052caaea6be3342c26357045d79bc8707e0b97a4d465ae931f7dee38ad95f",
+        "actual": "193052caaea6be3342c26357045d79bc8707e0b97a4d465ae931f7dee38ad95f",
+        "ok": true
+      },
+      {
+        "name": "privateProposalSha256",
+        "declared": "9ad1f211694f4edfaf23e73d08017e515b6b99c82f11252060a16513c2c63bb0",
+        "actual": "9ad1f211694f4edfaf23e73d08017e515b6b99c82f11252060a16513c2c63bb0",
+        "ok": true
+      }
+    ]
+  },
+  "rulesVerbatim": {
+    "orderOfOperations": true,
+    "allowedTransformations": true,
+    "forbiddenTransformations": true
+  },
+  "testVectors": {
+    "total": 21,
+    "matched": 21,
+    "byCategory": {
+      "format-positive": 13,
+      "semantic-negative": 8
+    },
+    "ids": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T08",
+      "T09",
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T15",
+      "T16",
+      "T17",
+      "T18",
+      "T19",
+      "T20",
+      "T21"
+    ],
+    "outcomes": [
+      {
+        "id": "T01",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T02",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T03",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T04",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T05",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T06",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T07",
+        "category": "format-positive",
+        "grader": "ordered",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T08",
+        "category": "format-positive",
+        "grader": "set",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T09",
+        "category": "format-positive",
+        "grader": "exact",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T10",
+        "category": "format-positive",
+        "grader": "exact",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T11",
+        "category": "format-positive",
+        "grader": "exact",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T12",
+        "category": "format-positive",
+        "grader": "exact",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      },
+      {
+        "id": "T13",
+        "category": "semantic-negative",
+        "grader": "exact",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T14",
+        "category": "semantic-negative",
+        "grader": "exact",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T15",
+        "category": "semantic-negative",
+        "grader": "exact",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T16",
+        "category": "semantic-negative",
+        "grader": "exact",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T17",
+        "category": "semantic-negative",
+        "grader": "ordered",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T18",
+        "category": "semantic-negative",
+        "grader": "ordered",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T19",
+        "category": "semantic-negative",
+        "grader": "ordered",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T20",
+        "category": "semantic-negative",
+        "grader": "UNKNOWN",
+        "expectCorrect": false,
+        "actualCorrect": false,
+        "ok": true
+      },
+      {
+        "id": "T21",
+        "category": "format-positive",
+        "grader": "UNKNOWN",
+        "expectCorrect": true,
+        "actualCorrect": true,
+        "ok": true
+      }
+    ]
+  },
+  "offlineReplay": {
+    "rawFiles": 20,
+    "httpStatusOk": 20,
+    "readerErrors": 0,
+    "v1Replay": {
+      "total": 20,
+      "answerMatched": 20,
+      "gradeMatched": 20,
+      "rawMatched": 20,
+      "exact": 20
+    },
+    "v1": {
+      "fullCorrect": 7,
+      "compactCorrect": 8,
+      "degraded": [
+        "K2-N3"
+      ],
+      "unknownIncrease": 1,
+      "abstentionClean": false
+    },
+    "v2": {
+      "fullCorrect": 7,
+      "compactCorrect": 9,
+      "degraded": [],
+      "unknownIncrease": 1,
+      "abstentionClean": false,
+      "summarizeStatusWouldBe": "PASS"
+    },
+    "changedRows": [
+      {
+        "id": "K2-N3",
+        "arm": "compact",
+        "category": "ordered-list-quote-format",
+        "fromCode": "ordered-mismatch",
+        "toCode": "ok"
+      }
+    ],
+    "regressionRows": [],
+    "gainedRows": [
+      {
+        "id": "K2-N3",
+        "arm": "compact",
+        "category": "ordered-list-quote-format"
+      }
+    ],
+    "acceptedAnswersStable": true,
+    "rows": [
+      {
+        "id": "K2-O1",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "v2": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O1",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "v2": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O2",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "v2": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O2",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O3",
+        "arm": "full",
+        "grader": "set",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O3",
+        "arm": "compact",
+        "grader": "set",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O4",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-O4",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N1",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "v2": {
+          "correct": false,
+          "code": "exact-mismatch"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N1",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N2",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N2",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N3",
+        "arm": "full",
+        "grader": "ordered",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N3",
+        "arm": "compact",
+        "grader": "ordered",
+        "v1": {
+          "correct": false,
+          "code": "ordered-mismatch"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": true,
+        "changeCategory": "ordered-list-quote-format",
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N4",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N4",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N5",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N5",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N6",
+        "arm": "full",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      },
+      {
+        "id": "K2-N6",
+        "arm": "compact",
+        "grader": "exact",
+        "v1": {
+          "correct": true,
+          "code": "ok"
+        },
+        "v2": {
+          "correct": true,
+          "code": "ok"
+        },
+        "answerChanged": false,
+        "changeCategory": null,
+        "officialMatch": true
+      }
+    ],
+    "readOnly": {
+      "rawManifestBefore": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+      "rawManifestAfter": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+      "resultBefore": "193052caaea6be3342c26357045d79bc8707e0b97a4d465ae931f7dee38ad95f",
+      "resultAfter": "193052caaea6be3342c26357045d79bc8707e0b97a4d465ae931f7dee38ad95f",
+      "identical": true
+    },
+    "resultMeta": {
+      "schema": "k2-value-reader-results-v1",
+      "taskId": "T7",
+      "generatedAt": "2026-11-08T01:31:17.107Z",
+      "worktreeHead": "edd4a9c",
+      "actualCalls": 20,
+      "plannedCalls": 20,
+      "errors": 0,
+      "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+      "answerPresentCoverage": {
+        "full": 10,
+        "compact": 10,
+        "total": 10
+      }
+    }
+  },
+  "gate6": {
+    "formula": "noRegression && abstentionClean && answerPresentCoverage.full == 10/10 && answerPresentCoverage.compact == 10/10",
+    "value": false,
+    "noRegression": true,
+    "abstentionClean": false,
+    "answerPresentCoverage": {
+      "full": 10,
+      "compact": 10,
+      "ok": true
+    },
+    "reasons": [
+      "unknownIncrease=1"
+    ],
+    "summarizeStatusIsNotGate": true,
+    "formatNormalizationIsNotQualityGain": true,
+    "cannotRetroactivelyChangeT7": true
+  },
+  "checks": [
+    {
+      "id": "P08-A-vectors-21",
+      "ok": true,
+      "detail": "21 向量 matched=21/21 · format-positive=13/13 · semantic-negative=8/8"
+    },
+    {
+      "id": "P08-B-v1-replay-20",
+      "ok": true,
+      "detail": "v1 复算 exact=20/20（answer 20 · grade 20 · raw 20）"
+    },
+    {
+      "id": "P08-C-v2-format-only",
+      "ok": true,
+      "detail": "regression=0 · gained=1 · 已接受答案保持不变=true · 改动行=1"
+    },
+    {
+      "id": "P08-D-metrics",
+      "ok": true,
+      "detail": "v1 full=7 compact=8 degraded=1 · v2 full=7 compact=9 degraded=0 · unknownIncrease=1→1"
+    },
+    {
+      "id": "P08-E-gate6-false",
+      "ok": true,
+      "detail": "gate6=false（unknownIncrease=1）"
+    },
+    {
+      "id": "P08-F-frozen-inputs",
+      "ok": true,
+      "detail": "8/8 哈希一致"
+    },
+    {
+      "id": "P08-G-rules-verbatim",
+      "ok": true,
+      "detail": "规则逐字对齐=3/3"
+    },
+    {
+      "id": "P08-H-history-readonly",
+      "ok": true,
+      "detail": "raw 清单与 k2-result.json 前后哈希一致=true"
+    }
+  ],
+  "note": "离线第二列复算：不改 raw / k2-result.json / 题面 / 答案 / alias / 阈值，不重跑模型；official 列仍是 raw。"
+}
