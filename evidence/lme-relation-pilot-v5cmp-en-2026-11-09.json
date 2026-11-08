@@ -1,0 +1,559 @@
+{
+  "schema": "lme-relation-pilot-aggregate-v1",
+  "status": "PILOT_ONLY",
+  "qualityGate": "NOT_APPLICABLE_PILOT",
+  "formal5050": "NOT_RUN",
+  "verdict": "NOT_ADOPTED",
+  "ranAt": "2026-11-08T18:53:06.867Z",
+  "preregSha256": "2db532b794dec0ee8b29061c330458f39d3d60ae0b1a63ad810c2d867cc1274f",
+  "preregStatus": "FROZEN_NOT_RUN",
+  "model": "deepseek-v4.1-flash-1017",
+  "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+  "variant": "v5cmp-en",
+  "postprocess": "none",
+  "samplesPerArm": 3,
+  "selectionRule": "first 2 per type in frozen fixture order",
+  "selected": [
+    "IE-01",
+    "IE-02",
+    "MR-01",
+    "MR-02",
+    "KU-01",
+    "KU-02",
+    "TR-01",
+    "TR-02",
+    "ABS-01",
+    "ABS-02"
+  ],
+  "calls": {
+    "planned": 60,
+    "actual": 60,
+    "retries": 0,
+    "hardCap": 60
+  },
+  "validityGate": {
+    "rule": "full 臂必须同时满足：① 30/30 样本判分正确；② 10/10 逻辑题多数票正确",
+    "fullSampleCorrect": 30,
+    "fullSampleTotal": 30,
+    "fullMajorityCorrect": 10,
+    "fullQuestions": 10,
+    "passed": true
+  },
+  "decisionBand": "EXPLORATORY_POSITIVE",
+  "summary": {
+    "questions": 10,
+    "fullMajorityCorrect": 10,
+    "compactMajorityCorrect": 9,
+    "deltaMajority": -1,
+    "fullSampleCorrect": 30,
+    "compactSampleCorrect": 27,
+    "sampleTotalPerArm": 30,
+    "byType": {
+      "IE": {
+        "full": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        },
+        "compact": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        }
+      },
+      "MR": {
+        "full": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        },
+        "compact": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        }
+      },
+      "KU": {
+        "full": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        },
+        "compact": {
+          "questions": 2,
+          "majorityCorrect": 1,
+          "sampleCorrect": 3,
+          "sampleTotal": 6
+        }
+      },
+      "TR": {
+        "full": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        },
+        "compact": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        }
+      },
+      "ABS": {
+        "full": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        },
+        "compact": {
+          "questions": 2,
+          "majorityCorrect": 2,
+          "sampleCorrect": 6,
+          "sampleTotal": 6
+        }
+      }
+    },
+    "errors": 0,
+    "usageTotals": {
+      "inputTokens": 13839,
+      "outputTokens": 7170,
+      "totalTokens": 21009,
+      "latencyMs": 75401
+    }
+  },
+  "perQuestion": [
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "full",
+      "contextChars": 156,
+      "votes": {
+        "UNKNOWN": 3
+      },
+      "majorityAnswer": "UNKNOWN",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "arm": "compact",
+      "contextChars": 81,
+      "votes": {
+        "UNKNOWN": 3
+      },
+      "majorityAnswer": "UNKNOWN",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "full",
+      "contextChars": 157,
+      "votes": {
+        "UNKNOWN": 3
+      },
+      "majorityAnswer": "UNKNOWN",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "arm": "compact",
+      "contextChars": 83,
+      "votes": {
+        "UNKNOWN": 3
+      },
+      "majorityAnswer": "UNKNOWN",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "full",
+      "contextChars": 128,
+      "votes": {
+        "n-ie01-root": 3
+      },
+      "majorityAnswer": "n-ie01-root",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "arm": "compact",
+      "contextChars": 54,
+      "votes": {
+        "n-ie01-root": 3
+      },
+      "majorityAnswer": "n-ie01-root",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "full",
+      "contextChars": 149,
+      "votes": {
+        "e-ie02-parse": 3
+      },
+      "majorityAnswer": "e-ie02-parse",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "arm": "compact",
+      "contextChars": 78,
+      "votes": {
+        "e-ie02-parse": 3
+      },
+      "majorityAnswer": "e-ie02-parse",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "full",
+      "contextChars": 149,
+      "votes": {
+        "later-ok": 3
+      },
+      "majorityAnswer": "later-ok",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "arm": "compact",
+      "contextChars": 94,
+      "votes": {
+        "settled": 3
+      },
+      "majorityAnswer": "settled",
+      "majorityCorrect": false,
+      "sampleCorrect": [
+        false,
+        false,
+        false
+      ],
+      "gradeCode": "exact-mismatch",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "full",
+      "contextChars": 149,
+      "votes": {
+        "retain-20": 3
+      },
+      "majorityAnswer": "retain-20",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "arm": "compact",
+      "contextChars": 102,
+      "votes": {
+        "retain-20": 3
+      },
+      "majorityAnswer": "retain-20",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "full",
+      "contextChars": 179,
+      "votes": {
+        "e-mr01-a,e-mr01-b": 2,
+        "e-mr01-a, e-mr01-b": 1
+      },
+      "majorityAnswer": "e-mr01-a,e-mr01-b",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "arm": "compact",
+      "contextChars": 97,
+      "votes": {
+        "e-mr01-a,e-mr01-b": 2,
+        "e-mr01-a, e-mr01-b": 1
+      },
+      "majorityAnswer": "e-mr01-a,e-mr01-b",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "full",
+      "contextChars": 195,
+      "votes": {
+        "e-mr02-a,e-mr02-c": 3
+      },
+      "majorityAnswer": "e-mr02-a,e-mr02-c",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "arm": "compact",
+      "contextChars": 143,
+      "votes": {
+        "e-mr02-a,e-mr02-c": 3
+      },
+      "majorityAnswer": "e-mr02-a,e-mr02-c",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "full",
+      "contextChars": 144,
+      "votes": {
+        "before": 3
+      },
+      "majorityAnswer": "before",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "arm": "compact",
+      "contextChars": 73,
+      "votes": {
+        "before": 3
+      },
+      "majorityAnswer": "before",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "full",
+      "contextChars": 139,
+      "votes": {
+        "after": 3
+      },
+      "majorityAnswer": "after",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "arm": "compact",
+      "contextChars": 61,
+      "votes": {
+        "after": 3
+      },
+      "majorityAnswer": "after",
+      "majorityCorrect": true,
+      "sampleCorrect": [
+        true,
+        true,
+        true
+      ],
+      "gradeCode": "ok",
+      "finishReason": "stop",
+      "error": null
+    }
+  ],
+  "knownDifferences": {
+    "source": "evidence/lme-relation-pilot-v5cmp-en-prereg.json#knownDifferencesV1ToV3",
+    "evidenceRowsDropped": {
+      "questions": 18,
+      "rows": 19,
+      "inThisPilot": {
+        "IE-01": [
+          101
+        ]
+      }
+    },
+    "foldContext": {
+      "v1": 50,
+      "v3": 9
+    },
+    "absProjectionChanged": 10,
+    "comparisonProjectionChanged": 2,
+    "compactChars": {
+      "v1": 3882,
+      "v3": 4267,
+      "delta": "+9.92%"
+    },
+    "attribution": "本轮同时改变了语法与内容，不能把差异归因为「纯语法」；关系行效果需另设第三臂（v1 语法 + 只补关系字段）才能单独识别"
+  },
+  "positionalDerivations": {
+    "count": 6,
+    "inThisPilot": 0,
+    "approval": "REQUIRES_CAPTAIN_APPROVAL",
+    "note": "pilot 选样 0/6 落在推导行；扩到 50 题前必须授权或分层报告"
+  },
+  "rawHandling": {
+    "policy": "逐样本 raw 只留私有 tmp，公开面只含聚合与票型",
+    "privateRaw": "tmp/k27-relation-pilot/pilot-raw-2026-11-09.json"
+  },
+  "hashes": {
+    "v1Fixture": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
+    "v3Fixture": "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
+    "prereg": "2db532b794dec0ee8b29061c330458f39d3d60ae0b1a63ad810c2d867cc1274f",
+    "runner": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "grader": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "checker": "c8960385f6c7b97d97645b6b773d5477de0fc9074b00044ee29a6f79e193c78d",
+    "prompt": "8ac9aee5cf426f7482abb581c78f45b9282f60b57f655f6ba042d63dd408a08f"
+  },
+  "note": "Pilot smoke only. 10 题 × 2 臂 × 3 样本；不建立 formal 50/50 质量门，不改默认值，不宣称质量提升。"
+}
