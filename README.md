@@ -232,12 +232,12 @@ dsh plugin --profile <profile> add <本仓库路径>
 ```sh
 node test/run.mjs                        # 全量单测（**必须串行** —— 并发会抢 test/.harness ⇒ 假红）
 node scripts/boundary-audit.mjs          # 越界审计（行为指导 / 工具治理，0 条才算过）
-npm run gate                             # 8 判分门 + 5 条参考门（发版前跑全量，不是 --fast）
+npm run gate                             # 9 判分门 + 5 条参考门（发版前跑全量，不是 --fast）
 ```
 
 | 质量基线 | 值 |
 |---|---|
-| 全量测试 | `node test/run.mjs` → **2169 passed**（当次输出 2026-11-08；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
+| 全量测试 | `node test/run.mjs` → **2403 passed**（当次输出 2026-11-08；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
 | 越界审计 | **0 条**（扫 26 个 `src/**/*.mjs` · **6 条规则** · 豁免 1 条） |
 | 文档索引 | **148 个文件 · 未索引 0** |
 | 文档数字同步 | **9 份文档 / 20 处锚点**全一致 |
@@ -284,7 +284,7 @@ node scripts/bench-repro.mjs             # 热清单 token 基线（默认只打
 node scripts/pack-check.mjs              # 打包内容可从任意 commit 复现
 ```
 
-一条命令全跑：`npm run gate`。**门禁数是 8 判分门 + 5 条参考门**（参考门里那几条
+一条命令全跑：`npm run gate`。**门禁数是 9 判分门 + 5 条参考门**（参考门里那几条
 「打 tag / 发版 / 重启」本来就卡在授权上，不算红）。
 
 ## 故障排查（都是真实踩过的）
