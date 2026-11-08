@@ -17,7 +17,8 @@
  *   ⑤ 未验证声明：有**非残留**的未验证边 ⇒ 热清单必须出现 UNVERIFIED（L0/L1 列表，L2+ 计数行）
  *   ⑥ 当前位置：图有路径 ⇒ 热清单必须出现 CURRENT PATH / # path: / # WORKING:
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
- *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向（含 C656 的 `CONSTRAINTS_OMITTED`）
+ *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向（结构判据见 `OMISSION_RE`：
+ *      `*_OMITTED` / `omitted for budget` / `DANGLING_RESIDUE` / 中文 `# 另有 N 条…未展开`）
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本=ok（无内容可丢，非缺陷；C38）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）；
@@ -64,30 +65,59 @@ function check(name, level, detail = "") {
 }
 
 /**
- * 有东西被省掉了的行 —— 必须能查到。
+ * 省略行的**结构判据** —— 有东西被省掉了的行，必须能查到（`graph.json` 指向）。
  *
- * ★ C656：**新增 `CONSTRAINTS_OMITTED`**（约束段病态超限时的显式省略行，`ledger.mjs`）。
- *   旧清单只认「omitted for budget / FAILED_ATTEMPTS_OMITTED / DANGLING_RESIDUE」⇒
- *   约束的省略行**从不进 ⑧ 的检查范围**：哪天它丢了 `graph.json` 指针，门禁也不会红
- *   （与 C201/C216 同一类：检查器漏掉一类 ⇒ 假绿）。
+ * ★ C656：旧版是人工维护的关键词表（`omitted for budget` / `FAILED_ATTEMPTS_OMITTED` /
+ *   `DANGLING_RESIDUE`，后来又补了 `CONSTRAINTS_OMITTED`）。这类 allowlist 的毛病是
+ *   **每加一类省略行都得记得回来再改一行** —— 漏一类的后果不是"少检查"，而是那一类省略行
+ *   **永不被 ⑧ 检查**：丢了 `graph.json` 指针也绿（与 C201/C216 同类假绿）。
+ *   实测漏过 4 类：值事实 3 类（`VALUE_FACTS_OMITTED` 事实块、主清单
+ *   `# 另有 N 条值事实未展开（见 <tree>/graph.json 的 edges[*].valueFacts）`、
+ *   最小清单里同一句的 `graph.json` 变体）+ 主清单的无终点残留计数行
+ *   `# 另有 N 条无终点残留（…未展开；全文 graph.json）`。
  *
- * 导出给单测（`test/handoff-check.test.mjs`：新类必须被认出，且旧正则确实漏它）。
+ *   ⇒ 现在认**结构**，`ledger.mjs` 现有 7 类省略行全部落在里面：
+ *     · `omitted for budget`（失败边被裁，L4/L5 的 `- … N earlier dead ends`）
+ *     · `*_OMITTED`（`FAILED_ATTEMPTS_` / `CONSTRAINTS_` / `VALUE_FACTS_`）
+ *     · `DANGLING_RESIDUE`（无终点残留被排除在热清单分析之外）
+ *     · 中文计数行 `# 另有 N 条…未展开（见 … graph.json …）`（值事实 / 无终点残留）
+ *   新增省略行只要落在这几种形状里就**自动**被检查，不需要再回来改这张表。
  */
+const OMISSION_RE = /omitted for budget|\b[A-Z][A-Z0-9_]*_OMITTED\b|\bDANGLING_RESIDUE\b|未展开/;
+
 export function omissionLines(text) {
   return String(text ?? "")
     .split("\n")
-    .filter((line) => /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE|CONSTRAINTS_OMITTED/.test(line));
+    .filter((line) => OMISSION_RE.test(line));
 }
 
-/** 对一张图跑全部判据。 */
-export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now(), activeSession = false } = {}) {
+/**
+ * ⑧ 的**判据本体**：`bad` = 省略行里没有 `graph.json` 回证指针的那些（>0 ⇒ ⑧ fail）。
+ *
+ * 导出并集中一处，是为了让单测能直接断言「把这行里的指针抹掉 ⇒ bad=1 ⇒ ⑧ 会红」，
+ * 而不是在测试里复制一份过滤逻辑 —— 复制就会漂，漂了这条守卫就变成同义反复。
+ */
+export function parseOmissions(text) {
+  const all = omissionLines(text);
+  return { all, bad: all.filter((line) => !line.includes("graph.json")) };
+}
+
+/**
+ * 对一张图跑全部判据。
+ *
+ * `factGuard` 默认 **false**（与生产默认一致，`config-schema.mjs` 的 `FACT_GUARD_DEFAULT`）——
+ * handoff-check 的 CLI 不传它，所以 live 行为不变。它是给单测/审计用的：
+ * 值事实那两类省略行只在 guard 开启时才渲染，没有这个开关，⑧ 对它们的检查就永远跑不到。
+ */
+export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now(), activeSession = false, factGuard = false, maxValueFacts } = {}) {
   // ★ C223：**用生产同一条分支**。hot-inject 对「零失败边」的会话走 renderMinimalLedger
   //   （26% 的真实会话），旧版这里一律 renderLedger ⇒ 检查的是一条产品根本不走的路
   //   （实测 5df02bf8 / 30140e4c 因此误报 ⑥当前位置 FAIL）。
   const zeroFailure = failureEdges(graph).length === 0;
-  const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, { maxTokens, treeDir, traceRoot, now });
+  const renderOptions = { maxTokens, treeDir, traceRoot, now, factGuard, ...(maxValueFacts === undefined ? {} : { maxValueFacts }) };
+  const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, renderOptions);
   const text = String(ledger.text ?? "");
-  const facts = renderFacts(graph, { treeDir, traceRoot, now });
+  const facts = renderFacts(graph, { treeDir, traceRoot, now, factGuard, ...(maxValueFacts === undefined ? {} : { maxValueFacts }) });
   const out = [];
 
   // ① 根目标
@@ -175,8 +205,8 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   if (missing > 0) out.push(check("⑦b证据缺口", "warn", `${missing} 条失败边没有 evidence（老图/keeper 未记录）⇒ 模型无法回查`));
 
   // ⑧ 省略行可解析
-  const omissions = omissionLines(text);
-  const badOmissions = omissions.filter((line) => !line.includes("graph.json"));
+  // ★ C656：判据本体在 `parseOmissions`（与单测共用一处，禁止在两边各写一份过滤器）。
+  const { all: omissions, bad: badOmissions } = parseOmissions(text);
   out.push(
     check(
       "⑧省略行可解析",

@@ -8,8 +8,8 @@
  * 只断言 ⑩/⑪ 两项，其余检查（①–⑨）由各自的单测覆盖，避免夹具噪声。
  */
 
-import { checkGraph, omissionLines } from "../scripts/handoff-check.mjs";
-import { renderLedger } from "../src/rooms/ledger.mjs";
+import { checkGraph, omissionLines, parseOmissions } from "../scripts/handoff-check.mjs";
+import { renderLedger, renderMinimalLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
@@ -414,4 +414,79 @@ tests["C656 ⑧端到端：约束病态超限的省略行带 graph.json 指针 �
   const row = byName(checkGraph(g, {}), "⑧");
   t.eq(row.level, "ok", `⑧ 必须 ok（实际 ${row.level}：${row.detail}）`);
   t.includes(row.detail, "行省略", "⑧ 的 detail 必须报出它看到了省略行（不能是「本档没有省略行」）");
+};
+
+/* ───────────── C656 ⑧ 省略行：值事实三类 + 残留计数行（allowlist 漏检的补完） ───────────── */
+
+/** 3 条合法值事实（`normalizeValueFact` 的六字段口径）—— 上限给 1 时必有 2 条被省略。 */
+const VALUE_FACTS_3 = [0, 1, 2].map((i) => ({ kind: "value", value: `值${i}`, quote: `值${i}`, evidenceSeq: 10 + i, validAtSeq: 10 + i, source: "tool:bash" }));
+
+/** mkGraph 的变体：把值事实挂在已有的边上；`failure:false` ⇒ 零失败边 ⇒ 走最小清单那条生产分支。 */
+function mkFactGraph({ failure = true, facts = VALUE_FACTS_3 } = {}) {
+  const g = mkGraph();
+  if (!failure) g.edges.e1.result = "success";
+  g.edges.e1.valueFacts = facts.map((f) => ({ ...f }));
+  return g;
+}
+
+tests["C656 ⑧省略行结构判据：值事实 3 类 + 残留计数行全部被认出（旧 allowlist 漏这 4 类）"] = (t) => {
+  // 相对 treeDir：既让 relTree 分支生效（指针变 `sessions/abc/graph.json`），又不在源码里留绝对路径
+  const treeDir = "sessions/abc";
+  const renderOpts = { maxTokens: 4000, factGuard: true, maxValueFacts: 1, treeDir, traceRoot: "sessions" };
+  const main = renderLedger(mkFactGraph(), renderOpts);
+  const minimal = renderMinimalLedger(mkFactGraph({ failure: false }), { maxTokens: 500, factGuard: true, maxValueFacts: 1 });
+  const facts = renderFacts(mkFactGraph(), renderOpts);
+  const pick = (text, needle) => String(text).split("\n").find((line) => line.includes(needle));
+
+  // 残留计数行：陈旧失败 + to=null（C654 夹具同款）
+  const residue = mkGraph();
+  residue.sessionId = "fixture-c656-residue";
+  residue.edges.e1.to = null;
+  residue.edges.e1.ts = Date.now() - 60 * 60 * 1000;
+  const residueLine = pick(renderLedger(residue).text, "条无终点残留");
+
+  const cases = [
+    ["主清单 值事实省略（# 另有 N 条值事实未展开）", pick(main.text, "条值事实未展开"), "未展开"],
+    ["最小清单 值事实省略（同一句的 graph.json 变体）", pick(minimal.text, "条值事实未展开"), "未展开"],
+    ["事实块 VALUE_FACTS_OMITTED", pick(facts, "VALUE_FACTS_OMITTED:"), "VALUE_FACTS_OMITTED"],
+    ["主清单 残留计数行", residueLine, "条无终点残留"],
+  ];
+  // 旧 allowlist（C656 前 + t4 补完之后的那张表）：这 4 类一条都认不出来 ⇒ 这轮不是同义反复
+  const OLD = /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE|CONSTRAINTS_OMITTED/;
+  for (const [label, line, needle] of cases) {
+    t.ok(Boolean(line), `前置：${label} 必须真的渲染出来`);
+    if (!line) continue;
+    t.includes(line, needle, `${label} 的行文必须与模板一致（防止夹具其实没触发）`);
+    t.eq(omissionLines(line).length, 1, `${label} 必须被 omitessionLines 认出（否则 ⑧ 永远看不到它）`);
+    t.eq(OLD.test(line), false, `${label} 在旧 allowlist 下确实漏检（证明本轮修复不是同义反复）`);
+    // 指针在场 ⇒ ⑧ 不红；把指针抹掉 ⇒ bad=1 ⇒ ⑧ 会红（判据本体 parseOmissions = ⑧ 用的那一份）
+    t.eq(parseOmissions(line).bad.length, 0, `${label} 带 graph.json 回证指针 ⇒ ⑧ 不该红`);
+    const stripped = line.split("graph.json").join("（无指针）");
+    t.eq(parseOmissions(stripped).bad.length, 1, `${label} 抹掉指针后必须被 ⑧ 判红`);
+  }
+  // 没有省略时不许误报：普通 LEARNED 行不是省略行
+  t.eq(omissionLines("LEARNED (3 failed attempts):").length, 0, "普通行不许误报");
+};
+
+tests["C656 ⑧端到端（主清单）：factGuard 开 ⇒ 值事实省略行被 ⑧ 看到并判 ok；关 ⇒ 那几行不渲染"] = (t) => {
+  const g = mkFactGraph();
+  const on = checkGraph(g, { factGuard: true, maxValueFacts: 1 });
+  const onRow = byName(on, "⑧");
+  t.eq(onRow.level, "ok", `值事实省略行带指针 ⇒ ⑧ 必须 ok：${onRow.detail}`);
+  t.includes(onRow.detail, "行省略", "⑧ 必须真的把省略行看进去（不是「本档没有省略行」）");
+  // 默认（factGuard=false）与生产默认一致：值事实段一行都不许出现 —— 这条同时守住「默认没被改动」
+  const off = checkGraph(g, {});
+  t.notIncludes(off.ledger.text, "条值事实未展开", "guard 关掉时不许出现值事实省略行");
+  t.notIncludes(off.ledger.text, "VALUE FACTS", "guard 关掉时值事实段整段不渲染（AX-06 的默认口径）");
+  t.eq(byName(off, "⑧").level, "ok", "guard 关掉时 ⑧ 仍 ok（没有省略行就没有可判的）");
+};
+
+tests["C656 ⑧端到端（最小清单）：零失败会话的值事实省略行带 graph.json 指针 ⇒ ⑧ ok"] = (t) => {
+  const g = mkFactGraph({ failure: false });
+  const r = checkGraph(g, { factGuard: true, maxValueFacts: 1 });
+  const row = byName(r, "⑧");
+  t.eq(row.level, "ok", `最小清单的值事实省略行带指针 ⇒ ⑧ ok：${row.detail}`);
+  t.includes(row.detail, "行省略", "⑧ 必须看到这一行");
+  t.includes(r.ledger.text, "条值事实未展开（见 graph.json 的 edges[*].valueFacts）", "最小清单没有 tree 前缀，指针退化为 graph.json（仍可回查）");
+  t.eq(r.ledger.minimal, true, "零失败会话必须走最小清单（与生产同一条分支）");
 };
