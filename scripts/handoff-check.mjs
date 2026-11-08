@@ -65,25 +65,30 @@ function check(name, level, detail = "") {
 }
 
 /**
- * 省略行的**结构判据** —— 有东西被省掉了的行，必须能查到（`graph.json` 指向）。
+ * 省略行的结构判据 —— 只看**产品行的行首形态**。
  *
- * ★ C656：旧版是人工维护的关键词表（`omitted for budget` / `FAILED_ATTEMPTS_OMITTED` /
- *   `DANGLING_RESIDUE`，后来又补了 `CONSTRAINTS_OMITTED`）。这类 allowlist 的毛病是
- *   **每加一类省略行都得记得回来再改一行** —— 漏一类的后果不是"少检查"，而是那一类省略行
- *   **永不被 ⑧ 检查**：丢了 `graph.json` 指针也绿（与 C201/C216 同类假绿）。
- *   实测漏过 4 类：值事实 3 类（`VALUE_FACTS_OMITTED` 事实块、主清单
- *   `# 另有 N 条值事实未展开（见 <tree>/graph.json 的 edges[*].valueFacts）`、
- *   最小清单里同一句的 `graph.json` 变体）+ 主清单的无终点残留计数行
- *   `# 另有 N 条无终点残留（…未展开；全文 graph.json）`。
+ * ★ C656（t8 收窄）：t6 用的是**内容子串**（`未展开` / `[A-Z]+_OMITTED`），于是普通用户文本
+ *   也会命中：约束原文是「- 这段注释未展开说明，请补全」「- 别把 FOO_OMITTED 当真」时，
+ *   ⑧ 会把它俩当成省略行、又没有 `graph.json` 指针 ⇒ **假红**（T7 实测 bad=2）。
+ *   现在每条分支都锚在行首，只认 `ledger.mjs` 真实产出的产品行：
+ *     ① `- … N earlier dead ends omitted for budget: …`   失败边被裁（L4/L5）
+ *     ② `FAILED_ATTEMPTS_OMITTED:`                       事实块的失败边省略
+ *     ③ `CONSTRAINTS_OMITTED:`                           约束段病态超限
+ *     ④ `VALUE_FACTS_OMITTED:`                           事实块的值事实省略
+ *     ⑤ `DANGLING_RESIDUE:`                              事实块的无终点残留
+ *     ⑥ `# 另有 N 条值事实未展开（…）`                     主清单的值事实计数行
+ *     ⑦ `# 另有 N 条无终点残留（…未展开；…）`              主清单的残留计数行
+ *     ⑧ `# 另有 N 条值事实未展开（见 graph.json …）`        最小清单（无 tree 前缀）
+ *     ⑨ `CONSTRAINTS: N (count only, not verbatim; full text: …`  最小清单的「只给计数」行
+ *   ⑨ 是 t8 新纳入的：它明说「不是逐字全文」，原文在 `graph.json` —— 同样是回证行，
+ *   丢了指针就没人能回查。**⑨ 的锚点刻意不含 `graph.json`**：否则「抹掉指针」的反例
+ *   就不再匹配判据，⑧ 反而变绿（判据必须能被同一个抹除动作打红）。
  *
- *   ⇒ 现在认**结构**，`ledger.mjs` 现有 7 类省略行全部落在里面：
- *     · `omitted for budget`（失败边被裁，L4/L5 的 `- … N earlier dead ends`）
- *     · `*_OMITTED`（`FAILED_ATTEMPTS_` / `CONSTRAINTS_` / `VALUE_FACTS_`）
- *     · `DANGLING_RESIDUE`（无终点残留被排除在热清单分析之外）
- *     · 中文计数行 `# 另有 N 条…未展开（见 … graph.json …）`（值事实 / 无终点残留）
- *   新增省略行只要落在这几种形状里就**自动**被检查，不需要再回来改这张表。
+ * 残留风险（写清、不假装消除）：用户文本若**逐字**写出产品行形态（例如约束原文就是
+ * `# 另有 3 条值事实未展开（…）`），仍会被当成省略行 —— 但它没有指针 ⇒ ⑧ 红是**正确**的
+ * （分不清就不假装分得清；这种文本本来就该被看见）。
  */
-const OMISSION_RE = /omitted for budget|\b[A-Z][A-Z0-9_]*_OMITTED\b|\bDANGLING_RESIDUE\b|未展开/;
+const OMISSION_RE = /^(?:- … \d+ earlier dead ends omitted for budget\b|[A-Z][A-Z0-9_]*_OMITTED\b|DANGLING_RESIDUE\b|# 另有 \d+ 条.*未展开|CONSTRAINTS: \d+ \(count only, not verbatim; full text:)/u;
 
 export function omissionLines(text) {
   return String(text ?? "")
