@@ -221,4 +221,3 @@ node design/_tools/smoke.cjs
 
 > 另外设计稿里 tab 用 `<a href>` 互跳（四屏原型需要），插件里没有路由 —— 代码仍用
 > `<button role="group" aria-pressed>`（与官方自动化任务页的 filter chip 一致），这是**有意分歧**。
-

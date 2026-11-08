@@ -14,7 +14,7 @@ const asar = require("./asar.cjs");
 
 const OUT = path.join(__dirname, "_icons.json");
 
-const bundle = asar.find(/^dsh\/node_modules\/@deepseek-ai\/dsh-web-frontend\/dist\/assets\/index-.*\.js$/)[0];
+const [bundle] = asar.find(/^dsh\/node_modules\/@deepseek-ai\/dsh-web-frontend\/dist\/assets\/index-.*\.js$/);
 if (!bundle) throw new Error("app.asar 里没有 dsh-web-frontend 的 index bundle");
 const c = asar.readText(bundle.path);
 
