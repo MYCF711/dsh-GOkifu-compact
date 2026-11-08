@@ -1,5 +1,5 @@
 {
- "total": 2021,
+ "total": 2029,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -39,6 +39,7 @@
   "closeout-outcome.test.mjs": 5,
   "closeout-plan.test.mjs": 2,
   "closeout-settles.test.mjs": 8,
+  "cold-graph-release.test.mjs": 8,
   "compare-models.test.mjs": 0,
   "config-schema.test.mjs": 2,
   "config-table.test.mjs": 3,
@@ -248,6 +249,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2431,
- "passedAt": "2026-11-08T18:27:29.443Z"
+ "passed": 2439,
+ "passedAt": "2026-11-08T19:35:07.848Z"
 }
