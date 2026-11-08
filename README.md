@@ -166,11 +166,11 @@ dsh plugin --profile <profile> add <本仓库路径>
 
 | 指标 | 值 | 来源 / 复跑 |
 |---|---|---|
-| live fold | **1674 次 / 633 会话**（quality 1667 次样本） | `evidence/live-folds.json` · `node scripts/live-folds.mjs --write` |
+| live fold | **2211 次 / 1091 会话**（quality 2204 次样本） | `evidence/live-folds.json` · `node scripts/live-folds.mjs --write` |
 | 压缩比 | **11.41 – 309.1** | 同上 |
 | `failureRecall` 最小 | **0**（有 1 次掉到 0 —— **别再说「召回全 1」**） | 同上 |
 | `constraintRecall` 最小 | **0.667** | 同上 |
-| boundary 切点落在工具调用中间 | **153 次全 0** | 同上 |
+| boundary 切点落在工具调用中间 | **249 次中 1 次**（manual 折叠；正常应为 0） | 同上 |
 | `foldThrash`（死循环式折叠） | **0** | 同上 |
 | 缓存命中率 | **94.2%**（分母 = 未命中 + 命中；33,896 次请求 / 136 个会话文件） | `docs/真机基准-自动生成.md` · `node scripts/live-bench.mjs --write` |
 | 全量花费估算 | **$131.91**（最贵 5 个会话占 **71%**） | 同上 |
