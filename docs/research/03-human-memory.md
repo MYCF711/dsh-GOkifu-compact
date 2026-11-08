@@ -362,7 +362,7 @@ Loftus 那句「警告只在有限条件下有效」也值得记住：光在摘�
 - 降级原则写死在文件头：**「能逐条列出的绝不合并」**，装不下时用汇总行保证可发现。
 - `renderFailureLine(edge, level)`：`intentLen = [70,50,34,22]`，`reasonLen = [90,60,36,25]`，**`seq` 只在 `level <= 1` 出现**。
 - `OPTIONS` 与 `UNVERIFIED_CLAIMS` 两段**只在 `level <= 1` 渲染**。
-- `CONSTRAINTS (verbatim)` 最多 12 条（`cons.slice(0,12)`），`ROOT USER (verbatim)` 按档位 clip 到 900/500/300/168。
+- `CONSTRAINTS (verbatim)` **全量逐条、按原文**（C656 起；**修前**是 `cons.slice(0,12)` 最多 12 条 ⇒ 第 13 条起静默消失，真机 2026-11-08 实测 14 条只写回 12 条），只有病态输入（约束段 >8,000 字符）才转显式省略行 `CONSTRAINTS_OMITTED: k of N … graph.json nodes[*].constraints`；`ROOT USER (verbatim)` 按档位 clip 到 900/500/300/168。
 - 重注入判据：`INJECT_MIN_EVENTS = 40`、`INJECT_MIN_FAILURE_DELTA = 5`。
 - 已有「缺省说明」纪律：`# WORKING: none — …`、`# path: none — …`、`⚠ 上次摘要是规则生成（无模型润色）`。
 
@@ -423,4 +423,4 @@ Bartlett, *Remembering* (1932) · Tulving & Pearlstone (1966) 可得性/可及�
 
 ### 本仓依据（用于 §7 的现状列）
 
-`src/rooms/ledger.mjs`（档位、预算、`renderFailureLine`、`seq && level <= 1`、`OPTIONS` 的 `level <= 1`、`cons.slice(0,12)`）· `src/rooms/hot-inject.mjs`（`INJECT_MIN_EVENTS=40` / `INJECT_MIN_FAILURE_DELTA=5`）· `src/rooms/config-schema.mjs`（`hotLedgerMaxTokens` 默认 500）· `src/rooms/facts-prompt.mjs` · `docs/性能与成本.md`（token 实测）。
+`src/rooms/ledger.mjs`（档位、预算、`renderFailureLine`、`seq && level <= 1`、`OPTIONS` 的 `level <= 1`、约束全量逐字 + 病态显式省略 —— C656 前的 `cons.slice(0,12)` 已去掉）· `src/rooms/hot-inject.mjs`（`INJECT_MIN_EVENTS=40` / `INJECT_MIN_FAILURE_DELTA=5`）· `src/rooms/config-schema.mjs`（`hotLedgerMaxTokens` 默认 500）· `src/rooms/facts-prompt.mjs` · `docs/性能与成本.md`（token 实测）。

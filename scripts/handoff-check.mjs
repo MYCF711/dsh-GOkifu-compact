@@ -17,7 +17,7 @@
  *   ⑤ 未验证声明：有**非残留**的未验证边 ⇒ 热清单必须出现 UNVERIFIED（L0/L1 列表，L2+ 计数行）
  *   ⑥ 当前位置：图有路径 ⇒ 热清单必须出现 CURRENT PATH / # path: / # WORKING:
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
- *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
+ *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向（含 C656 的 `CONSTRAINTS_OMITTED`）
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本=ok（无内容可丢，非缺陷；C38）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）；
@@ -63,11 +63,20 @@ function check(name, level, detail = "") {
   return { name, level, detail };
 }
 
-/** 有东西被省掉了的行 —— 必须能查到。 */
-function omissionLines(text) {
+/**
+ * 有东西被省掉了的行 —— 必须能查到。
+ *
+ * ★ C656：**新增 `CONSTRAINTS_OMITTED`**（约束段病态超限时的显式省略行，`ledger.mjs`）。
+ *   旧清单只认「omitted for budget / FAILED_ATTEMPTS_OMITTED / DANGLING_RESIDUE」⇒
+ *   约束的省略行**从不进 ⑧ 的检查范围**：哪天它丢了 `graph.json` 指针，门禁也不会红
+ *   （与 C201/C216 同一类：检查器漏掉一类 ⇒ 假绿）。
+ *
+ * 导出给单测（`test/handoff-check.test.mjs`：新类必须被认出，且旧正则确实漏它）。
+ */
+export function omissionLines(text) {
   return String(text ?? "")
     .split("\n")
-    .filter((line) => /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE/.test(line));
+    .filter((line) => /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE|CONSTRAINTS_OMITTED/.test(line));
 }
 
 /** 对一张图跑全部判据。 */

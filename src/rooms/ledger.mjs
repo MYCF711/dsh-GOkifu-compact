@@ -1738,7 +1738,10 @@ export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now(), fact
   const root = g?.rootNode ?? (g?.rootUserNodeIds ?? []).map((id) => g?.nodes?.[id]).filter(Boolean)[0];
   const latest = latestAgentNode(g);
   const goalText = clip(String(latest?.goal ?? root?.text ?? "").replace(/\s+/g, " ").trim(), 120);
-  const constraints = root?.constraints ?? [];
+  // ★ C656：**计数必须覆盖所有 user 节点**（旧版只看 root —— 后续用户消息里的约束被漏算，
+  //   而这一行是零失败会话里**唯一**提到约束的地方，漏算等于在说"没有那几条约束"）。
+  //   与主清单同一口径（`collectConstraints`：按原文去重）。
+  const constraints = collectConstraints(g);
   const lines = ["<chess-ledger>"];
   // ★ C224：契约 ① 认的是 **ROOT USER**（不是 GOAL）——零失败会话走最小清单，
   //   旧版只写 GOAL ⇒ handoff-check ①根目标 直接 FAIL（用生产分支后 live 实测 3 个会话）。
@@ -1746,7 +1749,11 @@ export function renderMinimalLedger(g, { maxTokens = 500, now = Date.now(), fact
   if (rootText) lines.push(`ROOT USER (verbatim): ${rootText}`);
   if (goalText && goalText !== rootText) lines.push(`GOAL: ${goalText}`);
   else if (!rootText && goalText) lines.push(`GOAL: ${goalText}`);
-  lines.push(`CONSTRAINTS: ${constraints.length}`);
+  // ★ C656：**这行是计数，不是逐字全文** —— 零失败会话走最小清单（≤120 tokens，C225 守卫），
+  //   原文不塞进来（塞进来就把小预算顶穿）；但必须给出**保留位置**：没有指针时，
+  //   模型不知道约束在哪、audit 也无法区分"只有 0 条"和"有但没展开"。
+  //   指针形态与主清单的省略行同一措辞（`graph.json nodes[*].constraints`）。
+  lines.push(`CONSTRAINTS: ${constraints.length} (count only, not verbatim; full text: graph.json nodes[*].constraints)`);
   // ★ AX-08：零失败**不等于**没有值型事实 —— 成功 write/read 的短值完全可能出现在一个没有
   //   任何失败边的会话里（K-2 S1-Q1 正是这个形状）。最小清单是「零失败会话」的唯一注入内容，
   //   这里不读 `edge.valueFacts` 就等于把它们静默丢掉。guard 关掉时一行都不加（逐字不变）。
