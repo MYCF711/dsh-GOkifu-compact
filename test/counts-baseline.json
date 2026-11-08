@@ -1,5 +1,5 @@
 {
- "total": 1997,
+ "total": 2005,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -42,6 +42,7 @@
   "compare-models.test.mjs": 0,
   "config-schema.test.mjs": 2,
   "config-table.test.mjs": 3,
+  "constraint-fidelity.test.mjs": 8,
   "context-curve.test.mjs": 3,
   "core.test.mjs": 8,
   "dangling-edge.test.mjs": 0,
@@ -246,6 +247,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2407,
- "passedAt": "2026-11-08T11:11:38.109Z"
+ "passed": 2415,
+ "passedAt": "2026-11-08T12:16:26.445Z"
 }

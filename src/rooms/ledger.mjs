@@ -797,6 +797,29 @@ const KEEP_TAIL = 2;
  */
 const PATH_QUOTA_CHARS = 150;
 
+/**
+ * ★ C656：约束段的**病态上限**（字符）。正常会话远到不了这里（本次真机一份：14 条 / 1,585 字符）。
+ *
+ * 为什么不是「预算」：约束属于**不可裁下限**（C41「宁可超预算也不丢约束」、C44 `budgetFloorOver`
+ * 把「约束+根目标下限即超预算」单列）—— 预算紧时正确的做法是**如实超预算**，不是裁约束。
+ * 这个上限只挡 C533 那类**病态输入**（一次粘贴几十万字符，单条"约束"就能塞满上下文）。
+ * 越过上限时：逐条逐字**放得下多少放多少** + 显式省略行（条数 + `graph.json` 回查指针），
+ * 绝不静默丢、也不再把长约束截成「前 120 字符 + …」。
+ */
+const LEDGER_CONSTRAINTS_MAX_CHARS = 8000;
+
+/**
+ * ★ C656：约束在热清单里的**单行形态**。
+ *
+ * 只做两件**必要**的事：① 换行压成空格（热清单是逐行结构 —— 约束抽取本来就按换行切句，
+ * 正常不会有换行，这里只是不让旧图/手工图把段落结构撑破）；② 剥掉用户自己写的 markdown 列表
+ * 符号（否则渲染成 `- - …`，2026-11-01 的显示 bug）。**除此之外一个字都不改** ——
+ * 不截断、不压空白，否则 `CONSTRAINTS (verbatim)` 与 `measureFoldQuality` 的逐字口径就对不上了。
+ */
+function constraintLineOf(c) {
+  return String(c ?? "").replace(/\r?\n\s*/g, " ").replace(/^\s*[-*]\s+/, "");
+}
+
 const pathBody = (line, prefix) => (line ? line.slice(prefix.length + 2) : null);
 
 /**
@@ -1318,6 +1341,7 @@ export function renderLedger(
     //   root 尾部 12 个字符（root 本来就已被 clip，且 L0–L2 逐字不变）。
     // C44：这两段（根目标 + 约束）**任何档位都只能 clip、不能删** —— 单独记下它们的 token 数，
     // 用来区分「渲染超预算」与「不可裁下限本身就超预算」。
+    // ★ C656：约束这段连 clip 也不做（见下）—— 它是「逐字」契约的一部分。
     let unyieldingText = "";
     if (root) {
       const rootLine = `ROOT USER (verbatim): ${clip(root.text, level === 0 ? 900 : level === 1 ? 500 : level === 2 ? 300 : 168)}`;
@@ -1332,10 +1356,30 @@ export function renderLedger(
       // ★ 2026-11-01（边界复审发现的显示 bug）：约束原文常常自带 markdown 列表符号
       //   （用户写「- 不要动 prod 配置」），渲染时再补一个 `- ` 就变成 `- - 不要动…`。
       //   这里只剥掉**渲染用的前缀符号**，正文一个字不改（逐字保留的口径不受影响）。
-      for (const c of cons.slice(0, 12)) {
-        const line = `- ${clip(c.replace(/^\s*[-*]\s+/, ""), level <= 1 ? 220 : 120)}`;
+      // ★ C656：**一条都不许删，也不许裁**。旧版是 `cons.slice(0, 12)` + `clip(…, 120)`：
+      //   前者把第 13/14 条**凭空删掉**（真机 2026-11-08：14 条约束的热清单只剩 12 条，
+      //   同一份图在规则兜底摘要里也少了这两条），后者把长约束截成「前 120 字符 + …」——
+      //   两种都让 `CONSTRAINTS (verbatim)` 名不副实，而约束丢一条 = 任务变了（重注入契约 §1 ②）。
+      //   现在：全部逐字；只有病态输入（> LEDGER_CONSTRAINTS_MAX_CHARS）才转入显式省略，
+      //   省略行带条数 + 回查指针（与失败边的省略行同一纪律：不许假装不存在）。
+      let constraintChars = 0;
+      let omittedConstraints = 0;
+      for (const c of cons) {
+        const line = `- ${constraintLineOf(c)}`;
+        // 单条就超上限也走省略（否则「病态上限」对一次巨量粘贴形同虚设）；省略行会给出总数与指针。
+        if (constraintChars + line.length + 1 > LEDGER_CONSTRAINTS_MAX_CHARS) {
+          omittedConstraints += 1;
+          continue;
+        }
+        constraintChars += line.length + 1;
         unyieldingText += `${line} `;
         lines.push(line);
+      }
+      if (omittedConstraints > 0) {
+        const pointer = relTree ? `${relTree}/graph.json` : "graph.json";
+        lines.push(
+          `CONSTRAINTS_OMITTED: ${omittedConstraints} of ${cons.length} not listed (section over ${LEDGER_CONSTRAINTS_MAX_CHARS} chars) — full text: ${pointer} nodes[*].constraints`,
+        );
       }
     }
     // ★ AX-08：值型事实段（`factGuard` 开启才非空）。放在根目标/约束之后、路径与失败叙事之前：

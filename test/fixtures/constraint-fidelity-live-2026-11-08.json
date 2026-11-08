@@ -1,0 +1,51 @@
+{
+  "fixtureVersion": 1,
+  "purpose": "约束逐字保真的真机夹具：14 条约束原文（含 2 条曾被 12 上限丢掉的）+ 旧折痕的落盘质量指标",
+  "provenance": {
+    "kind": "live-readonly-freeze",
+    "capturedAt": "2026-11-08",
+    "team": "gokifu-constraint-fidelity",
+    "tasks": [
+      "t1 F1-repro",
+      "t2 F2-repair"
+    ],
+    "product": "dsh-GOkifu-compact @ 3d3d009 (main)",
+    "readOnly": true,
+    "note": "live 会话 id / graph.json / 会话日志路径只在团队报告 tmp/fidelity-audit/repro/REPORT.md 里；此处按隐私门只留约束原文与指标"
+  },
+  "rootLine": "AgentTeams automatic task assignment from the shared task list.",
+  "constraintCount": 14,
+  "constraints": [
+    "Do not start a teammate's assigned task.",
+    "保留现场，禁止 reset/clean、危险杀进程、重启 DSH/magpie、写 profiles/cordis.patch.yml、git add -A 和未授权 push。",
+    "3) 测试：`serve_goal_round_lock_test.go`（第 2 轮遇 150ms 外部锁必须等到并续到第 3 轮）、`internal/session/lock_wait_test.go`（有界等待成功 / 未知锁不删除）。",
+    "同一基线若以 MSYS `head -c` 作 reader，5 次为 18.497 / 16.975 / 16.592 / 18.591 / 17.458s（bytes.Equal=true，后随短命令 true）——这是 head reader 开销，已按 RESULT §4/§7 明确登记，不能既当 Write 门又通过。",
+    "若 Lead 必须以 MSYS `head.exe` 作为性能代理，该边界需另行裁定/另立 reader 任务；",
+    "需你签发的 5 件事写在 §5（最关键：**不能只提交 12 份 patch 涉及的文件**，177 条基线必须按组随树提交否则编译红）。",
+    "已在 T07/RESULT §11 append-only 补记，最终以 T07R 为准）；",
+    "When finishing: use status=completed only when the task's success criteria are satisfied;",
+    "use status=failed when blocking findings or validation failures mean downstream work must not proceed;",
+    "include a concise output in either case. Quality kinds must submit structured fields: review/requirements need verdict=pass to complete (needs_revision/reject must fail with findings);",
+    "do not wait for captain confirmation and do not continue exploring. Do not approve your own implementation. Mail is not a formal next review. Completed work must not be repeated to attach late evidence: call update_task on the original task with its attempt_id and acceptanceResults/commandsRun/evidence_note;",
+    "supplements are append-only and cannot change its verdict. Treat the dependency results above as source material. Do not ignore them. Work only this task and only its in-scope paths in this turn.",
+    "State policy: .agent-teams/dsh-go2-stable/ is read-only diagnostics;",
+    "mutate team state only through agent_teams_* tools."
+  ],
+  "oldFold": {
+    "trigger": "pressure",
+    "range": {
+      "start": 509,
+      "end": 1600
+    },
+    "fallback": "rules",
+    "route": null,
+    "usage": null,
+    "expectedConstraints": 14,
+    "renderedConstraintBullets": 12,
+    "constraintRecall": 0.8571428571428571,
+    "missingConstraints": [
+      "State policy: .agent-teams/dsh-go2-stable/ is read-only diagnostics;",
+      "mutate team state only through agent_teams_* tools."
+    ]
+  }
+}
