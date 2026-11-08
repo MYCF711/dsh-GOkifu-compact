@@ -4,7 +4,7 @@
   "qualityGate": "NOT_APPLICABLE_PILOT",
   "formal5050": "NOT_RUN",
   "verdict": "NOT_ADOPTED",
-  "ranAt": "2026-11-08T18:53:06.867Z",
+  "ranAt": "2026-11-08T19:09:06.946Z",
   "preregSha256": "2db532b794dec0ee8b29061c330458f39d3d60ae0b1a63ad810c2d867cc1274f",
   "preregStatus": "FROZEN_NOT_RUN",
   "model": "deepseek-v4.1-flash-1017",
@@ -39,7 +39,57 @@
     "fullQuestions": 10,
     "passed": true
   },
-  "decisionBand": "EXPLORATORY_POSITIVE",
+  "decisionBand": "BOUNDARY",
+  "decisionBandCorrection": {
+    "from": "EXPLORATORY_POSITIVE",
+    "to": "BOUNDARY",
+    "fromCommit": "2c89232",
+    "rule": "perType 条件从「compact majorityCorrect >= 1（2 题/类即 ≤1/2 也算通过）」更正为「majorityCorrect * 2 > questions（严格多数，2 题必须 2/2）」",
+    "reason": "t8 复核：2 题/类时 1/2 是 50%，不是多数；原实现让 KU 1/2 通过，导致整体档位被误判为 POSITIVE",
+    "failingTypes": [
+      "KU"
+    ],
+    "evidence": "KU compact 1/2（KU-01 三样本均答状态词 settled，金标准值 later-ok）",
+    "note": "只更正离线判定与公开聚合；raw / 答案 / 阈值 / 夹具 / checker / 冻结 prereg 一律未改"
+  },
+  "perTypeGate": {
+    "IE": {
+      "questions": 2,
+      "majorityCorrect": 2,
+      "strictMajority": true
+    },
+    "MR": {
+      "questions": 2,
+      "majorityCorrect": 2,
+      "strictMajority": true
+    },
+    "KU": {
+      "questions": 2,
+      "majorityCorrect": 1,
+      "strictMajority": false
+    },
+    "TR": {
+      "questions": 2,
+      "majorityCorrect": 2,
+      "strictMajority": true
+    },
+    "ABS": {
+      "questions": 2,
+      "majorityCorrect": 2,
+      "strictMajority": true
+    }
+  },
+  "authorization": {
+    "approvedBy": "captain",
+    "scope": "single-run",
+    "preregSha256": "2db532b794dec0ee8b29061c330458f39d3d60ae0b1a63ad810c2d867cc1274f",
+    "runsAuthorized": 1,
+    "runsUsed": 1,
+    "modelCalls": 60,
+    "retries": 0,
+    "rawPolicy": "逐样本 raw 只留私有 tmp；公开面只含聚合与票型",
+    "frozenPreregUnchanged": true
+  },
   "summary": {
     "questions": 10,
     "fullMajorityCorrect": 10,

@@ -7,7 +7,9 @@
 - 机械判分（多数票）：full **10/10** · compact **9/10** · Δ **-1**
 - 样本级：full **30/30** · compact **27/30**
 - full 有效性门：**PASSED**（30/30 样本 且 10/10 多数票）
-- 决策档（仅决定是否再投入）：**EXPLORATORY_POSITIVE**
+- 决策档（仅决定是否再投入）：**BOUNDARY**（更正自 `EXPLORATORY_POSITIVE`：perType 条件从「compact majorityCorrect >= 1（2 题/类即 ≤1/2 也算通过）」更正为「majorityCorrect * 2 > questions（严格多数，2 题必须 2/2）」）
+- 逐类严格多数：IE 2/2✅ · MR 2/2✅ · KU 1/2❌ · TR 2/2✅ · ABS 2/2✅
+- 授权：队长批准唯一一次（prereg sha `2db532b794dec0ee8b29061c330458f39d3d60ae0b1a63ad810c2d867cc1274f`，runsAuthorized=1，runsUsed=1）
 - 用量：input 13839 / output 7170 tokens；总延迟 75401 ms；错误 0 次
 
 ## 逐题票型
