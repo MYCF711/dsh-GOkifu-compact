@@ -13,6 +13,8 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { compareSnapshot } from "../scripts/consistency-check.mjs";
+
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
 const EVIDENCE = JSON.parse(nodeFs.readFileSync(nodePath.join(REPO, "evidence", "live-folds.json"), "utf8"));
@@ -20,6 +22,43 @@ const EVIDENCE = JSON.parse(nodeFs.readFileSync(nodePath.join(REPO, "evidence", 
 export const tests = {};
 
 const read = (rel) => nodeFs.readFileSync(nodePath.join(REPO, rel), "utf8");
+
+/**
+ * ★ C655：只豁免**这一条**历史 manual 折痕（CHANGELOG C655:676）——
+ *   它是 bug 的原始复现（错误区间 9406–10630 / openAtEnd=1），已在代码层修好并保留为历史证据；
+ *   本轮不写 home、不改历史 foldMark。豁免按 at+seq 签名，不按 session id（避免把 id 写进测试）。
+ *   除这一条外，任何 openAtEnd>0 都必须红（包括同一 seq 但 at 更晚的新记录）。
+ */
+const C655_AT = Date.parse("2026-11-06T06:21:29.761Z");
+const C655_SIGNATURE = Object.freeze({
+  at: C655_AT,
+  trigger: "manual",
+  seqStart: 9406,
+  seqEnd: 10630,
+  openAtEnd: 1,
+});
+
+/** 返回 { allowed, violations }：allowed 是命中的 C655 签名条数（最多 1），violations 是其余 openAtEnd>0 记录。 */
+function openAtEndViolations(folds) {
+  let allowed = 0;
+  const violations = [];
+  for (const record of folds ?? []) {
+    const openAtEnd = Number(record?.boundary?.openAtEnd ?? 0);
+    if (!(openAtEnd > 0)) continue;
+    const isC655 =
+      record.trigger === C655_SIGNATURE.trigger &&
+      Number(record.at) === C655_SIGNATURE.at &&
+      record.seqStart === C655_SIGNATURE.seqStart &&
+      record.seqEnd === C655_SIGNATURE.seqEnd &&
+      openAtEnd === C655_SIGNATURE.openAtEnd;
+    if (isC655 && allowed === 0) {
+      allowed += 1;
+      continue;
+    }
+    violations.push(record);
+  }
+  return { allowed, violations };
+}
 
 /** 从 evidence JSON 的 summary 推出文档里应该出现的几组字符串。 */
 function expectedFacts() {
@@ -69,8 +108,91 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
   t.eq(matched.length > 0, true, `逐会话表里至少要能对上 top 榜的某个 fold 次数（top=${top.map((x) => x.folds).join("/")}）`);
   const boundaryCount = (EVIDENCE.folds ?? []).filter((x) => x.boundary && typeof x.boundary.openAtEnd === "number").length;
   t.includes(doc, `${boundaryCount} 次带 boundary`, `文档必须写「${boundaryCount} 次带 boundary」`);
-  const openSum = (EVIDENCE.folds ?? []).reduce((sum, x) => sum + (x.boundary?.openAtEnd ?? 0), 0);
-  t.eq(openSum, 0, `openAtEnd 总和必须为 0（实际 ${openSum}）`);
+  // ★ C655：唯一允许的历史 manual 折痕；其余 openAtEnd 仍必须为 0。
+  const realOpen = openAtEndViolations(EVIDENCE.folds);
+  t.eq(realOpen.allowed, 1, "证据里必须命中且只命中 1 条 C655 历史 manual 折痕");
+  t.eq(
+    realOpen.violations.length,
+    0,
+    `除 C655 外 openAtEnd 必须为 0；未豁免：${realOpen.violations
+      .map((x) => `${x.sessionId.slice(0, 12)}:${x.at}:${x.seqStart}-${x.seqEnd}:${x.boundary?.openAtEnd}`)
+      .join(" / ")}`,
+  );
+
+  // 正反例（合成）：签名只认 C655 的 at+seq+manual；任何漂移都必须红。
+  const c655 = {
+    at: C655_AT,
+    trigger: "manual",
+    seqStart: 9406,
+    seqEnd: 10630,
+    boundary: { openAtEnd: 1 },
+  };
+  const c655Allowed = openAtEndViolations([c655]);
+  t.eq(c655Allowed.allowed, 1, "C655 签名正例必须命中 1 条");
+  t.eq(c655Allowed.violations.length, 0, "C655 签名正例不得判违规");
+  t.eq(openAtEndViolations([]).violations.length, 0, "没有 openAtEnd 时不得误判");
+  t.eq(openAtEndViolations([{ ...c655, boundary: { openAtEnd: 0 } }]).violations.length, 0, "openAtEnd=0 不得误判");
+  t.eq(openAtEndViolations([{ ...c655, at: C655_AT + 1 }]).violations.length, 1, "同一 seq 但 at 差 1ms 的新记录必须红");
+  t.eq(openAtEndViolations([{ ...c655, seqEnd: 10631 }]).violations.length, 1, "seq 签名不同必须红");
+  t.eq(openAtEndViolations([{ ...c655, trigger: "pressure" }]).violations.length, 1, "非 manual 必须红");
+  t.eq(openAtEndViolations([{ ...c655, boundary: { openAtEnd: 2 } }]).violations.length, 1, "openAtEnd>1 必须红");
+  const duplicated = openAtEndViolations([c655, { ...c655 }]);
+  t.eq(duplicated.allowed, 1, "C655 签名只豁免一条");
+  t.eq(duplicated.violations.length, 1, "第二条同签名记录必须红");
+
+  // 快照一致性正反例：generatedAt 之后新增 fold 可解释；旧 fold 缺失/字段变化/证据含未来记录仍红。
+  const generatedAt = "2026-11-08T07:14:30Z";
+  const snapshotFixture = {
+    sessionId: "session-snapshot-fixture",
+    fold: 1,
+    at: Date.parse("2026-11-08T06:00:00Z"),
+    seqStart: 10,
+    seqEnd: 20,
+    hasRange: true,
+    trigger: "pressure",
+    summaryChars: 100,
+    quality: null,
+    closure: null,
+    boundary: null,
+  };
+  const appended = { ...snapshotFixture, fold: 2, at: Date.parse("2026-11-08T07:20:00Z"), seqStart: 21, seqEnd: 30 };
+  const snapshotOk = compareSnapshot({
+    evidenceFolds: [snapshotFixture],
+    generatedAt,
+    evidenceTotal: 1,
+    evidenceManual: 0,
+    diskRecords: [snapshotFixture, appended],
+    diskManual: 0,
+  });
+  t.eq(snapshotOk.problems.length, 0, `快照后新增 fold 必须可解释：${snapshotOk.problems.join(" / ")}`);
+  t.eq(snapshotOk.snapshot.newSinceSnapshot, 1, "快照后新增 fold 数必须报出来");
+  const snapshotMissing = compareSnapshot({
+    evidenceFolds: [snapshotFixture],
+    generatedAt,
+    evidenceTotal: 1,
+    evidenceManual: 0,
+    diskRecords: [appended],
+    diskManual: 0,
+  });
+  t.eq(snapshotMissing.problems.some((problem) => problem.includes("旧 fold 缺失")), true, "旧 fold 在磁盘缺失必须红");
+  const snapshotChanged = compareSnapshot({
+    evidenceFolds: [snapshotFixture],
+    generatedAt,
+    evidenceTotal: 1,
+    evidenceManual: 0,
+    diskRecords: [{ ...snapshotFixture, summaryChars: 999 }, appended],
+    diskManual: 0,
+  });
+  t.eq(snapshotChanged.problems.some((problem) => problem.includes("非新增差异")), true, "同签名旧 fold 字段变化必须红");
+  const snapshotFuture = compareSnapshot({
+    evidenceFolds: [{ ...snapshotFixture, at: Date.parse("2026-11-08T07:30:00Z") }],
+    generatedAt,
+    evidenceTotal: 1,
+    evidenceManual: 0,
+    diskRecords: [snapshotFixture],
+    diskManual: 0,
+  });
+  t.eq(snapshotFuture.problems.some((problem) => problem.includes("at > generatedAt")), true, "证据含 generatedAt 之后的记录必须红");
 };
 
 tests["C119-1 bench 证据文件必须等于当前基线（447 那种陈旧值会误导「成本是不是退化了」）"] = (t) => {
