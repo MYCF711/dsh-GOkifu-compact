@@ -15,7 +15,9 @@
  *   R6 主体/当前值必须“落地”：逐字出现在被引用的 fullContext 行里，或与被引用主体同一
  *      （identity），或由位置推导（折叠归属 / 最新事件 seq / 已结算失败边计数）；
  *   R7 除 compactContext 外，题面/答案/evidenceSeqs/grader/applicability/fullContext 与基线逐字相同；
- *      `aliases` 必须为空（不许别名等价）。
+ *      `aliases` 必须为空（不许别名等价）；
+ *   R8 “current” 必须是该主体最新一次值事件（槽位旧值不得冒充 current）；
+ *      会被新值取代的槽位（current / constraint）的旧值必须显式标旧 —— 删掉旧值行同样判红。
  *
  * 用法：
  *   node scripts/lme-relation-coverage.mjs --fixtures <v3.json> [--baseline <v1.json>] [--json]
@@ -45,6 +47,29 @@ export const OLD_MARKERS = Object.freeze(["superseded", "old", "stale"]);
 export const FORBIDDEN_AS_VALUE = Object.freeze(["retained", "earlier failure", "failed", "untested", "right-censored", "pending"]);
 
 export const FORBIDDEN_ANYWHERE = Object.freeze(["retained", "earlier failure"]);
+
+/** 只有真正会被更新值取代的槽位才允许/要求“槽位旧值”行（与渲染器语义一致）。 */
+export const SUPERSEDING_SLOTS = Object.freeze(["current", "constraint"]);
+
+/** 会“改写某主体当前值”的键；right-censored 只标状态、不算值改写（否则 KU-10 会被误判）。 */
+export const VALUE_CHANGING_KEYS = Object.freeze([
+  "result",
+  "class",
+  "constraint",
+  "constraints",
+  "current",
+  "success",
+  "failed",
+  "failed-set",
+  "checkpoint",
+  "path-length",
+  "root",
+  "to",
+  "verified",
+  "later-ok",
+  "supersedes",
+  "latest",
+]);
 
 const ENTITY_SOURCE = "(?:[ne]-[a-z0-9]+(?:-[a-z0-9]+)*|fold-\\d+)";
 const ENTITY_RE = new RegExp(`\\b${ENTITY_SOURCE}\\b`, "g");
@@ -208,6 +233,18 @@ export function derivedFacts(question) {
   return facts;
 }
 
+/** 该主体“当前值”只能来自最新一次值事件；返回该事件 seq（无值事件时返回 null）。 */
+export function latestValueSeq(context, subject) {
+  let latest = null;
+  for (const event of context) {
+    if (event.archiveOnly) continue;
+    if (!tokensOf(event).includes(subject)) continue;
+    if (!event.pairs.some((pair) => VALUE_CHANGING_KEYS.includes(pair.key))) continue;
+    if (latest === null || event.seq > latest) latest = event.seq;
+  }
+  return latest;
+}
+
 /** 只有“带明确主体槽的实体行”才允许 status=current 覆盖（current 节点续接语义）。 */
 function statusOverrideAllowed(event, subject, status) {
   if (status !== "current") return false;
@@ -317,6 +354,28 @@ export function checkQuestion(question) {
       }
       if (!STATUS_VOCAB.includes(row.status)) issues.push(`${at}status=${row.status} 不在状态词表`);
       checkRowGrounding({ ...row, identityExpected: row.subject === row.value }, event, facts, issues);
+      const derivedRow = facts.some((fact) => fact.subject === row.subject && fact.value === row.value && fact.seq === row.seq);
+      if (!derivedRow) {
+        const latest = latestValueSeq(context, row.subject);
+        if (latest !== null && row.seq !== latest) {
+          issues.push(`${at}current 行不是该主体最新值事件（最新值 seq=${latest}）`);
+        }
+      }
+      if (SUPERSEDING_SLOTS.includes(row.subject)) {
+        const slotPair = event.pairs.find((pair) => pair.key === row.subject && pair.items.includes(row.value));
+        if (slotPair) {
+          for (const earlierEvent of context) {
+            if (earlierEvent.archiveOnly || earlierEvent.seq >= row.seq) continue;
+            const pair = earlierEvent.pairs.find((entry) => entry.key === row.subject);
+            if (!pair || pair.value === row.value || OLD_MARKERS.includes(pair.value)) continue;
+            const marked = compact.relation.some(
+              (entry) =>
+                entry.kind === "old" && entry.subject === row.subject && entry.seq === earlierEvent.seq && OLD_MARKERS.includes(entry.status),
+            );
+            if (!marked) issues.push(`${at}槽位旧值 seq=${earlierEvent.seq} ${row.subject}=${pair.value} 未显式标旧`);
+          }
+        }
+      }
     } else {
       if (!OLD_MARKERS.includes(row.status)) issues.push(`${at}旧值 status=${row.status} 未标旧`);
       if (FORBIDDEN_ANYWHERE.includes(row.value)) issues.push(`${at}old=${row.value} 是禁用竞争词`);
@@ -568,6 +627,23 @@ export const COUNTEREXAMPLES = [
     build: (fixture) =>
       mutate(fixture, "KU-01", (question) => {
         question.compactContext = "seq=303 e-ku01-a current=later-ok status=settled\nseq=302 [archive-only] first-verifier-log=archived";
+      }),
+  },
+  {
+    id: "C17-slot-old-dropped",
+    expect: "槽位主体（constraint）的旧值行被删掉时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-02", (question) => {
+        question.compactContext = "seq=313 constraint current=retain-20 status=current";
+      }),
+  },
+  {
+    id: "C18-slot-old-as-current",
+    expect: "槽位旧值冒充 current（不是该槽位最新值）时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-02", (question) => {
+        question.compactContext =
+          "seq=313 constraint current=retain-20 status=current\nseq=311 constraint current=retain-10 status=current";
       }),
   },
 ];

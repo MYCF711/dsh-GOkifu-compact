@@ -1,5 +1,5 @@
 {
- "total": 2019,
+ "total": 2021,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -123,7 +123,7 @@
   "live-folds.test.mjs": 14,
   "lme-alias-grader.test.mjs": 3,
   "lme-pilot-reader.test.mjs": 9,
-  "lme-relation-coverage.test.mjs": 5,
+  "lme-relation-coverage.test.mjs": 7,
   "lme-task50.test.mjs": 13,
   "log-stats.test.mjs": 5,
   "log-truth.test.mjs": 5,
@@ -248,6 +248,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2429,
- "passedAt": "2026-11-08T17:28:00.353Z"
+ "passed": 2431,
+ "passedAt": "2026-11-08T18:27:29.443Z"
 }

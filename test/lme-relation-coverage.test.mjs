@@ -5,7 +5,8 @@
  *   ① v1 冻结夹具字节未变；v3 能由 v1 + 渲染器确定性重放（证明 v3 不是手改出来的）；
  *   ② v3 关系覆盖 50/50（值型 38/38、ABS/比较题零关系行），且除 compactContext 外逐字未变；
  *   ③ v1 负对照必须红（检查器不是“凡有 token 都算过”）；
- *   ④ --self-test 的定向篡改全部判红（反例数只许长，不许悄悄缩）。
+ *   ④ --self-test 的定向篡改全部判红（反例数只许长，不许悄悄缩）；
+ *   ⑤ checker v2 补掉的两类“槽位”负覆盖盲点（RL2 X17 删槽位旧值行 / X21 槽位旧值冒充 current）保持判红。
  *
  * 边界：0 模型调用、0 网络；只读 evidence/ 与 scripts/，临时重渲染写到 os.tmpdir()。
  * 说明：本夹具状态是 FROZEN_NOT_RUN / NOT_ADOPTED —— 本文件只冻结离线关系覆盖，不宣称质量。
@@ -30,7 +31,7 @@ const FROZEN = Object.freeze({
   v1: "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
   v3: "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
   renderer: "306dd46eb7ba43731c3846a9a7d7ff32fbc9d80a3cf937dd91da610a3b64d3f9",
-  checker: "36d2545f77541e77e7b3381f2c7bce9df80cc612ae0ea5e08f87cc408b581537",
+  checker: "c8960385f6c7b97d97645b6b773d5477de0fc9074b00044ee29a6f79e193c78d",
 });
 
 const sha256 = (file) => crypto.createHash("sha256").update(nodeFs.readFileSync(file)).digest("hex");
@@ -110,7 +111,7 @@ tests["RL-4 反例自测：v1 负对照 + 定向篡改全部判红（条数只�
   const report = runSelfTest(v3, { baseline: v1 });
   t.eq(report.ok, true, `未判红的反例：${JSON.stringify(report.results.filter((entry) => !entry.pass).map((entry) => entry.id))}`);
   t.eq(report.failed, 0, "反例必须 0 条漏判");
-  t.eq(report.total >= 18, true, `反例数 ${report.total} 不得少于冻结时的 18 条（删反例要显式改基线）`);
+  t.eq(report.total >= 20, true, `反例数 ${report.total} 不得少于 checker v2 冻结时的 20 条（删反例要显式改基线）`);
 };
 
 tests["RL-5 离线工具零网络/零模型调用（静态断言）"] = (t) => {
@@ -120,3 +121,41 @@ tests["RL-5 离线工具零网络/零模型调用（静态断言）"] = (t) => {
     t.eq(network, false, `${nodePath.basename(file)} 不得含网络/模型调用（离线检查必须是 0 调用）`);
   }
 };
+
+/** RL2 复核指出的两类槽位负覆盖盲点：删槽位旧值行 / 槽位旧值冒充 current。 */
+function slotTamper(v3, mode) {
+  const copy = JSON.parse(JSON.stringify(v3));
+  const question = copy.questions.find((entry) => entry.id === "KU-02");
+  question.compactContext =
+    mode === "drop"
+      ? "seq=313 constraint current=retain-20 status=current"
+      : "seq=313 constraint current=retain-20 status=current\nseq=311 constraint current=retain-10 status=current";
+  return copy;
+}
+
+tests["RL-6 槽位旧值行被删必须判红（RL2 X17 盲点回归）"] = (t) => {
+  const v1 = readJson(V1);
+  const v3 = readJson(V3);
+  const run = checkFixture(slotTamper(v3, "drop"), { baseline: v1 });
+  t.eq(run.ok, false, "删掉 KU-02 的 seq=311 constraint old=retain-10 后检查器必须判红");
+  const issues = run.results.flatMap((entry) => entry.issues);
+  t.eq(
+    issues.some((issue) => issue.includes("槽位旧值") && issue.includes("seq=311")),
+    true,
+    `必须点名槽位旧值未标旧：${issues.slice(0, 3).join(" | ")}`,
+  );
+};
+
+tests["RL-7 槽位旧值冒充 current 必须判红（RL2 X21 盲点回归）"] = (t) => {
+  const v1 = readJson(V1);
+  const v3 = readJson(V3);
+  const run = checkFixture(slotTamper(v3, "as-current"), { baseline: v1 });
+  t.eq(run.ok, false, "把槽位旧值写成 current=retain-10 后检查器必须判红");
+  const issues = run.results.flatMap((entry) => entry.issues);
+  t.eq(
+    issues.some((issue) => issue.includes("最新值事件")),
+    true,
+    `必须点名“current 不是最新值事件”：${issues.slice(0, 3).join(" | ")}`,
+  );
+};
+
