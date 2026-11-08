@@ -24,8 +24,9 @@
 
 - 有 quality 样本：**2211** 次
 - constraintRecall min：**0.6666666666666666** · failureRecall min：**0**
+- failureRecall 分布：**=0 4 条 / <1 33 条**（<1 按 trigger：pressure 7 / archive-offline 26）（共 2211 条 quality 样本）
 - compressionRatio：**11.41 – 309.1**
-- unknownIds（幻觉探针命中）：**5**
+- unknownIds（幻觉探针命中）：**5 个 id，来自 1 条 fold**（不是「5 次命中」）
 
 ## 成本（摘要输入 ÷ 被遮蔽 token）
 
@@ -38,7 +39,7 @@
 
 - 有 closure 的 fold：**252** 次，其中空闭包 **5** 次（新会话尚无节点时属正常）
 - **悬空（dangling）**：227 次有记录 —— residue 332 / candidates 300 / liveUnsettled 1 / fromBroken 0（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）
-- **边界完整性**：251 次有 boundary 记录，其中切点落在工具调用中间的 **1** 次（正常应为 0），区间内未结算边合计 **37652** 条
+- **边界完整性**：251 次有 boundary 记录，其中切点落在工具调用中间的 **1** 次（正常应为 0；来源 manual 1 —— manual 折叠不是自动路径的回归），区间内未结算边合计 **37652** 条
 - 其中 **preGraph 2 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段
 
 ## 与上次对比（快照差 = 净变化）
@@ -54,6 +55,7 @@
 
 - 检查 **159** 对相邻 fold（同会话、按时间排序）
 - 节点级重叠：**26** 处（s_41bc31d7dec6:n1820→n520 / s_9675f75aa189:n102→n44 / s_c90e1981db4a:n1185→n240 / s_c90e1981db4a:n1450→n524 / s_c90e1981db4a:n1809→n897 / s_c90e1981db4a:n2190→n1271 / s_c90e1981db4a:n2901→n1526 / s_615c25100948:n4279→n2661 / s_615c25100948:n4479→n3421 / s_615c25100948:n4685→n3967 / s_615c25100948:n4893→n4355 / s_615c25100948:n5086→n4543 / s_615c25100948:n5608→n5445 / s_6b69a8bab37b:n1586→n194 / s_6b69a8bab37b:n1770→n773 / s_6b69a8bab37b:n1867→n1265 / s_6b69a8bab37b:n2001→n1600 / s_6b69a8bab37b:n2113→n1779 / s_f9efa984ce46:n7739→n6525 / s_f9efa984ce46:n7906→n7007 / s_f9efa984ce46:n8147→n7388 / s_f9efa984ce46:n8340→n7749 / s_f9efa984ce46:n8644→n7912 / s_e81a6dc7b58f:n5311→n5311 / s_e81a6dc7b58f:n6344→n6340 / s_bd76274955aa:n18→n13）
+- **分列**：26 处 = **21 处 →tier2 合并**（tier2 把相邻区间合成一条摘要，必然回收已折节点，属设计内）+ **5 处非 tier2**（pressure→pressure 4 / pressure→manual 1）；判质量只看非 tier2，不能把总数当回归。
 - 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。
 
 ## 会话分布（C54）

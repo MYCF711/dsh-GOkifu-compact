@@ -26,9 +26,16 @@
       "count": 2211,
       "constraintRecallMin": 0.6666666666666666,
       "failureRecallMin": 0,
+      "failureZero": 4,
+      "failureBelowOne": 33,
+      "failureBelowOneByTrigger": {
+        "pressure": 7,
+        "archive-offline": 26
+      },
       "compressionRatioMin": 11.41,
       "compressionRatioMax": 309.1,
-      "unknownIdsTotal": 5
+      "unknownIdsTotal": 5,
+      "unknownFolds": 1
     },
     "cost": {
       "count": 228,
@@ -81,7 +88,15 @@
         "s_e81a6dc7b58f:n5311→n5311",
         "s_e81a6dc7b58f:n6344→n6340",
         "s_bd76274955aa:n18→n13"
-      ]
+      ],
+      "tier2Merges": 21,
+      "nonTier2": 5,
+      "pairKinds": {
+        "pressure→tier2": 20,
+        "pressure→pressure": 4,
+        "context-overflow→tier2": 1,
+        "pressure→manual": 1
+      }
     },
     "bySession": {
       "sessionsWithFolds": 1095,
@@ -109,7 +124,10 @@
     "boundary": {
       "count": 251,
       "openAtEnd": 1,
-      "unsettled": 37652
+      "unsettled": 37652,
+      "openAtEndByTrigger": {
+        "manual": 1
+      }
     },
     "dangling": {
       "count": 227,

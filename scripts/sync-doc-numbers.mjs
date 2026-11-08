@@ -323,6 +323,32 @@ export function readLiveFolds(root = REPO) {
   }
   const boundaryCount = json.folds.filter((x) => x.boundary && typeof x.boundary.openAtEnd === "number").length;
   const openAtEnd = json.folds.reduce((sum, x) => sum + (x.boundary?.openAtEnd ?? 0), 0);
+  // ★ t6（t5 复核）：这些「条数」不能从 min 反推 —— 证据 JSON 已算好就照抄，缺了就本地重算（不猜）。
+  const qualityFolds = json.folds.filter((x) => x?.quality && Number.isFinite(x.quality.failureRecall));
+  const failureZero = Number.isFinite(summary?.quality?.failureZero)
+    ? summary.quality.failureZero
+    : qualityFolds.filter((x) => x.quality.failureRecall === 0).length;
+  const failureBelowOne = Number.isFinite(summary?.quality?.failureBelowOne)
+    ? summary.quality.failureBelowOne
+    : qualityFolds.filter((x) => x.quality.failureRecall < 1).length;
+  const failureBelowOneByTrigger = summary?.quality?.failureBelowOneByTrigger ?? (() => {
+    const out = {};
+    for (const x of qualityFolds) if (x.quality.failureRecall < 1) out[x.trigger ?? "none"] = (out[x.trigger ?? "none"] ?? 0) + 1;
+    return out;
+  })();
+  const unknownFolds = Number.isFinite(summary?.quality?.unknownFolds)
+    ? summary.quality.unknownFolds
+    : qualityFolds.filter((x) => (x.quality.unknownIds ?? 0) > 0).length;
+  const openAtEndTriggers = summary?.boundary?.openAtEndByTrigger ?? (() => {
+    const out = {};
+    for (const x of json.folds) if (x?.boundary && (x.boundary.openAtEnd ?? 0) > 0) out[x.trigger ?? "none"] = (out[x.trigger ?? "none"] ?? 0) + 1;
+    return out;
+  })();
+  const chain = summary?.closureChain ?? {};
+  const chainChecked = Number.isFinite(chain.checked) ? chain.checked : null;
+  const chainOffenders = Array.isArray(chain.offenders) ? chain.offenders.length : null;
+  const chainTier2 = Number.isFinite(chain.tier2Merges) ? chain.tier2Merges : null;
+  const chainNonTier2 = Number.isFinite(chain.nonTier2) ? chain.nonTier2 : null;
   // ★ t3：成本区间上限会被「小遮蔽量」样本抬高。证据里已经把样本数与主要路由算好了，
   //   这里只负责把它写进文档 —— 不再写死「那次走到 wps-lingxi 的异常样本」（实测 28 次）。
   const overInputRecords = json.folds.filter((x) => x && typeof x.shadowedShare === "number" && x.shadowedShare > 1);
@@ -343,12 +369,37 @@ export function readLiveFolds(root = REPO) {
     manual: Number.isFinite(summary.manual) ? summary.manual : json.folds.length - summary.total,
     boundaryCount,
     openAtEnd,
+    openAtEndTriggers,
+    failureZero,
+    failureBelowOne,
+    failureBelowOneByTrigger,
+    failureBelowOneArchive: failureBelowOneByTrigger["archive-offline"] ?? 0,
+    unknownFolds,
+    chainChecked,
+    chainOffenders,
+    chainTier2,
+    chainNonTier2,
     overInput: overInputRecords.length,
     overTop,
     costMin: Math.round(summary.cost.shadowedShareMin * 100),
     costMax: Math.round(summary.cost.shadowedShareMax * 100),
     perSessionText: renderPerSession(json),
   };
+}
+
+/** openAtEnd 的来源路径（t6）：全是 manual 时补一句「C655 历史复现折痕」，出现非 manual 就自动去掉。 */
+function fmtOpenAtEndNote(live) {
+  const text = fmtTriggers(live.openAtEndTriggers);
+  if (!text) return "";
+  const triggers = Object.keys(live.openAtEndTriggers ?? {});
+  const onlyManual = triggers.length > 0 && triggers.every((trigger) => trigger === "manual");
+  return `（${text}${onlyManual ? "；C655 历史复现折痕，不是自动 fold 的回归" : ""}）`;
+}
+
+/** trigger → 条数 的可读写法（t6：把「=0/<1 哪类路径」写进文档，避免失真）。 */
+function fmtTriggers(byTrigger) {
+  const entries = Object.entries(byTrigger ?? {});
+  return entries.length === 0 ? "" : entries.map(([trigger, n]) => `${trigger} ${n}`).join(" / ");
 }
 
 /** 成本上限的来历（t3）：>100% 的样本数与主要路由；0 次时不写骇人的括注。 */
@@ -360,23 +411,27 @@ function renderCostNote(live) {
 
 function renderEvidenceLiveRow(live) {
   const s = live.summary;
-  return `| \`live-folds.json\` / \`.md\` | \`node scripts/live-folds.mjs --write\`（**默认只打印**，显式 \`--write\` 才落盘） | ${live.generatedAt} | **${s.total} 次 live fold / ${s.bySession.sessionsWithFolds} 会话**（另有 ${live.manual} 条手工压缩记录，无区间；**快照非累计**，口径见 \`.md\` 的「快照语义」）；quality ${s.quality.count}、质量 c=${s.quality.constraintRecallMin} / f=${s.quality.failureRecallMin}、压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}、幻觉探针 ${s.quality.unknownIdsTotal} 次；成本 ${live.costMin}–${live.costMax}%${renderCostNote(live)}；\`foldThrash\` ${s.thrash.sessions}（会话 id 一律为稳定伪名 \`s_<12hex>\`） |`;
+  const chainNote =
+    live.chainOffenders === null
+      ? ""
+      : `；闭包链 ${live.chainChecked} 对中 ${live.chainOffenders} 处节点级重叠 = ${live.chainTier2} 处 →tier2 合并（设计内）+ ${live.chainNonTier2} 处非 tier2（只有后者算质量线索，别把总数当回归）`;
+  return `| \`live-folds.json\` / \`.md\` | \`node scripts/live-folds.mjs --write\`（**默认只打印**，显式 \`--write\` 才落盘） | ${live.generatedAt} | **${s.total} 次 live fold / ${s.bySession.sessionsWithFolds} 会话**（另有 ${live.manual} 条手工压缩记录，无区间；**快照非累计**，口径见 \`.md\` 的「快照语义」）；quality ${s.quality.count}、质量 c=${s.quality.constraintRecallMin} / f=${s.quality.failureRecallMin}（=0 ${live.failureZero} 条 / <1 ${live.failureBelowOne} 条，其中 archive-offline ${live.failureBelowOneArchive} 条）、压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}、幻觉探针 ${s.quality.unknownIdsTotal} 个 id（来自 ${live.unknownFolds} 条 fold，不是「${s.quality.unknownIdsTotal} 次命中」）${chainNote}；成本 ${live.costMin}–${live.costMax}%${renderCostNote(live)}；\`foldThrash\` ${s.thrash.sessions}（会话 id 一律为稳定伪名 \`s_<12hex>\`） |`;
 }
 
 function renderEvidencePerSessionRow(live) {
   const s = live.summary;
-  return `| \`fold质量-多会话-2026-11-02.md\` | \`node scripts/fold-per-session.mjs --write\`（**生成物**，从 \`live-folds.json\` 摊开，勿手改） | ${live.generatedAt} | **${s.bySession.sessionsWithFolds} 个有 fold 的会话 / ${live.records} 条 fold 记录**（= ${s.total} 次 fold + ${live.manual} 条手工记录）：quality ${s.quality.count} 次召回最小 ${s.quality.constraintRecallMin}、**failureRecall 最小 ${s.quality.failureRecallMin}**；带 boundary 的 **${live.boundaryCount}** 次，openAtEnd **合计 ${live.openAtEnd}**；\`foldThrash\` ${s.thrash.sessions} |`;
+  return `| \`fold质量-多会话-2026-11-02.md\` | \`node scripts/fold-per-session.mjs --write\`（**生成物**，从 \`live-folds.json\` 摊开，勿手改） | ${live.generatedAt} | **${s.bySession.sessionsWithFolds} 个有 fold 的会话 / ${live.records} 条 fold 记录**（= ${s.total} 次 fold + ${live.manual} 条手工记录）：quality ${s.quality.count} 次召回最小 ${s.quality.constraintRecallMin}、**failureRecall 最小 ${s.quality.failureRecallMin}**；带 boundary 的 **${live.boundaryCount}** 次，openAtEnd **合计 ${live.openAtEnd}**${fmtOpenAtEndNote(live)}；\`foldThrash\` ${s.thrash.sessions} |`;
 }
 
 function renderResearchLiveRow(live) {
   const s = live.summary;
   const triggers = s.triggerCounts ?? {};
-  return `| live fold | **${s.total} 次 / ${s.bySession.sessionsWithFolds} 会话**（thrash ${s.thrash.sessions}；trigger: pressure ${triggers.pressure ?? 0} / tier2 ${triggers.tier2 ?? 0} / context-overflow ${triggers["context-overflow"] ?? 0} / archive-offline ${triggers["archive-offline"] ?? 0}）；**quality ${s.quality.count}/${s.total}**，\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（**不是"召回全 1"**）；boundary 切在工具调用中间 **${live.openAtEnd}** 次；压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}；成本 ${live.costMin}–${live.costMax}%${renderCostNote(live)} |`;
+  return `| live fold | **${s.total} 次 / ${s.bySession.sessionsWithFolds} 会话**（thrash ${s.thrash.sessions}；trigger: pressure ${triggers.pressure ?? 0} / tier2 ${triggers.tier2 ?? 0} / context-overflow ${triggers["context-overflow"] ?? 0} / archive-offline ${triggers["archive-offline"] ?? 0}）；**quality ${s.quality.count}/${s.total}**，\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（=0 ${live.failureZero} 条 / <1 ${live.failureBelowOne} 条，其中 archive-offline ${live.failureBelowOneArchive} 条；**不是"召回全 1"**）；boundary 切在工具调用中间 **${live.openAtEnd}** 次${fmtOpenAtEndNote(live)}；压缩比 ${s.quality.compressionRatioMin}–${s.quality.compressionRatioMax}；成本 ${live.costMin}–${live.costMax}%${renderCostNote(live)} |`;
 }
 
 function renderOverviewLiveRow(live) {
   const s = live.summary;
-  return `| live 证据 | **${s.total} 次 fold / ${s.bySession.sessionsWithFolds} 会话**（**快照非累计**）：quality ${s.quality.count} 次、\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（有 1 次掉到 0，别再说"召回全 1"）、boundary 切点落在工具调用中间 **${live.openAtEnd}** 次、\`foldThrash\` ${s.thrash.sessions}；逐项见 \`evidence/live-folds.json\`（生成于 ${live.generatedAt}；逐会话表由 \`scripts/fold-per-session.mjs\` 生成） |`;
+  return `| live 证据 | **${s.total} 次 fold / ${s.bySession.sessionsWithFolds} 会话**（**快照非累计**）：quality ${s.quality.count} 次、\`constraintRecall\` min **${s.quality.constraintRecallMin}**、\`failureRecall\` min **${s.quality.failureRecallMin}**（=0 ${live.failureZero} 条 / <1 ${live.failureBelowOne} 条，其中 archive-offline ${live.failureBelowOneArchive} 条 —— 别再说"召回全 1"）、boundary 切点落在工具调用中间 **${live.openAtEnd}** 次、\`foldThrash\` ${s.thrash.sessions}；逐项见 \`evidence/live-folds.json\`（生成于 ${live.generatedAt}；逐会话表由 \`scripts/fold-per-session.mjs\` 生成） |`;
 }
 
 export const LIVE_TARGETS = Object.freeze([

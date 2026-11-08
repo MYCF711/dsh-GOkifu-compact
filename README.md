@@ -168,7 +168,7 @@ dsh plugin --profile <profile> add <本仓库路径>
 |---|---|---|
 | live fold | **2218 次 / 1095 会话**（quality 2211 次样本） | `evidence/live-folds.json` · `node scripts/live-folds.mjs --write` |
 | 压缩比 | **11.41 – 309.1** | 同上 |
-| `failureRecall` 最小 | **0**（有 1 次掉到 0 —— **别再说「召回全 1」**） | 同上 |
+| `failureRecall` 最小 | **0**（=0 共 **4 条** / <1 共 **33 条**，其中 26 条是 archive-offline —— **别再说「召回全 1」**） | 同上 |
 | `constraintRecall` 最小 | **0.667** | 同上 |
 | boundary 切点落在工具调用中间 | **251 次中 1 次**（manual 折叠；正常应为 0） | 同上 |
 | `foldThrash`（死循环式折叠） | **0** | 同上 |
@@ -237,7 +237,7 @@ npm run gate                             # 8 判分门 + 5 条参考门（发版
 
 | 质量基线 | 值 |
 |---|---|
-| 全量测试 | `node test/run.mjs` → **2168 passed**（当次输出；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
+| 全量测试 | `node test/run.mjs` → **2169 passed**（当次输出 2026-11-08；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
 | 越界审计 | **0 条**（扫 26 个 `src/**/*.mjs` · **6 条规则** · 豁免 1 条） |
 | 文档索引 | **148 个文件 · 未索引 0** |
 | 文档数字同步 | **9 份文档 / 20 处锚点**全一致 |

@@ -20,6 +20,8 @@
  *   node scripts/live-folds.mjs --home D:/x/home    # 指定 home
  *   node scripts/live-folds.mjs --previous <file>   # 与哪份旧快照对比（默认 = 同目录同名 .json）
  *   node scripts/live-folds.mjs --salt <salt>       # pseudonym 的盐（默认取 GOKIFU_PSEUDONYM_SALT / 固定值）
+ *   node scripts/live-folds.mjs --write --from evidence/live-folds.json
+ *                                                  # 重渲染：不重采集，只按现有快照重算 summary/文案（数字不变）
  *   node scripts/live-folds.mjs --dry-run           # 同默认（保留旧参数，向后兼容）
  */
 
@@ -248,6 +250,12 @@ export function closureChainOf(records) {
   const num = (id) => Number(String(id).replace(/^[^0-9]+/, "")) || 0;
   let checked = 0;
   const offenders = [];
+  // ★ t6（t5 复核）：节点级重叠**不是**一种质量回归。tier2 合并折是把相邻区间合成一条摘要，
+  //   必然回收已折节点（设计内）；要判质量只看**非 tier2** 的那几处。这里按「后一次 fold 的 trigger」
+  //   分列，并把 trigger 对（pressure→pressure 等）计数，避免把 26 当成「26 次回归」。
+  const pairKinds = {};
+  let tier2Merges = 0;
+  let nonTier2 = 0;
   for (const [sessionId, list] of bySession) {
     list.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
     for (let i = 1; i < list.length; i += 1) {
@@ -257,10 +265,14 @@ export function closureChainOf(records) {
       if (nextFirst <= prevLast) {
         // ★ t3：会话已是 pseudonym（foldRecord 出口统一脱敏），这里不再截断，便于逐条核对。
         offenders.push(`${sessionId}:${list[i - 1].closure.lastNode}→${list[i].closure.firstNode}`);
+        const pair = `${list[i - 1].trigger ?? "none"}→${list[i].trigger ?? "none"}`;
+        pairKinds[pair] = (pairKinds[pair] ?? 0) + 1;
+        if (list[i].trigger === "tier2") tier2Merges += 1;
+        else nonTier2 += 1;
       }
     }
   }
-  return { checked, offenders };
+  return { checked, offenders, tier2Merges, nonTier2, pairKinds };
 }
 
 export function summarizeFolds(records, external = null) {
@@ -277,6 +289,23 @@ export function summarizeFolds(records, external = null) {
   const constraints = qualityRecords.map((r) => r.quality.constraintRecall).filter((v) => Number.isFinite(v));
   const failures = qualityRecords.map((r) => r.quality.failureRecall).filter((v) => Number.isFinite(v));
   const unknown = qualityRecords.reduce((sum, r) => sum + (r.quality.unknownIds ?? 0), 0);
+  // ★ t6（t5 复核）：`failureRecall` 的「min 0」不等于「只有 1 次掉到 0」，`unknownIds 5` 也不等于
+  //   「5 条 fold 命中」—— 必须把**条数**与**fold 数**分开报，否则文案会失真。
+  const failureZeroRecords = qualityRecords.filter((r) => r.quality.failureRecall === 0);
+  const failureBelowOneRecords = qualityRecords.filter((r) => Number.isFinite(r.quality.failureRecall) && r.quality.failureRecall < 1);
+  const failureBelowOneByTrigger = {};
+  for (const r of failureBelowOneRecords) {
+    const trigger = r.trigger ?? "none";
+    failureBelowOneByTrigger[trigger] = (failureBelowOneByTrigger[trigger] ?? 0) + 1;
+  }
+  const unknownFolds = qualityRecords.filter((r) => (r.quality.unknownIds ?? 0) > 0).length;
+  // ★ t6：boundary 的 openAtEnd 同样要标明「哪种路径折出来的」（manual/自动），否则会被当成自动 fold 回归。
+  const openAtEndByTrigger = {};
+  for (const r of records) {
+    if (!r.boundary || (r.boundary.openAtEnd ?? 0) <= 0) continue;
+    const trigger = r.trigger ?? "none";
+    openAtEndByTrigger[trigger] = (openAtEndByTrigger[trigger] ?? 0) + 1;
+  }
   const costRecords = records.filter((r) => r.inputPerShadowed !== null);
   const costRatios = costRecords.map((r) => r.inputPerShadowed);
   const costShares = costRecords.map((r) => r.shadowedShare).filter((v) => v !== null);
@@ -310,9 +339,15 @@ export function summarizeFolds(records, external = null) {
       count: qualityRecords.length,
       constraintRecallMin: constraints.length ? Math.min(...constraints) : null,
       failureRecallMin: failures.length ? Math.min(...failures) : null,
+      // ★ t6：min 0 与「几条掉到 0 / 几条 <1 / 其中多少是 archive-offline」必须分开报（t5 复核）
+      failureZero: failureZeroRecords.length,
+      failureBelowOne: failureBelowOneRecords.length,
+      failureBelowOneByTrigger,
       compressionRatioMin: ratios.length ? Math.min(...ratios) : null,
       compressionRatioMax: ratios.length ? Math.max(...ratios) : null,
       unknownIdsTotal: unknown,
+      // ★ t6：5 个 id 来自 1 条 fold，不能写成「5 次命中」
+      unknownFolds,
     },
     cost: {
       count: costRecords.length,
@@ -342,6 +377,8 @@ export function summarizeFolds(records, external = null) {
       count: records.filter((r) => r.boundary !== null).length,
       openAtEnd: records.reduce((sum, r) => sum + (r.boundary?.openAtEnd ?? 0), 0),
       unsettled: records.reduce((sum, r) => sum + (r.boundary?.unsettled ?? 0), 0),
+      // ★ t6：openAtEnd>0 的来源路径（manual/自动）—— 避免把历史 manual 折痕当成自动 fold 回归
+      openAtEndByTrigger,
     },
     // C35：fold 时刻的悬空统计（合同 §6 第 4 行：liveUnsettled 升高 = fold 切在动作中间）
     dangling: {
@@ -386,8 +423,22 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
   lines.push("");
   lines.push(`- 有 quality 样本：**${summary.quality.count}** 次`);
   lines.push(`- constraintRecall min：**${summary.quality.constraintRecallMin ?? "—"}** · failureRecall min：**${summary.quality.failureRecallMin ?? "—"}**`);
+  {
+    // ★ t6：min 只是下限；「几条掉到 0 / 几条 <1 / 哪类路径」必须一起写（t5 复核）
+    const byTrigger = Object.entries(summary.quality.failureBelowOneByTrigger ?? {})
+      .map(([trigger, n]) => `${trigger} ${n}`)
+      .join(" / ");
+    lines.push(
+      `- failureRecall 分布：**=0 ${summary.quality.failureZero ?? 0} 条 / <1 ${summary.quality.failureBelowOne ?? 0} 条**` +
+        (byTrigger ? `（<1 按 trigger：${byTrigger}）` : "") +
+        `（共 ${summary.quality.count} 条 quality 样本）`,
+    );
+  }
   lines.push(`- compressionRatio：**${summary.quality.compressionRatioMin ?? "—"} – ${summary.quality.compressionRatioMax ?? "—"}**`);
-  lines.push(`- unknownIds（幻觉探针命中）：**${summary.quality.unknownIdsTotal}**`);
+  lines.push(
+    `- unknownIds（幻觉探针命中）：**${summary.quality.unknownIdsTotal} 个 id，来自 ${summary.quality.unknownFolds ?? 0} 条 fold**` +
+      `（不是「${summary.quality.unknownIdsTotal} 次命中」）`,
+  );
   lines.push("");
   lines.push("## 成本（摘要输入 ÷ 被遮蔽 token）");
   lines.push("");
@@ -405,7 +456,16 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
   lines.push("");
   lines.push(`- 有 closure 的 fold：**${summary.closure.count}** 次，其中空闭包 **${summary.closure.empty}** 次（新会话尚无节点时属正常）`);
   lines.push(`- **悬空（dangling）**：${summary.dangling.count} 次有记录 —— residue ${summary.dangling.residue} / candidates ${summary.dangling.candidates} / liveUnsettled ${summary.dangling.liveUnsettled} / fromBroken ${summary.dangling.fromBroken}（合同 §6-4：liveUnsettled 升高 = fold 切在动作中间）`);
-  lines.push(`- **边界完整性**：${summary.boundary.count} 次有 boundary 记录，其中切点落在工具调用中间的 **${summary.boundary.openAtEnd}** 次（正常应为 0），区间内未结算边合计 **${summary.boundary.unsettled}** 条`);
+  {
+    const openTriggers = Object.entries(summary.boundary.openAtEndByTrigger ?? {})
+      .map(([trigger, n]) => `${trigger} ${n}`)
+      .join(" / ");
+    lines.push(
+      `- **边界完整性**：${summary.boundary.count} 次有 boundary 记录，其中切点落在工具调用中间的 **${summary.boundary.openAtEnd}** 次（正常应为 0` +
+        (openTriggers ? `；来源 ${openTriggers} —— manual 折叠不是自动路径的回归` : "") +
+        `），区间内未结算边合计 **${summary.boundary.unsettled}** 条`,
+    );
+  }
   lines.push(`- 其中 **preGraph ${summary.closure.preGraph} 次**：折叠区间早于本图（重启续跑的历史没有节点可回查）—— C30 起每次 fold 都会记这个布尔值，老 fold 没有该字段`);
   lines.push("");
   if (trend) {
@@ -428,6 +488,19 @@ export function renderMarkdown({ home, records, summary, generatedAt, trend = nu
   lines.push("");
   lines.push(`- 检查 **${summary.closureChain.checked}** 对相邻 fold（同会话、按时间排序）`);
   lines.push(`- 节点级重叠：**${summary.closureChain.offenders.length}** 处${summary.closureChain.offenders.length > 0 ? `（${summary.closureChain.offenders.join(" / ")}）` : "（节点没有被折两次）"}`);
+  if (summary.closureChain.offenders.length > 0) {
+    // ★ t6（t5 复核）：tier2 合并必然回退区间 —— 分列后，26 处不再被读成「26 次回归」
+    const chain = summary.closureChain;
+    const nonKinds = Object.entries(chain.pairKinds ?? {})
+      .filter(([pair]) => !pair.endsWith("→tier2"))
+      .map(([pair, n]) => `${pair} ${n}`)
+      .join(" / ");
+    lines.push(
+      `- **分列**：${chain.offenders.length} 处 = **${chain.tier2Merges} 处 →tier2 合并**（tier2 把相邻区间合成一条摘要，必然回收已折节点，属设计内）+ **${chain.nonTier2} 处非 tier2**` +
+        (nonKinds ? `（${nonKinds}）` : "") +
+        `；判质量只看非 tier2，不能把总数当回归。`,
+    );
+  }
   lines.push("- 说明：`seqStart/seqEnd` **区间允许重叠**（fold 后的 checkpoint 节点可能带更早的 seq）；真正要防的是**节点级重复折叠**，判据看 closure 首尾节点。");
   lines.push("");
   lines.push("## 会话分布（C54）");
@@ -470,10 +543,26 @@ export function main(argv = process.argv.slice(2)) {
   //   审计员把本脚本当只读跑，覆盖了两个已跟踪文件。现在默认只打印，落盘必须显式 --write。
   const dryRun = !argv.includes("--write");
   const jsonOnly = argv.includes("--json-only");
-  const { records, sessions, unreadable, thrash = [] } = collectLiveFolds(home, { salt });
-  const summary = summarizeFolds(records);
+  // ★ t6：`--from <json>` = **重渲染**：从已有证据 JSON 重算 summary 再写 .json/.md，不重新采集、
+  //   不改 generatedAt —— 只修文案（数字必须与已复核快照一致）时用；采集新鲜数据仍走默认路径。
+  const fromFile = getArg("from", null);
+  let existing = null;
+  if (fromFile) {
+    existing = JSON.parse(nodeFs.readFileSync(fromFile, "utf8"));
+    if (!Array.isArray(existing.folds)) throw new Error(`--from 的文件没有 folds 数组：${fromFile}`);
+  }
+  const { records, sessions, unreadable, thrash = [] } = existing
+    ? {
+        records: existing.folds,
+        sessions: existing.sessions,
+        unreadable: existing.unreadable,
+        thrash: existing.summary?.thrash?.list ?? [],
+      }
+    : collectLiveFolds(home, { salt });
+  const summary = summarizeFolds(records, existing?.summary?.external ?? null);
   // C54：压缩无效（连续 fold 间隔 <30 事件）—— 与「同一会话多折」一起看
-  summary.thrash = { sessions: thrash.length, max: thrash.reduce((m, t) => Math.max(m, t.foldThrash ?? 0), 0), list: thrash.slice(0, 5) };
+  summary.thrash =
+    existing?.summary?.thrash ?? { sessions: thrash.length, max: thrash.reduce((m, t) => Math.max(m, t.foldThrash ?? 0), 0), list: thrash.slice(0, 5) };
   // C50：先读旧快照再覆盖 —— 每小时一次，最有用的是「与上次相比变了什么」。
   let previous = null;
   try {
@@ -481,10 +570,11 @@ export function main(argv = process.argv.slice(2)) {
   } catch {
     previous = null;
   }
-  const trend = trendOf(previous, summary, { home });
-  const generatedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  // --from 是重渲染：trend/generatedAt/semantics 沿用快照，不拿自己跟自己比
+  const trend = existing ? (existing.trend ?? null) : trendOf(previous, summary, { home });
+  const generatedAt = existing?.generatedAt ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const payload = {
-    schema: SCHEMA,
+    schema: existing?.schema ?? SCHEMA,
     generatedAt,
     // ★ t3：公开证据只写 `<DSH_HOME>`；`homeRedacted` 让读者一眼看出这是脱敏值而不是空值。
     home: HOME_REDACTED,
@@ -493,7 +583,7 @@ export function main(argv = process.argv.slice(2)) {
     unreadable,
     summary,
     trend,
-    semantics: {
+    semantics: existing?.semantics ?? {
       snapshot: true,
       notCumulative: true,
       trendIsNetChange: true,
@@ -527,7 +617,12 @@ export function main(argv = process.argv.slice(2)) {
     `  成本：遮蔽占读入 ${pct(summary.cost.shadowedShareMin)}–${pct(summary.cost.shadowedShareMax)}` +
       `（对照 input/shadowed ${summary.cost.inputPerShadowedMin ?? "—"}–${summary.cost.inputPerShadowedMax ?? "—"}，${summary.cost.count} 次有 usage）`,
   );
-  console.log(`  闭包链：检查 ${summary.closureChain.checked} 对相邻 fold · 节点级重叠 ${summary.closureChain.offenders.length} 处${summary.closureChain.offenders.length > 0 ? "（" + summary.closureChain.offenders.slice(0, 3).join(" / ") + "）" : ""}`);
+  console.log(
+    `  闭包链：检查 ${summary.closureChain.checked} 对相邻 fold · 节点级重叠 ${summary.closureChain.offenders.length} 处` +
+      (summary.closureChain.offenders.length > 0
+        ? `（${summary.closureChain.offenders.slice(0, 3).join(" / ")}；其中 →tier2 ${summary.closureChain.tier2Merges} / 非 tier2 ${summary.closureChain.nonTier2}）`
+        : ""),
+  );
   console.log(
     `  会话分布：${summary.bySession.sessionsWithFolds} 个会话有 fold` +
       (summary.manual > 0 ? `（另有 ${summary.manual} 条手工压缩记录，无区间）` : "") + ` · ` +
@@ -540,6 +635,7 @@ export function main(argv = process.argv.slice(2)) {
         (last ? ` · 最近 ${last.seqStart}-${last.seqEnd}（${new Date(last.at).toISOString()}）` : ""),
     );
   }
+  if (existing) console.log(`  （--from 重渲染：未重新采集，generatedAt 保持 ${generatedAt}）`);
   console.log(dryRun ? "（dry-run：未写文件；要落盘请加 --write）" : `已写 ${outBase}.json${jsonOnly ? "" : ` 与 ${outBase}.md`}`);
   return 0;
 }

@@ -346,6 +346,31 @@ tests["L-10 pseudonym：同 id 稳定、不同 id 不同、可加盐（盐不进
   t.eq(salted, pseudonymOf("session-x0000001", "private-salt"), "同盐同 id 仍必须稳定");
 };
 
+tests["L-11 --from：只重渲染文案，不改数字 / generatedAt（t6）"] = (t) => {
+  const home = makeHome();
+  const outDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gokifu-live-from-"));
+  try {
+    const base = nodePath.join(outDir, "live-folds");
+    main(["--home", home, "--out", base, "--write"]);
+    const before = JSON.parse(nodeFs.readFileSync(`${base}.json`, "utf8"));
+    t.eq(nodeFs.readFileSync(`${base}.md`, "utf8").includes("快照语义"), true, "首轮证据页就应有快照语义节");
+    // 人为写坏 .md，再用同一份 json 重渲染：数字与 generatedAt 必须原样，只换文案
+    nodeFs.writeFileSync(`${base}.md`, "BROKEN", "utf8");
+    main(["--from", `${base}.json`, "--out", base, "--write"]);
+    const after = JSON.parse(nodeFs.readFileSync(`${base}.json`, "utf8"));
+    t.eq(after.generatedAt, before.generatedAt, "--from 不许改 generatedAt（快照时刻不变）");
+    t.eq(after.summary.total, before.summary.total, "--from 不许改 total");
+    t.eq(JSON.stringify(after.trend), JSON.stringify(before.trend), "--from 沿用快照里的 trend");
+    t.eq(after.folds.length, before.folds.length, "--from 不许增删 fold");
+    const mdAfter = nodeFs.readFileSync(`${base}.md`, "utf8");
+    t.eq(mdAfter.includes("BROKEN"), false, "重渲染必须覆盖坏掉的 .md");
+    t.eq(mdAfter.includes("快照语义"), true, "重渲染后的 .md 仍要有快照语义");
+  } finally {
+    nodeFs.rmSync(home, { recursive: true, force: true });
+    nodeFs.rmSync(outDir, { recursive: true, force: true });
+  }
+};
+
 tests["C103 闭包链：相邻 fold 的节点集必须单调不重叠（区间重叠是正常的）"] = (t) => {
   const mk = (sessionId, at, first, last) => ({ sessionId, at, closure: { firstNode: first, lastNode: last } });
   // 正常：n116 → n117（节点不重叠；即使 seq 区间重叠也不算重复折叠）
@@ -366,6 +391,16 @@ tests["C103 闭包链：相邻 fold 的节点集必须单调不重叠（区间�
   ]);
   t.eq(mixed.checked, 0, "只有一个带 closure 的记录 ⇒ 没有可比的相邻对");
   t.eq(closureChainOf(null).checked, 0, "null 不许抛");
+
+  // ★ t6（t5 复核）：节点级重叠要分列 —— 后一次是 tier2 合并属设计内，非 tier2 才是质量线索
+  const withTrigger = (sessionId, at, first, last, trigger) => ({ sessionId, at, trigger, closure: { firstNode: first, lastNode: last } });
+  const merge = closureChainOf([withTrigger("s1", 1, "n1", "n116", "pressure"), withTrigger("s1", 2, "n100", "n153", "tier2")]);
+  t.eq(merge.offenders.length, 1, "tier2 合并仍是节点级重叠（要如实记录，不隐藏）");
+  t.eq(merge.tier2Merges, 1, "后一次是 tier2 ⇒ 计入 tier2 合并");
+  t.eq(merge.nonTier2, 0, "tier2 合并不应算进非 tier2 质量线索");
+  const real = closureChainOf([withTrigger("s1", 1, "n1", "n116", "pressure"), withTrigger("s1", 2, "n100", "n153", "pressure")]);
+  t.eq(real.nonTier2, 1, "非 tier2 的重复折叠才算质量线索");
+  t.eq(real.pairKinds["pressure→pressure"], 1, "trigger 对要计数（写文档时按它分列）");
 };
 
 tests["C199 live-folds 必须重放 delta（foldMark 只在 delta 里也要数到）+ 报宿主外部折叠"] = (t) => {
