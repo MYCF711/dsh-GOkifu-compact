@@ -13,7 +13,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { compareSnapshot } from "../scripts/consistency-check.mjs";
+import { compareSnapshot, FOLD_MARKS_KEEP } from "../scripts/consistency-check.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.join(HERE, "..");
@@ -162,7 +162,6 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
     evidenceTotal: 1,
     evidenceManual: 0,
     diskRecords: [snapshotFixture, appended],
-    diskManual: 0,
   });
   t.eq(snapshotOk.problems.length, 0, `快照后新增 fold 必须可解释：${snapshotOk.problems.join(" / ")}`);
   t.eq(snapshotOk.snapshot.newSinceSnapshot, 1, "快照后新增 fold 数必须报出来");
@@ -172,7 +171,6 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
     evidenceTotal: 1,
     evidenceManual: 0,
     diskRecords: [appended],
-    diskManual: 0,
   });
   t.eq(snapshotMissing.problems.some((problem) => problem.includes("旧 fold 缺失")), true, "旧 fold 在磁盘缺失必须红");
   const snapshotChanged = compareSnapshot({
@@ -181,7 +179,6 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
     evidenceTotal: 1,
     evidenceManual: 0,
     diskRecords: [{ ...snapshotFixture, summaryChars: 999 }, appended],
-    diskManual: 0,
   });
   t.eq(snapshotChanged.problems.some((problem) => problem.includes("非新增差异")), true, "同签名旧 fold 字段变化必须红");
   const snapshotFuture = compareSnapshot({
@@ -190,7 +187,6 @@ tests["C118-2 逐会话表必须与 live-folds.json 的 bySession 一致（本�
     evidenceTotal: 1,
     evidenceManual: 0,
     diskRecords: [snapshotFixture],
-    diskManual: 0,
   });
   t.eq(snapshotFuture.problems.some((problem) => problem.includes("at > generatedAt")), true, "证据含 generatedAt 之后的记录必须红");
 };
@@ -478,4 +474,144 @@ tests["C384 图片盲区必须写清「不是 10 倍差的原因」（防把一�
   t.includes(doc, "不是", "必须明确说：图片不是那个差的原因");
   const cost = read("docs/knowledge/成本模型-deepseek价格.md");
   t.includes(cost, "已排除一种解释", "成本模型里要记下这条排除");
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C656：环形淘汰 vs 篡改（快照之后的「旧记录不见」不再一律判红）
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SNAPSHOT_AT = "2026-11-08T07:14:30Z";
+const SNAPSHOT_MS = Date.parse(SNAPSHOT_AT);
+const CAP = FOLD_MARKS_KEEP;
+
+/** 一条折痕记录：签名只看 at + seq 区间（fold 位置、会话名都不进签名）。 */
+function snapshotFold(sessionId, fold, { at, seqStart, seqEnd, hasRange = true } = {}) {
+  return {
+    sessionId,
+    fold,
+    at: at ?? SNAPSHOT_MS - (CAP + 10 - fold) * 60_000,
+    seqStart: seqStart ?? fold * 10,
+    seqEnd: seqEnd ?? fold * 10 + 5,
+    hasRange,
+    trigger: hasRange ? "pressure" : "manual",
+    summaryChars: 100,
+    quality: null,
+    closure: null,
+    boundary: null,
+  };
+}
+
+/** 写满保留上限的一组旧记录（fold 1..cap，全部在 generatedAt 之前）。 */
+function fullSession(sessionId) {
+  return Array.from({ length: CAP }, (_, i) => snapshotFold(sessionId, i + 1));
+}
+
+const EV_SESSION = "s_0123456789ab"; // 证据里的脱敏 id
+const DISK_SESSION = "session-raw-c656"; // 磁盘目录名：与证据 id **不是同一个命名空间**
+const REWRITE = (records, sessionId = DISK_SESSION) => records.map((record) => ({ ...record, sessionId }));
+const NEW_FOLD = (fold) => snapshotFold(DISK_SESSION, fold, { at: SNAPSHOT_MS + 60_000 });
+
+tests["C656-1 环形淘汰可解释：同会话写满 + 快照后新增 + 缺的正是最旧一条 ⇒ evictedSinceSnapshot（不算篡改）"] = (t) => {
+  const evidence = fullSession(EV_SESSION);
+  const disk = [...REWRITE(evidence.slice(1)), NEW_FOLD(CAP + 1)];
+  const r = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP, evidenceManual: 0, diskRecords: disk });
+  t.eq(r.problems.length, 0, `环形淘汰必须可解释：${r.problems.join(" / ")}`);
+  t.eq(r.snapshot.evictedSinceSnapshot, 1, "必须单列 evictedSinceSnapshot = 1（不算篡改）");
+  t.eq(r.snapshot.unexplainedMissing, 0, "不得有任何解释不了的缺失");
+  t.eq(r.snapshot.missingFromDisk, 1, "缺失总数仍如实报（只是被判为可解释）");
+  t.eq(r.snapshot.diskOldRecords, CAP - 1, "磁盘在 generatedAt 前的旧记录必须扣掉被淘汰的一条");
+  t.eq(r.snapshot.newSinceSnapshot, 1, "快照后新增数必须如实报");
+  t.eq(r.snapshot.missingFromEvidence, 0, "证据侧不得漏记");
+
+  // 可解释淘汰不能把 summary.total 的漂移一起洗掉（证据自己多报了一条，仍要红）
+  const inflated = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP + 1, evidenceManual: 0, diskRecords: disk });
+  t.eq(inflated.problems.some((p) => p.includes("证据 fold 数")), true, `证据总数漂移必须仍红：${inflated.problems.join(" / ")}`);
+
+  // 上限是参数，不是写死的 20：小档位同样按同一套判据解释
+  const smallEvidence = Array.from({ length: 5 }, (_, i) => snapshotFold("s_small", i + 1));
+  const smallDisk = [...REWRITE(smallEvidence.slice(1), "session-small"), snapshotFold("session-small", 6, { at: SNAPSHOT_MS + 1, seqStart: 999, seqEnd: 1000 })];
+  const small = compareSnapshot({ evidenceFolds: smallEvidence, generatedAt: SNAPSHOT_AT, evidenceTotal: 5, evidenceManual: 0, diskRecords: smallDisk, retentionCap: 5 });
+  t.eq(small.problems.length, 0, `保留上限 5 时同样必须可解释：${small.problems.join(" / ")}`);
+  t.eq(small.snapshot.retentionCap, 5, "快照必须记录实际使用的保留上限");
+  t.eq(small.snapshot.evictedSinceSnapshot, 1, "小档位同样要单列淘汰数");
+};
+
+tests["C656-2 淘汰 manual 记录时 summary.manual 也按可解释淘汰调整（否则证据与磁盘永远差 1）"] = (t) => {
+  const evidence = [snapshotFold(EV_SESSION, 1, { hasRange: false }), ...fullSession(EV_SESSION).slice(1)];
+  const disk = [...REWRITE(evidence.slice(1)), NEW_FOLD(CAP + 1)];
+  const r = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP - 1, evidenceManual: 1, diskRecords: disk });
+  t.eq(r.problems.length, 0, `manual 记录被淘汰也必须可解释：${r.problems.join(" / ")}`);
+  t.eq(r.snapshot.evictedSinceSnapshot, 1, "manual 记录被淘汰同样记入 evictedSinceSnapshot");
+
+  // 反向：manual 数对不上（不是淘汰造成的）仍要红
+  const wrongManual = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP - 1, evidenceManual: 2, diskRecords: disk });
+  t.eq(wrongManual.problems.some((p) => p.includes("manual")), true, `manual 数漂移必须仍红：${wrongManual.problems.join(" / ")}`);
+};
+
+tests["C656-3 环形淘汰负例：无新增 / 没写满+超淘汰数 / 位置不对 / 不同会话 / 字段变 一律仍红"] = (t) => {
+  const evidence = fullSession(EV_SESSION);
+
+  // ① 无后续新增：没有追加就不会淘汰（哪怕缺的正是最旧一条）
+  const noNew = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP, evidenceManual: 0, diskRecords: REWRITE(evidence.slice(1)) });
+  t.eq(noNew.snapshot.evictedSinceSnapshot, 0, "没有快照后新增时不得算淘汰");
+  t.eq(noNew.problems.some((p) => p.includes("旧 fold 缺失")), true, "没有新增时旧 fold 缺失必须红");
+  t.eq(noNew.problems.some((p) => p.includes("没有新增 fold")), true, `必须点名「没有新增」：${noNew.problems.join(" / ")}`);
+
+  // ② 没写满 + 超过淘汰数：只剩 cap-2 条旧记录 + 1 条新增 ⇒ 缺 2 条，淘汰最多解释 1 条
+  const tooMany = compareSnapshot({
+    evidenceFolds: evidence,
+    generatedAt: SNAPSHOT_AT,
+    evidenceTotal: CAP,
+    evidenceManual: 0,
+    diskRecords: [...REWRITE(evidence.slice(2)), NEW_FOLD(CAP + 1)],
+  });
+  t.eq(tooMany.snapshot.evictedSinceSnapshot, 0, "缺得比淘汰数多时不得算淘汰");
+  t.eq(tooMany.problems.some((p) => p.includes("超过淘汰数")), true, `必须点名「超过淘汰数」：${tooMany.problems.join(" / ")}`);
+  t.eq(tooMany.problems.some((p) => p.includes("没写满")), true, `必须点名「没写满」：${tooMany.problems.join(" / ")}`);
+
+  // ③ 位置不对：缺的是**最新**一条而不是最旧一条（同会话、同数量，仍不算淘汰）
+  const wrongSide = compareSnapshot({
+    evidenceFolds: evidence,
+    generatedAt: SNAPSHOT_AT,
+    evidenceTotal: CAP,
+    evidenceManual: 0,
+    diskRecords: [...REWRITE(evidence.slice(0, -1)), NEW_FOLD(CAP + 1)],
+  });
+  t.eq(wrongSide.snapshot.evictedSinceSnapshot, 0, "缺的不是最旧记录时不得算淘汰");
+  t.eq(wrongSide.problems.some((p) => p.includes("最旧的记录")), true, `必须点名「缺的不是最旧」：${wrongSide.problems.join(" / ")}`);
+
+  // ④ 不同会话：新增 fold 在**别的会话**里，不能拿来解释这个会话的缺失
+  const wrongSession = compareSnapshot({
+    evidenceFolds: evidence,
+    generatedAt: SNAPSHOT_AT,
+    evidenceTotal: CAP,
+    evidenceManual: 0,
+    diskRecords: [...REWRITE(evidence.slice(1)), snapshotFold("session-other-c656", CAP + 1, { at: SNAPSHOT_MS + 60_000, seqStart: 999001, seqEnd: 999999 })],
+  });
+  t.eq(wrongSession.snapshot.evictedSinceSnapshot, 0, "别的会话新增 fold 不能解释这个会话的缺失");
+  t.eq(wrongSession.problems.some((p) => p.includes("旧 fold 缺失")), true, "不同会话的缺失必须红");
+
+  // ⑤ 会话整个没了（一条存活记录都反查不到）：不许猜成淘汰
+  const deletedSession = compareSnapshot({ evidenceFolds: evidence, generatedAt: SNAPSHOT_AT, evidenceTotal: CAP, evidenceManual: 0, diskRecords: [NEW_FOLD(CAP + 1)] });
+  t.eq(deletedSession.snapshot.evictedSinceSnapshot, 0, "反查不到所属会话时不得算淘汰");
+  t.eq(deletedSession.problems.some((p) => p.includes("找不到唯一的所属磁盘会话")), true, `必须点名「找不到所属会话」：${deletedSession.problems.join(" / ")}`);
+
+  // ⑥ 淘汰解释成立的同时另一条旧 fold 字段变了 ⇒ 仍然红（不能拿淘汰洗掉字段篡改）
+  const mixed = compareSnapshot({
+    evidenceFolds: evidence,
+    generatedAt: SNAPSHOT_AT,
+    evidenceTotal: CAP,
+    evidenceManual: 0,
+    diskRecords: [...REWRITE(evidence.slice(1)).map((record, index) => (index === 0 ? { ...record, summaryChars: 999 } : record)), NEW_FOLD(CAP + 1)],
+  });
+  t.eq(mixed.snapshot.evictedSinceSnapshot, 1, "该解释的淘汰仍要解释");
+  t.eq(mixed.problems.some((p) => p.includes("非新增差异")), true, `字段变化必须仍红：${mixed.problems.join(" / ")}`);
+};
+
+tests["C656-4 保留上限必须与 src/engine.mjs 的 FOLD_MARKS_KEEP 同值，且引擎仍是环形 slice（复制的数字要被锁死）"] = (t) => {
+  const src = read("src/engine.mjs");
+  const m = /const FOLD_MARKS_KEEP = (\d+);/.exec(src);
+  t.eq(m !== null, true, "src/engine.mjs 必须能读到 const FOLD_MARKS_KEEP = <n>");
+  t.eq(Number(m?.[1]), FOLD_MARKS_KEEP, `consistency-check 的 ${FOLD_MARKS_KEEP} 必须等于引擎的 ${m?.[1]}（改上限就要一起改）`);
+  t.eq(/foldMarks = g\.foldMarks\.slice\(-FOLD_MARKS_KEEP\)/.test(src), true, "引擎必须仍是「追加后 slice(-FOLD_MARKS_KEEP)」的环形缓冲（淘汰语义的前提）");
 };
