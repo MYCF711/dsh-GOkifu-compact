@@ -1,0 +1,6 @@
+# 冻结证据脚本：按字节冻结（sha256 见 evidence/lme-task50-v3-relation.fixtures.json 的 note
+# 与 tmp/k27-relation-v3/REPORT.md）。交付时的实测字节是 CRLF；仓库全局 core.autocrlf=input
+# 会把它们归一化成 LF，导致「干净 checkout 上的冻结哈希」与交付哈希不一致。
+# 这里只对这两个文件关闭 EOL 转换 —— 不要顺手删掉，否则 RL-1 冻结字节用例会在新 checkout 上红。
+scripts/lme-relation-render.mjs -text
+scripts/lme-relation-coverage.mjs -text
