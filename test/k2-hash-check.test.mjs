@@ -68,6 +68,30 @@ function makePair(label) {
   return { dir, preregPath, fixturesPath, cleanup: () => nodeFs.rmSync(dir, { recursive: true, force: true }) };
 }
 
+/** 对 sidecar 做一次声明字段变异，跑 CLI，返回退出码与失败码（副本始终在系统临时目录）。 */
+function runManifestMutation(label, mutate, extraArgs = []) {
+  const pair = makePair(label);
+  try {
+    const manifest = buildHashManifest({ preregPath: pair.preregPath, fixturesPath: pair.fixturesPath });
+    mutate(manifest);
+    const manifestPath = nodePath.join(pair.dir, "hash-manifest.json");
+    writeJson(manifestPath, manifest);
+    return runCli([
+      "--prereg",
+      pair.preregPath,
+      "--fixtures",
+      pair.fixturesPath,
+      "--manifest",
+      manifestPath,
+      "--no-frozen",
+      ...extraArgs,
+      "--json",
+    ]);
+  } finally {
+    pair.cleanup();
+  }
+}
+
 async function loadSourceModule() {
   return import(new URL("../scripts/k2-value-reader.mjs", import.meta.url).href);
 }
@@ -147,6 +171,11 @@ tests["K2H-3 sidecar：schema/两个产物的双哈希/字段语义全部与实�
     "preregSha256 语义必须声明为 canonical-json-sha256",
   );
   t.eq(
+    manifest.fieldSemantics?.["fixtures.questionsSha256"]?.semantics,
+    "projection-canonical-json-sha256",
+    "questionsSha256 语义必须声明为 projection-canonical-json-sha256",
+  );
+  t.eq(
     manifest.fieldSemantics?.["fixtures.preregSha256"]?.value,
     readJson(FIXTURES).preregSha256,
     "sidecar 记录的 preregSha256 必须等于 fixtures 字段",
@@ -157,12 +186,17 @@ tests["K2H-3 sidecar：schema/两个产物的双哈希/字段语义全部与实�
     "必须显式禁止与 raw 文件哈希交叉比较",
   );
   t.eq(
+    manifest.fieldSemantics?.["fixtures.questionsSha256"]?.value,
+    readJson(FIXTURES).questionsSha256,
+    "sidecar 记录的 questionsSha256 必须等于 fixtures 字段",
+  );
+  t.eq(
     manifest.fieldSemantics?.["fixtures.questionsSha256"]?.projectionFields,
     [...PROJECTION_FIELDS],
     "questionsSha256 投影字段必须与产品口径一致",
   );
   t.eq(manifest.fieldSemantics?.["fixtures.questionsSha256"]?.excludedFields, ["hypothesis"], "hypothesis 必须被排除");
-  t.eq(manifest.fieldSemantics?.["fixtures.questionsSha256"]?.value, readJson(FIXTURES).questionsSha256, "sidecar 记录的 questionsSha256 必须等于 fixtures 字段");
+  t.eq(Object.keys(manifest.artifacts ?? {}).sort(), ["fixtures.json", "prereg.json"], "sidecar 不得记录多余 artifacts");
 };
 
 tests["K2H-4 校验器只读：跑前跑后冻结产物 raw sha256 不变"] = (t) => {
@@ -411,11 +445,141 @@ tests["K2H-15 独立性：校验脚本不 import 宿主包，也不静态 import
   t.notIncludes(readerSource, "verifyPreregArtifacts", "reader 默认行为保持不变");
 };
 
-tests["K2H-16 内置自测：--self-test 全绿（12 个正反例）"] = (t) => {
+tests["K2H-16 内置自测：--self-test 全绿（20 个正反例）"] = (t) => {
   if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
   const result = runCli(["--self-test", "--json"]);
   t.eq(result.status, 0, `self-test 必须 exit 0（实际 ${result.status}：${result.stderr.trim()}）`);
   t.eq(result.payload?.ok, true, "self-test verdict 必须是 PASS");
   t.eq(result.payload?.summary?.failed, 0, "self-test 不得有 failed");
-  t.eq(result.payload?.summary?.total, 12, "self-test 用例数必须是 12");
+  t.eq(result.payload?.summary?.total, 20, "self-test 用例数必须是 20");
+};
+
+tests["K2H-17 兼容模式：无 sidecar 时 M01-M13 skip 且 exit 0（不把旧 v1 产物判红）"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const pair = makePair("compat-no-sidecar");
+  try {
+    const result = runCli(["--prereg", pair.preregPath, "--fixtures", pair.fixturesPath, "--no-frozen", "--json"]);
+    t.eq(result.status, 0, "兼容模式无 sidecar 必须 exit 0");
+    t.eq(result.payload?.summary?.failed, 0, "不得有 fail");
+    t.eq(result.payload?.summary?.skipped, 1, "M01-M13 必须整体 skip（一条）");
+    t.eq(result.payload?.checks?.some((c) => c.id === "M01-M13" && c.status === "skip"), true, "skip 原因必须可读");
+  } finally {
+    pair.cleanup();
+  }
+};
+
+tests["K2H-18 门禁模式：--require-manifest 缺 sidecar ⇒ exit 1 / MANIFEST_REQUIRED_MISSING"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const pair = makePair("require-manifest-missing");
+  try {
+    const result = runCli(["--prereg", pair.preregPath, "--fixtures", pair.fixturesPath, "--no-frozen", "--require-manifest", "--json"]);
+    t.eq(result.status, 1, "门禁模式缺 sidecar 必须 exit 1（不能 skip=0 绿）");
+    t.eq(result.failing.includes("MANIFEST_REQUIRED_MISSING"), true, `必须报 MANIFEST_REQUIRED_MISSING：${result.failing.join(",")}`);
+    t.eq(result.payload?.summary?.skipped, 0, "门禁模式不得用 skip 代替检查");
+  } finally {
+    pair.cleanup();
+  }
+};
+
+tests["K2H-19 门禁模式正例：--require-manifest 且 sidecar 存在 ⇒ exit 0，M01-M13 全 pass"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  if (!nodeFs.existsSync(SIDECAR)) return t.skip("hash-manifest.json 尚未生成（先跑 --emit-manifest）");
+  const result = runCli(["--repo", REPO, "--require-manifest", "--json"]);
+  t.eq(result.status, 0, "sidecar 存在时门禁必须 exit 0");
+  t.eq(result.payload?.summary?.failed, 0, "不得有 fail");
+  t.eq(result.payload?.summary?.skipped, 0, "门禁模式不得有 skip");
+  for (const id of ["M01", "M02", "M03", "M04", "M05", "M06", "M07", "M08", "M09", "M10", "M11", "M12", "M13"]) {
+    t.eq(result.payload?.checks?.find((c) => c.id === id)?.status, "pass", `${id} 必须 pass`);
+  }
+};
+
+tests["K2H-20 显式 --manifest 指向不存在的文件 ⇒ exit 2（输入错误，不是 skip 绿）"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "k2h-explicit-missing-"));
+  try {
+    const result = runCli([
+      "--prereg",
+      PREREG,
+      "--fixtures",
+      FIXTURES,
+      "--manifest",
+      nodePath.join(dir, "no-such-manifest.json"),
+      "--no-frozen",
+      "--json",
+    ]);
+    t.eq(result.status, 2, "显式指定但不存在的 sidecar 必须 exit 2");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["K2H-21 反例：sidecar 的 preregSha256.semantics 被改成 raw ⇒ exit 1 / MANIFEST_SEMANTICS_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("semantics", (manifest) => {
+    manifest.fieldSemantics["fixtures.preregSha256"].semantics = "raw-bytes-sha256";
+  });
+  t.eq(result.status, 1, "语义声明篡改必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_SEMANTICS_MISMATCH"), true, `必须报 MANIFEST_SEMANTICS_MISMATCH：${result.failing.join(",")}`);
+};
+
+tests["K2H-22 反例：sidecar 的 questionsSha256.semantics 被改错 ⇒ exit 1 / MANIFEST_QUESTIONS_SEMANTICS_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("questions-semantics", (manifest) => {
+    manifest.fieldSemantics["fixtures.questionsSha256"].semantics = "canonical-json-sha256";
+  });
+  t.eq(result.status, 1, "questionsSha256 语义声明篡改必须 exit 1");
+  t.eq(
+    result.failing.includes("MANIFEST_QUESTIONS_SEMANTICS_MISMATCH"),
+    true,
+    `必须报 MANIFEST_QUESTIONS_SEMANTICS_MISMATCH：${result.failing.join(",")}`,
+  );
+};
+
+tests["K2H-23 反例：sidecar 的 mustNotCompareWith 被删掉 ⇒ exit 1 / MANIFEST_MUST_NOT_COMPARE_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("must-not-compare", (manifest) => {
+    delete manifest.fieldSemantics["fixtures.preregSha256"].mustNotCompareWith;
+  });
+  t.eq(result.status, 1, "缺 mustNotCompareWith 必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_MUST_NOT_COMPARE_MISMATCH"), true, `必须报 MANIFEST_MUST_NOT_COMPARE_MISMATCH：${result.failing.join(",")}`);
+};
+
+tests["K2H-24 反例：sidecar 的 questionsSha256.value 被篡改 ⇒ exit 1 / MANIFEST_QUESTIONS_FIELD_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("questions-value", (manifest) => {
+    manifest.fieldSemantics["fixtures.questionsSha256"].value = "0".repeat(64);
+  });
+  t.eq(result.status, 1, "questionsSha256.value 篡改必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_QUESTIONS_FIELD_MISMATCH"), true, `必须报 MANIFEST_QUESTIONS_FIELD_MISMATCH：${result.failing.join(",")}`);
+};
+
+tests["K2H-25 反例：sidecar 的 projectionFields 被改 ⇒ exit 1 / MANIFEST_PROJECTION_FIELDS_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("projection-fields", (manifest) => {
+    manifest.fieldSemantics["fixtures.questionsSha256"].projectionFields.pop();
+  });
+  t.eq(result.status, 1, "projectionFields 篡改必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_PROJECTION_FIELDS_MISMATCH"), true, `必须报 MANIFEST_PROJECTION_FIELDS_MISMATCH：${result.failing.join(",")}`);
+};
+
+tests["K2H-26 反例：sidecar 的 artifacts 多出第三个条目 ⇒ exit 1 / MANIFEST_ARTIFACTS_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("extra-artifacts", (manifest) => {
+    manifest.artifacts["prereg.json.bak"] = {
+      bytes: 0,
+      rawBytesSha256: "0".repeat(64),
+      canonicalJsonSha256: "0".repeat(64),
+    };
+  });
+  t.eq(result.status, 1, "多余 artifacts 必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_ARTIFACTS_MISMATCH"), true, `必须报 MANIFEST_ARTIFACTS_MISMATCH：${result.failing.join(",")}`);
+};
+
+tests["K2H-27 反例：sidecar 的 excludedFields 被改 ⇒ exit 1 / MANIFEST_EXCLUDED_FIELDS_MISMATCH"] = (t) => {
+  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  const result = runManifestMutation("excluded-fields", (manifest) => {
+    manifest.fieldSemantics["fixtures.questionsSha256"].excludedFields = [];
+  });
+  t.eq(result.status, 1, "excludedFields 篡改必须 exit 1");
+  t.eq(result.failing.includes("MANIFEST_EXCLUDED_FIELDS_MISMATCH"), true, `必须报 MANIFEST_EXCLUDED_FIELDS_MISMATCH：${result.failing.join(",")}`);
 };

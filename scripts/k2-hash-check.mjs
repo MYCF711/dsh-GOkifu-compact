@@ -21,14 +21,17 @@
  * 依赖：仅 Node 内置模块；**不 import `@deepseek-ai/*`，也不静态 import 产品 reader**。
  *       C07/C10 需要源码 QUESTIONS/buildPrereg 时才**动态**加载 `scripts/k2-value-reader.mjs`；
  *       加载失败默认 skip，加 `--require-source` 则视为失败（门禁模式）。
+ *       sidecar（v1 冻结产物按设计没有）默认缺失即 skip；加 `--require-manifest` 则视为失败，
+ *       且 M01-M13 会逐项校验声明字段（schema / 双哈希 / semantics / mustNotCompareWith /
+ *       questionsSha256.value / projectionFields / excludedFields / artifacts 集合）。
  *
  * 用法：
  *   node scripts/k2-hash-check.mjs [--repo <path>] [--json]
  *   node scripts/k2-hash-check.mjs --self-test [--json] [--require-source]
- *   node scripts/k2-hash-check.mjs --prereg <prereg.json> --fixtures <fixtures.json> [--manifest <hash-manifest.json>] [--no-frozen] [--require-source]
+ *   node scripts/k2-hash-check.mjs --prereg <prereg.json> --fixtures <fixtures.json> [--manifest <hash-manifest.json>] [--no-frozen] [--require-source] [--require-manifest]
  *   node scripts/k2-hash-check.mjs --emit-manifest <path>
  *
- * 退出码：0 = 全部通过；1 = 哈希/字段不一致；2 = 参数或文件缺失。
+ * 退出码：0 = 全部通过；1 = 哈希/字段不一致（含 --require-manifest 缺 sidecar）；2 = 参数或文件缺失。
  */
 
 import nodeCrypto from "node:crypto";
@@ -206,6 +209,7 @@ function failingCodes(result) {
  * @param {Function|null} [options.buildPreregFn] buildPrereg（用于重建校验）
  * @param {boolean} [options.enforceFrozenBaseline=true] 是否对 AX-03 冻结基线做硬校验
  * @param {boolean} [options.requireSource=false] 门禁模式：源码模块缺失时 C07/C10 判 fail
+ * @param {boolean} [options.requireManifest=false] 门禁模式：sidecar 缺失时 M00 判 fail
  * @param {object} [options.baseline=FROZEN_BASELINE]
  * @returns {{ok:boolean,verdict:string,checks:Array,digests:object,summary:object,manifest:object|null,suggestedManifest:object}}
  */
@@ -217,6 +221,7 @@ export function verifyPreregArtifacts({
   buildPreregFn = null,
   enforceFrozenBaseline = true,
   requireSource = false,
+  requireManifest = false,
   baseline = FROZEN_BASELINE,
 } = {}) {
   if (!preregPath || !fixturesPath) throw new InputError("必须提供 preregPath 与 fixturesPath");
@@ -452,7 +457,12 @@ export function verifyPreregArtifacts({
     );
   }
 
-  // M01-M06：可选 sidecar（k2-hash-semantics-v1）
+  // M01-M13：sidecar（k2-hash-semantics-v1）——声明字段必须与冻结数据逐项一致。
+  //
+  // 兼容模式（默认）：没有 sidecar ⇒ skip，exit 0（v1 冻结产物按设计就没有 sidecar）。
+  // 门禁模式（--require-manifest）：没有 sidecar ⇒ M00 fail，exit 1；不允许用 skip 冒充通过。
+  // 显式 `--manifest <path>` 指向不存在的文件属于**输入错误**（exit 2），与“可选 sidecar
+  // 缺失”区分开：前者是调用方指错了路径，后者是旧产物本来就没有声明文件。
   let effectiveManifestPath = manifestPath;
   if (!effectiveManifestPath) {
     const candidate = nodePath.join(nodePath.dirname(preregPath), "hash-manifest.json");
@@ -463,7 +473,14 @@ export function verifyPreregArtifacts({
     manifest = parseJsonBytes(readRequiredFile(effectiveManifestPath), effectiveManifestPath);
     const preregArtifact = manifest.artifacts?.[nodePath.basename(preregPath)] ?? {};
     const fixturesArtifact = manifest.artifacts?.[nodePath.basename(fixturesPath)] ?? {};
-    const fieldValue = manifest.fieldSemantics?.["fixtures.preregSha256"]?.value;
+    const preregField = manifest.fieldSemantics?.["fixtures.preregSha256"] ?? {};
+    const questionsField = manifest.fieldSemantics?.["fixtures.questionsSha256"] ?? {};
+    const artifactKeys = Object.keys(manifest.artifacts ?? {}).sort();
+    const expectedArtifactKeys = [nodePath.basename(fixturesPath), nodePath.basename(preregPath)].sort();
+    const actualProjectionFields = JSON.stringify(questionsField.projectionFields ?? null);
+    const expectedProjectionFields = JSON.stringify([...PROJECTION_FIELDS]);
+    const actualExcludedFields = JSON.stringify(questionsField.excludedFields ?? null);
+    const expectedExcludedFields = JSON.stringify(["hypothesis"]);
     checks.push(
       eqCheck(
         "M01",
@@ -489,7 +506,7 @@ export function verifyPreregArtifacts({
       eqCheck(
         "M04",
         "hash-manifest.fieldSemantics.fixtures.preregSha256.value 等于实际字段",
-        fieldValue,
+        preregField.value,
         fixtures.preregSha256,
         "MANIFEST_FIELD_MISMATCH",
       ),
@@ -527,13 +544,91 @@ export function verifyPreregArtifacts({
             "MANIFEST_FIXTURES_CANONICAL_MISSING",
             "sidecar 一旦存在，fixtures 的 canonicalJsonSha256 必须显式记录",
           ),
+      // M07-M13（G2-F1）：sidecar 是声明文档，声明本身也必须被校验 ——
+      // 否则改一句 semantics 就能让“双哈希口径”变形而运行时仍然 exit 0。
+      eqCheck(
+        "M07",
+        "hash-manifest.fieldSemantics.fixtures.preregSha256.semantics === canonical-json-sha256",
+        preregField.semantics,
+        "canonical-json-sha256",
+        "MANIFEST_SEMANTICS_MISMATCH",
+      ),
+      eqCheck(
+        "M08",
+        "hash-manifest.fieldSemantics.fixtures.questionsSha256.semantics === projection-canonical-json-sha256",
+        questionsField.semantics,
+        "projection-canonical-json-sha256",
+        "MANIFEST_QUESTIONS_SEMANTICS_MISMATCH",
+      ),
+      eqCheck(
+        "M09",
+        "hash-manifest.fieldSemantics.fixtures.preregSha256.mustNotCompareWith === raw-bytes-sha256(prereg.json)",
+        preregField.mustNotCompareWith,
+        "raw-bytes-sha256(prereg.json)",
+        "MANIFEST_MUST_NOT_COMPARE_MISMATCH",
+      ),
+      eqCheck(
+        "M10",
+        "hash-manifest.fieldSemantics.fixtures.questionsSha256.value 等于实际 questionsSha256",
+        questionsField.value,
+        fixtures.questionsSha256,
+        "MANIFEST_QUESTIONS_FIELD_MISMATCH",
+      ),
+      actualProjectionFields === expectedProjectionFields
+        ? pass(
+            "M11",
+            "hash-manifest 的 questionsSha256 投影字段等于产品 10 字段口径",
+            actualProjectionFields,
+            expectedProjectionFields,
+          )
+        : fail(
+            "M11",
+            "hash-manifest 的 questionsSha256 投影字段等于产品 10 字段口径",
+            actualProjectionFields,
+            expectedProjectionFields,
+            "MANIFEST_PROJECTION_FIELDS_MISMATCH",
+          ),
+      actualExcludedFields === expectedExcludedFields
+        ? pass("M12", "hash-manifest 的 questionsSha256 排除字段恰好是 hypothesis", actualExcludedFields, expectedExcludedFields)
+        : fail(
+            "M12",
+            "hash-manifest 的 questionsSha256 排除字段恰好是 hypothesis",
+            actualExcludedFields,
+            expectedExcludedFields,
+            "MANIFEST_EXCLUDED_FIELDS_MISMATCH",
+          ),
+      JSON.stringify(artifactKeys) === JSON.stringify(expectedArtifactKeys)
+        ? pass(
+            "M13",
+            "hash-manifest.artifacts 恰好包含 prereg.json / fixtures.json（不得有额外或缺失）",
+            artifactKeys.join(","),
+            expectedArtifactKeys.join(","),
+          )
+        : fail(
+            "M13",
+            "hash-manifest.artifacts 恰好包含 prereg.json / fixtures.json（不得有额外或缺失）",
+            artifactKeys.join(",") || "<empty>",
+            expectedArtifactKeys.join(","),
+            "MANIFEST_ARTIFACTS_MISMATCH",
+          ),
+    );
+  } else if (requireManifest) {
+    checks.push(
+      fail(
+        "M00",
+        "hash-manifest sidecar 必须存在（--require-manifest 门禁模式）",
+        "<missing>",
+        "hash-manifest.json",
+        "MANIFEST_REQUIRED_MISSING",
+        "兼容模式请去掉 --require-manifest；门禁模式要求 sidecar 与冻结产物同目录",
+      ),
     );
   } else {
     checks.push(
       skip(
-        "M01-M06",
+        "M01-M13",
         "hash-manifest sidecar 校验",
-        "未提供且同目录不存在 hash-manifest.json（v1 冻结产物按设计没有 sidecar）",
+        "未提供且同目录不存在 hash-manifest.json（v1 冻结产物按设计没有 sidecar；需要门禁请加 --require-manifest）",
       ),
     );
   }
@@ -924,6 +1019,98 @@ async function runSelfTest({ repo, requireSource = false }) {
         `ok=${result.ok}, failing=${failingCodes(result).join(",")}`,
       );
     }
+
+    // T12：兼容模式 vs 门禁模式 —— 无 sidecar 时默认 skip，--require-manifest 判红（G2-F2）
+    {
+      const p = copyBaseline("t12-require-manifest");
+      const compat = verify(p, { enforceFrozenBaseline: false });
+      const required = verify(p, { enforceFrozenBaseline: false, requireManifest: true });
+      record(
+        "T12",
+        "无 sidecar：默认兼容模式 PASS/skip；--require-manifest 门禁 FAIL/MANIFEST_REQUIRED_MISSING",
+        compat.ok && compat.checks.some((item) => item.id === "M01-M13" && item.status === "skip") &&
+          !required.ok && failingCodes(required).includes("MANIFEST_REQUIRED_MISSING"),
+        `compat=${compat.ok}/${compat.summary.skipped}skip, required=${required.ok}/${failingCodes(required).join(",")}`,
+      );
+    }
+
+    // T13-T19（G2-F1）：sidecar 声明字段的五类语义篡改/多余 artifacts 都必须红。
+    const mutationCase = (id, name, mutate, expectedCode) => {
+      const p = copyBaseline(name);
+      const manifest = buildHashManifest({ preregPath: baselinePreregPath, fixturesPath: baselineFixturesPath });
+      mutate(manifest);
+      const manifestPath = writeJsonFile(nodePath.join(p.dir, "hash-manifest.json"), manifest);
+      const result = verify(p, { enforceFrozenBaseline: false, manifestPath });
+      record(
+        id,
+        `${name} → FAIL/${expectedCode}`,
+        !result.ok && failingCodes(result).includes(expectedCode),
+        `ok=${result.ok}, failing=${failingCodes(result).join(",")}`,
+      );
+    };
+
+    mutationCase(
+      "T13",
+      "sidecar 的 preregSha256.semantics 被改成 raw-bytes-sha256",
+      (manifest) => {
+        manifest.fieldSemantics["fixtures.preregSha256"].semantics = "raw-bytes-sha256";
+      },
+      "MANIFEST_SEMANTICS_MISMATCH",
+    );
+
+    mutationCase(
+      "T14",
+      "sidecar 的 questionsSha256.semantics 被改错",
+      (manifest) => {
+        manifest.fieldSemantics["fixtures.questionsSha256"].semantics = "canonical-json-sha256";
+      },
+      "MANIFEST_QUESTIONS_SEMANTICS_MISMATCH",
+    );
+
+    mutationCase(
+      "T15",
+      "sidecar 的 mustNotCompareWith 被删掉",
+      (manifest) => {
+        delete manifest.fieldSemantics["fixtures.preregSha256"].mustNotCompareWith;
+      },
+      "MANIFEST_MUST_NOT_COMPARE_MISMATCH",
+    );
+
+    mutationCase(
+      "T16",
+      "sidecar 的 questionsSha256.value 被篡改",
+      (manifest) => {
+        manifest.fieldSemantics["fixtures.questionsSha256"].value = "0".repeat(64);
+      },
+      "MANIFEST_QUESTIONS_FIELD_MISMATCH",
+    );
+
+    mutationCase(
+      "T17",
+      "sidecar 的 projectionFields 被删掉一个字段",
+      (manifest) => {
+        manifest.fieldSemantics["fixtures.questionsSha256"].projectionFields.pop();
+      },
+      "MANIFEST_PROJECTION_FIELDS_MISMATCH",
+    );
+
+    mutationCase(
+      "T18",
+      "sidecar 的 excludedFields 被改成空数组",
+      (manifest) => {
+        manifest.fieldSemantics["fixtures.questionsSha256"].excludedFields = [];
+      },
+      "MANIFEST_EXCLUDED_FIELDS_MISMATCH",
+    );
+
+    mutationCase(
+      "T19",
+      "sidecar 的 artifacts 多出第三个条目",
+      (manifest) => {
+        manifest.artifacts["prereg.json.bak"] = { bytes: 0, rawBytesSha256: "0".repeat(64), canonicalJsonSha256: "0".repeat(64) };
+      },
+      "MANIFEST_ARTIFACTS_MISMATCH",
+    );
   } finally {
     nodeFs.rmSync(root, { recursive: true, force: true });
   }
@@ -973,6 +1160,7 @@ function parseArgs(argv) {
     selfTest: false,
     enforceFrozenBaseline: true,
     requireSource: false,
+    requireManifest: false,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -1011,6 +1199,9 @@ function parseArgs(argv) {
       case "--require-source":
         options.requireSource = true;
         break;
+      case "--require-manifest":
+        options.requireManifest = true;
+        break;
       case "--help":
       case "-h":
         options.help = true;
@@ -1026,10 +1217,14 @@ function printUsage() {
   console.log(`用法：
   node scripts/k2-hash-check.mjs [--repo <path>] [--json]
   node scripts/k2-hash-check.mjs --self-test [--json] [--require-source]
-  node scripts/k2-hash-check.mjs --prereg <prereg.json> --fixtures <fixtures.json> [--manifest <hash-manifest.json>] [--no-frozen] [--require-source]
+  node scripts/k2-hash-check.mjs --prereg <prereg.json> --fixtures <fixtures.json> [--manifest <hash-manifest.json>] [--no-frozen] [--require-source] [--require-manifest]
   node scripts/k2-hash-check.mjs --emit-manifest <path>
 
-退出码：0 全部通过；1 哈希/字段不一致；2 参数或文件缺失。`);
+退出码：0 全部通过；1 哈希/字段不一致（含 --require-manifest 缺 sidecar）；2 参数或文件缺失。
+
+兼容模式（默认）：旧 v1 冻结产物没有 sidecar ⇒ M01-M13 skip，exit 0。
+门禁模式（--require-manifest）：sidecar 必须存在，缺失 ⇒ M00 fail，exit 1。
+显式 --manifest 指向不存在的文件属于输入错误 ⇒ exit 2（调用方指错路径，不是旧产物缺声明）。`);
 }
 
 async function main(argv) {
@@ -1063,6 +1258,7 @@ async function main(argv) {
     buildPreregFn,
     enforceFrozenBaseline: options.enforceFrozenBaseline,
     requireSource: options.requireSource,
+    requireManifest: options.requireManifest,
   });
 
   let emittedPath = null;
@@ -1092,6 +1288,7 @@ async function main(argv) {
       sourceModuleLoaded: Boolean(moduleInfo.module),
       sourceModuleError: moduleInfo.error,
       requireSource: options.requireSource,
+      requireManifest: options.requireManifest,
       emittedManifest: emittedPath,
     },
     verdict: result.verdict,
