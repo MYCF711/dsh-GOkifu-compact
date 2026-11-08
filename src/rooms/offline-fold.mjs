@@ -774,7 +774,11 @@ export function renderFacts(graph, range) {
   const lines = [];
   const root = (graph?.rootUserNodeIds ?? []).map((id) => graph?.nodes?.[id]).filter(Boolean)[0];
   lines.push("## 目标（不可改写）", `- ${String(root?.text ?? "(none)").split("\n")[0]}`);
-  const constraints = allConstraints(graph).slice(0, 12);
+  // ★ C656：**一条都不许丢**。这里曾有 `.slice(0, 12)`（与热清单/规则摘要三处同源的 12 上限）：
+  //   提示词自己写着「## 约束（一条都不许丢）」，却先把第 13 条起砍掉 —— 模型连看都看不到，
+  //   只能靠写回点的补回段兜底（能补回产物，补不回「模型读过它」）。现在全量。
+  //   病态输入由本函数末尾的 `MAX_FACTS_CHARS` 统一截断并**显式标注**（不是静默丢）。
+  const constraints = allConstraints(graph);
   if (constraints.length > 0) {
     lines.push("", "## 约束（一条都不许丢）");
     for (const c of constraints) lines.push(`- ${c}`);

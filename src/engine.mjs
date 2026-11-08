@@ -29,7 +29,7 @@ import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph, closeoutSettles, listDebts, rankDebts } from "./rooms/closeout-backfill.mjs";
 import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
-import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
+import { renderFacts, danglingStats, estimateTokens, collectConstraints } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
 import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
@@ -3892,12 +3892,9 @@ function backfillState(g, st, worldHash, chess) {
 }
 
 function collectConstraintText(g) {
-  const out = [];
-  for (const id of g.order) {
-    const node = g.nodes[id];
-    if (node?.kind === "user") out.push(...(node.constraints ?? []));
-  }
-  return out;
+  // ★ C656：约束收集只有一份口径（R06 `collectConstraints`：按原文去重）。
+  //   规则兜底摘要曾在这里自己走一遍、再 `slice(0, 12)` —— 第 13/14 条就是这样丢的。
+  return collectConstraints(g);
 }
 
 function edgeTouchedPaths(edge) {
@@ -3915,7 +3912,13 @@ function ruleSummary(g, range) {
   lines.push("## 目标");
   const root = g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
   lines.push(`- ${root ? root.text.split("\n")[0] : "(none)"}`);
-  for (const c of collectConstraintText(g).slice(0, 12)) lines.push(`- ${c}`);
+  // ★ C656：**约束一条都不许丢**（重注入契约 §1 ②「逐字」/ fold-quality「最终产物 = 1 是设计保证」）。
+  //   这里曾有 `.slice(0, 12)` —— 真机 2026-11-08（pressure fold，seq 509-1600）走的正是本函数的
+  //   规则兜底（hybrid 试模型失败 ⇒ fallback="rules"），于是第 13/14 条约束**一个字都没进摘要**，
+  //   落盘 quality.constraintRecall=0.857、missingConstraints 恰为那两条。
+  //   现在不设上限：约束是**硬性事实**，不是叙事，宁可摘要长一点也不能少一条（同 `renderFacts`
+  //   的 `CONSTRAINTS_VERBATIM` 与离线补回段；那两条路径本来就没有上限）。
+  for (const c of collectConstraintText(g)) lines.push(`- ${c}`);
   lines.push("");
   lines.push("## 棋谱（状态节点）");
   const agents = g.order.map((id) => g.nodes[id]).filter((n) => n?.kind === "agent");
