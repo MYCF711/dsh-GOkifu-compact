@@ -1,5 +1,5 @@
 {
- "total": 1997,
+ "total": 2008,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -42,6 +42,7 @@
   "compare-models.test.mjs": 0,
   "config-schema.test.mjs": 2,
   "config-table.test.mjs": 3,
+  "constraint-fidelity.test.mjs": 8,
   "context-curve.test.mjs": 3,
   "core.test.mjs": 8,
   "dangling-edge.test.mjs": 0,
@@ -87,7 +88,7 @@
   "graph-exemptions.test.mjs": 0,
   "graph-fixtures.test.mjs": 5,
   "graph-invariants.test.mjs": 1,
-  "handoff-check.test.mjs": 25,
+  "handoff-check.test.mjs": 27,
   "hot-inject.test.mjs": 14,
   "human-message.test.mjs": 15,
   "index-fingerprint.test.mjs": 2,
@@ -111,7 +112,7 @@
   "last-summary.test.mjs": 1,
   "ledger-boundary.test.mjs": 24,
   "ledger-budget-persist.test.mjs": 3,
-  "ledger-budget.test.mjs": 3,
+  "ledger-budget.test.mjs": 4,
   "ledger-calibration.test.mjs": 2,
   "ledger-perf.test.mjs": 4,
   "ledger-pricing.test.mjs": 9,
@@ -246,6 +247,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2407,
- "passedAt": "2026-11-08T11:11:38.109Z"
+ "passed": 2418,
+ "passedAt": "2026-11-08T12:45:18.448Z"
 }

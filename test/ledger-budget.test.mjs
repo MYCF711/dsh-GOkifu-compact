@@ -192,3 +192,24 @@ tests["T-5 最小清单（C67）：renderMinimalLedger 必须标 minimal:true，
   const full = renderLedger(g, { maxTokens: 500 });
   t.eq(full.minimal === true, false, "普通渲染不许冒充最小清单");
 };
+
+tests["C656 最小清单：约束计数带「保留位置」且明说不是逐字全文（也不许漏后续 user 节点）"] = (t) => {
+  const g = createGraph({ sessionId: "fixture-minimal-c656" });
+  addUserNodeId(g, { seq: 1, text: "把测试跑绿", constraints: ["不要动 prod 配置", "只改 tests/"] });
+  addAgentNode(g, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  addUserNodeId(g, { seq: 3, text: "补充：必须跑全量", constraints: ["必须跑全量测试"] });
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  t.eq(led.minimal, true, "仍是最小清单形态");
+  t.includes(
+    led.text,
+    "CONSTRAINTS: 3 (count only, not verbatim; full text: graph.json nodes[*].constraints)",
+    "计数必须全量（含后续 user 节点）+ 明说不是逐字 + 给出保留位置",
+  );
+  t.eq(led.tokens <= 120, true, `补了指针仍须 ≤120 tokens（实际 ${led.tokens}）—— 不许借机把原文塞进来`);
+  t.eq(led.fallback, "none", "补指针不许把最小清单顶成超预算");
+  // 「0 条」与「有但没展开」必须能分开：没有约束的会话同样给位置
+  const g0 = createGraph({ sessionId: "fixture-minimal-c656-zero" });
+  addUserNodeId(g0, { seq: 1, text: "把测试跑绿" });
+  addAgentNode(g0, { seq: 2, goal: "跑测试", worldHash: "W1", constraintHash: "C1" });
+  t.includes(renderMinimalLedger(g0).text, "CONSTRAINTS: 0 (count only, not verbatim;", "0 条也要写清是计数形态");
+};

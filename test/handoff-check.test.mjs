@@ -8,7 +8,7 @@
  * 只断言 ⑩/⑪ 两项，其余检查（①–⑨）由各自的单测覆盖，避免夹具噪声。
  */
 
-import { checkGraph } from "../scripts/handoff-check.mjs";
+import { checkGraph, omissionLines } from "../scripts/handoff-check.mjs";
 import { renderLedger } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
@@ -392,4 +392,26 @@ tests["H-17 ⑯闭包自洽必须用**当时**的 graphNodes，不能被之后�
   // 真坏数据：nodes(60) > 当时的 graphNodes(50) ⇒ 必须 fail
   const broken = mkGraph({ foldMarks: [mk(60, 50)] });
   t.eq(byName(checkGraph(broken, {}), "⑯").level, "fail", "nodes 超过当时图节点数必须 fail");
+};
+
+tests["C656 ⑧省略行：CONSTRAINTS_OMITTED 必须被认出来（旧清单漏这一类 ⇒ 省略行从不被校验）"] = (t) => {
+  const good = "CONSTRAINTS_OMITTED: 8 of 40 not listed (section over 8000 chars) — full text: graph.json nodes[*].constraints";
+  const bad = "CONSTRAINTS_OMITTED: 8 of 40 not listed (section over 8000 chars)";
+  t.eq(omissionLines(good).length, 1, "带指针的省略行必须被认出 —— ⑧ 才看得见它");
+  t.eq(omissionLines(bad).length, 1, "反例前提：连丢了指针的那一行也要被认出，否则 ⑧ 无从判红");
+  // 反例：旧清单的三种关键词都匹配不到这一行 ⇒ 这条守卫不是同义反复（C656 前 ⑧ 对约束省略是盲的）
+  const OLD = /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE/;
+  t.eq(OLD.test(good), false, "旧正则确实漏了 CONSTRAINTS_OMITTED");
+  t.eq(omissionLines("LEARNED (3 failed attempts):").length, 0, "不是省略行就不许误报");
+};
+
+tests["C656 ⑧端到端：约束病态超限的省略行带 graph.json 指针 ⇒ ⑧ ok（且确实产生了这一行）"] = (t) => {
+  const g = mkGraph();
+  // 40 × ~250 字符 ⇒ 越过 8,000 字符病态阀，主清单必然产生 CONSTRAINTS_OMITTED
+  g.nodes.n1.constraints = Array.from({ length: 40 }, (_, i) => `约束 ${i + 1}：${"不许动 prod 配置，".repeat(20)}`);
+  const led = renderLedger(g);
+  t.includes(led.text, "CONSTRAINTS_OMITTED: ", "前置：病态超限必须产生省略行");
+  const row = byName(checkGraph(g, {}), "⑧");
+  t.eq(row.level, "ok", `⑧ 必须 ok（实际 ${row.level}：${row.detail}）`);
+  t.includes(row.detail, "行省略", "⑧ 的 detail 必须报出它看到了省略行（不能是「本档没有省略行」）");
 };
