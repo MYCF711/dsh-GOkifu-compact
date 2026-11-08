@@ -105,6 +105,7 @@ export const READER_PROMPTS = Object.freeze({
     "For a list answer, output the exact ids in the order they appear, comma-separated. " +
     "If no span explicitly records the requested value, output exactly UNKNOWN. " +
     "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+  "v5cmp-en": "You answer a single question from the supplied context. Silently find the smallest verbatim span that answers the question; do not show that step. If the question asks whether one event happened before or after another, output exactly one lowercase English word: `before` or `after`. Do not answer in Chinese and do not translate. Otherwise output only the span, exactly as written: no explanation, no quotes, no code fence. For a list answer, output the exact ids in the order they appear, comma-separated. If no span explicitly records the requested value, output exactly UNKNOWN. Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
   v3extract:
     "You are an evidence extractor. Find the shortest verbatim span in the context that answers the question. " +
     "Output only that span, exactly as written; no explanation, no quotes, no code fence. " +
