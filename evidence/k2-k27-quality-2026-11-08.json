@@ -1,0 +1,138 @@
+{
+  "schema": "k2-k27-quality-aggregate-v1",
+  "createdAt": "2026-11-08T01:45:00Z",
+  "taskId": "T7",
+  "worktreeHead": "edd4a9c",
+  "model": "deepseek-v4.1-flash-1017",
+  "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+  "k2": {
+    "questionCount": 10,
+    "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+    "plannedCalls": 20,
+    "actualCalls": 20,
+    "retries": 0,
+    "errors": 0,
+    "full": {
+      "correct": 7,
+      "total": 10,
+      "unknown": 0,
+      "errors": 0
+    },
+    "compact": {
+      "correct": 8,
+      "total": 10,
+      "unknown": 1,
+      "errors": 0
+    },
+    "degraded": [
+      "K2-N3"
+    ],
+    "unknownIncrease": 1,
+    "abstentionClean": false,
+    "answerPresentCoverage": {
+      "full": 10,
+      "compact": 10,
+      "total": 10
+    },
+    "status": "REGRESSION",
+    "note": "字符串级覆盖不是模型答对率；full/compact 正确率为模型判分结果。"
+  },
+  "k27": {
+    "variant": "v4",
+    "samplesPerArm": 3,
+    "plannedCalls": 60,
+    "actualCalls": 60,
+    "errors": 0,
+    "selectionRule": "first 2 per type in frozen fixture order",
+    "fullCorrect": 8,
+    "compactCorrect": 7,
+    "totalQuestions": 10,
+    "Acc_full": 0.8,
+    "Acc_compact": 0.7,
+    "deltaTask": -0.1,
+    "perType": {
+      "IE": {
+        "questions": 2,
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        },
+        "delta": 0
+      },
+      "MR": {
+        "questions": 2,
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        },
+        "delta": 0
+      },
+      "KU": {
+        "questions": 2,
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 1,
+          "total": 2
+        },
+        "delta": -0.5
+      },
+      "TR": {
+        "questions": 2,
+        "full": {
+          "correct": 0,
+          "total": 2
+        },
+        "compact": {
+          "correct": 0,
+          "total": 2
+        },
+        "delta": 0
+      },
+      "ABS": {
+        "questions": 2,
+        "full": {
+          "correct": 2,
+          "total": 2
+        },
+        "compact": {
+          "correct": 2,
+          "total": 2
+        },
+        "delta": 0
+      }
+    },
+    "abs": {
+      "full": 2,
+      "total": 2,
+      "compact": 2
+    },
+    "gates": {
+      "dataComplete": true,
+      "overallCompact": false,
+      "pairedDelta": false,
+      "perType": false,
+      "abstention": true
+    },
+    "passed": false,
+    "formal": "NOT_RUN",
+    "status": "FAIL",
+    "note": "pilot only；正式 50/50 NOT_RUN；TR-01/TR-02 的英文 exact 与中文输出冲突按原样保留，不调题/阈值。"
+  },
+  "gate": {
+    "K2": "FAIL(REGRESSION)",
+    "K27_pilot": "FAIL",
+    "K27_formal": "NOT_RUN"
+  },
+  "note": "只含聚合计数；原始回答、题面上下文与逐题文本在私有 tmp/；不含 sid/路径/正文。"
+}

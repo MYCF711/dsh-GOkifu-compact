@@ -1,0 +1,293 @@
+{
+  "schema": "k2-replication-aggregate-v1",
+  "createdAt": "2026-11-08T07:03:40.536Z",
+  "taskId": "K2-RERUN",
+  "kind": "one-shot-pre-registered-real-reader-replication",
+  "prereg": {
+    "schema": "k2-real-rerun-prereg-v1",
+    "status": "FROZEN",
+    "sha256": "18ff7d49d613488c826cd1111af05f95dd15b1d707cd5c9f9cfe24f035fa8e59",
+    "frozenAtRev": "edd4a9c7a7e824239ea8355e3c0c1504cad4ac8e",
+    "parentPreregSha256": "cf7e88c3749ae1800a21df9ea73ddfbf0c3633e932fc7afb9c8689f37d32c40f",
+    "testVectorSetSha256": "e7ed12de8d9fd78e959ef0dc4027d2228dd8d3f94ef088c92419ee958b63c46a"
+  },
+  "execution": {
+    "worktreeHead": "8c3fcff742713968d1f166a9c13e8911c2fbf581",
+    "versionedDrift": {
+      "from": "edd4a9c7a7e824239ea8355e3c0c1504cad4ac8e",
+      "to": "8c3fcff742713968d1f166a9c13e8911c2fbf581",
+      "commits": 8,
+      "fastForward": true,
+      "srcIdentical": true,
+      "frozenCodeBlobsIdentical": true,
+      "modifiedFiles": [
+        "evidence/README.md"
+      ],
+      "addedFiles": 7
+    }
+  },
+  "reader": {
+    "model": "deepseek-v4.1-flash-1017",
+    "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+    "temperature": 0,
+    "maxTokens": 1024,
+    "stream": false,
+    "timeoutMs": 120000
+  },
+  "frozen": {
+    "questionCount": 10,
+    "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+    "plannedCalls": 20,
+    "readerScriptSha256": "ea6512a00ce1f16585b198dc2322b13e6bf9813db5cf45c6a596c35d2e38e805",
+    "graderScriptSha256": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "v2NormalizerSha256": "3d7ca49fd0b43efce8a61daaceecb35f7b356cd75f8f3014dacfab6afff9fed5",
+    "v2ReplaySha256": "6ffb753b083bd78d68ecebaf9db308c3b6d2a230f472fca45f345c143ee4d846",
+    "v2TestSha256": "8a964650c81e78034de9527ffdd1ba9b3f5cdbcfaa9566cd5fb17e644f93e773",
+    "contexts": {
+      "sessions": 2,
+      "events": [
+        73,
+        178
+      ],
+      "frames": [
+        29,
+        91
+      ],
+      "derivedValueFacts": [
+        36,
+        31
+      ],
+      "attachedValueFacts": [
+        36,
+        31
+      ],
+      "fullChars": [
+        43585,
+        250736
+      ],
+      "compactChars": [
+        45208,
+        41526
+      ],
+      "fullSha256": [
+        "1c5537a770128a7aa74e4362cbc2e80ae004c1394627f7384a2e91da65121333",
+        "1dc1a4ebef3f2034993e4c37200f12085b34a1df6826aa43a7527097db987eff"
+      ],
+      "compactSha256": [
+        "0395a71e112d3cd7aac01c87eadcb0a6ce91652834c964edc10941a11c08af20",
+        "1593241332961ade40ebd6b43d7feabb74bb7b07ff08b1716bf3fd060b062af3"
+      ],
+      "factGuard": true,
+      "note": "上下文由冻结 reader 的 deriveValueFacts + buildContextsFromGraph(factGuard:true) 现场构造；factGuard 是 compact 臂定义，不是产品默认值。"
+    }
+  },
+  "run": {
+    "oneShot": true,
+    "rerunsAuthorized": 1,
+    "plannedCalls": 20,
+    "actualCalls": 20,
+    "retries": 0,
+    "errors": 0,
+    "dataComplete": true,
+    "callOrder": "10 frozen questions × {full, compact} in frozen order (full before compact)",
+    "allHttp200": true,
+    "allFinishReasonStop": true,
+    "latencyMs": {
+      "min": 1672,
+      "max": 10124,
+      "sum": 57743
+    },
+    "totalTokens": 888373,
+    "rawFiles": 20,
+    "rawManifestSha256": "cba9e6138d2ef32b93ebdcf87716ccac495c15ef1e28b174493d026b8d509c7d"
+  },
+  "columns": {
+    "official": {
+      "column": "raw",
+      "normalizer": "normalizeAnswer v1（冻结，历史口径）",
+      "grader": "gradeAnswer（共享冻结判分器）",
+      "full": {
+        "correct": 9,
+        "total": 10,
+        "unknown": 0,
+        "errors": 0
+      },
+      "compact": {
+        "correct": 10,
+        "total": 10,
+        "unknown": 0,
+        "errors": 0
+      },
+      "degraded": [],
+      "unknownIncrease": 0,
+      "abstentionClean": true,
+      "answerPresentCoverage": {
+        "full": 10,
+        "compact": 10,
+        "total": 10,
+        "ok": true
+      },
+      "gate6": true,
+      "status": "PASS",
+      "controlsConclusion": true
+    },
+    "v2": {
+      "column": "v2",
+      "normalizer": "k2-normalize-v2（冻结，离线第二列；opt-in）",
+      "grader": "gradeAnswer（同一个共享判分器，未改）",
+      "full": {
+        "correct": 10,
+        "total": 10,
+        "unknown": 0,
+        "errors": 0
+      },
+      "compact": {
+        "correct": 10,
+        "total": 10,
+        "unknown": 0,
+        "errors": 0
+      },
+      "degraded": [],
+      "unknownIncrease": 0,
+      "abstentionClean": true,
+      "answerPresentCoverage": {
+        "full": 10,
+        "compact": 10,
+        "total": 10,
+        "ok": true
+      },
+      "gate6": true,
+      "status": "PASS",
+      "controlsConclusion": false
+    },
+    "comparisonRule": "两列各自算、只做敏感性对照；不跨列比较、不池化；v2 不得替代 official 列宣称通过。"
+  },
+  "changedRows": [
+    {
+      "id": "K2-N3",
+      "arm": "full",
+      "category": "ordered-list-quote-format",
+      "fromCode": "ordered-mismatch",
+      "toCode": "ok"
+    }
+  ],
+  "t7Comparison": {
+    "t7": {
+      "officialColumn": "raw",
+      "fullCorrect": 7,
+      "compactCorrect": 8,
+      "degraded": [
+        "K2-N3"
+      ],
+      "unknownIncrease": 1,
+      "abstentionClean": false,
+      "gate6": false,
+      "status": "REGRESSION"
+    },
+    "flips": {
+      "total": 6,
+      "incorrectToCorrect": 5,
+      "correctToIncorrect": 1,
+      "unchanged": 14,
+      "rows": [
+        {
+          "questionId": "K2-O1",
+          "arm": "full",
+          "t7": "incorrect",
+          "replication": "correct"
+        },
+        {
+          "questionId": "K2-O1",
+          "arm": "compact",
+          "t7": "incorrect",
+          "replication": "correct"
+        },
+        {
+          "questionId": "K2-O2",
+          "arm": "full",
+          "t7": "incorrect",
+          "replication": "correct"
+        },
+        {
+          "questionId": "K2-N1",
+          "arm": "full",
+          "t7": "incorrect",
+          "replication": "correct"
+        },
+        {
+          "questionId": "K2-N3",
+          "arm": "full",
+          "t7": "correct",
+          "replication": "incorrect"
+        },
+        {
+          "questionId": "K2-N3",
+          "arm": "compact",
+          "t7": "incorrect",
+          "replication": "correct"
+        }
+      ]
+    },
+    "interpretation": "同一 reader 两次 run 之间 6 行双向翻转（5 错→对 / 1 对→错）、14 行相同 ⇒ 单次差异不得当作改进或退化证据；T7 官方结论与聚合未改。"
+  },
+  "historyGuard": {
+    "protectedItems": 6,
+    "protectedIdentical": true,
+    "beforeAfterOnlyCapturedAt": true,
+    "rawManifestSha256": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+    "rawFileCount": 20,
+    "rawHttp200": 20,
+    "rawReaderErrors": 0,
+    "readOnlyDrift": [
+      {
+        "file": "evidence/README.md",
+        "declaredSha256": "b0dd828ea4070473c3104545537f16afe984f6e6a93cddaa110d309b87853851",
+        "actualSha256": "0fff86ab4ec7e3b7ac167431196684d33cf3756c350f9c20805d438ccaf1e8c1",
+        "protected": false,
+        "note": "冻结时登记的公开索引哈希；预检/复跑期间未改，本文件登记后由 R4 追加一行（见 README 行）。"
+      }
+    ],
+    "officialAggregatesUnchanged": true
+  },
+  "decision": {
+    "label": "K2_REPLICATION_PASS_UNOFFICIAL",
+    "adoption": "NOT_ADOPTED",
+    "k2OfficialConclusionUnchanged": true,
+    "gate6NotRelaxed": true,
+    "summarizeStatusIsNotGate": true,
+    "formatNormalizationIsNotQualityGain": true,
+    "nonDeterminism": "temperature=0 不保证 provider 输出一致；本文件只是预注册的一次复现记录，不是第二次基准，也不授权任何重跑。",
+    "nextStepRequires": "任何顶线变更（重述 K-2 结论 / 采纳 v2 列 / 改产品默认）都需要另开决定与新的预注册，不能引用本文件直接改。"
+  },
+  "gate": {
+    "K2_official": "PASS_UNOFFICIAL",
+    "K2_adoption": "NOT_ADOPTED",
+    "K2_T7_official_unchanged": "FAIL(REGRESSION)"
+  },
+  "review": {
+    "taskId": "R3",
+    "reviewer": "run-reviewer（独立于预检与执行）",
+    "verdict": "PASS",
+    "checksTotal": 49,
+    "checksPassed": 49,
+    "zeroModel": true,
+    "zeroNetwork": true,
+    "independentEvidence": [
+      "旁路 magpie usage.jsonl：run 窗口内 agent=node 的 chat/completions 恰好 20 条、严格串行，token 三元组与 20 个 raw usage 逐条相等；结束后无同签名调用",
+      "归档 Content-Length 与未脱敏期望 body 字节数 20/20 相等（线上发出的就是冻结 prompt+context）",
+      "产物重算：20×2 行双列判分逐字一致；上下文 12/12 字段命中预注册期望",
+      "冻结离线测试 56/56（k2-normalize-v2 9、k2-value-reader 20、k2-hash-check 27），0 网络"
+    ]
+  },
+  "privacy": {
+    "containsRawAnswers": false,
+    "containsQuestionText": false,
+    "containsAnswerBody": false,
+    "containsAliases": false,
+    "containsSessionIds": false,
+    "containsLocalPaths": false,
+    "containsRunDirectory": false,
+    "privateArtifactsLocation": "原始 raw 响应、题面、答案与逐行明细留在私有 tmp/（gitignored），未进入本文件"
+  },
+  "note": "只含聚合计数、哈希与标签；一次预注册 run 的复现记录，不合并进任何官方聚合，adoption 仍 NOT_ADOPTED。"
+}

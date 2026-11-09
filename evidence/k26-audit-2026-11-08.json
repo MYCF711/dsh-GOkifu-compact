@@ -1,0 +1,180 @@
+{
+  "schema": "k26-audit-v1",
+  "createdAt": "2026-11-08T02:56:48.807Z",
+  "reviewed": 12,
+  "totalSamples": 12,
+  "reviewMode": "T6R + N1-index0 repair",
+  "labelsPath": "tmp/k26-labels/labels.jsonl (integration private copy)",
+  "labelsSha256": "1c95f9c2940b174c60736962b3911237bd7dabaf7038bb739ca1f5bb57fb4655",
+  "samples": [
+    {
+      "index": 0,
+      "sampleId": "3e5184c771fe",
+      "facts": 4,
+      "gold": 2,
+      "rejected": 2,
+      "pending": 0
+    },
+    {
+      "index": 1,
+      "sampleId": "8c678f2713ab",
+      "facts": 8,
+      "gold": 4,
+      "rejected": 2,
+      "pending": 2
+    },
+    {
+      "index": 2,
+      "sampleId": "168afea37985",
+      "facts": 8,
+      "gold": 7,
+      "rejected": 1,
+      "pending": 0
+    },
+    {
+      "index": 3,
+      "sampleId": "bf76bd58e088",
+      "facts": 8,
+      "gold": 6,
+      "rejected": 2,
+      "pending": 0
+    },
+    {
+      "index": 4,
+      "sampleId": "742abd40bb51",
+      "facts": 8,
+      "gold": 5,
+      "rejected": 3,
+      "pending": 0
+    },
+    {
+      "index": 5,
+      "sampleId": "379a3eec3058",
+      "facts": 8,
+      "gold": 7,
+      "rejected": 1,
+      "pending": 0
+    },
+    {
+      "index": 6,
+      "sampleId": "516fa5255293",
+      "facts": 8,
+      "gold": 3,
+      "rejected": 5,
+      "pending": 0
+    },
+    {
+      "index": 7,
+      "sampleId": "5da399a948a1",
+      "facts": 8,
+      "gold": 7,
+      "rejected": 1,
+      "pending": 0
+    },
+    {
+      "index": 8,
+      "sampleId": "4bf0167f42b2",
+      "facts": 8,
+      "gold": 3,
+      "rejected": 5,
+      "pending": 0
+    },
+    {
+      "index": 9,
+      "sampleId": "7332e0114786",
+      "facts": 8,
+      "gold": 6,
+      "rejected": 2,
+      "pending": 0
+    },
+    {
+      "index": 10,
+      "sampleId": "180af4aaf4cd",
+      "facts": 8,
+      "gold": 6,
+      "rejected": 2,
+      "pending": 0
+    },
+    {
+      "index": 11,
+      "sampleId": "ddfadb4244bc",
+      "facts": 8,
+      "gold": 7,
+      "rejected": 1,
+      "pending": 0
+    }
+  ],
+  "totals": {
+    "facts": 92,
+    "gold": 63,
+    "rejected": 27,
+    "pending": 2
+  },
+  "precision": {
+    "macro": 0.690972222222,
+    "micro": 0.7,
+    "allFacts": 0.684782608696,
+    "pendingExcluded": true
+  },
+  "anchorCoverage": {
+    "matched": 37,
+    "total": 37,
+    "ratio": 1
+  },
+  "quote": {
+    "currentRound88": {
+      "verbatim": 61,
+      "total": 61,
+      "ratio": 1
+    },
+    "full92": {
+      "verbatim": 63,
+      "total": 63,
+      "ratio": 1
+    },
+    "index0": {
+      "verbatim": 2,
+      "total": 2,
+      "note": "N1-index0：F1 改判 REJECTED（不再 supported）；F2 quote 修复为 seq=5091 单事件连续逐字子串；F3 原样支持"
+    },
+    "baselineIndex0": {
+      "verbatim": 1,
+      "total": 3,
+      "note": "历史 T6-F05 基线：F1 multiEventJoin + PRE_WINDOW；F2 placeholder/notFound；F3 exact"
+    }
+  },
+  "gate": {
+    "atomicPrecision_macro_threshold": 0.95,
+    "atomicPrecision_macro": 0.690972222222,
+    "passed": false,
+    "conclusion": "NOT_ADOPTED"
+  },
+  "revision": {
+    "from": "T6R 64 GOLD / 26 REJECTED / 2 PENDING (macro 0.711805555556)",
+    "to": "N1-index0 63 GOLD / 27 REJECTED / 2 PENDING (macro 0.690972222222)",
+    "changed": "index0 F1 GOLD->REJECTED; F2 quote repaired, tier unchanged"
+  },
+  "history": [
+    {
+      "createdAt": "2026-11-06T21:27:22.118Z",
+      "totals": {
+        "facts": 92,
+        "gold": 68,
+        "rejected": 19,
+        "pending": 5
+      },
+      "note": "2026-11-07 基线快照（历史，未覆盖）"
+    },
+    {
+      "createdAt": "2026-11-08T01:45:00Z",
+      "totals": {
+        "facts": 92,
+        "gold": 64,
+        "rejected": 26,
+        "pending": 2
+      },
+      "note": "T6R/T8 快照（历史，未覆盖）"
+    }
+  ],
+  "note": "12/12；只含样本序号/ID/计数/比例，不含摘要/quote/sid/路径；N1-index0 修复后的公开聚合；历史 T7 原始结果未改。"
+}
