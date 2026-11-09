@@ -1,0 +1,234 @@
+{
+  "schema": "k26-error-audit-v1",
+  "createdAt": "2026-11-08T11:56:00+08:00",
+  "scope": {
+    "samples": 12,
+    "atomicFacts": 92,
+    "sourceLabelsSha256": "1c95f9c2940b174c60736962b3911237bd7dabaf7038bb739ca1f5bb57fb4655",
+    "classificationUnit": "fact",
+    "classificationNote": "one primary hard-rule cause per REJECTED fact; compound facts also carry one independently recorded secondary cause; no label, question, answer or threshold was changed"
+  },
+  "totals": {
+    "GOLD": 63,
+    "REJECTED": 27,
+    "PENDING": 2
+  },
+  "precision": {
+    "atomicPrecision_macro": 0.690972222222,
+    "atomicPrecision_micro": 0.7,
+    "atomicPrecision_allFacts": 0.684782608696,
+    "pendingExcluded": true
+  },
+  "rejectedTaxonomy": {
+    "classLabels": {
+      "quote": "quote 引用硬伤",
+      "subject": "主体错位",
+      "timepoint": "时点错位",
+      "range": "范围越界",
+      "claim": "claim 越出"
+    },
+    "primaryByFact": {
+      "quote": 3,
+      "timepoint": 6,
+      "claim": 12,
+      "subject": 2,
+      "range": 4
+    },
+    "secondaryMentions": {
+      "range": 3,
+      "quote": 2,
+      "claim": 3,
+      "subject": 0,
+      "timepoint": 0
+    },
+    "uniqueFactCausePairs": 35,
+    "singleLabelFacts": 19,
+    "compoundFacts": 8,
+    "compoundPairs": {
+      "claim+quote": 1,
+      "quote+range": 1,
+      "subject+claim": 1,
+      "timepoint+claim": 2,
+      "timepoint+quote": 1,
+      "timepoint+range": 2
+    },
+    "perSampleRejectedCounts": [
+      2,
+      2,
+      1,
+      2,
+      3,
+      1,
+      5,
+      1,
+      5,
+      2,
+      2,
+      1
+    ],
+    "perGroupRejectedCounts": {
+      "gold-repair-index0": 2,
+      "annotator-a": 5,
+      "annotator-b": 9,
+      "annotator-c": 8,
+      "annotator-d": 3
+    }
+  },
+  "sensitivity": {
+    "0-F1": {
+      "headlineRule": "frozen-note-and-N1-report-original-diagnosis",
+      "headline": {
+        "primary": "quote",
+        "secondary": "range",
+        "classification": "quote+range"
+      },
+      "currentArtifactAlternative": {
+        "primary": "range",
+        "secondary": "claim",
+        "classification": "range+claim",
+        "primaryByFactIfUsed": {
+          "quote": 2,
+          "timepoint": 6,
+          "claim": 12,
+          "subject": 2,
+          "range": 5
+        },
+        "secondaryMentionsIfUsed": {
+          "range": 2,
+          "quote": 2,
+          "claim": 4,
+          "subject": 0,
+          "timepoint": 0
+        }
+      },
+      "reason": "The inherited quote was a two-event join; the current N1 quote is a single-event verbatim fragment, so the quote hard rule passes on the current string, while the range hard rule still fails; the truncated quote no longer entails the two-part claim.",
+      "effect": "only one fact primary/secondary slot changes; 27-fact closure, 19 single / 8 compound and all quality conclusions are unchanged"
+    }
+  },
+  "pending": {
+    "count": 2,
+    "unresolved": 2,
+    "countedAsGold": false,
+    "mainScoreExcluded": true,
+    "items": [
+      {
+        "sampleIndex": 1,
+        "factIndex": 3,
+        "missingFirstHandEvidence": [
+          "platform-side implementation or official billing rule for 1 credit = 5000 billed tokens",
+          "controlled same-session wallet before/after readings for the conversion"
+        ]
+      },
+      {
+        "sampleIndex": 1,
+        "factIndex": 5,
+        "missingFirstHandEvidence": [
+          "upstream reset_at/resets_at/timezone field or platform reset implementation",
+          "two wallet readings across 00:00 Beijing time"
+        ]
+      }
+    ],
+    "note": "both remain PENDING/UNRESOLVED; no PENDING is counted as GOLD"
+  },
+  "k2RerunPrereg": {
+    "status": "FROZEN",
+    "runAuthorized": false,
+    "implementation": "NOT_APPLIED",
+    "adoption": "NOT_ADOPTED",
+    "plannedCalls": 20,
+    "retries": 0,
+    "reruns": 1,
+    "columns": [
+      "raw",
+      "v2"
+    ],
+    "officialColumn": "raw",
+    "gate6": "dataComplete && noRegression && unknownIncrease <= 0 && answerPresentCoverage.full == 10/10 && answerPresentCoverage.compact == 10/10",
+    "gate6IncludesUnknownIncrease": true,
+    "summarizeStatusIsNotGate": true,
+    "officialT7HistoryProtected": true,
+    "modelCallsThisRound": 0,
+    "note": "frozen plan only; no real rerun yet; do not report as a result"
+  },
+  "qualityGate": {
+    "k26": {
+      "metric": "atomicPrecision_macro",
+      "value": 0.690972222222,
+      "threshold": 0.95,
+      "passed": false,
+      "conclusion": "NOT_ADOPTED"
+    },
+    "k2": {
+      "official": "FAIL/REGRESSION",
+      "fullCorrect": 7,
+      "compactCorrect": 8,
+      "degraded": [
+        "K2-N3"
+      ],
+      "unknownIncrease": 1,
+      "gate6": false,
+      "conclusion": "NOT_ADOPTED"
+    },
+    "factGuardDefault": false,
+    "note": "error classification is diagnostic only; it does not improve K-26 precision and does not enable factGuard"
+  },
+  "knownDiscrepancies": [
+    {
+      "id": "AX03-FIXTURES-SELFREF",
+      "status": "recorded_not_fixed",
+      "impact": "no effect on the frozen question set; questionsSha256 matches"
+    },
+    {
+      "id": "T6R-QUOTE-FLAG",
+      "status": "corrected_append_only",
+      "impact": "T6R quoteVerbatim true for 4-F7/4-F8/9-F5 conflicts with raw-session zero hits and T6 false; this audit uses T6/raw-verified status; no classification change",
+      "correctionStatus": "corrected_append_only",
+      "correctionRef": "corrections.T6R-QUOTE-FLAG",
+      "correctionNote": "Historical T6R values retained; new audit authoritative; no label or metric change.",
+      "historicalStatus": "recorded_not_fixed"
+    },
+    {
+      "id": "E2-EVENT-COUNT",
+      "status": "recorded_not_fixed",
+      "impact": "E2 report states 126 events; raw log has 125 seq events plus one session header; no conclusion impact"
+    }
+  ],
+  "sourceArtifactHashes": {
+    "taxonomySha256": "675c67765af7b12d552a0396f2c2bd934b1de5ba432701531969e6a4bd7cbcf8",
+    "pendingReportSha256": "5bafa6d9799bc85bac2a6592a4cc40ced4817bb8f5b85f76b0c5dd9249119d89",
+    "k2RerunPreregSha256": "18ff7d49d613488c826cd1111af05f95dd15b1d707cd5c9f9cfe24f035fa8e59",
+    "officialK26AuditSha256": "1ae3ccf2e7c8a2bc20cd28aebc5389f05de2e92bc1d26a1d0d1116693e7a070c"
+  },
+  "publication": {
+    "containsBodyText": false,
+    "containsQuotes": false,
+    "containsSessionIds": false,
+    "containsLocalPaths": false,
+    "publicAggregateOnly": true
+  },
+  "corrections": {
+    "schema": "k26-public-corrections-v1",
+    "updatedAt": "2026-11-08T12:10:40+08:00",
+    "items": [
+      {
+        "id": "T6R-QUOTE-FLAG",
+        "status": "corrected_append_only",
+        "historyPreserved": true,
+        "target": "T6R review-r2 per-fact quoteVerbatim",
+        "factIds": [
+          "4-F7",
+          "4-F8",
+          "9-F5"
+        ],
+        "historicalValue": true,
+        "correctedValue": false,
+        "rawEvidence": "0 occurrences in both the declared event and the whole session after multi-frame decode (51/51 and 120/120 frames)",
+        "labelsEffect": "none; 63 GOLD / 27 REJECTED / 2 PENDING unchanged",
+        "t6rVerdictEffect": "PASS unchanged",
+        "t6rSupportedQuoteEffect": "none; 61/61 current round and 62/64 full 92 unchanged (the three facts are REJECTED, not supported)",
+        "newAuditAuthoritative": true,
+        "privateCorrectionSha256": "36f33553e6f3ed68677a42d7bbd1846532823b08f41c34d48efd9e55195130b2"
+      }
+    ]
+  }
+}
