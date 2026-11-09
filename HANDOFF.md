@@ -1,14 +1,15 @@
 # dsh-GOkifu-compact · 交接文件
 
-## ✅ 当前状态（滚动更新，2026-11-04 21:1x 本地 · C573）
+## ✅ 当前状态（滚动更新，2026-11-09 10:4x 本地 · C657）
 
 | 项 | 值 |
 |---|---|
-| 版本 | **1.18.5**（稳定版，1.18.4 之后）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2158 passed / 0 failed**；gate **8/8**；handoff **FAIL 0 / WARN 265** |
+| **🆕 最新（2026-11-09 11:3x，先看这一节）** | **冷图回收落地**：`graphs`/`runtime` 过去**按会话永久常驻、零清理路径**。实测本机 1592 张真实图全驻留 = **+295.7 MB 堆 / +418.1 MB RSS**；走闸门释放后堆剩 **+0.3 MB**、**RSS 第 8 秒回到基线 67.4 MB**（磁盘 mtime 1592/1592 未变）。同时补掉三条交接风险（静默 15 分钟窗口 / fold 后 full 落盘窗口 / `sessionRefs` 释放）· **代码已进主线，运行实例仍是旧构建 ⇒ 要重启 DSH 才生效** · 全量 **2453 passed / 0 failed**（当次输出，2026-11-09）· K-27 关系行在下一节 |
+| 版本 | **1.19.0**（稳定版，1.18.5 之后，主题是内存）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2453 passed / 0 failed**；gate 当前 **8/9**（handoff live 数据 FAIL 1 / WARN 400，基线同样复现；不是宣称 9/9 全绿） |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**8/8 判分门 + 5 条参考门**。全量 **2158 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**9/9 判分门 + 5 条参考门**。全量 **2453 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
 | 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
@@ -23,12 +24,66 @@
 
 ---
 
+## 🆕 2026-11-09 11:3x · 冷图回收落地：418 MB RSS 在 8 秒内还回系统（**当前这一节**）
+
+**上一节（K-27 关系行）已被本节取代为"最近一次"，内容仍然有效。**
+
+| 项 | 值 |
+|---|---|
+| 合入 | `task/t6-cold-graph @ 4ae0f3c` 已 `--no-ff` 合入（`f3622a7`）；冲突只有 CHANGELOG 编号（分支的 C656 与本线 C656/C657 抢占 ⇒ 重编 **C658**，正文逐字未改）与 9 个文档数字 |
+| 本轮新增 | `scripts/graph-cache-memory.mjs`（只读内存基准，`--top/--all/--soak`）· `evidence/冷图回收-内存实测-2026-11-09.md` · 两份测量原始输出（会话 id 已剥离）· `cold-graph-release` **8 → 13 用例** |
+| 修掉的风险 | ① 活跃性只认 `agent/status` ⇒ 加 `session/event`/`agent/status`/pin 三处标活跃 + **第六判据「静默 15 分钟」**；② fold 后未 full 落盘窗口 ⇒ `#invalidateFullFlush`；③ `sessionRefs` 残留 ⇒ 回收时一并释放；④ 长进程 RSS ⇒ **实测掉**（见下） |
+| 内存实测 | 1592 张 / 222.4 MiB / 17.7 万节点：堆 7.9 → 303.7（**+295.7**）→ **8.2（+0.3）**；RSS 67.8 → 485.9（**+418.1**）→ **67.4（第 8 秒）**；最大 12 张 = +72.2 MB（**6.0 MB/张**，全局均值 190 KB/张） |
+| **更正旧结论** | t6 交接单写「RSS 不会立刻归还」是**只等了一拍**。实测第 8 秒 decommit 就把 418 MB 还回去了 —— 这个功能**真的把内存还给系统**，不只是停止增长 |
+| 复跑 | `node scripts/graph-cache-memory.mjs --home "$DSH_HOME/chess-context" --all --soak 20`（只读，0 模型调用） |
+| **红线** | 代码已进主线，但**运行实例仍是旧构建、live 未生效**；写完"已生效"就是错的。重启由用户在方便时执行（铁律 1：不由我重启） |
+
+---
+
+## 🆕 2026-11-09 10:4x · K-27 渲染消歧 + 同窗配对对照（上一节，内容仍有效）
+
+**上一节「⏸ 2026-11-09 停止交接」是 04:0x 的状态，已被本节取代，留作时间线。**
+
+| 项 | 值 |
+|---|---|
+| 分支 / HEAD | `task/axiom-integration`（本地，未 push；`main` 仍是 `3d3d009`） |
+| 全量 | **2453 passed / 0 skipped / 0 failed**（当次输出，2026-11-09；`node test/run.mjs` 串行） |
+| 门禁 | boundary **0 条** · docs-index **0** · evidence-consistency **25/25** · knowledge-markers **2/2** · lme-relation-coverage **10/10** · lme-relation-ab **6/6** · 用例数 **2030 = 2030** · 文档数字 9 份 / 20 处一致 · privacy `--changed` pass |
+| 本轮新增 | `scripts/lme-relation-render-v4.mjs`（消歧渲染器）· `evidence/lme-task50-v4-status.fixtures.json`（`fd3e0d15…`）· checker **v3**（`4a667ec1…`，双形态 + C19–C22 四条 v4 负例）· `scripts/lme-relation-ab.mjs`（配对裁决）· 预注册（`188fd375…`）· 两份 pilot（`811eb9e4…` / `a7bfa965…`，已剥离逐样本 raw）· 配对报告（`86099548…`）· `evidence/k27-ab-结论-2026-11-09.md` |
+| 未改（冻结） | v1 夹具 `6a68e82b…` · v3 夹具 `9055b1b9…` · v3 渲染器 `306dd46e…` · runner `c035954a…` · grader `d8eaf62e…` · prompt `8ac9aee5…`（v4 走**独立新文件**，因为 v3 的 `note` 里嵌了生成器自身 sha256，改它就毁掉 v3 的逐字节重放） |
+| **结论** | **消歧这一刀有效**：v3 在 KU-01 上 3/3 答状态词 `settled`（稳定地错），v4 改成 `[settled]` 后 3/3 答 `later-ok`。**但 pilot 已饱和**：两臂多数票都是 10/10、逐题**零翻转**，差值只有 30 里的 1 个样本 ⇒ **不能证明「关系行更好」** |
+| 诚实边界 | v1 基线本身在 KU-01 上不稳定（11-08 是 1/3 判红、本次 2/3 判绿）——这正是**同窗对照**不可省的原因；v3 的夹具 / pilot / `BOUNDARY` 全部不变，**未回溯重判** |
+| 下一刀 | 要裁决必须上 **50 题 formal**，而它强制先二选一：① 授权 6 条位置推导（MR-03@224 / MR-07@264 / MR-09@282 / TR-06@454 / TR-07@474 / MR-04@234）；② 分层报告（字面关系行题 vs 位置推导题）。**两条都要主人拍板** |
+| 冷图 | 已由 `f3622a7` 合入、风险由 C659/C661 补掉；**live 仍未生效**（运行实例是旧构建） |
+| 引用红线（不变） | 不得写「关系行有效 / 质量提升」；不得写「冷图已合入」；不得写「50/50 通过」（formal 仍 NOT_RUN） |
+
+**复跑（全部 0 模型调用；不要再跑 `--run`，120 次预算已用尽）**：见 `evidence/k27-ab-结论-2026-11-09.md` §6。
+
+---
+
+## ⏸ 2026-11-09 04:0x 停止交接（**已被上一节取代，留作时间线**）
+
+**用户已明确要求停止本轮推进。** 不再启动实验、合并或长测试；下面是停止时的真实状态，不是“全部完成”。
+
+- 当前主集成：本工作树 · `task/axiom-integration` · **`6f9202f`**（交接文档提交前）；未 push、未合 main（main `3d3d009`）。
+- 已复核：关系行 checker v2、60 调用对照、BOUNDARY 更正、TR v5cmp-en、约束/省略保真；最近全量 **2431/0**、boundary 0、privacy 0/0、docs-index 0。
+- K-27 关系行：full **10/10**、compact **9/10**，正确档 **BOUNDARY**；KU-01 compact 3/3 答成 `settled`，正确值 `later-ok`。formal **NOT_RUN**，裁决 **NOT_ADOPTED**，`factGuard` 默认关闭。
+- K-27 v5cmp-en：TR 两臂 2/2，整体 compact 9/10、Δ−10%，仍 **NOT_ADOPTED**。
+- 图缓存修复分支 `task/t6-cold-graph`（`4ae0f3c`）已独立复核：91 断言、12 组变异、分支全量 **2439/0** 通过；**按用户停止指令未合入 integration，live 未生效**。后续风险：未收到 `agent/status` 的活跃会话可能被 idle 扫回收、维护缝 fold 后 full flush 前标量记账、sessionRefs 仍留引用、长进程 RSS 未验。原草稿在 `<local-projects>/gokifu-t5-cold-graph`，保留不删。
+- 647 MB 是棋谱磁盘量，不是全常驻；三张巨型图实测累计约 48 MB RSS / 35 MB heap。插件 `graphs` 无释放是本轮已查明问题，宿主会话缓存需另核，不能全算给插件。
+- 停止前的 handoff 快照淘汰检查另有边界红：磁盘 fold 数超过保留上限时现有判据可能误报；不刷新证据掩盖，不在本轮扩修。
+- 运行实例可能仍是旧构建；用 `node scripts/post-restart-check.mjs` 当次输出判断，不凭源码测试宣称已接管。
+
+**完整交接与复跑命令：[`evidence/归档收尾-验证单-2026-11-09.md`](./evidence/归档收尾-验证单-2026-11-09.md)。**
+
+---
+
 ## 🔁 每轮命令（改完代码 / 加完 CHANGELOG 就按顺序跑）
 
 ```bash
 node scripts/add-changelog.mjs …            # 加条目（只认 `### C<n> · 标题` 形状）
 node test/run.mjs                           # 全量测试（**必须串行**：并发会抢 test/.harness ⇒ 假红）
-npm run gate                                # 7 判分门；跑完把实测 passed 回写 test/counts-baseline.json
+npm run gate                                # 9 判分门；跑完把实测 passed 回写 test/counts-baseline.json
 node scripts/sync-doc-numbers.mjs --write   # 把文档里的手写计数改成权威值（**9 份文档 / 20 处锚点**一次改完）
 node scripts/sync-doc-numbers.mjs --check   # 应当 exit 0；不 0 就是还有人手抄了数字（会点名 文件:行号）
 ```

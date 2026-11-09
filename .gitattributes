@@ -1,0 +1,20 @@
+# 冻结证据脚本：按字节冻结（sha256 见 evidence/lme-task50-v3-relation.fixtures.json 的 note
+# 与 tmp/k27-relation-v3/REPORT.md）。交付时的实测字节是 CRLF；仓库全局 core.autocrlf=input
+# 会把它们归一化成 LF，导致「干净 checkout 上的冻结哈希」与交付哈希不一致。
+# 这里只对这两个文件关闭 EOL 转换 —— 不要顺手删掉，否则 RL-1 冻结字节用例会在新 checkout 上红。
+scripts/lme-relation-render.mjs -text
+scripts/lme-relation-coverage.mjs -text
+
+# 冻结证据（K-27 同窗配对对照，2026-11-09）：预注册与两份 pilot 的 sha256 被写进
+# 配对报告与 CHANGELOG/HANDOFF。全局 core.autocrlf=input 会把 CRLF 归一化成 LF，
+# 让「干净 checkout 上的哈希」与交付哈希不一致 —— 与上面两条同一理由，关闭 EOL 转换。
+evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json -text
+evidence/lme-pilot-reader-ab-v1-2026-11-09.json -text
+evidence/lme-pilot-reader-ab-v4-2026-11-09.json -text
+
+# AX-03 冻结预注册 / 夹具（K2-13、K2H 系列用例的只读对照）：按字节冻结 —— 上面的
+# rawBytesSha256 就写在这两个文件自己以及 hash-manifest.json 里，EOL 转换会直接判红。
+# 它们原来只在 tmp/（git 忽略），导致干净 checkout 上 K2-13 直接 ENOENT、K2H 全部 skip。
+test/fixtures/ax03/prereg.json -text
+test/fixtures/ax03/fixtures.json -text
+test/fixtures/ax03/hash-manifest.json -text

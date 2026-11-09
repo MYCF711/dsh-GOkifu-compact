@@ -1,0 +1,163 @@
+{
+  "schema": "lme-reader-prereg-v2",
+  "status": "FROZEN_NOT_RUN",
+  "frozenAt": "2026-11-09T10:23:01+08:00",
+  "frozenOn": "integration task/axiom-integration @ fc4a20e + v4 夹具（2026-11-09T10:19:13+08:00 生成）+ checker v3；本文件在第一次真实调用之前冻结",
+  "experimentId": "k27-relation-ab-v1v4-1",
+  "title": "K-27 关系行「渲染消歧」同窗配对对照预注册（v1 现行基线 vs v4 消歧；120 调用硬上限）",
+
+  "why": "上一轮 v3 关系行 pilot 与历史 v1 pilot 并排看：两臂都是 full 10/10、compact 9/10，唯一错题都是 KU-01；但**样本形态不同** —— v1 compact 是 UNKNOWN / retained / later-ok（1/3 对，不稳定），v3 compact 是 settled ×3（0/3 对，稳定地错）。也就是说：关系行在 9 道题上零差异，在 KU-01 上把『不稳定』变成了『稳定地错』，而那个错答案正好等于 v3 行里 status=<词> 的值。两次运行相隔一天、不在同窗，所以『差一格』既可能是渲染引起的，也可能是环境漂移。本预注册用**同一次窗口、同一 prompt、同一模型、同一 runner** 跑 v1 与 v4 两份夹具，把这条差异做成可归因的配对对照。",
+
+  "hypothesis": {
+    "H1": "v4 把状态从 `status=<词>` 的值位改成行尾方括号 `[<词>]` 后，KU-01 compact 不再把状态词当答案（样本多数不再是 settled）。",
+    "H0": "改书写形态无效 —— 说明干扰源是状态词本身（它可以被逐字 span 规则合法输出），不是 key=value 形态。",
+    "decisionRuleNote": "预注册的判别规则见 decisionBands；H1 成立 ≠ 关系行有效，只说明「消歧这一刀有效、值得进 50 题 formal」。"
+  },
+
+  "design": {
+    "runner": "scripts/lme-pilot-reader.mjs（**冻结不修改**；`--run --write`）",
+    "runnerSha256": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "whySameRunner": "两份夹具喂同一个冻结 runner，才能保证 prompt / temperature / max_tokens / 归一化 / 多数票口径完全一致；本轮**不**改 runner 为三臂，改用「同一 runner 跑两遍」的等价形式。",
+    "fixtures": {
+      "control": {
+        "role": "v1 现行基线（两行 checkpoint/hot 投影）",
+        "path": "evidence/lme-task50.fixtures.json",
+        "sha256": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082"
+      },
+      "treatment": {
+        "role": "v4 消歧（状态改成行尾方括号标签，其余字节与 v3 相同）",
+        "path": "evidence/lme-task50-v4-status.fixtures.json",
+        "sha256": "fd3e0d15f4bd499ed2415788fbef297786f3b506f7982720e2bdb6aa1e0ad644"
+      }
+    },
+    "fullContextIdentical": "两份夹具的 fullContext 逐字相同（v1↔v4 唯一差别在 compactContext），因此 full 臂构成**同一上下文的两次独立测量**，可当运行稳定性对照。",
+    "arms": ["full", "compact"],
+    "selection": "first 2 per type in frozen fixture order（runner 内 selectPilot，与既有 pilot 完全同规则）",
+    "selectedQuestions": ["IE-01", "IE-02", "MR-01", "MR-02", "KU-01", "KU-02", "TR-01", "TR-02", "ABS-01", "ABS-02"],
+    "samplesPerArm": 3,
+    "logicalLinesPerRun": 20,
+    "callsPerRun": 60,
+    "runs": 2,
+    "plannedCalls": 120,
+    "hardCallCap": 120,
+    "retries": 0,
+    "retrySemantics": "任何一次调用失败（非 2xx / 超时 / 解析失败）即该轮作废并按失败记录，不重试、不补样、不换样本；作废后不得用剩余预算补跑另一轮以外的任何东西。",
+    "runOrder": ["control", "treatment"],
+    "runOrderWhy": "先对照后处理；顺序在调用前固定，不许看第一轮结果决定是否跑第二轮。",
+    "commands": {
+      "control": "LME_READER_VARIANT=v5cmp-en LME_READER_SAMPLES=3 LME_PILOT_FIXTURES=evidence/lme-task50.fixtures.json LME_PILOT_OUT=evidence/lme-pilot-reader-ab-v1-2026-11-09.json node scripts/lme-pilot-reader.mjs --run --write",
+      "treatment": "LME_READER_VARIANT=v5cmp-en LME_READER_SAMPLES=3 LME_PILOT_FIXTURES=evidence/lme-task50-v4-status.fixtures.json LME_PILOT_OUT=evidence/lme-pilot-reader-ab-v4-2026-11-09.json node scripts/lme-pilot-reader.mjs --run --write"
+    },
+    "aggregation": "每轮按 runner 既有口径：3 个样本先 normalizeReaderAnswer，再取多数票；平票取第 1 个样本。配对比较用 scripts/lme-relation-ab.mjs，逐题按 id 对齐。",
+    "grading": "scripts/lme-task50.mjs 的既有 grader（exact / set / ordered / UNKNOWN），aliases 为空"
+  },
+
+  "reader": {
+    "model": "deepseek-v4.1-flash-1017",
+    "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+    "variant": "v5cmp-en",
+    "promptSha256": "8ac9aee5cf426f7482abb581c78f45b9282f60b57f655f6ba042d63dd408a08f",
+    "promptChars": 662,
+    "postprocess": "none",
+    "temperature": 0,
+    "maxTokens": 2048,
+    "stream": false,
+    "timeoutMs": 120000,
+    "endpointProbe": "先 curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3425/v1/models，必须 200；探活不计入 120 次预算"
+  },
+
+  "budget": {
+    "unit": "chat/completions 调用次数",
+    "hardCap": 120,
+    "planned": 120,
+    "spentBeforeRun": 0,
+    "onFailure": "该轮整轮作废并如实记录；不重试、不追加、不改样本",
+    "costNote": "参照上一轮 60 调用实测 input 13839 / output 7170 tok；两轮合计约 28k in / 15k out，按本机网关计价属分币级，但仍以当次 usage 落盘为准"
+  },
+
+  "validityGate": {
+    "rule": "两轮的 full 臂各自都必须同时满足：① 30/30 样本判分正确；② 10/10 逻辑题多数票正确。两轮都过才进入比较。",
+    "onFail": "整轮判 INVALID：只报告 full 臂的失效情况与两轮 full 的逐题对照，不解读 compact 臂的任何差异。",
+    "why": "fullContext 在两份夹具里逐字相同；任一 run 的 full 掉分都说明模型/端点/prompt 或环境变了，此时 compact 的差异不可归因。"
+  },
+
+  "decisionBands": {
+    "note": "只决定「这一刀要不要继续投」，不构成质量门、不改变任何既有阈值、不触发默认开启。10 题 pilot 的 +1/−1 本来就在噪声量级，因此**多数票差 1 题不足以判 POSITIVE**，必须同时看样本级。",
+    "INVALID": "任一轮 full 门未过 → 只报告，不解读 compact。",
+    "NEGATIVE_SIGNAL": "treatment 的 compact 多数票正确数 < control；或存在任一题 control 多对而 treatment 多错（回归）。",
+    "POSITIVE_SIGNAL": "treatment 多数票 ≥ control，且 treatment 的 compact 样本级正确数 > control 的，且无任何题从多对变多错。",
+    "NO_DIFFERENCE": "两轮多数票相同、样本级相同、无任何题翻转。",
+    "NOT_DECIDED": "其余（多数票相同但样本级有差、且无回归）—— 方向不明，不加样本、不换 prompt，只记录。",
+    "explicitlyNot": "不是 K-27 formal 50/50 的通过/否决，不是「关系行有效」的因果证明，不授权修改默认值。"
+  },
+
+  "preRegisteredContingency": {
+    "ifH1NotSupported": "若 treatment 的 KU-01 compact 仍有多数样本输出状态词（settled / superseded / current / candidate / residue / untested / right-censored 之一），则结论记为「干扰源是状态词本身，不是 key=value 形态」；下一步只能做 v5「值行不带状态词」（不在本预注册内，需另写预注册）。",
+    "why": "把「改形态失败」的解释空间在跑之前就封住，避免跑完再编故事。"
+  },
+
+  "reporting": {
+    "perQuestion": "10 题 × 2 臂 × 2 轮的票型与多数票结果，按 id 并排",
+    "bands": "stable-correct = 3/3；boundary = 1–2/3；stable-wrong = 0/3",
+    "perType": "五类各 2 题（6 样本/类），只报计数与票型",
+    "abstention": "ABS-01/02 的 UNKNOWN 票数单列；编造答案单独点名",
+    "cost": "两轮各自的 compact 字符数、调用数、usage、延迟",
+    "reference": "与历史 v5cmp-en v1 pilot（2026-11-08）和 v3 关系行 pilot（2026-11-09）并排展示；两次历史 run 不重跑、不回溯重判"
+  },
+
+  "frozenInputs": {
+    "v1Fixture": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
+    "v3Fixture": "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
+    "v4Fixture": "fd3e0d15f4bd499ed2415788fbef297786f3b506f7982720e2bdb6aa1e0ad644",
+    "rendererV3": "306dd46eb7ba43731c3846a9a7d7ff32fbc9d80a3cf937dd91da610a3b64d3f9",
+    "rendererV4": "9c8fe134f8c212db48562ad1a7ba4f11d65761094e120883b8b3ae98699425f1",
+    "checkerV3": "4a667ec1c8d13ef1e201c31cdfbc5c5c51701624b6eabcef578962869c55e3d0",
+    "grader": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "runner": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "prompt": "8ac9aee5cf426f7482abb581c78f45b9282f60b57f655f6ba042d63dd408a08f"
+  },
+
+  "unchanged": [
+    "题面 / 答案 / evidenceSeqs / grader / applicability / fullContext（v1 / v3 / v4 三份夹具逐字相同）",
+    "lme-task50 的既有阈值常量（total/perType/compactAccuracy/deltaTask/typeCompactAccuracy/typeDeltaTask/absUnknown/minFailureOrUpdate）",
+    "reader prompt（v5cmp-en，662 字符）与 runner 字节",
+    "模型 / 端点 / temperature / max_tokens / stream / 超时",
+    "aliases 为空（不得用别名把状态词或中文前后当等价答案）",
+    "既有 pilot / formal / v2 别名 run 的历史证据（不重跑、不回溯重判）"
+  ],
+
+  "forbidden": [
+    "改题面 / 答案 / evidenceSeqs / grader / 阈值 / prompt / runner",
+    "加 alias、加 token patch、把状态词当值",
+    "重试 / 补样 / 换样本 / 超预算调用",
+    "看第一轮结果决定是否跑第二轮",
+    "把本轮结果说成 50/50 formal 通过或质量门",
+    "默认开启关系行渲染",
+    "公开逐样本 raw 模型输出"
+  ],
+
+  "positionalDerivations": {
+    "count": 6,
+    "inThisPilot": 0,
+    "approval": "REQUIRES_CAPTAIN_APPROVAL_BEFORE_50Q",
+    "note": "pilot 选样为每类前 2 题，0/6 落在推导行；扩到 50 题前必须授权或分层报告（本预注册不含 50 题）"
+  },
+
+  "approval": {
+    "status": "AUTHORIZED",
+    "approvedBy": "captain",
+    "scope": "single-run-pair",
+    "runsAuthorized": 2,
+    "runsUsed": 0,
+    "modelCalls": 120,
+    "retries": 0,
+    "note": "队长在本轮明确授权同窗配对两轮（control + treatment），仅在两轮都按顺序执行完时有效；任何重试或补跑都会作废本授权。"
+  },
+
+  "preservedStatus": {
+    "formal5050": "NOT_RUN",
+    "verdict": "NOT_ADOPTED",
+    "relationFixture": "FROZEN_NOT_RUN",
+    "defaultOn": false
+  }
+}

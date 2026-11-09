@@ -193,8 +193,9 @@ async function loadMutant() {
   const fixed = "looksTruncated(bigger, retryBudget)";
   if (!src.includes(fixed)) throw new Error(`变异点没找到（调用点改了？）—— 这条自检必须跟着改：${fixed}`);
   const mutated = src
-    .replace('from "./kifu-model.mjs"', `from ${JSON.stringify(kifuUrl)}`)
-    .replace('from "./fold-quality.mjs"', `from ${JSON.stringify(qualityUrl)}`)
+    // AX-07：offline-fold 新增了多个相对 import（fact-guard / tool-value-facts / verify）；
+    // 副本必须把**所有** ./x.mjs 改写成绝对 file:// URL，否则新增依赖后副本加载失败。
+    .replace(/from "(\.\/[a-z0-9-]+\.mjs)"/g, (_m, rel) => `from ${JSON.stringify(pathToFileURL(nodePath.join(ROOT, "src", "rooms", rel)).href)}`)
     .replace(fixed, "looksTruncated(bigger, budget)");
   if (mutated === src) throw new Error("变异没生效 —— 自检会变成假绿");
   const file = nodePath.join(TMP, "offline-fold-mutant.mjs");

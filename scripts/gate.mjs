@@ -34,6 +34,30 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 export const GATES = Object.freeze([
   { id: "privacy", name: "新增改动无敏感信息（--changed）", script: "privacy-audit.mjs", args: ["--changed"], expect: /✅ privacy-audit changed: pass/ },
   { id: "boundary", name: "越权审计 0 条", script: "boundary-audit.mjs", expect: /越界线索 0 条/ },
+  {
+    id: "k2-hash",
+    name: "AX-03 双哈希口径（prereg / fixtures / sidecar）",
+    script: "k2-hash-check.mjs",
+    // ★ GH1（2026-11-08）：**门禁模式**，不是兼容模式 —— 三种「没东西可查」都不许变成绿：
+    //   · `--require-source`：源码 QUESTIONS/buildPrereg 加载失败 ⇒ C07/C10 红（H3-O2），不许 skip 冒充通过；
+    //   · `--require-manifest`：sidecar 缺失 ⇒ M00 红（G2-F2）—— v1 冻结产物按设计没有 sidecar，
+    //     这正是要它红的那种情况；sidecar 存在时 M01–M13 逐项校验声明的双哈希口径；
+    //   · 冻结产物本身缺失（`tmp/` 是 git 忽略的私有产物，干净 checkout 上必然没有）⇒ 脚本以
+    //     `✗ 文件不存在：…` + 退出码 2 结束，**判据不命中 ⇒ 门禁红**，并在失败块里贴出缺哪个文件。
+    //   判据取汇总行 `== PASS（N checks: P pass, F fail, S skip）==`：verdict 必须是 PASS，
+    //   且 fail 与 skip 都必须是 0 —— 只认退出码 0 的话，「全 skip 但没报错」会被当成绿。
+    args: ["--require-source", "--require-manifest"],
+    expect: (out) => {
+      const m = /== (PASS|FAIL)（(\d+) checks: (\d+) pass, (\d+) fail, (\d+) skip）==/.exec(String(out ?? ""));
+      if (m === null) return { ok: false, note: "输出里没有汇总行（产物缺失 / 判据消失？）" };
+      const [, verdict, total, pass, fail, skip] = m;
+      const ok = verdict === "PASS" && Number(fail) === 0 && Number(skip) === 0 && Number(pass) === Number(total) && Number(total) > 0;
+      return {
+        ok,
+        note: ok === true ? `${total} checks 全 pass（源码 + sidecar 口径都在）` : `${verdict}：${pass}/${total} pass, ${fail} fail, ${skip} skip`,
+      };
+    },
+  },
   { id: "docs-index", name: "文档都登记在索引里", script: "docs-index-check.mjs", expect: /未索引文档 0 个/ },
   { id: "changelog-index", name: "CHANGELOG 索引与正文一致", script: "changelog-index.mjs", args: ["--check"], expect: /一致|索引/ },
   {

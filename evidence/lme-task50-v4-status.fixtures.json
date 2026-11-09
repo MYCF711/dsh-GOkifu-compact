@@ -1,0 +1,733 @@
+{
+  "schema": "lme-task50-fixtures-v1",
+  "frozen": true,
+  "note": "K-27 v4 关系行夹具（渲染消歧版）：只在 v3 冻结夹具基础上把状态的**书写形态**从 `status=<词>` 改成行尾方括号 `[<词>]`，其余字节（主体 / 证据 seq / current / old / 附加字段 / 行序 / 行数）与 v3 逐字相同；状态词表与旧值标旧规则未变。题面、答案、evidenceSeqs、grader、applicability、fullContext 与 evidence/lme-task50.fixtures.json 逐字一致；v1 与 v3 文件本身未改字节。aliases 保持空（不得用别名把状态词或中文前后当等价答案）。为什么改形态：v3 pilot 的 KU-01 compact 3/3 样本答成状态词 settled（金标准 later-ok）—— status 占值位与题面的「状态」同义对冲。生成器 scripts/lme-relation-render-v4.mjs sha256=9c8fe134f8c212db48562ad1a7ba4f11d65761094e120883b8b3ae98699425f1；上游 v3 渲染器 scripts/lme-relation-render.mjs 未改。",
+  "questions": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "question": "根目标对应的节点 id 是什么？",
+      "answer": "n-ie01-root",
+      "evidenceSeqs": [
+        101,
+        103
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=101 root=n-ie01-root goal=repair-fold\nseq=102 [archive-only] transient=initial-tool-output\nseq=103 verified root=n-ie01-root",
+      "compactContext": "seq=103 n-ie01-root current=n-ie01-root [settled]"
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "question": "哪条边因 schema-mismatch 失败？",
+      "answer": "e-ie02-parse",
+      "evidenceSeqs": [
+        111
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=110 root=n-ie02-root\nseq=111 edge=e-ie02-parse result=failed reason=schema-mismatch\nseq=112 [archive-only] payload=discarded-after-classification",
+      "compactContext": "seq=111 e-ie02-parse current=e-ie02-parse [failed] reason=schema-mismatch"
+    },
+    {
+      "id": "IE-03",
+      "type": "IE",
+      "question": "边 e-ie03-write 的已记录失败原因是什么？",
+      "answer": "checksum-mismatch",
+      "evidenceSeqs": [
+        122
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=120 root=n-ie03-root\nseq=121 [archive-only] raw-checksum=withheld\nseq=122 edge=e-ie03-write result=failed reason=checksum-mismatch",
+      "compactContext": "seq=122 e-ie03-write current=checksum-mismatch [failed]"
+    },
+    {
+      "id": "IE-04",
+      "type": "IE",
+      "question": "已验证必须保持不变的约束标记是什么？",
+      "answer": "keep-ledger-byte-stable",
+      "evidenceSeqs": [
+        131,
+        133
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=131 constraint=keep-ledger-byte-stable\nseq=132 [archive-only] previous-rendering=archived\nseq=133 verified constraint=keep-ledger-byte-stable",
+      "compactContext": "seq=133 constraint current=keep-ledger-byte-stable [settled]"
+    },
+    {
+      "id": "IE-05",
+      "type": "IE",
+      "question": "当前停点节点 id 是什么？",
+      "answer": "n-ie05-stop",
+      "evidenceSeqs": [
+        143
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=140 root=n-ie05-root\nseq=141 [archive-only] intermediate=n-ie05-temp\nseq=142 edge=e-ie05-stop result=failed\nseq=143 current=n-ie05-stop",
+      "compactContext": "seq=143 n-ie05-stop current=n-ie05-stop [current]"
+    },
+    {
+      "id": "IE-06",
+      "type": "IE",
+      "question": "已结算且仍失败的两条边 id 是哪些？",
+      "answer": [
+        "e-ie06-a",
+        "e-ie06-b"
+      ],
+      "evidenceSeqs": [
+        151,
+        152
+      ],
+      "grader": "set",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=150 root=n-ie06-root\nseq=151 edge=e-ie06-a result=failed\nseq=152 edge=e-ie06-b result=failed\nseq=153 [archive-only] retry-log=omitted",
+      "compactContext": "seq=151 e-ie06-a current=e-ie06-a [failed]\nseq=152 e-ie06-b current=e-ie06-b [failed]"
+    },
+    {
+      "id": "IE-07",
+      "type": "IE",
+      "question": "哪条成功路径的终点节点已验证？",
+      "answer": "n-ie07-ok",
+      "evidenceSeqs": [
+        162
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=160 edge=e-ie07-old result=failed\nseq=161 [archive-only] failed-output=archived\nseq=162 edge=e-ie07-new result=later-ok to=n-ie07-ok",
+      "compactContext": "seq=162 n-ie07-ok current=n-ie07-ok [settled] edge=e-ie07-new"
+    },
+    {
+      "id": "IE-08",
+      "type": "IE",
+      "question": "该无失败片段中已记录的失败边集合是什么？",
+      "answer": "none",
+      "evidenceSeqs": [
+        171,
+        172
+      ],
+      "grader": "exact",
+      "applicability": "task-process/empty",
+      "fullContext": "seq=170 root=n-ie08-root\nseq=171 edge=e-ie08-a result=later-ok\nseq=172 failed-set=none\nseq=173 [archive-only] raw-success-output=archived",
+      "compactContext": "seq=172 failed-set current=none [settled]"
+    },
+    {
+      "id": "IE-09",
+      "type": "IE",
+      "question": "根事件给出的逐字约束标记是什么？",
+      "answer": "preserve-failed-edges",
+      "evidenceSeqs": [
+        181
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=180 root=n-ie09-root\nseq=181 constraint=preserve-failed-edges\nseq=182 edge=e-ie09-a result=failed\nseq=183 [archive-only] verbose-diff=archived",
+      "compactContext": "seq=181 constraint current=preserve-failed-edges [current]"
+    },
+    {
+      "id": "IE-10",
+      "type": "IE",
+      "question": "最新 checkpoint 的 fold id 是什么？",
+      "answer": "fold-2",
+      "evidenceSeqs": [
+        193
+      ],
+      "grader": "exact",
+      "applicability": "task-process/multi-fold",
+      "fullContext": "seq=190 checkpoint=fold-1\nseq=191 [archive-only] fold-1-raw-events=archived\nseq=192 edge=e-ie10-a result=later-ok\nseq=193 checkpoint=fold-2",
+      "compactContext": "seq=193 fold-2 current=fold-2 [current]"
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "question": "跨两个 fold 形成成功路径的两条边，按先后排列是什么？",
+      "answer": [
+        "e-mr01-a",
+        "e-mr01-b"
+      ],
+      "evidenceSeqs": [
+        201,
+        204
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=200 checkpoint=fold-1\nseq=201 edge=e-mr01-a result=later-ok\nseq=202 [archive-only] fold-1-attempt=e-mr01-failed\nseq=203 checkpoint=fold-2\nseq=204 edge=e-mr01-b result=later-ok",
+      "compactContext": "seq=201 e-mr01-a current=later-ok [settled]\nseq=204 e-mr01-b current=later-ok [settled]"
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "question": "两个 fold 中最终标为 later-ok 的边 id 有哪些？",
+      "answer": [
+        "e-mr02-a",
+        "e-mr02-c"
+      ],
+      "evidenceSeqs": [
+        212,
+        215
+      ],
+      "grader": "set",
+      "applicability": "task-process/update",
+      "fullContext": "seq=211 edge=e-mr02-a result=failed\nseq=212 edge=e-mr02-a result=later-ok\nseq=213 [archive-only] intermediate-fold=fold-1\nseq=214 edge=e-mr02-b result=failed\nseq=215 edge=e-mr02-c result=later-ok",
+      "compactContext": "seq=212 e-mr02-a current=later-ok [settled]\nseq=211 e-mr02-a old=failed [superseded]\nseq=215 e-mr02-c current=later-ok [settled]"
+    },
+    {
+      "id": "MR-03",
+      "type": "MR",
+      "question": "fold-1 失败而 fold-2 验证成功的验证结果属于哪个 fold？",
+      "answer": "fold-2",
+      "evidenceSeqs": [
+        221,
+        224
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=220 checkpoint=fold-1\nseq=221 verify=failed edge=e-mr03-a\nseq=222 [archive-only] verifier-output=archived\nseq=223 checkpoint=fold-2\nseq=224 verify=later-ok edge=e-mr03-a",
+      "compactContext": "seq=224 checkpoint current=fold-2 [current] verify=later-ok edge=e-mr03-a"
+    },
+    {
+      "id": "MR-04",
+      "type": "MR",
+      "question": "两个 fold 合计有多少条不同的已结算失败边？",
+      "answer": "3",
+      "evidenceSeqs": [
+        231,
+        232,
+        234
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=230 checkpoint=fold-1\nseq=231 failed=e-mr04-a\nseq=232 failed=e-mr04-b\nseq=233 [archive-only] duplicate-attempt=e-mr04-a\nseq=234 failed=e-mr04-c checkpoint=fold-2",
+      "compactContext": "seq=234 failed current=3 [settled] checkpoint=fold-2 count=failed-edges counted=e-mr04-a,e-mr04-b,e-mr04-c"
+    },
+    {
+      "id": "MR-05",
+      "type": "MR",
+      "question": "两个 fold 都要求保留的约束标记有哪些？",
+      "answer": [
+        "keep-failures",
+        "keep-root"
+      ],
+      "evidenceSeqs": [
+        241,
+        244
+      ],
+      "grader": "set",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=240 checkpoint=fold-1\nseq=241 constraints=keep-failures,keep-root\nseq=242 [archive-only] local-draft=drop-nothing\nseq=243 checkpoint=fold-2\nseq=244 constraints=keep-root,keep-failures",
+      "compactContext": "seq=244 constraints current=keep-failures [current]\nseq=244 constraints current=keep-root [current]"
+    },
+    {
+      "id": "MR-06",
+      "type": "MR",
+      "question": "成功路径经过的验证节点按时间顺序是什么？",
+      "answer": [
+        "n-mr06-mid",
+        "n-mr06-end"
+      ],
+      "evidenceSeqs": [
+        252,
+        255
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=250 root=n-mr06-root\nseq=251 failed=e-mr06-old\nseq=252 verified=n-mr06-mid\nseq=253 [archive-only] alternate-path=pruned\nseq=254 checkpoint=fold-2\nseq=255 verified=n-mr06-end",
+      "compactContext": "seq=252 n-mr06-mid current=n-mr06-mid [settled]\nseq=255 n-mr06-end current=n-mr06-end [settled]"
+    },
+    {
+      "id": "MR-07",
+      "type": "MR",
+      "question": "第一次出现已验证成功的是哪个 fold？",
+      "answer": "fold-2",
+      "evidenceSeqs": [
+        261,
+        264
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=260 checkpoint=fold-1\nseq=261 verify=failed\nseq=262 [archive-only] retry-output=withheld\nseq=263 checkpoint=fold-2\nseq=264 verify=later-ok",
+      "compactContext": "seq=264 checkpoint current=fold-2 [current] verify=later-ok"
+    },
+    {
+      "id": "MR-08",
+      "type": "MR",
+      "question": "两个 fold 中仍为 candidate 的边 id 有哪些？",
+      "answer": [
+        "e-mr08-a",
+        "e-mr08-b"
+      ],
+      "evidenceSeqs": [
+        272,
+        274
+      ],
+      "grader": "set",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=270 checkpoint=fold-1\nseq=271 [archive-only] raw-proposal=e-mr08-x\nseq=272 edge=e-mr08-a result=untested age=old class=candidate\nseq=273 checkpoint=fold-2\nseq=274 edge=e-mr08-b result=untested age=old class=candidate",
+      "compactContext": "seq=272 e-mr08-a current=candidate [candidate]\nseq=274 e-mr08-b current=candidate [candidate]"
+    },
+    {
+      "id": "MR-09",
+      "type": "MR",
+      "question": "已结算 residue 出现在哪个 fold？",
+      "answer": "fold-1",
+      "evidenceSeqs": [
+        282,
+        285
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=280 checkpoint=fold-1\nseq=281 [archive-only] residue-raw-output=archived\nseq=282 edge=e-mr09-old class=residue result=failed\nseq=283 checkpoint=fold-2\nseq=284 edge=e-mr09-new result=later-ok\nseq=285 residue-count=0",
+      "compactContext": "seq=282 checkpoint current=fold-1 [current] edge=e-mr09-old class=residue result=failed"
+    },
+    {
+      "id": "MR-10",
+      "type": "MR",
+      "question": "跨 fold 成功路径包含几条边？",
+      "answer": "2",
+      "evidenceSeqs": [
+        292,
+        295
+      ],
+      "grader": "exact",
+      "applicability": "task-process/multi-fold",
+      "fullContext": "seq=290 checkpoint=fold-1\nseq=291 [archive-only] unsuccessful=e-mr10-x\nseq=292 success=e-mr10-a\nseq=293 checkpoint=fold-2\nseq=294 failed=e-mr10-y\nseq=295 success=e-mr10-b path-length=2",
+      "compactContext": "seq=295 path-length current=2 [settled] success=e-mr10-b"
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "question": "e-ku01-a 的最新结算状态是什么？",
+      "answer": "later-ok",
+      "evidenceSeqs": [
+        301,
+        303
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=300 root=n-ku01-root\nseq=301 edge=e-ku01-a result=failed\nseq=302 [archive-only] first-verifier-log=archived\nseq=303 edge=e-ku01-a result=later-ok",
+      "compactContext": "seq=303 e-ku01-a current=later-ok [settled]\nseq=301 e-ku01-a old=failed [superseded]"
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "question": "新约束生效后，当前 retain 数值是什么？",
+      "answer": "retain-20",
+      "evidenceSeqs": [
+        311,
+        313
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=310 root=n-ku02-root\nseq=311 constraint=retain-10\nseq=312 [archive-only] intermediate=retain-15\nseq=313 constraint=retain-20 supersedes=retain-10",
+      "compactContext": "seq=313 constraint current=retain-20 [current]\nseq=311 constraint old=retain-10 [superseded]"
+    },
+    {
+      "id": "KU-03",
+      "type": "KU",
+      "question": "陈旧但 untested 的 e-ku03-a 当前分类是什么？",
+      "answer": "candidate",
+      "evidenceSeqs": [
+        322
+      ],
+      "grader": "exact",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=320 root=n-ku03-root\nseq=321 [archive-only] proposal-log=archived\nseq=322 edge=e-ku03-a result=untested age=old class=candidate",
+      "compactContext": "seq=322 e-ku03-a current=candidate [candidate]"
+    },
+    {
+      "id": "KU-04",
+      "type": "KU",
+      "question": "已结算且陈旧的 e-ku04-a 当前分类是什么？",
+      "answer": "residue",
+      "evidenceSeqs": [
+        332
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=330 root=n-ku04-root\nseq=331 [archive-only] failed-output=archived\nseq=332 edge=e-ku04-a result=failed age=old class=residue",
+      "compactContext": "seq=332 e-ku04-a current=residue [residue]"
+    },
+    {
+      "id": "KU-05",
+      "type": "KU",
+      "question": "哪条旧边已被 e-ku05-new 取代？",
+      "answer": "e-ku05-old",
+      "evidenceSeqs": [
+        341,
+        343
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=340 root=n-ku05-root\nseq=341 edge=e-ku05-old result=failed\nseq=342 [archive-only] abandoned-output=archived\nseq=343 edge=e-ku05-new result=later-ok supersedes=e-ku05-old",
+      "compactContext": "seq=343 e-ku05-old current=e-ku05-old [superseded] superseded-by=e-ku05-new\nseq=343 e-ku05-new current=later-ok [settled]\nseq=341 e-ku05-old old=failed [superseded]"
+    },
+    {
+      "id": "KU-06",
+      "type": "KU",
+      "question": "状态更新后当前续接节点是什么？",
+      "answer": "n-ku06-new",
+      "evidenceSeqs": [
+        351,
+        353
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=350 current=n-ku06-old\nseq=351 edge=e-ku06-a result=failed\nseq=352 [archive-only] old-node-state=archived\nseq=353 current=n-ku06-new via=e-ku06-b result=later-ok",
+      "compactContext": "seq=353 n-ku06-new current=n-ku06-new [current] via=e-ku06-b"
+    },
+    {
+      "id": "KU-07",
+      "type": "KU",
+      "question": "哪些先前失败边后来被 later-ok 修正？",
+      "answer": [
+        "e-ku07-a",
+        "e-ku07-b"
+      ],
+      "evidenceSeqs": [
+        361,
+        363,
+        364
+      ],
+      "grader": "set",
+      "applicability": "task-process/update",
+      "fullContext": "seq=360 failed=e-ku07-a,e-ku07-b\nseq=361 later-ok=e-ku07-a\nseq=362 [archive-only] failed=e-ku07-c\nseq=363 later-ok=e-ku07-b\nseq=364 failed=e-ku07-c remains=true",
+      "compactContext": "seq=361 e-ku07-a current=later-ok [settled]\nseq=360 e-ku07-a old=failed [superseded]\nseq=363 e-ku07-b current=later-ok [settled]\nseq=360 e-ku07-b old=failed [superseded]"
+    },
+    {
+      "id": "KU-08",
+      "type": "KU",
+      "question": "经过后续 fold 仍未结算的 e-ku08-a 应归为哪类？",
+      "answer": "candidate",
+      "evidenceSeqs": [
+        371,
+        374
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=370 checkpoint=fold-1\nseq=371 edge=e-ku08-a result=untested\nseq=372 [archive-only] unrelated-success=archived\nseq=373 checkpoint=fold-2\nseq=374 edge=e-ku08-a result=untested age=old class=candidate",
+      "compactContext": "seq=374 e-ku08-a current=candidate [candidate]\nseq=371 e-ku08-a old=untested [superseded]"
+    },
+    {
+      "id": "KU-09",
+      "type": "KU",
+      "question": "哪条旧约束已不再是当前约束？",
+      "answer": "keep-old-summary",
+      "evidenceSeqs": [
+        381,
+        383
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=380 root=n-ku09-root\nseq=381 constraint=keep-old-summary\nseq=382 [archive-only] old-summary=archived\nseq=383 constraint=keep-new-summary supersedes=keep-old-summary",
+      "compactContext": "seq=383 keep-old-summary current=keep-old-summary [superseded] superseded-by=keep-new-summary\nseq=383 keep-new-summary current=keep-new-summary [current]"
+    },
+    {
+      "id": "KU-10",
+      "type": "KU",
+      "question": "右删失的 e-ku10-a 最新可观察状态是什么？",
+      "answer": "untested",
+      "evidenceSeqs": [
+        391,
+        393
+      ],
+      "grader": "exact",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=390 root=n-ku10-root\nseq=391 edge=e-ku10-a result=untested\nseq=392 [archive-only] observation-window=closed\nseq=393 right-censored=e-ku10-a",
+      "compactContext": "seq=391 e-ku10-a current=untested [untested]\nseq=393 e-ku10-a [right-censored]"
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "question": "e-tr01-a 的失败发生在 later-ok 之前还是之后？",
+      "answer": "before",
+      "evidenceSeqs": [
+        401,
+        403
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=400 root=n-tr01-root\nseq=401 edge=e-tr01-a result=failed\nseq=402 [archive-only] middle-output=archived\nseq=403 edge=e-tr01-a result=later-ok",
+      "compactContext": "seq=401 edge=e-tr01-a result=failed\nseq=403 edge=e-tr01-a result=later-ok"
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "question": "checkpoint fold-2 出现在 e-tr02-a 失败之前还是之后？",
+      "answer": "after",
+      "evidenceSeqs": [
+        411,
+        413
+      ],
+      "grader": "exact",
+      "applicability": "task-process/multi-fold",
+      "fullContext": "seq=410 checkpoint=fold-1\nseq=411 edge=e-tr02-a result=failed\nseq=412 [archive-only] fold-transition-log=archived\nseq=413 checkpoint=fold-2",
+      "compactContext": "seq=411 edge=e-tr02-a result=failed\nseq=413 checkpoint=fold-2"
+    },
+    {
+      "id": "TR-03",
+      "type": "TR",
+      "question": "哪条 untested 边已超过陈旧阈值并成为 candidate？",
+      "answer": "e-tr03-stale",
+      "evidenceSeqs": [
+        421,
+        422
+      ],
+      "grader": "exact",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=420 root=n-tr03-root\nseq=421 edge=e-tr03-fresh result=untested age=2m\nseq=422 edge=e-tr03-stale result=untested age=42m class=candidate\nseq=423 [archive-only] clock-detail=archived",
+      "compactContext": "seq=422 e-tr03-stale current=candidate [candidate]"
+    },
+    {
+      "id": "TR-04",
+      "type": "TR",
+      "question": "按最新已验证事件，当前应从哪个节点续接？",
+      "answer": "n-tr04-current",
+      "evidenceSeqs": [
+        431,
+        434
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=430 root=n-tr04-root\nseq=431 current=n-tr04-old\nseq=432 [archive-only] failed-branch-output=archived\nseq=433 edge=e-tr04-a result=failed\nseq=434 verified current=n-tr04-current",
+      "compactContext": "seq=434 n-tr04-current current=n-tr04-current [current]"
+    },
+    {
+      "id": "TR-05",
+      "type": "TR",
+      "question": "三条过程事件按 seq 先后顺序如何排列？",
+      "answer": [
+        "e-tr05-a",
+        "e-tr05-b",
+        "e-tr05-c"
+      ],
+      "evidenceSeqs": [
+        441,
+        443,
+        445
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=440 root=n-tr05-root\nseq=441 edge=e-tr05-a result=failed\nseq=442 [archive-only] raw-a=archived\nseq=443 edge=e-tr05-b result=later-ok\nseq=444 [archive-only] raw-b=archived\nseq=445 edge=e-tr05-c result=later-ok",
+      "compactContext": "seq=441 e-tr05-a current=e-tr05-a [failed]\nseq=443 e-tr05-b current=later-ok [settled]\nseq=445 e-tr05-c current=later-ok [settled]"
+    },
+    {
+      "id": "TR-06",
+      "type": "TR",
+      "question": "e-tr06-a 的 later-ok 落在哪个折叠边界？",
+      "answer": "fold-2",
+      "evidenceSeqs": [
+        451,
+        454
+      ],
+      "grader": "exact",
+      "applicability": "task-process/update",
+      "fullContext": "seq=450 checkpoint=fold-1\nseq=451 edge=e-tr06-a result=failed\nseq=452 [archive-only] retry-output=archived\nseq=453 checkpoint=fold-2\nseq=454 edge=e-tr06-a result=later-ok",
+      "compactContext": "seq=454 checkpoint current=fold-2 [current] edge=e-tr06-a result=later-ok"
+    },
+    {
+      "id": "TR-07",
+      "type": "TR",
+      "question": "最新可见事件的 seq 是多少？",
+      "answer": "474",
+      "evidenceSeqs": [
+        471,
+        474
+      ],
+      "grader": "exact",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=470 event=e-tr07-a\nseq=471 event=e-tr07-b\nseq=472 [archive-only] event=e-tr07-hidden\nseq=473 event=e-tr07-c\nseq=474 event=e-tr07-d latest=true",
+      "compactContext": "seq=474 latest current=474 [current] event=e-tr07-d"
+    },
+    {
+      "id": "TR-08",
+      "type": "TR",
+      "question": "时间最早失败的边 id 是什么？",
+      "answer": "e-tr08-first",
+      "evidenceSeqs": [
+        481,
+        483
+      ],
+      "grader": "exact",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=480 root=n-tr08-root\nseq=481 edge=e-tr08-first result=failed\nseq=482 [archive-only] first-output=archived\nseq=483 edge=e-tr08-second result=failed",
+      "compactContext": "seq=481 e-tr08-first current=e-tr08-first [failed]"
+    },
+    {
+      "id": "TR-09",
+      "type": "TR",
+      "question": "两条 untested 边中哪条仍是 fresh-unsettled？",
+      "answer": "e-tr09-fresh",
+      "evidenceSeqs": [
+        491,
+        492
+      ],
+      "grader": "exact",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=490 root=n-tr09-root\nseq=491 edge=e-tr09-fresh result=untested age=1m class=fresh-unsettled\nseq=492 edge=e-tr09-old result=untested age=30m class=candidate\nseq=493 [archive-only] clock-source=archived",
+      "compactContext": "seq=491 e-tr09-fresh current=fresh-unsettled [untested]"
+    },
+    {
+      "id": "TR-10",
+      "type": "TR",
+      "question": "按发生顺序排列根节点、失败边、成功节点。",
+      "answer": [
+        "n-tr10-root",
+        "e-tr10-fail",
+        "n-tr10-ok"
+      ],
+      "evidenceSeqs": [
+        500,
+        501,
+        504
+      ],
+      "grader": "ordered",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=500 root=n-tr10-root\nseq=501 edge=e-tr10-fail result=failed\nseq=502 [archive-only] retry-log=archived\nseq=503 checkpoint=fold-2\nseq=504 success=n-tr10-ok",
+      "compactContext": "seq=500 n-tr10-root current=n-tr10-root [current]\nseq=501 e-tr10-fail current=e-tr10-fail [failed]\nseq=504 n-tr10-ok current=n-tr10-ok [settled]"
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "question": "边 e-abs01-missing 的验证结果是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        601,
+        602
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=600 root=n-abs01-root\nseq=601 edge=e-abs01-known result=failed\nseq=602 inspected-edge-set=e-abs01-known\nseq=603 [archive-only] unrelated-output=archived",
+      "compactContext": "seq=601 edge=e-abs01-known result=failed\nseq=602 inspected-edge-set=e-abs01-known"
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "question": "节点 n-abs02-missing 的成功路径是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        611,
+        612
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=610 root=n-abs02-root\nseq=611 success=n-abs02-known\nseq=612 inspected-node-set=n-abs02-root,n-abs02-known\nseq=613 [archive-only] raw-path-output=archived",
+      "compactContext": "seq=611 success=n-abs02-known\nseq=612 inspected-node-set=n-abs02-root,n-abs02-known"
+    },
+    {
+      "id": "ABS-03",
+      "type": "ABS",
+      "question": "e-abs03-missing 是否已被 later-ok 修正？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        621,
+        623
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/update",
+      "fullContext": "seq=620 root=n-abs03-root\nseq=621 edge=e-abs03-known result=failed\nseq=622 [archive-only] retry-output=archived\nseq=623 edge=e-abs03-known result=later-ok",
+      "compactContext": "seq=621 edge=e-abs03-known result=failed\nseq=623 edge=e-abs03-known result=later-ok"
+    },
+    {
+      "id": "ABS-04",
+      "type": "ABS",
+      "question": "fold-3 的 checkpoint id 是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        631,
+        633
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/multi-fold",
+      "fullContext": "seq=630 checkpoint=fold-1\nseq=631 edge=e-abs04-a result=failed\nseq=632 [archive-only] fold-transition=archived\nseq=633 checkpoint=fold-2 latest=true",
+      "compactContext": "seq=631 edge=e-abs04-a result=failed\nseq=633 checkpoint=fold-2 latest=true"
+    },
+    {
+      "id": "ABS-05",
+      "type": "ABS",
+      "question": "未记录的 keep-abs05-missing 约束内容是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        641,
+        642
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=640 root=n-abs05-root\nseq=641 constraint=keep-abs05-known\nseq=642 inspected-constraints=keep-abs05-known\nseq=643 [archive-only] old-constraint-draft=archived",
+      "compactContext": "seq=641 constraint=keep-abs05-known\nseq=642 inspected-constraints=keep-abs05-known"
+    },
+    {
+      "id": "ABS-06",
+      "type": "ABS",
+      "question": "未记录的 e-abs06-missing 当前属于 candidate 还是 residue？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        651,
+        652
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=650 root=n-abs06-root\nseq=651 edge=e-abs06-candidate class=candidate\nseq=652 edge=e-abs06-residue class=residue\nseq=653 [archive-only] classification-log=archived",
+      "compactContext": "seq=651 edge=e-abs06-candidate class=candidate\nseq=652 edge=e-abs06-residue class=residue"
+    },
+    {
+      "id": "ABS-07",
+      "type": "ABS",
+      "question": "e-abs07-missing 发生在哪个 seq？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        661,
+        663
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/boundary",
+      "fullContext": "seq=660 root=n-abs07-root\nseq=661 edge=e-abs07-first result=failed\nseq=662 [archive-only] transient-event=archived\nseq=663 edge=e-abs07-last result=later-ok",
+      "compactContext": "seq=661 edge=e-abs07-first result=failed\nseq=663 edge=e-abs07-last result=later-ok"
+    },
+    {
+      "id": "ABS-08",
+      "type": "ABS",
+      "question": "n-abs08-missing 的后续停点是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        671,
+        673
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=670 root=n-abs08-root\nseq=671 edge=e-abs08-a result=failed\nseq=672 [archive-only] stop-transition=archived\nseq=673 current=n-abs08-current",
+      "compactContext": "seq=671 edge=e-abs08-a result=failed\nseq=673 current=n-abs08-current"
+    },
+    {
+      "id": "ABS-09",
+      "type": "ABS",
+      "question": "fold-2 中未出现的第四条成功边 id 是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        681,
+        683,
+        684
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/failure",
+      "fullContext": "seq=680 checkpoint=fold-1\nseq=681 success=e-abs09-a\nseq=682 [archive-only] failed=e-abs09-x\nseq=683 checkpoint=fold-2\nseq=684 success=e-abs09-b,e-abs09-c",
+      "compactContext": "seq=681 success=e-abs09-a\nseq=683 checkpoint=fold-2\nseq=684 success=e-abs09-b,e-abs09-c"
+    },
+    {
+      "id": "ABS-10",
+      "type": "ABS",
+      "question": "右删失窗口结束后 e-abs10-a 的最终验证结果是什么？",
+      "answer": "UNKNOWN",
+      "evidenceSeqs": [
+        691,
+        693
+      ],
+      "grader": "UNKNOWN",
+      "applicability": "task-process/right-censored",
+      "fullContext": "seq=690 root=n-abs10-root\nseq=691 edge=e-abs10-a result=untested\nseq=692 [archive-only] observation-log=archived\nseq=693 right-censored=e-abs10-a",
+      "compactContext": "seq=691 edge=e-abs10-a result=untested\nseq=693 right-censored=e-abs10-a"
+    }
+  ]
+}

@@ -1,0 +1,333 @@
+{
+  "format": "dsh-gokifu-tool-value-facts",
+  "version": 1,
+  "note": "AX-02 抽取器的形状夹具。形状（包络/回执/JSON 键位）逐字来自 2026-11-06~07 的真机会话核对；路径、id、仓库名全部替换成合成值，不含任何私有会话正文/sid/真实路径。两个 K-2 退化形状见 evidence/k2-reader-expand-2026-11-07.json：S1-Q1 成功 write 的 Created file、S2-Q3 仓库 JSON 的 id/private。",
+  "cases": [
+    {
+      "id": "k2-write-created-file",
+      "why": "K-2 S1-Q1：成功 write 的结果是 <path>+<content>Created file</content>，每步清理会把它整条丢掉。",
+      "input": {
+        "tool": "write",
+        "resultKind": "success",
+        "evidenceSeq": 154,
+        "result": "<path>/d/work/demo/src/app.mjs</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+      },
+      "expect": {
+        "facts": [
+          {
+            "kind": "file_created",
+            "value": "/d/work/demo/src/app.mjs",
+            "quoteContains": ["<path>/d/work/demo/src/app.mjs</path>", "Created file"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "k2-write-created-file-failure",
+      "why": "反例①：同一段文字若被判失败，就不是成功值事实（错误结果不得进入成功值事实）。",
+      "input": {
+        "tool": "write",
+        "resultKind": "failure",
+        "evidenceSeq": 155,
+        "result": "<path>/d/work/demo/src/app.mjs</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "k2-write-created-file-iserror",
+      "why": "反例①b：宿主 isError 优先于任何文本形状。",
+      "input": {
+        "tool": "write",
+        "isError": true,
+        "evidenceSeq": 156,
+        "result": "<path>/d/work/demo/src/app.mjs</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "k2-api-json-id-private",
+      "why": "K-2 S2-Q3：仓库 API JSON 的关键短值是 id 与 private；private=false 也必须保留（false 不是「没有」）。",
+      "input": {
+        "tool": "github",
+        "resultKind": "success",
+        "evidenceSeq": 323,
+        "result": "{\n  \"id\": 4242,\n  \"node_id\": \"R_demo4242\",\n  \"name\": \"demo-repo\",\n  \"full_name\": \"octo/demo-repo\",\n  \"private\": false,\n  \"default_branch\": \"main\",\n  \"language\": \"JavaScript\",\n  \"fork\": true,\n  \"description\": \"a deliberately long description that must never become a value fact\"\n}"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "id", "value": 4242, "quoteContains": ["\"id\": 4242"] },
+          { "kind": "id", "value": "R_demo4242", "quoteContains": ["\"node_id\": \"R_demo4242\""] },
+          { "kind": "boolean", "value": false, "quoteContains": ["\"private\": false"] },
+          { "kind": "config", "value": "main", "quoteContains": ["\"default_branch\": \"main\""] },
+          { "kind": "config", "value": "JavaScript", "quoteContains": ["\"language\": \"JavaScript\""] },
+          { "kind": "boolean", "value": true, "quoteContains": ["\"fork\": true"] }
+        ]
+      }
+    },
+    {
+      "id": "k2-api-json-id-private-weak",
+      "why": "真机语料里 API/JSON 读取被 classify 判成 unverified+weak:\"read\"；调用方显式标 weak 时必须仍能抽 id/private（否则 K-2 S2-Q3 在「只认 success」的闸下永远进不了图）。",
+      "input": {
+        "tool": "github",
+        "resultKind": "weak",
+        "evidenceSeq": 3230,
+        "result": "{\"id\": 4242, \"private\": false, \"default_branch\": \"main\"}"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "id", "value": 4242, "quoteContains": ["\"id\": 4242"] },
+          { "kind": "boolean", "value": false, "quoteContains": ["\"private\": false"] },
+          { "kind": "config", "value": "main", "quoteContains": ["\"default_branch\": \"main\""] }
+        ]
+      }
+    },
+    {
+      "id": "k2-api-json-id-private-unverified",
+      "why": "weak 之外的非成功判定（unverified 且没有 weak）仍必须空：不许调用方拿 unverified 蒙混。",
+      "input": {
+        "tool": "github",
+        "resultKind": "unverified",
+        "evidenceSeq": 3231,
+        "result": "{\"id\": 4242, \"private\": false}"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "shell-json-with-exit-line",
+      "why": "K-2 S2-Q3 的真实形态：gh api 的 JSON 后面还有一行 [exit code: 0]，整份 JSON.parse 会失败，但 id/private 已完整出现在前缀里。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 3232,
+        "result": "{\"id\": 4242, \"private\": false, \"default_branch\": \"main\"}\n[exit code: 0]"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "id", "value": 4242, "quoteContains": ["\"id\": 4242"] },
+          { "kind": "boolean", "value": false, "quoteContains": ["\"private\": false"] },
+          { "kind": "config", "value": "main", "quoteContains": ["\"default_branch\": \"main\""] }
+        ]
+      }
+    },
+    {
+      "id": "truncated-json-prefix",
+      "why": "大结果被宿截断：整份 JSON 不可解析，但截断处之前的完整成员仍是可回证短值（大结果只保留有证据短值）。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 3233,
+        "result": "{\"id\": 4242, \"private\": true, \"items\": [1, 2, 3"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "id", "value": 4242, "quoteContains": ["\"id\": 4242"] },
+          { "kind": "boolean", "value": true, "quoteContains": ["\"private\": true"] }
+        ]
+      }
+    },
+    {
+      "id": "truncated-error-json",
+      "why": "截断 JSON 的前缀里已有 ok:false ⇒ 仍是错误结果，一条事实都不许出。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 3234,
+        "result": "{\"ok\": false, \"id\": 4242, \"items\": [1, 2, 3"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "json-nonzero-exit",
+      "why": "末尾自报非零退出码的壳结果即使被调用方标成 success，也不得产值（错误结果防线）。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 3235,
+        "result": "{\"id\": 4242, \"private\": false}\n[exit code: 1]"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "k2-api-json-no-id",
+      "why": "反例②：结果里没有 id 键就不许编造 id，也不许拿 name/full_name 冒充。",
+      "input": {
+        "tool": "github",
+        "resultKind": "success",
+        "evidenceSeq": 324,
+        "result": "{\"name\":\"demo-repo\",\"full_name\":\"octo/demo-repo\",\"private\":false,\"description\":\"no id here\"}"
+      },
+      "expect": {
+        "facts": [{ "kind": "boolean", "value": false, "quoteContains": ["\"private\":false"] }]
+      }
+    },
+    {
+      "id": "k2-api-json-error",
+      "why": "错误结果不得进入成功值事实：JSON 里有 error 成员（哪怕同时有 id）也整条不抽。",
+      "input": {
+        "tool": "github",
+        "resultKind": "success",
+        "evidenceSeq": 325,
+        "result": "{\"error\":{\"message\":\"Not Found\"},\"id\":99,\"private\":true}"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "k2-array-result",
+      "why": "数组实参不得当返回值：顶层 JSON 数组（工具回显的入参/列表）一律不按元素抽。",
+      "input": {
+        "tool": "github",
+        "resultKind": "success",
+        "evidenceSeq": 326,
+        "result": "[{\"id\":1,\"private\":true},{\"id\":2,\"private\":false}]"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "k2-array-args-not-value",
+      "why": "数组实参不得当返回值：args 里有 id/private/数组，但结果本身没有这些值 ⇒ 一条事实都不许出（本房间根本不读 args）。注意结果非空，确保真的走到抽取路径。",
+      "input": {
+        "tool": "todo_write",
+        "resultKind": "success",
+        "evidenceSeq": 327,
+        "args": { "id": 777, "private": true, "items": ["a", "b"] },
+        "result": "第一行说明\n第二行说明"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "write-updated-file",
+      "why": "同一包络的 Updated file 分支。",
+      "input": {
+        "tool": "write",
+        "resultKind": "success",
+        "evidenceSeq": 330,
+        "result": "<path>/d/work/demo/README.md</path>\n<type>file</type>\n<content>\nUpdated file\n</content>"
+      },
+      "expect": {
+        "facts": [
+          {
+            "kind": "file_updated",
+            "value": "/d/work/demo/README.md",
+            "quoteContains": ["<path>/d/work/demo/README.md</path>", "Updated file"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "edit-sentence",
+      "why": "edit 的成功回执没有包络，只有一句 The file … has been updated successfully.",
+      "input": {
+        "tool": "edit",
+        "resultKind": "success",
+        "evidenceSeq": 331,
+        "result": "The file /d/work/demo/src/util.mjs has been updated successfully."
+      },
+      "expect": {
+        "facts": [
+          {
+            "kind": "file_updated",
+            "value": "/d/work/demo/src/util.mjs",
+            "quoteContains": ["The file /d/work/demo/src/util.mjs has been updated successfully."]
+          }
+        ]
+      }
+    },
+    {
+      "id": "read-envelope-path",
+      "why": "read 的包络只留路径；正文（可能很长）一条都不进事实。",
+      "input": {
+        "tool": "read",
+        "resultKind": "success",
+        "evidenceSeq": 340,
+        "result": "<path>/d/work/demo/src/index.mjs</path>\n<type>file</type>\n<content>\n1: export const answer = 42;\n2: export default answer;\n</content>"
+      },
+      "expect": {
+        "facts": [
+          {
+            "kind": "file_path",
+            "value": "/d/work/demo/src/index.mjs",
+            "quoteContains": ["<path>/d/work/demo/src/index.mjs</path>"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "read-envelope-json-config",
+      "why": "read 到的 JSON 配置：剥掉 1: 行号后解析，quote 仍必须映射回带原空格/原格式的原文。",
+      "input": {
+        "tool": "read",
+        "resultKind": "success",
+        "evidenceSeq": 341,
+        "result": "<path>/d/work/demo/settings.json</path>\n<type>file</type>\n<content>\n1: {\n2:   \"thresholdRatio\": 0.45,\n3:   \"factGuard\": false,\n4:   \"hotLedgerMaxTokens\": 500\n5: }\n</content>"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "file_path", "value": "/d/work/demo/settings.json", "quoteContains": ["<path>/d/work/demo/settings.json</path>"] },
+          { "kind": "config", "value": 0.45, "quoteContains": ["\"thresholdRatio\": 0.45"] },
+          { "kind": "boolean", "value": false, "quoteContains": ["\"factGuard\": false"] },
+          { "kind": "config", "value": 500, "quoteContains": ["\"hotLedgerMaxTokens\": 500"] }
+        ]
+      }
+    },
+    {
+      "id": "read-envelope-json-array",
+      "why": "读到的是 JSON 数组：同顶层数组规则，只留路径，不按元素抽。",
+      "input": {
+        "tool": "read",
+        "resultKind": "success",
+        "evidenceSeq": 342,
+        "result": "<path>/d/work/demo/list.json</path>\n<type>file</type>\n<content>\n1: [{\"id\":1},{\"id\":2}]\n</content>"
+      },
+      "expect": {
+        "facts": [
+          { "kind": "file_path", "value": "/d/work/demo/list.json", "quoteContains": ["<path>/d/work/demo/list.json</path>"] }
+        ]
+      }
+    },
+    {
+      "id": "short-plain-value",
+      "why": "K-2 pilot 的值型小结果：单行短输出本身就是值。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 350,
+        "result": "MINGW64_NT-10.0-26200\n"
+      },
+      "expect": {
+        "facts": [{ "kind": "value", "value": "MINGW64_NT-10.0-26200", "quoteContains": ["MINGW64_NT-10.0-26200"] }]
+      }
+    },
+    {
+      "id": "ack-not-value",
+      "why": "寒暄/回执不是值：done 这类词不占事实（否则每条成功命令都留一条噪声）。",
+      "input": {
+        "tool": "bash",
+        "resultKind": "success",
+        "evidenceSeq": 351,
+        "result": "done\n"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "prose-not-value",
+      "why": "多行长文本/未知形状 = 无法识别 ⇒ 空数组，不许把整段当值。",
+      "input": {
+        "tool": "read",
+        "resultKind": "success",
+        "evidenceSeq": 352,
+        "result": "第一行说明\n第二行说明\n第三行说明"
+      },
+      "expect": { "facts": [] }
+    },
+    {
+      "id": "missing-evidence-seq",
+      "why": "没有证据 seq 就不产事实（不许补 0 或补时间戳）。",
+      "input": {
+        "tool": "write",
+        "resultKind": "success",
+        "result": "<path>/d/work/demo/noseq.md</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+      },
+      "expect": { "facts": [] }
+    }
+  ]
+}

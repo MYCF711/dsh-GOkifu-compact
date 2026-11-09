@@ -1,0 +1,13 @@
+{
+  "schema": "lme-reader-prereg-v1",
+  "frozenAt": "2026-11-08T04:05:00+08:00",
+  "frozenAtRev": "77ece66",
+  "variant": "v4",
+  "samplesPerArm": 3,
+  "selection": "first 2 per type in frozen fixture order (same as pilot)",
+  "aggregation": "normalize each sample, majority answer; ties keep first sample",
+  "reason": "v4 fixed TR format (0/2 -> 2/2) but single-sample compact flipped 8/9 across four runs. This prereg measures same questions/contexts with 3 samples, no question/threshold change.",
+  "unchanged": ["questions", "answers", "graders", "model", "endpoint", "temperature", "max_tokens", "thresholds", "contexts"],
+  "plannedCalls": 60,
+  "gate": "compact >= 90%, delta >= -5%, perType all green"
+}

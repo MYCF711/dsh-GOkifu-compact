@@ -1,0 +1,46 @@
+{
+  "schema": "k2-hash-semantics-v1",
+  "generatedAt": "2026-11-08T04:55:43.446Z",
+  "generator": "scripts/k2-hash-check.mjs",
+  "artifacts": {
+    "prereg.json": {
+      "bytes": 2842,
+      "rawBytesSha256": "193947bb8492755110addcbc56623d4725c30a9110a9623d950374ba8812ecc3",
+      "canonicalJsonSha256": "cda2f2d0a14b10589e842ae955a58101ca943b2d6c011735599cf674cd77ea78"
+    },
+    "fixtures.json": {
+      "bytes": 7864,
+      "rawBytesSha256": "3ce54ac77f9936e1b6a8a7433fc56dd04b163b5364765be2152e446d35c7f23b",
+      "canonicalJsonSha256": "82f8c8da08db55e01cf65390d5dec001e3675810d7d1243dbbba9ed22b88cd71"
+    }
+  },
+  "fieldSemantics": {
+    "fixtures.preregSha256": {
+      "semantics": "canonical-json-sha256",
+      "value": "cda2f2d0a14b10589e842ae955a58101ca943b2d6c011735599cf674cd77ea78",
+      "input": "JSON.parse(prereg.json bytes)",
+      "canonicalization": "recursive object-key sort (JS Object.keys().sort()); arrays preserve order; JSON.stringify compact; UTF-8; no trailing newline",
+      "mustNotCompareWith": "raw-bytes-sha256(prereg.json)"
+    },
+    "fixtures.questionsSha256": {
+      "semantics": "projection-canonical-json-sha256",
+      "value": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+      "projectionFields": [
+        "id",
+        "origin",
+        "kind",
+        "sessionHash",
+        "sourceSeq",
+        "sourceTool",
+        "question",
+        "answer",
+        "grader",
+        "aliases"
+      ],
+      "excludedFields": [
+        "hypothesis"
+      ],
+      "canonicalization": "recursive object-key sort (JS Object.keys().sort()); arrays preserve order; JSON.stringify compact; UTF-8; no trailing newline"
+    }
+  }
+}

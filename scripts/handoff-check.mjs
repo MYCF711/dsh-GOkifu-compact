@@ -17,7 +17,8 @@
  *   ⑤ 未验证声明：有**非残留**的未验证边 ⇒ 热清单必须出现 UNVERIFIED（L0/L1 列表，L2+ 计数行）
  *   ⑥ 当前位置：图有路径 ⇒ 热清单必须出现 CURRENT PATH / # path: / # WORKING:
  *   ⑦ 出处：renderLedger().provenanceCoverage 必须 = 1
- *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向
+ *   ⑧ 省略行可解析：任何「有东西被省掉了」的行都必须带 graph.json 指向（结构判据见 `OMISSION_RE`：
+ *      `*_OMITTED` / `omitted for budget` / `DANGLING_RESIDUE` / 中文 `# 另有 N 条…未展开`）
  *   ⑨ 预算：fallback=impossible 是 error；over-budget 是 warn
  *   ⑩ 保真度：foldMark.quality 的 constraintRecall 必须 = 1（fail）/ failureRecall < 1（warn）/ 真空样本=ok（无内容可丢，非缺陷；C38）
  *   ⑪ 幻觉探针：摘要里提到的 eN/nN 必须在图里找得到（`findUnknownIds`）；
@@ -63,22 +64,65 @@ function check(name, level, detail = "") {
   return { name, level, detail };
 }
 
-/** 有东西被省掉了的行 —— 必须能查到。 */
-function omissionLines(text) {
+/**
+ * 省略行的结构判据 —— 只看**产品行的行首形态**。
+ *
+ * ★ C656（t8 收窄）：t6 用的是**内容子串**（`未展开` / `[A-Z]+_OMITTED`），于是普通用户文本
+ *   也会命中：约束原文是「- 这段注释未展开说明，请补全」「- 别把 FOO_OMITTED 当真」时，
+ *   ⑧ 会把它俩当成省略行、又没有 `graph.json` 指针 ⇒ **假红**（T7 实测 bad=2）。
+ *   现在每条分支都锚在行首，只认 `ledger.mjs` 真实产出的产品行：
+ *     ① `- … N earlier dead ends omitted for budget: …`   失败边被裁（L4/L5）
+ *     ② `FAILED_ATTEMPTS_OMITTED:`                       事实块的失败边省略
+ *     ③ `CONSTRAINTS_OMITTED:`                           约束段病态超限
+ *     ④ `VALUE_FACTS_OMITTED:`                           事实块的值事实省略
+ *     ⑤ `DANGLING_RESIDUE:`                              事实块的无终点残留
+ *     ⑥ `# 另有 N 条值事实未展开（…）`                     主清单的值事实计数行
+ *     ⑦ `# 另有 N 条无终点残留（…未展开；…）`              主清单的残留计数行
+ *     ⑧ `# 另有 N 条值事实未展开（见 graph.json …）`        最小清单（无 tree 前缀）
+ *     ⑨ `CONSTRAINTS: N (count only, not verbatim; full text: …`  最小清单的「只给计数」行
+ *   ⑨ 是 t8 新纳入的：它明说「不是逐字全文」，原文在 `graph.json` —— 同样是回证行，
+ *   丢了指针就没人能回查。**⑨ 的锚点刻意不含 `graph.json`**：否则「抹掉指针」的反例
+ *   就不再匹配判据，⑧ 反而变绿（判据必须能被同一个抹除动作打红）。
+ *
+ * 残留风险（写清、不假装消除）：用户文本若**逐字**写出产品行形态（例如约束原文就是
+ * `# 另有 3 条值事实未展开（…）`），仍会被当成省略行 —— 但它没有指针 ⇒ ⑧ 红是**正确**的
+ * （分不清就不假装分得清；这种文本本来就该被看见）。
+ */
+const OMISSION_RE = /^(?:- … \d+ earlier dead ends omitted for budget\b|[A-Z][A-Z0-9_]*_OMITTED\b|DANGLING_RESIDUE\b|# 另有 \d+ 条.*未展开|CONSTRAINTS: \d+ \(count only, not verbatim; full text:)/u;
+
+export function omissionLines(text) {
   return String(text ?? "")
     .split("\n")
-    .filter((line) => /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE/.test(line));
+    .filter((line) => OMISSION_RE.test(line));
 }
 
-/** 对一张图跑全部判据。 */
-export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now(), activeSession = false } = {}) {
+/**
+ * ⑧ 的**判据本体**：`bad` = 省略行里没有 `graph.json` 回证指针的那些（>0 ⇒ ⑧ fail）。
+ *
+ * 导出并集中一处，是为了让单测能直接断言「把这行里的指针抹掉 ⇒ bad=1 ⇒ ⑧ 会红」，
+ * 而不是在测试里复制一份过滤逻辑 —— 复制就会漂，漂了这条守卫就变成同义反复。
+ */
+export function parseOmissions(text) {
+  const all = omissionLines(text);
+  return { all, bad: all.filter((line) => !line.includes("graph.json")) };
+}
+
+/**
+ * 对一张图跑全部判据。
+ *
+ * `factGuard` 默认 **false**（与生产默认一致，`config-schema.mjs` 的 `FACT_GUARD_DEFAULT`）——
+ * handoff-check 的 CLI 不传它，所以 live 行为不变。它是给单测/审计用的：
+ * 值事实那两类省略行只在 guard 开启时才渲染，没有这个开关，⑧ 对它们的检查就永远跑不到。
+ */
+export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTokens = 500, now = Date.now(), activeSession = false, factGuard = false, maxValueFacts } = {}) {
   // ★ C223：**用生产同一条分支**。hot-inject 对「零失败边」的会话走 renderMinimalLedger
   //   （26% 的真实会话），旧版这里一律 renderLedger ⇒ 检查的是一条产品根本不走的路
   //   （实测 5df02bf8 / 30140e4c 因此误报 ⑥当前位置 FAIL）。
   const zeroFailure = failureEdges(graph).length === 0;
-  const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, { maxTokens, treeDir, traceRoot, now });
+  const renderOptions = { maxTokens, treeDir, traceRoot, now, factGuard, ...(maxValueFacts === undefined ? {} : { maxValueFacts }) };
+  const ledger = (zeroFailure ? renderMinimalLedger : renderLedger)(graph, renderOptions);
   const text = String(ledger.text ?? "");
-  const facts = renderFacts(graph, { treeDir, traceRoot, now });
+  const facts = renderFacts(graph, { treeDir, traceRoot, now, factGuard, ...(maxValueFacts === undefined ? {} : { maxValueFacts }) });
   const out = [];
 
   // ① 根目标
@@ -166,8 +210,8 @@ export function checkGraph(graph, { treeDir = "", traceRoot = "sessions", maxTok
   if (missing > 0) out.push(check("⑦b证据缺口", "warn", `${missing} 条失败边没有 evidence（老图/keeper 未记录）⇒ 模型无法回查`));
 
   // ⑧ 省略行可解析
-  const omissions = omissionLines(text);
-  const badOmissions = omissions.filter((line) => !line.includes("graph.json"));
+  // ★ C656：判据本体在 `parseOmissions`（与单测共用一处，禁止在两边各写一份过滤器）。
+  const { all: omissions, bad: badOmissions } = parseOmissions(text);
   out.push(
     check(
       "⑧省略行可解析",
@@ -414,7 +458,10 @@ function main() {
             level,
             detail:
               level === "ok"
-                ? `磁盘 ${result.disk.foldMarks} 条 foldMark = 证据 ${result.evidence.evidenceTotal} 次`
+                ? `磁盘 ${result.disk.foldMarks} 条 foldMark；证据快照 ${result.evidence.evidenceTotal} 次` +
+                  (((result.snapshot?.newSinceSnapshot ?? 0) > 0 || (result.snapshot?.evictedSinceSnapshot ?? 0) > 0)
+                    ? `（快照后新增 ${result.snapshot?.newSinceSnapshot ?? 0} 条 / 环形淘汰可解释 ${result.snapshot?.evictedSinceSnapshot ?? 0} 条）`
+                    : "（两者一致）")
                 : result.problems.join("；"),
           },
         ],

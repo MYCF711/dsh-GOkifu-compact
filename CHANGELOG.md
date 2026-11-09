@@ -2,6 +2,12 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C661 | 修 C659 自己引入的闸门自锁：终态路径跳过静默窗口（关窗即回收） |
+| C660 | 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip |
+| C659 | 冷图回收补三处风险 + 长进程 RSS 实测（418MB 在 8 秒内还回系统） |
+| C658 | 冷图安全回收：五条件闸门 + 折叠与补账 pin |
+| C657 | 同窗配对对照把「差一格」做成可归因：120 调用，消歧有效但 pilot 已饱和 |
+| C656 | 关系行渲染消歧（v4）：状态不再占 key=value 值位 |
 | C653 | 空白变体约束就地还原逐字原文 |
 | C654 | 残留失败计数行与交接判据对齐 |
 | C655 | 手动折叠区间只认本次宿主结果 |
@@ -582,6 +588,32 @@
 
 # 更新记录
 
+## 1.19.0（2026-11-09，稳定版）
+
+> **本版的主题是内存。** 插件过去把每个会话的棋谱图**按会话永久常驻、零清理路径**——
+> 本机 1592 张真实 `graph.json`（222.4 MiB）全驻留 = **+295.7 MB 堆 / +418.1 MB RSS**。
+> 本版把它修掉：走闸门释放后堆只剩 **+0.3 MB**，**RSS 在第 8 秒回到基线**，磁盘一个字节没动。
+>
+> 不改压缩默认行为；不默认开启剪枝；K-27 关系行渲染仍**不默认开启**。
+
+### 内存（用户可感知）
+
+- **冷图安全回收**：唯一闸门「无 pin + 无待写 timer + 会话不活跃 + 有过成功 full 落盘且此后无失败 + 图不脏」五条全绿，才把 `runtime` 与 `graph` **成对**释放；折叠 / 手动压缩 / 收尾 / 离线补折全程 pin。失败图与脏图一律保留（内存是唯一副本）。
+- **三条风险补丁**：① 活跃性不只认 `agent/status`（`session/event` 与 pin 也算），并加**静默 15 分钟**兜底；② fold 成功即作废 `full` 标记，必须等到下一次成功 full 落盘才允许回收（否则丢标量记账）；③ 回收时一并释放 `sessionRefs` 里的 Session 引用，并用封顶 4096 的 `seenIds` 保住「本进程处理过」判据，归档收尾不被静默跳过。
+- **只读内存基准** `scripts/graph-cache-memory.mjs`：把「到底省多少」变成一条可复跑的命令（`--top / --all / --soak`），并逐张比对 mtime 证明磁盘零变化。
+
+### 可复现性
+
+- **AX-03 冻结产物版本化**：K-2 的预注册/夹具/哈希清单原来只在 git 忽略的 `tmp/` 里，导致**干净 checkout 上 K2-13 直接 ENOENT、K2H 整组 skip** —— 全量测试在新克隆上根本跑不绿。现已按原始字节版本化到 `test/fixtures/ax03/`，干净 checkout 上 `k2` **80/80 全绿**。
+
+### 研究线（不改变默认行为）
+
+- K-27 关系行 **v4 渲染消歧**（状态不占 `key=value` 值位）+ **同窗配对对照**（v1 vs v4，120 次调用、0 重试、0 错误）。结论：消歧这一刀有效（v3 的确定性误答消失），但 10 题 pilot 已饱和（两臂多数票都是 10/10、逐题零翻转）⇒ **不能证明「关系行更好」**。formal 50/50 仍 **NOT_RUN**、裁决仍 **NOT_ADOPTED**、渲染仍 **不默认开启**。
+
+---
+
+本版覆盖 C586–C660（逐条见上方索引）；全量测试 **2452 passed / 0 failed**（当次输出），**248 个测试文件**。
+
 ## 1.18.5（2026-11-07，稳定版）
 
 > 文档与发布记录维护；发布门禁复验；K-27 / K-26 / K-2 结论同步。不改压缩默认行为，不默认开启剪枝。
@@ -662,6 +694,125 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C661 · 修 C659 自己引入的闸门自锁：终态路径跳过静默窗口（关窗即回收）
+
+发布前独立复核抓到 C659 自己引入的一个真缺陷，本版一并修掉（**这是 1.19.0 的发布阻塞项**）。
+
+**缺陷**：`#pinGraph` 里调了 `#markSeen(id)`（C659 为了「长时间折叠期间静默窗口别过期」加的）。而 closeout 的 `finally` 是 `unpin() → #releaseColdGraph(...)` —— 刚被 pin 推过的 `lastSeenAt` 让第六判据 `recent` **必然命中**，于是：
+
+> **「disposed / archive 在 closeout 最终 flush 之后回收」在生产默认的 15 分钟窗口下永远不成立。**
+
+后果：关窗/归档后图不会立刻回收，要等 15 分钟**再**有另一个会话 idle 才会被扫走；如果进程里只有这一个会话、之后再也不 idle，则**本进程内永不回收**（只有进程退出才释放）——正好是「关窗就该还内存」这个用户诉求落空的地方。
+
+为什么单测没抓到：C659 的 9 处用例都显式把 `engine.coldGraphQuietMs = 0` 压掉了窗口，**把生产默认行为整个掩盖了**。复核用默认窗口复现：`resident after disposed + 6s: true`、`lastSeen ageMs=6008`、`lastFlush={ok:true,full:true}`。
+
+**修法**（两条一起）：
+1. `#pinGraph` **不再**调 `#markSeen` —— pin 期间闸门本来就以 `pinned` 拒收，推窗口没有意义，只有反作用。
+2. 闸门加**终态豁免**：`reason` 以 `closeout:` 开头（disposed / archive 两个调用点，都在最终 full flush 之后）时**跳过 `recent`** —— 那时「这个会话结束了」已是确定事实，再拿 15 分钟窗口拦它只会把「关窗即回收」变成「等下一个会话 idle」。
+
+**同批修的另外两条**（也是复核提的、同一类「full 标记」问题）：
+- **tier-2 合并成功路径也没有作废 `full` 标记**：它 push `foldMark` 后只调 `#flush(session)`（增量），而 `foldMarks` 不在 dirty 集里时 `persist.flush` 可能一个字节都不写 ⇒ 15 分钟内被回收，这条 tier-2 折痕只存在内存里，重载后两个旧 checkpoint 还在 ⇒ 下次再合并一次（多一次模型调用）。现在同样调 `#invalidateFullFlush`。
+- **`test/ledger.test.mjs` 里新增了一条真实私有绝对路径**（一条指向本机 home 的真实路径）会随公开仓库泄露 —— 换成 `D:/fixture/...`（同文件其它夹具本来就是这个写法）。
+- **`scripts/graph-cache-memory.mjs` 不该进 npm 包**：它 `import` 的是 `test/engine-harness.test.mjs`，而 `test/` 不在 `package.json.files` ⇒ 装上跑必崩。已在 `files` 里显式排除，并在文档里写明「源码仓库内工具」。
+
+**新增用例**：`C661 终态路径不受静默窗口约束` —— 这一条**故意不压窗口**（恢复生产默认 15 分钟），断言 disposed 收尾完成后**立刻**回收且 closeout 已落盘。`cold-graph-release` **12 → 13 用例**。
+
+**顺带清掉一处过期说法**：`HANDOFF.md` 里「冷图仍未合入 / live 未生效」已按事实改成「已合入（`f3622a7`）、**live 仍未生效**」；handoff 门禁的 WARN 数从 320 更正为 400。
+
+### C660 · 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip
+
+**问题**：`test/k2-value-reader.test.mjs` 的 K2-13 与 `test/k2-hash-check.test.mjs` 的整组用例，读的是 `tmp/axiom-2026-11-07/ax03/` 下的冻结产物 —— 那是 **git 忽略**的私有目录。于是在**干净 checkout / 新克隆**上：K2-13 直接 `ENOENT` 判红，K2H 整组 `skip`。
+
+实测（新 worktree 上跑 `node test/run.mjs k2`）：
+```
+[k2-value-reader.test.mjs] K2-13 …
+Error: ENOENT: no such file or directory, open '…/tmp/axiom-2026-11-07/ax03/prereg.json'
+```
+
+也就是说**这个仓库的全量测试在新克隆上根本不是全绿** —— 门禁形同虚设。
+
+**改法**：把三个冻结产物**按原始字节**版本化到 `test/fixtures/ax03/`（`prereg.json` / `fixtures.json` / `hash-manifest.json`），并在 `.gitattributes` 给它们加 `-text` 关掉 EOL 转换（`FROZEN_BASELINE` 里的 `rawBytesSha256` 就是按字节算的，CRLF 归一化会直接判红）。
+
+对齐点：
+- `scripts/k2-hash-check.mjs` 的 `FROZEN_BASELINE.preregPath / fixturesPath` → 新路径；
+- `test/k2-hash-check.test.mjs` 的 `ARTIFACT_DIR` 与 K2H-14 的临时仓库布局 → 新路径；
+- `test/k2-value-reader.test.mjs` 的 K2-13 读取路径 → 新路径。
+- `scripts/k2-value-reader.mjs --write` 仍然出到 `tmp/`（那是**再生工作区**）；要改冻结值必须是显式"提升"动作，不是顺手跑一遍。
+
+**效果**：干净 checkout 上 `k2` 从「80 里 skip 一大半 + K2-13 红」变成 **80 passed / 0 skipped / 0 failed**。
+
+### C659 · 冷图回收补三处风险 + 长进程 RSS 实测（418MB 在 8 秒内还回系统）
+
+C656 把冷图回收的**闸门**做出来了，但四条交接风险没修；C659 修掉其中三条，并把第四条（长进程 RSS）**实测掉**。
+
+**风险 1 · 活跃性只认 `agent/status`。** 离线补折、脚本/无头调用、以及宿主在回合中间没发过状态的会话不在 `activeSessions` 里 —— 别的会话一 idle 就可能把它的图扫走。补两件事：
+- `session/event` 与 `agent/status` 都调 `#markSeen`，`#pinGraph` 也调（长折叠期间窗口不会自己过期）；
+- 闸门加**第六个判据 `recent`**：最近一次动静距今不到 `COLD_GRAPH_QUIET_MS`（**15 分钟**）就不回收。选 15 分钟是因为一个跑长工具（构建 / 下载 / `pnpm install`）的回合可能好几分钟没有新事件，抽走图等于丢运行态（退避计数 / world 触碰集合）。
+
+**风险 2 · fold 成功到下一次 full 落盘之间丢标量记账。** 折叠成功会改一批**只在 full 落盘时写出**的标量（`lastFoldSeq` / `foldCount` / `foldThrash` / foldMarks…），中间那次增量落盘只写图与 delta。新增 `#invalidateFullFlush`：fold 成功后把 `full` 标记作废，闸门必须等到**下一次成功的 full 落盘**才放行（正常路径上回合边界的 `idle` 本来就会做一次）。窗口封住了，维护入口就不必删。
+
+**风险 3 · `sessionRefs` 仍留着归档 Session 引用。** 只删图不删它，Session 就被吊在内存里 —— 那正是「回收了但还是不降」的一半原因。回收时一并删 `sessionRefs` 与 `lastSeenAt`（安全：`session/event` 与 `agent/status` 都会在真正用到之前先 `set` 回来；落盘路径本来就不依赖这条引用，见 C514）。
+
+这条修法自己带出一个回归，一并堵上：`sessionRefs` 删了之后，`#onWorkspaceChange` 的「只对本进程处理过的会话收尾」判据就失去依据 ⇒ **冷掉 15 分钟后再归档的会话会静默不做收尾**。补一张**封顶 4096 的 `seenIds`**（只存 id 字符串，FIFO 淘汰；4096×~60B ≈ 240KB），归档路径改成 `baselineKnown || seenHere`。用例「C659 回收之后仍然认得出」双向钉住：见过的会话必须把图读回来收尾，从没见过的 id 不许硬做。
+
+**风险 4 · 长进程 RSS 从来没验过。** 新增 `scripts/graph-cache-memory.mjs`：只读真实 home，`--expose-gc` 子进程量「驻留 → 走公开闸门释放 → 空转采 RSS」，并**逐张比对 mtime**（磁盘必须零变化）。
+
+本机真实数据（1592 张 `graph.json` / 222.4 MiB / 17.7 万节点 / 24.9 万边，最大单张 9.6 MB）：
+
+| 口径 | 全部驻留 | 回收瞬间 | 空转 8 秒后 |
+|---|---|---|---|
+| **堆** | **+295.7 MB** | **+0.3 MB** | — |
+| **RSS** | **+418.1 MB** | +411.6 MB | **67.4 MB（回到基线 67.8）** |
+
+- 堆：1592 张全部释放后只剩 **+0.3 MB**；最大 12 张单独测是 +72.2 MB → +1.8 MB，平均 **6.0 MB/张**（全局均值 190 KB/张 —— 大图才是贵的）。
+- **RSS 修正**：t6 复核写的「RSS 不会立刻归还」是**只等了一拍**的结论。实测第 8 秒就从 479.6 MB 掉回 **67.4 MB** —— V8 的 decommit 会把它还给系统。所以这个功能的真实收益不只是「不再继续涨」，而是**真的把 418 MB 还回去**。
+- 磁盘零变化：1592 张图 mtime 逐个未变（回收路径只有 `Map.delete`）。
+
+**测试**：`cold-graph-release` **8 → 13 用例**（静默窗口 / fold 后 full 窗口 / sessionRefs 与 lastSeen 一并释放），并给原 8 条用例显式把窗口压到 0 —— 第六判据由专门用例验，不许靠「默认窗口恰好放行」蒙过去。
+
+### C658 · 冷图安全回收：五条件闸门 + 折叠与补账 pin
+
+`graphs` / `runtime` 过去按会话常驻、**没有任何清理路径**（A1 F17）。新增唯一闸门 `#releaseColdGraph`：`无 pin + 无 debounce timer + 会话非活跃 + 有过成功 full 落盘且此后无失败 + 图不脏` 五条全绿，才把 `runtime` 与 `graphs` **成对**释放（并清 `lastFlush`）；折叠退避/失败图（`foldFailures` / `tier2Failures`）额外保留。回收路径：`agent/status idle` 回合边界扫其它冷图（保留当前热图）、`disposed`/`archive` 在 closeout **最终 flush 之后**回收。pin：fold、手动 `/compact`、收尾、离线补折全程幂等（`finally` 收口），保留 C215 外来 `this` 语义。补账侧新增「活跃/被 pin 会话本轮完全不碰」与「内存已有图**绝不**用磁盘副本覆盖」。
+
+实测（本机 home 只读、落盘根指向临时目录）：1549 张真实 `graph.json` 全部驻留 ⇒ **+289.7MB 堆 / +406MB RSS**；全部走闸门释放后仅剩 **+0.2MB**。单张最大图 9,988,210 B ⇒ **+13.4MB** 堆（C656 交付里 31.9MB 那个数是「源文本 10MB 还在引用」的峰值口径）。回收只删内存 Map：1549 张图的 mtime 在测量窗口内全未变，**磁盘零变化**。8 条专属用例 + 12 组定点变异（去 pin / 去活跃判据 / 去 timer / 去脏图 / 去 full 判据 / 恢复磁盘覆盖 / 去失败图保留 / 去 disposed 摘活跃 / 去 fold pin / 去补折记账 / closeout 不回收）全部被抓红。
+
+### C657 · 同窗配对对照把「差一格」做成可归因：120 调用，消歧有效但 pilot 已饱和
+
+**为什么必须做这一轮**：两次历史 pilot 并排看，v1（现行基线）与 v3（关系行）**都是 full 10/10 · compact 9/10**，唯一错题都是 KU-01 —— 但样本形态不同：v1 是 `UNKNOWN / retained / later-ok`（1/3 对，不稳定），v3 是 `settled ×3`（0/3 对，稳定地错）。两次相隔一天、不在同窗 ⇒「差一格」既可能是渲染引起的，也可能是环境漂移。
+
+**做法**：预注册 `evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json`（`188fd375…`，**在第一次真实调用之前冻结**），用**同一个冻结 runner** 在同一次窗口跑两份夹具（v1 / v4），每份 10 题 × 2 臂 × 3 样本 = **60 次**，两轮共 **120 次**，硬上限 120、**0 重试、0 错误**。两份夹具的 `fullContext` 逐字相同 ⇒ full 臂同时构成运行稳定性对照。新增 `scripts/lme-relation-ab.mjs`：核对 8 项冻结哈希 + 两轮同窗 + 两轮 full 有效性门，按预注册规则给 **INVALID / NEGATIVE_SIGNAL / POSITIVE_SIGNAL / NO_DIFFERENCE / NOT_DECIDED**（`lme-relation-ab` **6 用例**）。
+
+**结果（同窗配对）**：
+
+| 项 | v1 对照 | v4 处理 |
+|---|---|---|
+| full 有效性门 | 30/30 样本 · 10/10 多数 ✅ | 30/30 样本 · 10/10 多数 ✅ |
+| compact 多数票 | **10/10** | **10/10** |
+| compact 样本级 | **29/30** | **30/30** |
+| 回归 / 修好 | 0 / 0 | — |
+| KU-01 compact 票型 | `{later-ok:2, UNKNOWN:1}` | `{later-ok:3}` |
+
+决策档 **`POSITIVE_SIGNAL`**（多数票 10 → 10、样本级 29/30 → 30/30、无回归题）。
+
+**诚实边界（写进 `evidence/k27-ab-结论-2026-11-09.md`）**：差值只有 **30 里的 1 个样本**，两臂多数票都是 10/10，**没有任何一题因 v4 从多错变多对**；10 题 pilot 已**饱和**，继续加样本只会把噪声当信号；v1 基线本身在 KU-01 上不稳定（11-08 是 1/3、本次 2/3）。所以本轮买到的是「**消歧这一刀有效**（v3 的确定性误答消失）」+ **一条精确的负结论**，**不是「关系行更好」**。formal 50/50 仍 **NOT_RUN**、裁决 **NOT_ADOPTED**、渲染仍**不默认开启**；v3 的夹具 / pilot / `BOUNDARY` 全部不变，未回溯重判。下一刀（50 题 formal）必须先拍板 6 条位置推导的授权或分层报告。
+
+### C656 · 关系行渲染消歧（v4）：状态不再占 key=value 值位
+
+**问题**：v3 关系行把状态词放在 `status=<值>` 的值位上。真实 reader pilot 里 KU-01（题面问「最新**结算状态**是什么」）在 v3 compact 上 **3/3 样本都答成状态词 `settled`**（金标准 `later-ok`）—— 键名与题面的「状态」同义对冲，模型把状态词的值当成了答案。
+
+**改法**：新增独立渲染器 `scripts/lme-relation-render-v4.mjs`，把状态改成行尾方括号标签，**不占 `key=value` 值位**：
+
+```
+v3：seq=303 e-ku01-a current=later-ok status=settled
+v4：seq=303 e-ku01-a current=later-ok [settled]
+```
+
+**为什么不在 v3 渲染器上加开关**：v3 夹具的 `note` 里嵌了**生成器自身的 sha256**，任何对 `lme-relation-render.mjs` 的改动都会让 v3 无法逐字节重放（RL-1 会红）。所以 v4 import v3 渲染器、只改状态 token 的书写形态 —— v3 渲染器（`306dd46e…`）与 v3 夹具（`9055b1b9…`）**一个字节都没动**。
+
+**检查器升到 v3**（`4a667ec1…`）：同时认 `status=<词>` 与 `[<词>]` 两种形态，判据一条不松；新增 4 条 v4 负例（C19 删标签 / C20 坏词 / C21 旧值不标旧 / C22 附加字段不落地），反例自测 **20/20 → 24/24**。v4 覆盖 **50/50（值型 38/38）**，与 v3 逐行反向还原后**完全一致**（只差状态书写形态，改动 59 行 / 38 题；ABS 10 题与比较 2 题的原文投影逐字不变）。
+
+**测试**：`lme-relation-coverage` **7 → 10 用例**（RL-8 确定性重放 + 只差状态形态 / RL-9 覆盖一条不松 / RL-10 compact 里再没有 `status=` 值位）。夹具 `evidence/lme-task50-v4-status.fixtures.json`（`fd3e0d15…`）。
 
 ### C653 · 空白变体约束就地还原逐字原文
 

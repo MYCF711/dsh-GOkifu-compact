@@ -74,6 +74,7 @@
 | **关联标识与隐私（OpenTelemetry）** | [`关联标识与隐私-OpenTelemetry.md`](./关联标识与隐私-OpenTelemetry.md) | TraceId/SpanId 用于 logs↔trace 关联，不等于 session；真实 session/user/private telemetry 联接仍 confirmed，未知 request/run/trace id 先 review |
 | **长上下文任务评测（LongBench）** | [`长上下文任务评测-LongBench.md`](./长上下文任务评测-LongBench.md) | v2 503 道四选一、六类任务、full/no_context/RAG 对照；K-27 用同一 reader 的 full/compact 配对与机械判分，真实分数未跑标 NOT_RUN |
 | **会话状态与工具结果清理（OpenAI）** | [`会话状态与工具结果清理-OpenAI.md`](./会话状态与工具结果清理-OpenAI.md) | Responses 可托管状态也可自管；`/responses/compact` 是显式压缩，不等于每步删工具结果；K-2 先离线 A/B 再决定 |
+| **长期记忆反哺：来源、绑定与防过拟合** | [`长期记忆反哺-来源绑定与防过拟合.md`](./长期记忆反哺-来源绑定与防过拟合.md) | 已读长期记忆原始会话与方案/实测：原始事件优先、保实体绑定而非只保 token、去重不合并语义、覆盖不等于任务收益；KU 关系行候选与验证边界 |
 
 ## 纪律（写给未来的自己）
 

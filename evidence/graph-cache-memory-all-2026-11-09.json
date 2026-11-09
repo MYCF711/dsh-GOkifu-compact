@@ -1,0 +1,167 @@
+{
+  "ok": true,
+  "home": "<DSH_HOME>/chess-context",
+  "totalGraphFiles": 1592,
+  "picked": 1592,
+  "pickedBytes": 233170177,
+  "pickedMiB": 222.4,
+  "biggest": {
+    "i": 0,
+    "bytes": 10036778
+  },
+  "nodes": 176636,
+  "edges": 249196,
+  "heapBaseMB": 7.9,
+  "heapLoadedMB": 303.7,
+  "heapAfterReleaseMB": 8.2,
+  "heapGrewMB": 295.7,
+  "heapRetainedMB": 0.3,
+  "rssBaseMB": 67.8,
+  "rssLoadedMB": 485.9,
+  "rssAfterReleaseMB": 479.5,
+  "rssGrewMB": 418.1,
+  "rssRetainedMB": 411.6,
+  "perGraphKB": 190,
+  "released": 1592,
+  "skipped": {},
+  "soak": [
+    {
+      "atSec": 1,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 2,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 3,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 4,
+      "rssMB": 479.6,
+      "heapMB": 10
+    },
+    {
+      "atSec": 5,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 6,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 7,
+      "rssMB": 479.6,
+      "heapMB": 9.7
+    },
+    {
+      "atSec": 8,
+      "rssMB": 69.3,
+      "heapMB": 8.6
+    },
+    {
+      "atSec": 9,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 10,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 11,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 12,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 13,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 14,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 15,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 16,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 17,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 18,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 19,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    },
+    {
+      "atSec": 20,
+      "rssMB": 67.4,
+      "heapMB": 8.3
+    }
+  ],
+  "checks": [
+    {
+      "id": "released-all",
+      "ok": true,
+      "detail": "1592/1592"
+    },
+    {
+      "id": "graphs-empty",
+      "ok": true,
+      "detail": "graphs=0"
+    },
+    {
+      "id": "runtime-empty",
+      "ok": true,
+      "detail": "runtime=0"
+    },
+    {
+      "id": "sessionRefs-empty",
+      "ok": true,
+      "detail": "sessionRefs=0"
+    },
+    {
+      "id": "lastSeen-empty",
+      "ok": true,
+      "detail": "lastSeen=0"
+    },
+    {
+      "id": "heap-freed",
+      "ok": true,
+      "detail": "grew=295.7MB retained=0.3MB"
+    },
+    {
+      "id": "disk-untouched",
+      "ok": true,
+      "detail": "1592/1592 mtime 未变"
+    }
+  ],
+  "sessionIds": "已剥离（私有会话 id 不出仓库；按名次编号 + 字节/节点/边形状保留）"
+}

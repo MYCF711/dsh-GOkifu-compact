@@ -5,6 +5,10 @@
  * 所以编排只依赖注入的 `callModel` —— 这里用假模型把整条链路跑通，不需要真调 API。
  */
 import { runOfflineFold, allConstraints } from "../src/rooms/offline-fold.mjs";
+// ★ AX-07：离线守卫的**判据来源**（本文件只做「两条路径给出同一个裁决」的对拍，不自己判）。
+import * as offlineFold from "../src/rooms/offline-fold.mjs";
+import { guardModelOutput } from "../src/rooms/fact-guard.mjs";
+import { isValueFact } from "../src/rooms/tool-value-facts.mjs";
 
 export const tests = {};
 
@@ -547,4 +551,374 @@ tests["C595 单段输出预算默认封顶 8192（慢模型下预算翻倍就跑
     measureQuality: () => null,
   });
   t.eq(seenMax <= 8192, true, `预算必须 ≤ 8192（实际 ${seenMax}）——真机 kimi 8k≈169s、16k≈340s>240s 截止`);
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+ * AX-07 · 离线归档补折接入**同一守卫**（复用 AX-01 `guardModelOutput` / AX-02 `extractValueFacts`）
+ *
+ * 本节的判据只有一句：**离线路径不许有自己的一套裁决**。
+ * 所以每条用例要么是「与 `guardModelOutput` 逐字段对拍」，要么是「guard=false 时旧字节不变」。
+ * ═══════════════════════════════════════════════════════════════════════════════════════ */
+
+const AX07_SESSION = "session-ax07";
+/** 守卫证据源：一条 user + 一条 assistant + 一条工具调用 + 一条成功结果（seq 1/2/3/4）。 */
+const AX07_EVENTS = [
+  u(1, "把构建跑通"),
+  a(2, "先看配置"),
+  { type: "tool/call", seq: 3, data: { name: "bash", arguments: "{\"command\":\"npm test\"}" } },
+  tr(4, "ok"),
+];
+const ax07Graph = () => ({
+  rootUserNodeIds: ["n1"],
+  nodes: { n1: { id: "n1", seq: 1, kind: "user", text: "把构建跑通", constraints: ["不许动 prod 配置"] } },
+  edges: {},
+  foldMarks: [],
+});
+
+tests["AX-07① online/offline 同输入：接受/拒绝逐字段一致（离线不许多一套裁决）"] = async (t) => {
+  // 六种输入覆盖：全过 / 降级 UNVERIFIED / 整段被拒 / 坏 JSON / 未知顶层字段 / 形状不对
+  const raws = [
+    JSON.stringify({
+      facts: [{ id: "f1", kind: "constraint", subject: "user", claim: "用户要求把构建跑通", quote: "把构建跑通", evidenceSeq: 1, validAtSeq: 2 }],
+      narratives: [{ id: "nar1", text: "## 目标\n- 把构建跑通", factRefs: ["f1"], validAtSeq: 2 }],
+    }),
+    JSON.stringify({
+      facts: [{ id: "f1", kind: "state", subject: "user", claim: "构建可能有问题" }],
+      narratives: [{ id: "nar1", text: "## 未验证\n- 构建可能有问题", factRefs: ["f1"] }],
+    }),
+    JSON.stringify({
+      facts: [{ id: "f1", kind: "constraint", subject: "user", claim: "用户说不许动 prod", quote: "不许动 prod", evidenceSeq: 1 }],
+      narratives: [{ id: "nar1", text: "## 目标\n- 不许动 prod", factRefs: ["f1"] }],
+    }),
+    "## 目标\n- 模型没按格式来",
+    JSON.stringify({ facts: [], narratives: [], extra: 1 }),
+    JSON.stringify({ facts: {}, narratives: [] }),
+  ];
+  const source = offlineFold.buildGuardSource(AX07_EVENTS, { sessionId: AX07_SESSION });
+  for (const raw of raws) {
+    const online = guardModelOutput(raw, { factGuard: true, session: source });
+    const { record } = offlineFold.applyOfflineGuard(offlineFold.guardOfflineFoldOutput(raw, { events: AX07_EVENTS, sessionId: AX07_SESSION }), raw);
+    t.eq(record.facts, online.facts, `facts 必须逐字段一致：${raw.slice(0, 40)}`);
+    t.eq(record.narratives, online.narratives, `narratives 必须逐字段一致：${raw.slice(0, 40)}`);
+    t.eq(record.summary, online.summary, `summary 必须逐字段一致：${raw.slice(0, 40)}`);
+    t.eq(record.applied, online.applied, "applied 一致");
+    t.eq(record.degraded, online.degraded, "degraded 一致");
+    t.eq(record.degradedReason, online.degradedReason, "degradedReason 一致");
+  }
+  // 判据来源（静态）：本文件**必须** import 那两个房间，而不是在自己家里再写一份
+  const src = (await import("node:fs")).readFileSync(new URL("../src/rooms/offline-fold.mjs", import.meta.url), "utf8");
+  t.includes(src, 'from "./fact-guard.mjs"', "离线路径必须 import AX-01 的守卫");
+  t.includes(src, 'from "./tool-value-facts.mjs"', "离线路径必须 import AX-02 的抽取器");
+  t.notIncludes(src, "QUOTE_NOT_VERBATIM", "原因码表不许在本文件里复制第二份（复制 = 第二条事实质量路径）");
+};
+
+tests["AX-07② factGuard=false ⇒ 提示词与 chunk 形状逐字不变（默认关闭）"] = async (t) => {
+  const messages = [{ role: "user", nodeId: "n1", seq: 1, text: "hi" }];
+  const valueFacts = [{ kind: "id", value: 4242, quote: "4242", evidenceSeq: 2, validAtSeq: 2, source: "tool:bash" }];
+  t.eq(offlineFold.buildOfflinePrompt({ facts: "F", messages }), offlineFold.buildOfflinePrompt({ facts: "F", messages, factGuard: false, valueFacts }), "guard=false 时值事实不许影响提示词");
+  t.notIncludes(offlineFold.buildOfflinePrompt({ facts: "F", messages, factGuard: false, valueFacts }), "事实守卫", "关掉守卫 ⇒ 提示词里根本没有守卫段");
+  // 默认值来自 R15 的单一来源；本刀**不许**把它改成 true
+  t.eq((await import("../src/rooms/fact-guard.mjs")).DEFAULT_ENABLED, false, "factGuard 默认必须仍为 false");
+
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    callModel: async () => ({ text: "## 目标\n- 把构建跑通\n- 不许动 prod 配置", usage: null, model: "fake-model" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks.length, 1, "正常折一段");
+  t.eq("guard" in out.chunks[0], false, "guard=false ⇒ chunk 不长 guard 键（旧形状）");
+  t.eq("valueFacts" in out.chunks[0], false, "guard=false ⇒ chunk 不长 valueFacts 键（旧形状）");
+};
+
+tests["AX-07③ 无证据事实只能 UNVERIFIED：摘要必须带标记，不许当事实写账"] = async (t) => {
+  const raw = JSON.stringify({
+    facts: [{ id: "f1", kind: "state", subject: "user", claim: "构建可能有问题" }],
+    narratives: [{ id: "nar1", text: "## 未验证\n- 构建可能有问题", factRefs: ["f1"] }],
+  });
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => ({ text: raw, usage: null, model: "fake-model" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.guard.verdict, "UNVERIFIED", "无证据事实 ⇒ 整份摘要降级 UNVERIFIED（不是 SUPPORTED）");
+  t.eq(chunk.guard.facts[0].verdict, "UNVERIFIED", "逐条裁决同样是 UNVERIFIED");
+  t.eq(chunk.guard.facts[0].entailmentProven, false, "逐字命中不许宣称语义蕴含");
+  t.eq(chunk.text.split("\n")[0], `${offlineFold.GUARD_MARK_PREFIX}UNVERIFIED（NO_EVIDENCE、CITED_UNVERIFIED_FACT）`, "正文第一行必须是机器标记");
+  t.includes(chunk.text, "构建可能有问题", "正文本身保留（降级不是删掉）");
+};
+
+tests["AX-07④ 引用被拒事实 ⇒ 整段拒绝，且不写半截账（guard.verdict = REJECTED）"] = async (t) => {
+  // quote 不在 seq=1 的事件里 ⇒ QUOTE_NOT_VERBATIM ⇒ 事实被拒；叙事又引用了它 ⇒ 一起拒
+  const raw = JSON.stringify({
+    facts: [{ id: "f1", kind: "constraint", subject: "user", claim: "用户说不许动 prod", quote: "不许动 prod", evidenceSeq: 1 }],
+    narratives: [{ id: "nar1", text: "## 目标\n- 不许动 prod 配置", factRefs: ["f1"] }],
+  });
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => ({ text: raw, usage: null, model: "fake-model" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks.length, 0, "被拒的叙事不许留下折痕");
+  // `stopped` 是**冻结的跨进程闭集**（`STOPPED_REASONS`），本刀不往表里加值 ⇒ 复用 empty-response；
+  // 「为什么没有正文」由结果上的 guard 记录承载。
+  t.eq(out.failed, "empty-response", "没有可回证的正文 ⇒ 与空回答同构（不许写半截账）");
+  t.eq(offlineFold.isKnownStopped(out.failed), true, "停止原因必须在 STOPPED_REASONS 里登记");
+  t.eq(out.guard.verdict, "REJECTED", "守卫裁决必须留在结果上（stopped 表是闭集，不能塞语义）");
+  t.eq(out.guard.facts[0].reasons[0].code, "QUOTE_NOT_VERBATIM", "逐条原因码来自 AX-01");
+  t.eq(out.guard.narratives[0].reasons[0].code, "CITED_REJECTED_FACT", "叙事因引用被拒事实而被拒");
+  const graph = ax07Graph();
+  const before = JSON.stringify(graph);
+  const applied = offlineFold.applyOfflineFoldToGraph(graph, out, { rangeStart: 1, rangeEnd: 4, now: 1 });
+  t.eq(applied.marksAdded, 0, "0 段 ⇒ 0 条折痕");
+  t.eq(JSON.stringify(graph), before, "一个字都不许改（欠账留着下一轮补）");
+  t.eq(offlineFold.offlineFoldOutcome(out, { rangeStart: 1, rangeEnd: 4, maxSeq: 4 }).stopped, "empty-response", "outcome 要把它带出去");
+};
+
+tests["AX-07⑤ 坏 JSON ⇒ 显式 degraded + 标记，正文不丢（不许静默当没有事实）"] = async (t) => {
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => ({ text: "## 目标\n- 模型没按格式来", usage: null, model: "fake-model" }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.guard.verdict, "DEGRADED", "坏 JSON ⇒ DEGRADED（不是 SUPPORTED）");
+  t.eq(chunk.guard.degraded, true, "degraded 必须为真");
+  t.eq(chunk.guard.degradedReason, "BAD_JSON", "原因码来自 AX-01");
+  t.eq(chunk.guard.applied, false, "degraded 时 applied=false");
+  t.includes(chunk.text, "## 目标\n- 模型没按格式来", "正文原样保留（有据可查的短摘要比零产出有用）");
+  t.includes(chunk.text, `${offlineFold.GUARD_MARK_PREFIX}DEGRADED（BAD_JSON）`, "降级必须有标记");
+};
+
+tests["AX-07⑥ valueFacts：成功结果进硬事实块且满足 AX-02 契约；没有成功结果时为空数组"] = async (t) => {
+  const events = [
+    u(1, "把构建跑通"),
+    { type: "tool/call", seq: 2, data: { name: "write", arguments: "{\"file_path\":\"/tmp/a.txt\"}" } },
+    tr(3, "<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nhi\n</content>"),
+    tr(4, "Error: EACCES: permission denied"),
+  ];
+  const facts = offlineFold.collectFoldValueFacts(events, { rangeStart: 1, rangeEnd: 4 });
+  t.eq(facts.length > 0, true, "成功 write 回执必须抽出值事实");
+  t.eq(facts.every((fact) => isValueFact(fact)), true, "每条都必须满足 AX-02 的六字段契约");
+  t.eq(facts.every((fact) => fact.evidenceSeq === 3), true, "证据指针必须是成功结果的 seq（错误结果 seq=4 一条都不许产）");
+  const block = offlineFold.renderValueFactsBlock(facts);
+  t.includes(block, "## 成功工具结果的值（可回证）", "值事实块要有标题");
+  t.includes(block, "seq 3", "每条都要带 seq（模型才写得出 evidenceSeq）");
+  t.eq(offlineFold.renderValueFactsBlock([]), "", "空数组 ⇒ 空串（不许长出空段落）");
+
+  // 提示词：守卫开启才出现这一段；关掉时逐字没有
+  const messages = [{ role: "user", nodeId: "n1", seq: 1, text: "hi" }];
+  t.includes(offlineFold.buildOfflinePrompt({ facts: "F", messages, factGuard: true, valueFacts: facts }), "## 成功工具结果的值（可回证）", "guard=true ⇒ 值事实进提示词");
+  t.notIncludes(offlineFold.buildOfflinePrompt({ facts: "F", messages }), "成功工具结果的值", "guard=false ⇒ 提示词里没有这一段");
+
+  // 端到端：没有成功结果的会话 ⇒ valueFacts 为空、守卫照常工作（空数组是正常返回值，不是错误）
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: [u(1, "把构建跑通"), a(2, "好")],
+    rangeStart: 1,
+    rangeEnd: 2,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => ({
+      text: JSON.stringify({
+        facts: [{ id: "f1", kind: "constraint", subject: "user", claim: "用户要求把构建跑通", quote: "把构建跑通", evidenceSeq: 1 }],
+        narratives: [{ id: "nar1", text: "## 目标\n- 把构建跑通", factRefs: ["f1"] }],
+      }),
+      usage: null,
+      model: "fake-model",
+    }),
+    measureQuality: () => ({ constraintRecall: 1 }),
+  });
+  t.eq(out.chunks[0].valueFacts, [], "没有成功工具结果 ⇒ valueFacts 是空数组");
+  t.eq(out.chunks[0].guard.valueFacts, 0, "留痕里记 0（不是缺字段）");
+  t.eq(out.chunks[0].guard.verdict, "SUPPORTED", "空 valueFacts 不影响裁决");
+};
+
+tests["AX-07⑦ 旧图无 guard 字段：写回不长新键（guard=false）/ 长了也照常（guard=true）"] = async (t) => {
+  // 旧图：没有 foldMarks / closeout / lastOfflineSummary
+  const legacyGraph = { nodes: { n1: { id: "n1", seq: 1, kind: "user", text: "x" } }, edges: {} };
+  const chunk = { start: 1, end: 1, text: "## 目标\n- x", model: "m1", ms: 1, usage: null };
+  offlineFold.applyOfflineFoldToGraph(legacyGraph, { chunks: [chunk], coveredStart: 1, coveredEnd: 1 }, { rangeStart: 1, rangeEnd: 1, now: 1 });
+  t.eq("guard" in legacyGraph.foldMarks[0], false, "guard=false ⇒ 折痕不长 guard 键");
+  t.eq("guard" in legacyGraph.lastOfflineSummary, false, "guard=false ⇒ lastOfflineSummary 不长 guard 键");
+
+  const guardedGraph = { nodes: { n1: { id: "n1", seq: 1, kind: "user", text: "x" } }, edges: {} };
+  const guardedChunk = { ...chunk, guard: { verdict: "SUPPORTED", facts: [], narratives: [], summary: null }, valueFacts: [] };
+  offlineFold.applyOfflineFoldToGraph(guardedGraph, { chunks: [guardedChunk], coveredStart: 1, coveredEnd: 1 }, { rangeStart: 1, rangeEnd: 1, now: 1 });
+  t.eq(guardedGraph.foldMarks[0].guard.verdict, "SUPPORTED", "guard=true ⇒ 折痕带裁决");
+  t.eq(guardedGraph.lastOfflineSummary.guard.verdict, "SUPPORTED", "lastOfflineSummary 带同一份裁决");
+};
+
+tests["AX-07⑧ lastOfflineSummary 与 foldMark 的正文必须一致（单副本协议 + 同一份裁决）"] = async (t) => {
+  const graph = ax07Graph();
+  const result = {
+    chunks: [
+      { start: 1, end: 2, text: "## 目标\n- 第一段", model: "m1", ms: 1, usage: null, guard: { verdict: "SUPPORTED", facts: [], narratives: [] } },
+      { start: 3, end: 4, text: "## 目标\n- 第二段", model: "m1", ms: 2, usage: null, guard: { verdict: "UNVERIFIED", facts: [], narratives: [] } },
+    ],
+    coveredStart: 1,
+    coveredEnd: 4,
+    uncoveredHead: 0,
+    uncoveredTail: 0,
+  };
+  offlineFold.applyOfflineFoldToGraph(graph, result, { rangeStart: 1, rangeEnd: 4, now: 1 });
+  const [first, last] = graph.foldMarks;
+  t.includes(first.summaryText, "第一段", "非最后一段：正文直接存在折痕里");
+  t.eq("summaryText" in last, false, "最后一段：只存引用（一条摘要只存一遍）");
+  t.eq(last.summaryTextRef, "lastOfflineSummary", "引用指向 lastOfflineSummary");
+  t.eq(offlineFold.foldMarkSummaryText(graph, last), graph.lastOfflineSummary.text, "按引用解析出来的正文必须与 lastOfflineSummary 逐字相同");
+  t.includes(graph.lastOfflineSummary.text, "第二段", "解析到的是最后一段正文");
+  t.eq(last.guard, graph.lastOfflineSummary.guard, "两处的裁决必须是同一份（不许一处 SUPPORTED 一处 UNVERIFIED）");
+  t.eq(offlineFold.foldMarkSummaryText(graph, first), first.summaryText, "非引用折痕的解析就是它自己");
+  t.eq(offlineFold.foldMarkSummaryText(graph, null), "", "null 折痕解析成空串（不炸）");
+};
+
+tests["AX-07⑨ 守卫不新增第二次模型调用，路由仍来自 callModel（不脚本另选）"] = async (t) => {
+  const calls = [];
+  const graph = ax07Graph();
+  const out = await runOfflineFold({
+    graph,
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => {
+      calls.push(1);
+      return {
+        text: JSON.stringify({
+          facts: [{ id: "f1", kind: "constraint", subject: "user", claim: "用户要求把构建跑通", quote: "把构建跑通", evidenceSeq: 1 }],
+          narratives: [{ id: "nar1", text: "## 目标\n- 把构建跑通", factRefs: ["f1"] }],
+        }),
+        usage: { inputTokens: 1, outputTokens: 1 },
+        model: "fake-model",
+      };
+    },
+    measureQuality: () => null,
+  });
+  t.eq(calls.length, 1, "守卫在同一份输出上裁决，不许再发一次（禁止第二个 LLM 评委）");
+  // 路由只能来自调用方注入的 callModel（引擎/脚本各自从默认配置取），守卫不许另选模型
+  t.eq(out.chunks[0].model, "fake-model", "chunk.model 必须就是 callModel 交回的那个");
+  offlineFold.applyOfflineFoldToGraph(graph, out, { rangeStart: 1, rangeEnd: 4, now: 1 });
+  t.eq(graph.foldMarks[0].route.model, "fake-model", "折痕的路由必须与 callModel 一致（守卫不改路由）");
+};
+
+tests["AX-07⑩ 守卫的标记不破坏机械补回（缺约束仍补、且只补一次）"] = async (t) => {
+  const raw = JSON.stringify({
+    facts: [{ id: "f1", kind: "state", subject: "user", claim: "构建可能有问题" }],
+    narratives: [{ id: "nar1", text: "## 目标\n- 构建可能有问题", factRefs: ["f1"] }],
+  });
+  const out = await runOfflineFold({
+    graph: ax07Graph(),
+    events: AX07_EVENTS,
+    rangeStart: 1,
+    rangeEnd: 4,
+    factGuard: true,
+    sessionId: AX07_SESSION,
+    callModel: async () => ({ text: raw, usage: null, model: "fake-model" }),
+    measureQuality: () => ({ constraintRecall: 0 }),
+  });
+  const chunk = out.chunks[0];
+  t.eq(chunk.repaired, 1, "模型漏掉的那条约束仍要机械补回");
+  t.includes(chunk.text, "- 不许动 prod 配置", "补回的约束要在正文里");
+  t.eq(chunk.text.split("## 约束（逐字补充").length - 1, 1, "只补一次");
+  t.eq(chunk.text.split(offlineFold.GUARD_MARK_PREFIX).length - 1, 1, "标记行只有一行（补回不许复制它）");
+};
+
+/* ══════════════════════ AX-21 · 离线路径复用「结果算不算可信」的同一份判据 ══════════════════════
+ *
+ * 由来（AX-20 已证实，不是假设）：旧版 `collectFoldValueFacts` 自己写了一个三元判 resultKind，
+ * 漏掉 keeper 私有的 `githubReadShaped` 映射 ⇒ GitHub **读形**结果（classify 给 unverified 且
+ * 不带 weak）在离线路径**一条值都抽不出来**。K-2 的 K2-O3（id / private）与 K2-N4（node_id）
+ * 的答案片段因此根本不在折叠上下文里。
+ *
+ * 本节的判据：**同一个工具结果文本，在线与离线给出的 resultKind 必须逐字段相同**（不是「各有一套
+ * 差不多」）—— 所以正例与反例成对出现，且反例必须在两条路径都不产事实。
+ */
+
+const ax21Call = (seq, callId, name, args) => ({ type: "tool/call", seq, data: { callId, name, arguments: JSON.stringify(args) } });
+const ax21Result = (seq, callId, text) => ({ type: "tool/result", seq, data: { message: { content: [{ type: "text", text }], isError: false, source: { callId } } } });
+/** K-2 S2-Q3 的真实形状：GitHub 仓库 API 的 JSON。 */
+const AX21_REPO_JSON = '{"id": 4242, "node_id": "R_demo4242", "private": false, "default_branch": "main"}';
+
+tests["AX-21① GitHub 读形（缺省 method / GET / HEAD）⇒ 离线也抽出 id / node_id / private"] = (t) => {
+  const shapes = [
+    ["缺省 method", { path: "repos/octo/demo-repo" }],
+    ["显式 GET", { path: "repos/octo/demo-repo", method: "GET" }],
+    ["HEAD", { path: "repos/octo/demo-repo", method: "HEAD" }],
+  ];
+  for (const [label, args] of shapes) {
+    const facts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", args), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+    const pairs = facts.map((fact) => [fact.kind, fact.value]);
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === 4242), true, `${label}：仓库 id 必须留下（K2-O3 的答案片段）`);
+    t.eq(pairs.some(([kind, value]) => kind === "id" && value === "R_demo4242"), true, `${label}：node_id 必须留下（K2-N4 的答案片段）`);
+    t.eq(pairs.some(([kind, value]) => kind === "boolean" && value === false), true, `${label}：private=false 必须留下（false 不是「没有」）`);
+    t.eq(facts.every((fact) => fact.evidenceSeq === 35), true, `${label}：证据指针 = 结果事件 seq`);
+    t.eq(facts.every((fact) => fact.source === "tool:github"), true, `${label}：source 归一成工具名（派生挂边靠它匹配）`);
+    t.eq(facts.every((fact) => isValueFact(fact)), true, `${label}：每条都必须满足 AX-02 的契约`);
+  }
+};
+
+tests["AX-21② GitHub 写形（POST/PATCH/PUT/DELETE / body / confirm）⇒ 离线一条事实都不产"] = (t) => {
+  const shapes = [
+    ["POST", { path: "repos/o/r", method: "POST", body: { name: "x" } }],
+    ["PATCH", { path: "repos/o/r", method: "PATCH", body: { private: true } }],
+    ["PUT", { path: "repos/o/r", method: "PUT", body: { a: 1 } }],
+    ["DELETE", { path: "repos/o/r", method: "DELETE" }],
+    ["缺省 method 但带 body", { path: "repos/o/r", body: { name: "x" } }],
+    ["缺省 method 但 confirm:true", { path: "repos/o/r", confirm: true }],
+  ];
+  for (const [label, args] of shapes) {
+    const facts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", args), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+    t.eq(facts, [], `${label}：写调用不许被当成弱成功（任务书 AX-04 明令）`);
+  }
+  // 反例必须是「工具名/实参」在起作用，不是「什么 github 结果都抽不出」：
+  const readFacts = offlineFold.collectFoldValueFacts([ax21Call(34, "c1", "github", { path: "repos/o/r" }), ax21Result(35, "c1", AX21_REPO_JSON)], { rangeStart: 1, rangeEnd: 100 });
+  t.ok(readFacts.length > 0, "同一份结果文本，读形必须抽得出（否则上面的空数组什么都没证明）");
+};
+
+tests["AX-21③ 判据来源（静态）：离线 import 共享判据，不再自己写 resultKind 三元"] = async (t) => {
+  const src = (await import("node:fs")).readFileSync(new URL("../src/rooms/offline-fold.mjs", import.meta.url), "utf8");
+  t.includes(src, "resultKindForValueFacts", "离线必须复用 AX-02 的信任闸判据");
+  t.includes(src, "resultKindForValueFacts(verdict", "必须真的调用它（import 了不用 = 还是自己判）");
+  t.notIncludes(src, 'verdict?.result === "success"', "旧的私有三元已经删掉（两份实现迟早只修好一份）");
+};
+
+tests["AX-24 facts-only 回退：叙事全拒但事实 SUPPORTED ⇒ 不返回空正文"] = (t) => {
+  const envelope = {
+    enabled: true,
+    applied: true,
+    degraded: false,
+    facts: [
+      { id: "f1", subject: "user", claim: "根目标是 repair-fold", verdict: "SUPPORTED", reasons: [] },
+      { id: "f2", subject: "harness", claim: "注入的上下文", verdict: "REJECTED", reasons: [] },
+    ],
+    narratives: [{ id: "n1", text: "引用被拒事实的叙事", verdict: "REJECTED", reasons: [] }],
+    summary: { total: 2, supported: 1, rejected: 1 },
+  };
+  const out = offlineFold.applyOfflineGuard(envelope, "raw");
+  t.includes(out.text, "facts-only 回退", "必须显式标记 facts-only");
+  t.includes(out.text, "根目标是 repair-fold", "SUPPORTED 事实必须保留");
+  t.notIncludes(out.text, "引用被拒事实的叙事", "被拒叙事不许进正文");
+  t.notIncludes(out.text, "注入的上下文", "被拒事实不许进正文");
+  t.eq(out.verdict, "UNVERIFIED", "facts-only 摘要只能是 UNVERIFIED，不能冒充 SUPPORTED");
+  t.includes(out.text, "事实守卫：UNVERIFIED", "必须带机器标记行");
 };

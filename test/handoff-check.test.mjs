@@ -8,8 +8,8 @@
  * 只断言 ⑩/⑪ 两项，其余检查（①–⑨）由各自的单测覆盖，避免夹具噪声。
  */
 
-import { checkGraph } from "../scripts/handoff-check.mjs";
-import { renderLedger } from "../src/rooms/ledger.mjs";
+import { checkGraph, omissionLines, parseOmissions } from "../scripts/handoff-check.mjs";
+import { renderLedger, renderMinimalLedger, renderFacts } from "../src/rooms/ledger.mjs";
 
 export const tests = {};
 
@@ -392,4 +392,196 @@ tests["H-17 ⑯闭包自洽必须用**当时**的 graphNodes，不能被之后�
   // 真坏数据：nodes(60) > 当时的 graphNodes(50) ⇒ 必须 fail
   const broken = mkGraph({ foldMarks: [mk(60, 50)] });
   t.eq(byName(checkGraph(broken, {}), "⑯").level, "fail", "nodes 超过当时图节点数必须 fail");
+};
+
+tests["C656 ⑧省略行：CONSTRAINTS_OMITTED 必须被认出来（旧清单漏这一类 ⇒ 省略行从不被校验）"] = (t) => {
+  const good = "CONSTRAINTS_OMITTED: 8 of 40 not listed (section over 8000 chars) — full text: graph.json nodes[*].constraints";
+  const bad = "CONSTRAINTS_OMITTED: 8 of 40 not listed (section over 8000 chars)";
+  t.eq(omissionLines(good).length, 1, "带指针的省略行必须被认出 —— ⑧ 才看得见它");
+  t.eq(omissionLines(bad).length, 1, "反例前提：连丢了指针的那一行也要被认出，否则 ⑧ 无从判红");
+  // 反例：旧清单的三种关键词都匹配不到这一行 ⇒ 这条守卫不是同义反复（C656 前 ⑧ 对约束省略是盲的）
+  const OLD = /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE/;
+  t.eq(OLD.test(good), false, "旧正则确实漏了 CONSTRAINTS_OMITTED");
+  t.eq(omissionLines("LEARNED (3 failed attempts):").length, 0, "不是省略行就不许误报");
+};
+
+tests["C656 ⑧端到端：约束病态超限的省略行带 graph.json 指针 ⇒ ⑧ ok（且确实产生了这一行）"] = (t) => {
+  const g = mkGraph();
+  // 40 × ~250 字符 ⇒ 越过 8,000 字符病态阀，主清单必然产生 CONSTRAINTS_OMITTED
+  g.nodes.n1.constraints = Array.from({ length: 40 }, (_, i) => `约束 ${i + 1}：${"不许动 prod 配置，".repeat(20)}`);
+  const led = renderLedger(g);
+  t.includes(led.text, "CONSTRAINTS_OMITTED: ", "前置：病态超限必须产生省略行");
+  const row = byName(checkGraph(g, {}), "⑧");
+  t.eq(row.level, "ok", `⑧ 必须 ok（实际 ${row.level}：${row.detail}）`);
+  t.includes(row.detail, "行省略", "⑧ 的 detail 必须报出它看到了省略行（不能是「本档没有省略行」）");
+};
+
+/* ───────────── C656 ⑧ 省略行：值事实三类 + 残留计数行（allowlist 漏检的补完） ───────────── */
+
+/** 3 条合法值事实（`normalizeValueFact` 的六字段口径）—— 上限给 1 时必有 2 条被省略。 */
+const VALUE_FACTS_3 = [0, 1, 2].map((i) => ({ kind: "value", value: `值${i}`, quote: `值${i}`, evidenceSeq: 10 + i, validAtSeq: 10 + i, source: "tool:bash" }));
+
+/** mkGraph 的变体：把值事实挂在已有的边上；`failure:false` ⇒ 零失败边 ⇒ 走最小清单那条生产分支。 */
+function mkFactGraph({ failure = true, facts = VALUE_FACTS_3 } = {}) {
+  const g = mkGraph();
+  if (!failure) g.edges.e1.result = "success";
+  g.edges.e1.valueFacts = facts.map((f) => ({ ...f }));
+  return g;
+}
+
+tests["C656 ⑧省略行结构判据：值事实 3 类 + 残留计数行全部被认出（旧 allowlist 漏这 4 类）"] = (t) => {
+  // 相对 treeDir：既让 relTree 分支生效（指针变 `sessions/abc/graph.json`），又不在源码里留绝对路径
+  const treeDir = "sessions/abc";
+  const renderOpts = { maxTokens: 4000, factGuard: true, maxValueFacts: 1, treeDir, traceRoot: "sessions" };
+  const main = renderLedger(mkFactGraph(), renderOpts);
+  const minimal = renderMinimalLedger(mkFactGraph({ failure: false }), { maxTokens: 500, factGuard: true, maxValueFacts: 1 });
+  const facts = renderFacts(mkFactGraph(), renderOpts);
+  const pick = (text, needle) => String(text).split("\n").find((line) => line.includes(needle));
+
+  // 残留计数行：陈旧失败 + to=null（C654 夹具同款）
+  const residue = mkGraph();
+  residue.sessionId = "fixture-c656-residue";
+  residue.edges.e1.to = null;
+  residue.edges.e1.ts = Date.now() - 60 * 60 * 1000;
+  const residueLine = pick(renderLedger(residue).text, "条无终点残留");
+
+  const cases = [
+    ["主清单 值事实省略（# 另有 N 条值事实未展开）", pick(main.text, "条值事实未展开"), "未展开"],
+    ["最小清单 值事实省略（同一句的 graph.json 变体）", pick(minimal.text, "条值事实未展开"), "未展开"],
+    ["事实块 VALUE_FACTS_OMITTED", pick(facts, "VALUE_FACTS_OMITTED:"), "VALUE_FACTS_OMITTED"],
+    ["主清单 残留计数行", residueLine, "条无终点残留"],
+  ];
+  // 旧 allowlist（C656 前 + t4 补完之后的那张表）：这 4 类一条都认不出来 ⇒ 这轮不是同义反复
+  const OLD = /omitted for budget|FAILED_ATTEMPTS_OMITTED|DANGLING_RESIDUE|CONSTRAINTS_OMITTED/;
+  for (const [label, line, needle] of cases) {
+    t.ok(Boolean(line), `前置：${label} 必须真的渲染出来`);
+    if (!line) continue;
+    t.includes(line, needle, `${label} 的行文必须与模板一致（防止夹具其实没触发）`);
+    t.eq(omissionLines(line).length, 1, `${label} 必须被 omitessionLines 认出（否则 ⑧ 永远看不到它）`);
+    t.eq(OLD.test(line), false, `${label} 在旧 allowlist 下确实漏检（证明本轮修复不是同义反复）`);
+    // 指针在场 ⇒ ⑧ 不红；把指针抹掉 ⇒ bad=1 ⇒ ⑧ 会红（判据本体 parseOmissions = ⑧ 用的那一份）
+    t.eq(parseOmissions(line).bad.length, 0, `${label} 带 graph.json 回证指针 ⇒ ⑧ 不该红`);
+    const stripped = line.split("graph.json").join("（无指针）");
+    t.eq(parseOmissions(stripped).bad.length, 1, `${label} 抹掉指针后必须被 ⑧ 判红`);
+  }
+  // 没有省略时不许误报：普通 LEARNED 行不是省略行
+  t.eq(omissionLines("LEARNED (3 failed attempts):").length, 0, "普通行不许误报");
+};
+
+tests["C656 ⑧端到端（主清单）：factGuard 开 ⇒ 值事实省略行被 ⑧ 看到并判 ok；关 ⇒ 那几行不渲染"] = (t) => {
+  const g = mkFactGraph();
+  const on = checkGraph(g, { factGuard: true, maxValueFacts: 1 });
+  const onRow = byName(on, "⑧");
+  t.eq(onRow.level, "ok", `值事实省略行带指针 ⇒ ⑧ 必须 ok：${onRow.detail}`);
+  t.includes(onRow.detail, "行省略", "⑧ 必须真的把省略行看进去（不是「本档没有省略行」）");
+  // 默认（factGuard=false）与生产默认一致：值事实段一行都不许出现 —— 这条同时守住「默认没被改动」
+  const off = checkGraph(g, {});
+  t.notIncludes(off.ledger.text, "条值事实未展开", "guard 关掉时不许出现值事实省略行");
+  t.notIncludes(off.ledger.text, "VALUE FACTS", "guard 关掉时值事实段整段不渲染（AX-06 的默认口径）");
+  t.eq(byName(off, "⑧").level, "ok", "guard 关掉时 ⑧ 仍 ok（没有省略行就没有可判的）");
+};
+
+tests["C656 ⑧端到端（最小清单）：零失败会话的值事实省略行带 graph.json 指针 ⇒ ⑧ ok"] = (t) => {
+  const g = mkFactGraph({ failure: false });
+  const r = checkGraph(g, { factGuard: true, maxValueFacts: 1 });
+  const row = byName(r, "⑧");
+  t.eq(row.level, "ok", `最小清单的值事实省略行带指针 ⇒ ⑧ ok：${row.detail}`);
+  t.includes(row.detail, "行省略", "⑧ 必须看到这一行");
+  t.includes(r.ledger.text, "条值事实未展开（见 graph.json 的 edges[*].valueFacts）", "最小清单没有 tree 前缀，指针退化为 graph.json（仍可回查）");
+  t.eq(r.ledger.minimal, true, "零失败会话必须走最小清单（与生产同一条分支）");
+};
+
+/* ───────────── C656（t8）⑧ 判据收窄：行首产品形态 + 最小清单计数行纳入回证 ───────────── */
+
+/** 收集 `ledger.mjs` 真实产出的**全部**省略行（9 类），供 ⑧ 判据逐类回归。 */
+function productOmissionLines() {
+  const out = [];
+  const push = (label, text, needle) => {
+    const line = String(text).split("\n").find((l) => l.includes(needle));
+    out.push([label, line]);
+  };
+  // ① 主清单：失败边被裁（L4/L5 只留最近 10 条）
+  // 30 条长失败边：L0–L4 都装不下 ⇒ 落到 L5（只留最近 10 条）才会出「dead ends omitted」行
+  const many = mkGraph();
+  const base = many.edges.e1;
+  for (let i = 2; i <= 30; i += 1) {
+    many.edges[`e${i}`] = { ...base, id: `e${i}`, intent: `试跑 ${i} ${'x'.repeat(120)}`, errorSnippet: `Error: boom ${i} ${'y'.repeat(120)}`, ts: base.ts + i };
+  }
+  push("①主清单 失败边被裁", renderLedger(many, { maxTokens: 500 }).text, "earlier dead ends omitted for budget");
+
+  // ② 事实块：失败边省略（把上限压到 2 条）
+  push("②事实块 FAILED_ATTEMPTS_OMITTED", renderFacts(many, { maxFailures: 2, headFailures: 1, treeDir: "sessions/abc", traceRoot: "sessions" }), "FAILED_ATTEMPTS_OMITTED:");
+
+  // ③ 主清单：约束段病态超限（40 × 250 字符 > 8,000）
+  const huge = mkGraph();
+  huge.nodes.n1.constraints = Array.from({ length: 40 }, (_, i) => `约束 ${i + 1}：${"不许动 prod 配置，".repeat(20)}`);
+  push("③主清单 CONSTRAINTS_OMITTED", renderLedger(huge, { maxTokens: 500 }).text, "CONSTRAINTS_OMITTED:");
+
+  // ④⑤ 事实块：值事实省略 + 无终点残留
+  const factGraph = mkFactGraph();
+  const factOpts = { factGuard: true, maxValueFacts: 1, treeDir: "sessions/abc", traceRoot: "sessions" };
+  push("④事实块 VALUE_FACTS_OMITTED", renderFacts(factGraph, factOpts), "VALUE_FACTS_OMITTED:");
+  const residue = mkGraph();
+  residue.sessionId = "fixture-c656-residue";
+  residue.edges.e1.to = null;
+  residue.edges.e1.ts = Date.now() - 60 * 60 * 1000;
+  push("⑤事实块 DANGLING_RESIDUE", renderFacts(residue, { treeDir: "sessions/abc", traceRoot: "sessions" }), "DANGLING_RESIDUE:");
+
+  // ⑥⑦ 主清单：值事实计数行 + 残留计数行
+  push("⑥主清单 值事实未展开", renderLedger(factGraph, { maxTokens: 4000, ...factOpts }).text, "条值事实未展开");
+  push("⑦主清单 无终点残留", renderLedger(residue).text, "条无终点残留");
+
+  // ⑧ 最小清单：值事实计数行（无 tree 前缀，指针退化为 graph.json）
+  const zeroFailure = mkFactGraph({ failure: false });
+  push("⑧最小清单 值事实未展开", renderMinimalLedger(zeroFailure, { maxTokens: 500, factGuard: true, maxValueFacts: 1 }).text, "条值事实未展开");
+
+  // ⑨ 最小清单：只给计数的 CONSTRAINTS 行（t8 新纳入回证校验）
+  push("⑨最小清单 CONSTRAINTS 只给计数", renderMinimalLedger(zeroFailure, { maxTokens: 500 }).text, "CONSTRAINTS: ");
+
+  return out;
+}
+
+tests["C656 ⑧判据收窄：普通用户文本里的「未展开」「FOO_OMITTED」不再假红（T7 实测反例）"] = (t) => {
+  const g = mkGraph();
+  g.nodes.n1.constraints = ["- 这段注释未展开说明，请补全", "别把 FOO_OMITTED 当真"];
+  const text = renderLedger(g, { maxTokens: 4000 }).text;
+  const bullets = text.split("\n").filter((line) => line.startsWith("- ") && (line.includes("未展开") || line.includes("FOO_OMITTED")));
+  t.eq(bullets.length, 2, "前置：两条普通约束必须真的渲染出来");
+  // 旧（t6）判据是**内容子串** ⇒ 两条都命中、又都没有 graph.json ⇒ ⑧ 假红（T7 实测 bad=2）
+  const BROAD = /omitted for budget|\b[A-Z][A-Z0-9_]*_OMITTED\b|\bDANGLING_RESIDUE\b|未展开/;
+  t.eq(bullets.filter((line) => BROAD.test(line)).length, 2, "旧判据确实把这两条当省略行 —— 这就是要修的面");
+  t.eq(bullets.filter((line) => BROAD.test(line) && !line.includes("graph.json")).length, 2, "旧 ⑧ 的 bad 会是 2（假红）");
+  // 新判据：行首锚定 ⇒ 一条都不该命中
+  t.eq(omissionLines(text).length, 0, "普通用户文本不许被判成省略行");
+  const row = byName(checkGraph(g, {}), "⑧");
+  t.eq(row.level, "ok", `⑧ 必须 ok：${row.detail}`);
+  t.includes(row.detail, "本档没有省略行", "没有省略行时必须如实说「本档没有省略行」");
+};
+
+tests["C656 ⑧判据收窄：产品省略行 9 类全部仍命中（行首锚定没漏），抹掉指针仍红"] = (t) => {
+  const lines = productOmissionLines();
+  t.eq(lines.length, 9, `产品省略行应有 9 类，实际 ${lines.length}`);
+  for (const [label, line] of lines) {
+    t.ok(Boolean(line), `前置：${label} 必须由真渲染器产出（夹具没触发就等于没测）`);
+    if (!line) continue;
+    t.eq(omissionLines(line).length, 1, `${label} 必须被 ⑧ 判据认出（行首锚定不许漏产品行）`);
+    t.eq(parseOmissions(line).bad.length, 0, `${label} 带 graph.json 回证指针 ⇒ ⑧ 不该红`);
+    const stripped = line.split("graph.json").join("（无指针）");
+    t.eq(parseOmissions(stripped).bad.length, 1, `${label} 抹掉指针后必须判红（判据要能被同一个动作打红）`);
+  }
+};
+
+tests["C656 ⑧最小清单：CONSTRAINTS 只给计数行纳入回证 —— 带指针 ok、抹 graph.json 判红"] = (t) => {
+  const g = mkGraph();
+  g.edges.e1.result = "success"; // 零失败边 ⇒ 生产走最小清单
+  const led = renderMinimalLedger(g, { maxTokens: 500 });
+  const line = led.text.split("\n").find((l) => l.startsWith("CONSTRAINTS: "));
+  t.ok(Boolean(line), "前置：最小清单必须有 CONSTRAINTS 行");
+  t.includes(line, "count only, not verbatim; full text: graph.json", "该行必须明说「不是逐字全文」并给回证位置");
+  t.eq(omissionLines(line).length, 1, "「只给计数」也是回证行，必须纳入省略行集合（否则丢指针没人管）");
+  t.eq(parseOmissions(line).bad.length, 0, "带指针 ⇒ ⑧ 不红");
+  t.eq(parseOmissions(line.split("graph.json").join("（无指针）")).bad.length, 1, "抹掉 graph.json ⇒ ⑧ 必须红");
+  const row = byName(checkGraph(g, {}), "⑧");
+  t.eq(row.level, "ok", `⑧ 必须 ok：${row.detail}`);
+  t.includes(row.detail, "1 行省略", "⑧ 必须把这一行算进省略行计数（不再是「本档没有省略行」）");
 };
