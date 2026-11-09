@@ -1,0 +1,53 @@
+{
+  "schema": "release-record-v1",
+  "version": "1.19.0",
+  "releasedAt": "2026-11-09T04:39:00Z",
+  "previous": "1.18.5",
+  "theme": "内存：冷图回收落地（+295.7MB 堆 / +418.1MB RSS 全驻留 → 回收后 +0.3MB 堆、RSS 第 8 秒回到基线 67.4MB）",
+  "git": {
+    "prMergeCommit": "c4f703152aed6e36e3f1c9f99b9f5c65e7b5c8eb",
+    "tag": "v1.19.0",
+    "tagObject": "ce591404ed5b327245b28a4f653580719e7f699c",
+    "annotated": true
+  },
+  "npm": {
+    "package": "dsh-gokifu-compact",
+    "version": "1.19.0",
+    "distTagLatest": "1.19.0",
+    "tarball": "https://registry.npmjs.org/dsh-gokifu-compact/-/dsh-gokifu-compact-1.19.0.tgz",
+    "shasum": "d04f7a085e2628b93a7fd19ca0e84a8d0216f353",
+    "packageSizeBytes": 1887437,
+    "unpackedSizeBytes": 5557453,
+    "totalFiles": 170
+  },
+  "githubRelease": {
+    "tagName": "v1.19.0",
+    "isDraft": false,
+    "isPrerelease": false,
+    "name": "1.19.0",
+    "url": "https://github.com/MYCF711/dsh-GOkifu-compact/releases/tag/v1.19.0"
+  },
+  "ci": {
+    "workflow": "ci",
+    "prRun": "42562768165",
+    "prRunResult": "pass",
+    "prRunDuration": "2m46s",
+    "mainPushRun": "42563054038",
+    "mainPushResult": "success",
+    "mainPushDuration": "2m30s"
+  },
+  "verification": {
+    "verifyRelease": "✓ 一致：发布物就是 tag 的那棵树",
+    "npmVersion": "1.19.0",
+    "distTags": { "latest": "1.19.0" },
+    "boundaryAudit": "0 条",
+    "privacyAuditPack": "confirmed=0 / review=0",
+    "fullSuite": "2453 passed / 0 skipped / 0 failed"
+  },
+  "knownIssues": [
+    "handoff-check 的 live 证据失败（evidence/live-folds.json 生成于 2026-11-08，与当前磁盘 2205 条 ranged fold 对不上）。重生成会连锁改动多处文档与 C655 历史豁免用例，与本次发布无关 ⇒ 记录为已知红，CI 门禁（boundary + 全量）不受影响。",
+    "发布物里残留一个历史备份文件 cordis.patch.yml.bak-before-ui-1793723655877（来自旧会话，逐文件核对通过、不影响功能）。"
+  ],
+  "notYetEffective": "运行实例仍是旧构建 ⇒ 需要重启 DSH 才生效（铁律 1：不由代理重启）。",
+  "modelCalls": 0
+}

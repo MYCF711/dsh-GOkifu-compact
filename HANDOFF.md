@@ -5,7 +5,7 @@
 | 项 | 值 |
 |---|---|
 | **🆕 最新（2026-11-09 11:3x，先看这一节）** | **冷图回收落地**：`graphs`/`runtime` 过去**按会话永久常驻、零清理路径**。实测本机 1592 张真实图全驻留 = **+295.7 MB 堆 / +418.1 MB RSS**；走闸门释放后堆剩 **+0.3 MB**、**RSS 第 8 秒回到基线 67.4 MB**（磁盘 mtime 1592/1592 未变）。同时补掉三条交接风险（静默 15 分钟窗口 / fold 后 full 落盘窗口 / `sessionRefs` 释放）· **代码已进主线，运行实例仍是旧构建 ⇒ 要重启 DSH 才生效** · 全量 **2453 passed / 0 failed**（当次输出，2026-11-09）· K-27 关系行在下一节 |
-| 版本 | **1.19.0**（稳定版，1.18.5 之后，主题是内存）。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2453 passed / 0 failed**；gate 当前 **8/9**（handoff live 数据 FAIL 1 / WARN 400，基线同样复现；不是宣称 9/9 全绿） |
+| 版本 | **1.19.0**（已发布，2026-11-09）：npm `latest`=1.19.0 · tag `v1.19.0`（`ce59140`）· Release 非 draft · `verify-release` 逐文件一致 · main 上 CI **success**；记录见 `evidence/release-1.19.0.json`。主题是内存。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2453 passed / 0 failed**；gate 当前 **8/9**（handoff live 数据 FAIL 1 / WARN 400，基线同样复现；不是宣称 9/9 全绿） |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
