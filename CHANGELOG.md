@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C660 | 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip |
 | C659 | 冷图回收补三处风险 + 长进程 RSS 实测（418MB 在 8 秒内还回系统） |
 | C658 | 冷图安全回收：五条件闸门 + 折叠与补账 pin |
 | C657 | 同窗配对对照把「差一格」做成可归因：120 调用，消歧有效但 pilot 已饱和 |
@@ -666,6 +667,28 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C660 · 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip
+
+**问题**：`test/k2-value-reader.test.mjs` 的 K2-13 与 `test/k2-hash-check.test.mjs` 的整组用例，读的是 `tmp/axiom-2026-11-07/ax03/` 下的冻结产物 —— 那是 **git 忽略**的私有目录。于是在**干净 checkout / 新克隆**上：K2-13 直接 `ENOENT` 判红，K2H 整组 `skip`。
+
+实测（新 worktree 上跑 `node test/run.mjs k2`）：
+```
+[k2-value-reader.test.mjs] K2-13 …
+Error: ENOENT: no such file or directory, open '…/tmp/axiom-2026-11-07/ax03/prereg.json'
+```
+
+也就是说**这个仓库的全量测试在新克隆上根本不是全绿** —— 门禁形同虚设。
+
+**改法**：把三个冻结产物**按原始字节**版本化到 `test/fixtures/ax03/`（`prereg.json` / `fixtures.json` / `hash-manifest.json`），并在 `.gitattributes` 给它们加 `-text` 关掉 EOL 转换（`FROZEN_BASELINE` 里的 `rawBytesSha256` 就是按字节算的，CRLF 归一化会直接判红）。
+
+对齐点：
+- `scripts/k2-hash-check.mjs` 的 `FROZEN_BASELINE.preregPath / fixturesPath` → 新路径；
+- `test/k2-hash-check.test.mjs` 的 `ARTIFACT_DIR` 与 K2H-14 的临时仓库布局 → 新路径；
+- `test/k2-value-reader.test.mjs` 的 K2-13 读取路径 → 新路径。
+- `scripts/k2-value-reader.mjs --write` 仍然出到 `tmp/`（那是**再生工作区**）；要改冻结值必须是显式"提升"动作，不是顺手跑一遍。
+
+**效果**：干净 checkout 上 `k2` 从「80 里 skip 一大半 + K2-13 红」变成 **80 passed / 0 skipped / 0 failed**。
 
 ### C659 · 冷图回收补三处风险 + 长进程 RSS 实测（418MB 在 8 秒内还回系统）
 

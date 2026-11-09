@@ -65,8 +65,11 @@ export const PROJECTION_FIELDS = Object.freeze([
 
 /** AX-03 冻结基线（独立复核确认的 P0 不变量）。 */
 export const FROZEN_BASELINE = Object.freeze({
-  preregPath: "tmp/axiom-2026-11-07/ax03/prereg.json",
-  fixturesPath: "tmp/axiom-2026-11-07/ax03/fixtures.json",
+  // ★ C660：这两个文件原来是 `tmp/` 里的私有产物（git 忽略）⇒ 干净 checkout 上 K2-13 直接 ENOENT、
+  //   K2H 整组 skip。现在**按原始字节**版本化到 `test/fixtures/ax03/`（`.gitattributes -text` 关掉 EOL 转换），
+  //   脚本仍然可以 `--write` 出到 `tmp/` 做对比，但**唯一的判定依据是仓库里这份**。
+  preregPath: "test/fixtures/ax03/prereg.json",
+  fixturesPath: "test/fixtures/ax03/fixtures.json",
   preregBytes: 2842,
   fixturesBytes: 7864,
   preregRawSha256: "193947bb8492755110addcbc56623d4725c30a9110a9623d950374ba8812ecc3",

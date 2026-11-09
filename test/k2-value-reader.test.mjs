@@ -316,7 +316,8 @@ tests["K2-12 compact 臂默认开 factGuard：AX-18 的字面 quote 必须进上
 };
 
 tests["K2-13 题集/判分/路由与 ax03 冻结预注册逐字相同（复跑不得改题）"] = (t) => {
-  const preregPath = nodePath.join(HERE, "..", "tmp", "axiom-2026-11-07", "ax03", "prereg.json");
+  // ★ C660：冻结预注册已版本化到 `test/fixtures/ax03/`（原来读 git 忽略的 tmp/ ⇒ 干净 checkout 直接 ENOENT）。
+  const preregPath = nodePath.join(HERE, "fixtures", "ax03", "prereg.json");
   t.eq(nodeFs.existsSync(preregPath), true, "ax03 冻结预注册必须存在（只读对照）");
   const prereg = JSON.parse(nodeFs.readFileSync(preregPath, "utf8"));
   t.eq(questionsSha256(QUESTIONS), prereg.questionsSha256, "题集哈希必须与冻结预注册逐字相同");

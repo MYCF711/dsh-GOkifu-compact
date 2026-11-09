@@ -33,7 +33,8 @@ const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const REPO = nodePath.resolve(nodePath.join(HERE, ".."));
 const CLI = nodePath.join(REPO, "scripts", "k2-hash-check.mjs");
 const READER = nodePath.join(REPO, "scripts", "k2-value-reader.mjs");
-const ARTIFACT_DIR = nodePath.join(REPO, "tmp", "axiom-2026-11-07", "ax03");
+// ★ C660：冻结产物已版本化到 `test/fixtures/ax03/`（原来只在 git 忽略的 tmp/ 里，干净 checkout 会 skip 整组）。
+const ARTIFACT_DIR = nodePath.join(REPO, "test", "fixtures", "ax03");
 const PREREG = nodePath.join(ARTIFACT_DIR, "prereg.json");
 const FIXTURES = nodePath.join(ARTIFACT_DIR, "fixtures.json");
 const SIDECAR = nodePath.join(ARTIFACT_DIR, "hash-manifest.json");
@@ -97,7 +98,7 @@ async function loadSourceModule() {
 }
 
 tests["K2H-1 冻结产物双口径哈希：raw 与 canonical 各自等于基线且互不相同"] = (t) => {
-  if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
+  if (!artifactsPresent()) return t.skip("冻结产物不在 test/fixtures/ax03/（仓库不完整）");
   const preregBytes = nodeFs.readFileSync(PREREG);
   const fixturesBytes = nodeFs.readFileSync(FIXTURES);
   const preregRaw = sha256Bytes(preregBytes);
@@ -421,7 +422,8 @@ tests["K2H-13 反例：缺 prereg 文件 ⇒ exit 2（输入错误，不是哈�
 tests["K2H-14 门禁模式：--require-source 在源码模块缺失时必须判红（H3-O2）"] = (t) => {
   if (!artifactsPresent()) return t.skip("冻结产物不在 tmp/（干净 checkout）");
   const repo = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "k2h-nosource-"));
-  const artifactDir = nodePath.join(repo, "tmp", "axiom-2026-11-07", "ax03");
+  // ★ C660：冻结产物的位置跟着 FROZEN_BASELINE 走（已从 tmp/ 版本化到 test/fixtures/ax03/）。
+  const artifactDir = nodePath.join(repo, "test", "fixtures", "ax03");
   try {
     nodeFs.mkdirSync(artifactDir, { recursive: true });
     nodeFs.copyFileSync(PREREG, nodePath.join(artifactDir, "prereg.json"));

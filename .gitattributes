@@ -11,3 +11,10 @@ scripts/lme-relation-coverage.mjs -text
 evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json -text
 evidence/lme-pilot-reader-ab-v1-2026-11-09.json -text
 evidence/lme-pilot-reader-ab-v4-2026-11-09.json -text
+
+# AX-03 冻结预注册 / 夹具（K2-13、K2H 系列用例的只读对照）：按字节冻结 —— 上面的
+# rawBytesSha256 就写在这两个文件自己以及 hash-manifest.json 里，EOL 转换会直接判红。
+# 它们原来只在 tmp/（git 忽略），导致干净 checkout 上 K2-13 直接 ENOENT、K2H 全部 skip。
+test/fixtures/ax03/prereg.json -text
+test/fixtures/ax03/fixtures.json -text
+test/fixtures/ax03/hash-manifest.json -text
