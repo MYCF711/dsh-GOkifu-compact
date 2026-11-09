@@ -5,6 +5,7 @@
  * 清单只能**增**或**显式改名**，不能在无人注意时消失。
  */
 import nodeFs from "node:fs";
+import nodeOs from "node:os";
 import nodePath from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -74,18 +75,28 @@ tests["GH1 k2-hash 门禁：门禁模式 + 缺产物显式红（不许假绿）"
   t.eq(expect("").ok, false, "空输出必须红");
   t.includes(expect("== FAIL（29 checks: 27 pass, 2 fail, 0 skip）==").note, "2 fail", "红的时候要说明 fail 数（否则还要再跑一遍才知道为什么红）");
 
-  // 真跑一遍：私有产物在 ⇒ 必须 PASS 且 0 skip；不在 ⇒ 必须**明确报缺失**，不能安静通过
-  const artifacts = ["prereg.json", "fixtures.json"].map((name) => nodePath.join(ROOT, "tmp", "axiom-2026-11-07", "ax03", name));
+  // 真跑一遍：冻结产物已在仓库里（C660 版本化到 `test/fixtures/ax03/`）⇒ 必须 PASS 且 0 skip
+  const artifacts = ["prereg.json", "fixtures.json"].map((name) => nodePath.join(ROOT, "test", "fixtures", "ax03", name));
   const present = artifacts.every((file) => nodeFs.existsSync(file));
+  t.eq(present, true, "C660：AX-03 冻结产物必须版本化在仓库里（否则干净 checkout 上整组 skip）");
   const run = spawnSync(process.execPath, [nodePath.join(ROOT, "scripts", "k2-hash-check.mjs"), ...gate.args], { cwd: ROOT, encoding: "utf8" });
-  const out = `${String(run.stdout ?? "")}\n${String(run.stderr ?? "")}`;
-  if (present) {
-    t.eq(run.status, 0, `冻结产物齐全时必须 exit 0，实际 ${run.status}`);
-    t.eq(expect(out).ok, true, `判据必须绿，实际汇总行：${(out.match(/== (PASS|FAIL)[^\n]*/) ?? ["（无汇总行）"])[0]}`);
-  } else {
-    t.eq(run.status !== 0, true, "冻结产物缺失时不许 exit 0（那是假绿）");
-    t.includes(out, "文件不存在", "缺产物必须明确报出缺哪个文件，而不是跳过");
-    t.eq(expect(out).ok, false, "缺产物时判据必须红");
+  const out = `${String(run.stdout ?? "")}
+${String(run.stderr ?? "")}`;
+  t.eq(run.status, 0, `冻结产物齐全时必须 exit 0，实际 ${run.status}`);
+  t.eq(expect(out).ok, true, `判据必须绿，实际汇总行：${out.split(String.fromCharCode(10)).find((line) => line.startsWith("== ")) ?? "（无汇总行）"}`);
+
+  // ★ C660：产物版本化之后，「缺产物」不能再靠"本机没那个目录"来造 —— 用一个**空的临时仓库**显式造。
+  //   要防的假绿是「缺产物时安静退出 0」，所以这条负例必须真跑。
+  const emptyRepo = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "gh1-nofix-"));
+  try {
+    const missing = spawnSync(process.execPath, [nodePath.join(ROOT, "scripts", "k2-hash-check.mjs"), "--repo", emptyRepo, ...gate.args], { cwd: ROOT, encoding: "utf8" });
+    const missingOut = `${String(missing.stdout ?? "")}
+${String(missing.stderr ?? "")}`;
+    t.eq(missing.status !== 0, true, "冻结产物缺失时不许 exit 0（那是假绿）");
+    t.includes(missingOut, "文件不存在", "缺产物必须明确报出缺哪个文件，而不是跳过");
+    t.eq(expect(missingOut).ok, false, "缺产物时判据必须红");
+  } finally {
+    nodeFs.rmSync(emptyRepo, { recursive: true, force: true });
   }
 };
 
