@@ -33,7 +33,7 @@
 | 分支 / HEAD | `task/axiom-integration`（本地，未 push；`main` 仍是 `3d3d009`） |
 | 全量 | **2440 passed / 0 skipped / 0 failed**（当次输出，2026-11-09；`node test/run.mjs` 串行） |
 | 门禁 | boundary **0 条** · docs-index **0** · evidence-consistency **25/25** · knowledge-markers **2/2** · lme-relation-coverage **10/10** · lme-relation-ab **6/6** · 用例数 **2030 = 2030** · 文档数字 9 份 / 20 处一致 · privacy `--changed` pass |
-| 本轮新增 | `scripts/lme-relation-render-v4.mjs`（消歧渲染器）· `evidence/lme-task50-v4-status.fixtures.json`（`fd3e0d15…`）· checker **v3**（`4a667ec1…`，双形态 + C19–C22 四条 v4 负例）· `scripts/lme-relation-ab.mjs`（配对裁决）· 预注册（`188fd375…`）· 两份 pilot（`811eb9e4…` / `a7bfa965…`，已剥离逐样本 raw）· 配对报告（`961ed58c…`）· `evidence/k27-ab-结论-2026-11-09.md` |
+| 本轮新增 | `scripts/lme-relation-render-v4.mjs`（消歧渲染器）· `evidence/lme-task50-v4-status.fixtures.json`（`fd3e0d15…`）· checker **v3**（`4a667ec1…`，双形态 + C19–C22 四条 v4 负例）· `scripts/lme-relation-ab.mjs`（配对裁决）· 预注册（`188fd375…`）· 两份 pilot（`811eb9e4…` / `a7bfa965…`，已剥离逐样本 raw）· 配对报告（`86099548…`）· `evidence/k27-ab-结论-2026-11-09.md` |
 | 未改（冻结） | v1 夹具 `6a68e82b…` · v3 夹具 `9055b1b9…` · v3 渲染器 `306dd46e…` · runner `c035954a…` · grader `d8eaf62e…` · prompt `8ac9aee5…`（v4 走**独立新文件**，因为 v3 的 `note` 里嵌了生成器自身 sha256，改它就毁掉 v3 的逐字节重放） |
 | **结论** | **消歧这一刀有效**：v3 在 KU-01 上 3/3 答状态词 `settled`（稳定地错），v4 改成 `[settled]` 后 3/3 答 `later-ok`。**但 pilot 已饱和**：两臂多数票都是 10/10、逐题**零翻转**，差值只有 30 里的 1 个样本 ⇒ **不能证明「关系行更好」** |
 | 诚实边界 | v1 基线本身在 KU-01 上不稳定（11-08 是 1/3 判红、本次 2/3 判绿）——这正是**同窗对照**不可省的原因；v3 的夹具 / pilot / `BOUNDARY` 全部不变，**未回溯重判** |

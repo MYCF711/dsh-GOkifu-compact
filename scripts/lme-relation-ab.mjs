@@ -119,7 +119,7 @@ export function aggregateAb(prereg, control, treatment, { gradeAnswer }) {
     const pick = (map, arm) => {
       const row = map.get(`${id}:${arm}`);
       if (!row) return { votes: {}, majorityAnswer: null, majorityCorrect: false, sampleCorrect: 0, samples: 0, contextChars: null };
-      const question = ((arm === "full" ? control : control).selected ?? []).find((item) => item.id === id);
+      const question = (control.selected ?? []).find((item) => item.id === id);
       const samples = samplesOf(row);
       const votes = {};
       let sampleCorrect = 0;
@@ -231,7 +231,9 @@ export function aggregateAb(prereg, control, treatment, { gradeAnswer }) {
       runsObserved: 2,
       modelCallsPlanned: prereg.budget?.planned ?? null,
       modelCallsObserved: observedCalls,
-      retriesObserved: 0,
+      // runner 没有重试代码路径（每样本只发一次请求），且两轮 errorsObserved 为 0 ⇒ 重试 0 次。
+      retriesObserved: observedErrors === 0 ? 0 : null,
+      retriesBasis: "runner 单样本单次调用、无重试分支；errorsObserved=0 才记 0，否则记 null 不猜",
       errorsObserved: observedErrors,
     },
     experimentId: prereg.experimentId,

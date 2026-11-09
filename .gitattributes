@@ -4,3 +4,10 @@
 # 这里只对这两个文件关闭 EOL 转换 —— 不要顺手删掉，否则 RL-1 冻结字节用例会在新 checkout 上红。
 scripts/lme-relation-render.mjs -text
 scripts/lme-relation-coverage.mjs -text
+
+# 冻结证据（K-27 同窗配对对照，2026-11-09）：预注册与两份 pilot 的 sha256 被写进
+# 配对报告与 CHANGELOG/HANDOFF。全局 core.autocrlf=input 会把 CRLF 归一化成 LF，
+# 让「干净 checkout 上的哈希」与交付哈希不一致 —— 与上面两条同一理由，关闭 EOL 转换。
+evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json -text
+evidence/lme-pilot-reader-ab-v1-2026-11-09.json -text
+evidence/lme-pilot-reader-ab-v4-2026-11-09.json -text

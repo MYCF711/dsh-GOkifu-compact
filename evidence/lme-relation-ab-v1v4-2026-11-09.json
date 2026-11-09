@@ -9,12 +9,13 @@
     "modelCallsPlanned": 120,
     "modelCallsObserved": 120,
     "retriesObserved": 0,
+    "retriesBasis": "runner 单样本单次调用、无重试分支；errorsObserved=0 才记 0，否则记 null 不猜",
     "errorsObserved": 0
   },
   "experimentId": "k27-relation-ab-v1v4-1",
-  "preregSha256": "0d4b18773e15a2c860c25e1581cb3f899bf8607f97a5c8ad88a62759951e29ae",
-  "controlSha256": "3e7d11049c8a20ceae98efe49b392ccc43ee4470101d4f0ceda5c6cbed360404",
-  "treatmentSha256": "218e6d6e3a47f2f925d13d5061a71a5a0daa72626ca834ae5c6975baf1413980",
+  "preregSha256": "188fd37590e9bc34ca1314b176d437760a2ccd38111c336a48cd0dd66a5c503c",
+  "controlSha256": "811eb9e4a7a427da19720d913b783c2a6b61b9fc535a3c4c8d8c0b97f6b990d7",
+  "treatmentSha256": "a7bfa965157703a4b26caf9415cd168be6cb466542a376f0395a0e7f1f74402e",
   "decisionBand": "POSITIVE_SIGNAL",
   "decisionWhy": "多数票 10 → 10，样本级 29/30 → 30/30，无回归题",
   "validity": {

@@ -1,6 +1,6 @@
 # K-27 关系行「渲染消歧」同窗配对对照（v1 vs v4）
 
-> **PILOT_ONLY / NOT_ADOPTED** · 预注册 `evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json`（sha `0d4b18773e15…`）· **0 模型调用**（本文件只是聚合）。
+> **PILOT_ONLY / NOT_ADOPTED** · 预注册 `evidence/lme-relation-prereg-ab-v1v4-2026-11-09.json`（sha `188fd37590e9…`）· **0 模型调用**（本文件只是聚合）。
 
 - 决策档：**POSITIVE_SIGNAL** —— 多数票 10 → 10，样本级 29/30 → 30/30，无回归题
 - 有效性门：对照 full 30/30 样本 · 10/10 多数；处理 full 30/30 样本 · 10/10 多数
