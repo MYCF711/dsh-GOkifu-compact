@@ -425,6 +425,33 @@ const edgeSeq = (e) =>
 const FOLD_RETRY_BASE_SEQ = 30;
 const FOLD_RETRY_CAP_SEQ = 480;
 
+/**
+ * ★ C659：冷图回收的**静默窗口**（毫秒）。默认 15 分钟。
+ *
+ * 为什么需要它：C656 的活跃性只认宿主发的 `agent/status`（`idle` / `running`）。
+ * 但有些路径**不一定发这个事件** —— 离线补折、脚本/无头调用、以及宿主在回合中间
+ * 没收到的状态；这些会话不在 `activeSessions` 里，别的会话一 idle 就可能把它的图扫走。
+ *
+ * 兜底判据：**这个会话最近一次有动静（事件 / 状态 / 被 pin）离现在不到 15 分钟，就不回收。**
+ * 选 15 分钟而不是「立刻」：一个正在跑长工具（`pnpm install`、构建、下载）的回合可能
+ * 好几分钟没有新事件，抽走它的图等于丢运行态（退避计数 / world 触碰集合）。
+ *
+ * 代价是「刚结束但还在 15 分钟内」的图会多留一会儿 —— 相对于 1549 张图 ≈ +290MB 的
+ * 常驻，这个延迟是可接受的；它不会累积（过窗后第一次 idle 就会收）。
+ */
+const COLD_GRAPH_QUIET_MS = 15 * 60 * 1000;
+
+/**
+ * ★ C659：`seenIds` 的上限（FIFO 淘汰）。默认 4096。
+ *
+ * 为什么要留这么一张表却又要封顶：`sessionRefs` 里是**整个 Session 对象**（重），
+ * 回收时必须删（否则图释放了内存也不降）；但删掉之后，「这个会话在本进程处理过」
+ * 这条信息就没了 —— 归档事件再来时 `#onWorkspaceChange` 的分支会变窄。
+ * 所以只留 **id 字符串**（每个几十字节），并在 4096 条后按插入顺序淘汰最老的。
+ * 4096 × ~60B ≈ 240KB —— 相对 290MB 的图缓存可以忽略。
+ */
+const SEEN_IDS_CAP = 4096;
+
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 
 /* ───────────────── P7：fallback 仪表盘（engine 侧） ───────────────── */
@@ -879,6 +906,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.lastFlush = new Map();
     /** 正在跑回合的会话（`agent/status: running`）—— 活跃图绝不回收。 */
     this.activeSessions = new Set();
+    /**
+     * ★ C659：每个会话**最近一次有动静**的时刻（`session/event` / `agent/status` / 被 pin）。
+     * 闸门的第六个判据 `recent` 只读它 —— 用来兜住「会话不一定发 agent/status」那些路径
+     * （离线补折 / 脚本 / 无头），见 `COLD_GRAPH_QUIET_MS` 的注释。
+     */
+    this.lastSeenAt = new Map();
+    /** ★ C659：静默窗口（毫秒）。实例字段而不是常量，测试可以把窗口压到 0 / 拉开。 */
+    this.coldGraphQuietMs = COLD_GRAPH_QUIET_MS;
+    /**
+     * ★ C659：**本进程处理过事件的会话 id**（封顶 `SEEN_IDS_CAP`，FIFO 淘汰）。
+     * 回收删掉 `sessionRefs` 之后，归档路径靠它还能认出「这个会话我处理过」。
+     */
+    this.seenIds = new Set();
     /** 回收统计（doctor / 测试可读；纯观测，不落盘）。 */
     this.coldGraphStats = { released: 0, lastAt: 0, skipped: {} };
     /** ★ TIER2-SEMANTICS（task-142）：tier-2 重入保护 —— 常规 fold 之后与 pressure 分支都会收 checkpoint，
@@ -1109,11 +1149,55 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
   }
 
   /**
+   * ★ C659：记「这个会话还有动静」。`session/event` / `agent/status` / pin 三处都调。
+   * 不做任何判据 —— 只把时间戳推到现在，闸门自己在 `#isRecentlySeen` 里比窗口。
+   */
+  #markSeen(id) {
+    if (typeof id !== "string" || id.length === 0) return;
+    this.lastSeenAt.set(id, Date.now());
+    if (!this.seenIds.has(id)) {
+      this.seenIds.add(id);
+      if (this.seenIds.size > SEEN_IDS_CAP) {
+        // Set 的迭代顺序 = 插入顺序 ⇒ 删最老的那条
+        const oldest = this.seenIds.values().next().value;
+        if (oldest !== undefined) this.seenIds.delete(oldest);
+      }
+    }
+  }
+
+  /** ★ C659：静默窗口内有过动静 ⇒ 视作可能仍在用，不回收。 */
+  #isRecentlySeen(id, now = Date.now()) {
+    const at = this.lastSeenAt.get(id);
+    if (typeof at !== "number") return false;
+    return now - at < this.coldGraphQuietMs;
+  }
+
+  /**
+   * ★ C659：**封死「fold 成功 → 下一次 full 落盘」这个窗口**。
+   *
+   * 折叠成功会改一批**标量**（`lastFoldSeq` / `foldCount` / `foldThrash` / foldMarks…），
+   * 这些标量只在 `full` 落盘时写全；中间的增量落盘只写图与 delta。若在这段时间里把图
+   * 回收掉，标量就丢了 —— 下次从磁盘读回来会认为「没折过」，退避与配额从 0 起算。
+   *
+   * 所以 fold 成功后把 `full` 标记作废，闸门必须等到**下一次成功的 full 落盘**才放行。
+   * 正常路径上这一步不需要额外动作：回合结束的 `agent/status: idle` 本来就会做一次 full flush。
+   */
+  #invalidateFullFlush(id) {
+    if (typeof id !== "string" || id.length === 0) return;
+    const prev = this.lastFlush.get(id);
+    if (prev === undefined || prev.full !== true) return;
+    this.lastFlush.set(id, { ...prev, full: false });
+  }
+
+  /**
    * 钉住一张图（可嵌套）。返回**幂等**的释放函数 —— 调用方一律用 try/finally 收口：
    * 漏一个 pin 的代价是这张图从此永远不会被回收（比泄漏一次写更糟）。
    */
   #pinGraph(id, reason = "use") {
     if (typeof id !== "string" || id.length === 0) return () => {};
+    // ★ C659：被 pin = 正在用它 ⇒ 同时把「最近有动静」推到现在，
+    //   否则长时间折叠（模型慢）会让静默窗口在 pin 期间就过期。
+    this.#markSeen(id);
     const cur = this.graphPins.get(id) ?? { count: 0, reasons: new Set() };
     cur.count += 1;
     cur.reasons.add(String(reason));
@@ -1156,6 +1240,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (this.#isGraphPinned(id)) return { released: false, reason: "pinned" };
     if (this.flushTimers.has(id)) return { released: false, reason: "flush-pending" };
     if (this.activeSessions.has(id)) return { released: false, reason: "active" };
+    // ★ C659：第六个判据 —— 静默窗口。兜住「不发 agent/status」的路径（离线补折 / 脚本 /
+    //   无头 / 长工具），见 COLD_GRAPH_QUIET_MS 的注释。
+    if (this.#isRecentlySeen(id)) return { released: false, reason: "recent" };
     const last = this.lastFlush.get(id);
     if (last === undefined || last.ok !== true || last.full !== true) return { released: false, reason: "no-full-flush" };
     const st = this.runtime.get(id);
@@ -1172,6 +1259,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.graphs.delete(id);
     this.runtime.delete(id);
     this.lastFlush.delete(id);
+    // ★ C659：`sessionRefs` 也是按会话常驻的强引用（归档 Session 对象）。只删图不删它，
+    //   Session 就被吊在内存里 —— 那正是「回收了但还是不降」的一半原因。
+    //   安全：`session/event` 与 `agent/status` 两个入口都会在真正用到之前先 `set` 回来；
+    //   `#sessionRef(id)` 的落盘路径本来就不依赖这条引用（C514）。
+    this.sessionRefs.delete(id);
+    this.lastSeenAt.delete(id);
     this.coldGraphStats.released += 1;
     this.coldGraphStats.lastAt = Date.now();
     return { released: true, reason, sessionId: id };
@@ -1208,11 +1301,17 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     return this.#sweepColdGraphs({ keep, reason });
   }
 
-  /** ★ C656：缓存快照（doctor / 测试读；字段只增不改）。 */
+  /** ★ C656/C659：缓存快照（doctor / 测试读；字段只增不改）。 */
   getGraphCacheStats() {
+    const now = Date.now();
     return {
       graphs: this.graphs.size,
       runtime: this.runtime.size,
+      // ★ C659：会话引用表的大小单独报 —— 它是「回收了但内存没降」的常见来源。
+      sessionRefs: this.sessionRefs.size,
+      seenIds: this.seenIds.size,
+      quietMs: this.coldGraphQuietMs,
+      lastSeen: [...this.lastSeenAt.entries()].map(([id, at]) => ({ sessionId: id, ageMs: now - at })),
       pins: [...this.graphPins.entries()].map(([id, v]) => ({ sessionId: id, count: v.count, reasons: [...v.reasons] })),
       active: [...this.activeSessions],
       pendingFlush: [...this.flushTimers.keys()],
@@ -1229,6 +1328,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     ctx.on("session/event", (session, event) => {
       try {
         this.sessionRefs.set(session.id, session);
+        // ★ C659：任何事件都算「这个会话还有动静」—— 活跃性不再只依赖 agent/status。
+        this.#markSeen(session.id);
         const g = this.#graph(session);
         const st = this.#runtimeFor(session);
         st.events += 1;
@@ -1250,6 +1351,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       // ★ C656：活跃性只认宿主发的两种状态（`idle` | `running`，见 docs/DSH-技术测绘.md §api-catalog）。
       //   未知状态按 running 处理 —— 宁可少回收一张，也不要在回合中间把图抽走。
       if (typeof activeId === "string" && activeId.length > 0) {
+        this.#markSeen(activeId); // ★ C659：状态事件同样推静默窗口
         if (status === "idle") this.activeSessions.delete(activeId);
         else this.activeSessions.add(activeId);
       }
@@ -1303,6 +1405,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       //   图就永远留在内存里 —— 正好是这次要修的那个洞。
       try {
         if (typeof session?.id === "string") this.activeSessions.delete(session.id);
+        if (typeof session?.id === "string") this.lastSeenAt.delete(session.id); // ★ C659
       } catch {
         /* 活跃性表坏掉不许影响收尾 */
       }
@@ -1397,7 +1500,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     for (const id of newlyArchived(previous, current)) {
       // 只对**本进程真的处理过事件**的会话收尾；基线可信时才放纵到宿主 store 里的 live 会话。
       // 历史归档（启动前就归档了）既没有事件流也没有会话对象，硬做只会白花一次模型调用。
-      const session = this.sessionRefs.get(id) ?? (baselineKnown ? this.#sessionRef(id) : null);
+      // ★ C659：`sessionRefs` 在冷图回收时会被删掉（那是重引用）。这里补一条「本进程见过它」的
+      //   轻量判据 `seenIds`，否则「冷掉 15 分钟后再归档」的会话会悄悄不做收尾 —— 那是我这次
+      //   修复引进的回归，必须堵上。
+      const seenHere = this.sessionRefs.has(id) || this.seenIds.has(id);
+      const session = this.sessionRefs.get(id) ?? (baselineKnown || seenHere ? this.#sessionRef(id) : null);
       if (!session) continue;
       // ★ C656：归档 = 这个会话**确定不活跃**（宿主只拒 pre-step，它不是"在跑"）。
       //   与 session/disposed 同源：不清活跃表的话，最后一条状态若是 running 就永远回收不掉。
@@ -3726,6 +3833,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       ls.loopFoldCount = (ls.loopFoldCount ?? 0) + 1;
     }
     const after = meter.measure(session);
+    // ★ C659：折叠成功会改一批只在 full 落盘时写出的标量（lastFoldSeq / foldCount /
+    //   foldThrash / foldMarks…）⇒ 作废 full 标记，闸门必须等到下一次成功的 full 落盘。
+    try {
+      this.#invalidateFullFlush(session.id);
+    } catch {
+      /* 记账失败不影响压缩 */
+    }
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
     st.foldFailures = 0;
     st.lastFoldFailureSeq = 0;

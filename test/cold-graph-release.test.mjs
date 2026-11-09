@@ -73,6 +73,8 @@ tests["C656 冷图回收闸门：timer/脏图/无 full flush 都拒收，五条�
   const dir = tmpDir("gokifu-c656-gate-");
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   const a = makeSession({ id: "c656-gate-a" });
   const b = makeSession({ id: "c656-gate-b" });
   try {
@@ -139,6 +141,8 @@ tests["C656 fold pin：compactIfNeeded / compactNow 在飞期间图被 pin 住�
     retainRatio: 0.1,
     closeoutMinEvents: 5,
   });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   const session = makeSession({ id: "c656-fold-pin" });
   try {
     for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
@@ -212,6 +216,8 @@ async function closeoutFixture(prefix, id) {
     closeoutMinEvents: 5,
     closeoutTimeoutMs: 5000,
   });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   const session = makeSession({ id });
   for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
   await ctx.emitRaw("session/event", session, userEvent(session, "根目标：把这一轮收尾"));
@@ -345,6 +351,8 @@ tests["C656 offline/backfill：per-id pin，且不拿磁盘副本覆盖已有内
   const fixture = makeBackfillHome(id);
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir: fixture.graphDir, auto: false, closeoutMinEvents: 1 });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   try {
     // 先放一张"冷的内存图"进缓存，并加一个磁盘副本没有的节点 —— 用对象身份证明"没被覆盖"。
     const resident = JSON.parse(JSON.stringify(fixture.graph));
@@ -393,6 +401,8 @@ tests["C656 offline/backfill：活跃会话的图本轮完全不碰（不写、�
   const fixture = makeBackfillHome(id);
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir: fixture.graphDir, auto: false, closeoutMinEvents: 1 });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   try {
     const resident = JSON.parse(JSON.stringify(fixture.graph));
     resident.nodes.n9 = { id: "n9", kind: "user", seq: 2, text: "resident-only", constraints: [], ts: Date.now() };
@@ -421,6 +431,8 @@ tests["C656 保留失败图：脏图 / 折叠退避中 / 落盘失败一律不�
   const dir = tmpDir("gokifu-c656-keep-");
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   const session = makeSession({ id: "c656-keep" });
   try {
     await ctx.emitRaw("session/event", session, userEvent(session, "第一轮"));
@@ -548,6 +560,8 @@ tests["C656 真实巨型图只读：回收成对生效，堆可回落，且不�
   const mtimeBefore = nodeFs.statSync(real.file).mtimeMs;
   const ctx = makeCtx();
   const engine = new Engine(ctx, { graphDir, auto: false });
+  // ★ C659：静默窗口在本文件的通用用例里压到 0（第六判据由专门用例验证）。
+  engine.coldGraphQuietMs = 0;
   try {
     // 只读：真实图只作为"内存里那张冷图"的素材，落盘根指向临时目录 ⇒ 一个字节都不写 home。
     const graph = JSON.parse(nodeFs.readFileSync(real.file, "utf8"));
@@ -571,6 +585,173 @@ tests["C656 真实巨型图只读：回收成对生效，堆可回落，且不�
     t.ok(grew > 2 * 1024 * 1024, `真实巨型图解析后必须占 >2MB 堆（实测 ${(grew / 1024 / 1024).toFixed(1)}MB，${m.nodes} 节点 / ${m.edges} 边）`);
     t.ok(retained < grew * 0.35, `丢掉引用后堆必须明显回落（grew=${(grew / 1024 / 1024).toFixed(1)}MB，retained=${(retained / 1024 / 1024).toFixed(1)}MB）`);
     t.ok(m.nodes > 100, `真实图应有可观节点数，实测 ${m.nodes}`);
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+/* ─────────── 9. C659：静默窗口 / fold 后的 full 窗口 / sessionRefs 释放 ─────────── */
+
+tests["C659 静默窗口：最近有动静的会话不许回收，过窗后才收"] = async (t) => {
+  const { Engine } = await loadEngine();
+  const dir = tmpDir("gokifu-c659-quiet-");
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  const a = makeSession({ id: "c659-quiet-a" });
+  const b = makeSession({ id: "c659-quiet-b" });
+  try {
+    // 默认窗口是 15 分钟，这里不压到 0 —— 要验的正是「刚有动静 ⇒ 拒收」
+    t.eq(engine.coldGraphQuietMs, 15 * 60 * 1000, "默认静默窗口必须是 15 分钟");
+
+    await ctx.emitRaw("session/event", a, userEvent(a, "甲：第一轮"));
+    await ctx.emitRaw("session/event", b, userEvent(b, "乙：第一轮"));
+    // 让两张图都拿到一次成功的 full 落盘（否则拒收理由是 no-full-flush，测不到窗口）
+    await ctx.emitRaw("agent/status", { agent: { session: a }, status: "idle" });
+    await ctx.emitRaw("agent/status", { agent: { session: b }, status: "idle" });
+    clearFlushTimers(engine);
+
+    const stats = engine.getGraphCacheStats();
+    t.eq(stats.quietMs, 15 * 60 * 1000, "统计里要带出窗口值（可观测）");
+    t.ok(stats.lastSeen.some((row) => row.sessionId === a.id), "a 的最近动静时刻必须被记下");
+
+    const refused = engine.releaseColdGraphs({ reason: "probe" });
+    t.eq(refused.released, [], "静默窗口内一张都不许收");
+    t.ok((refused.skipped.recent ?? 0) >= 1, `必须归因为 recent，实际 ${JSON.stringify(refused.skipped)}`);
+    t.eq(engine.graphs.size, 2, "拒绝就留着（不是删一半）");
+
+    // 窗口压到 0 ⇒ 等效「已经静默很久」⇒ 冷图放行
+    engine.coldGraphQuietMs = 0;
+    const released = engine.releaseColdGraphs({ reason: "probe" });
+    t.eq(released.released.sort(), [a.id, b.id].sort(), "过了静默窗口后两张冷图都能收");
+    t.eq(engine.graphs.size, 0, "graphs 清空");
+    t.eq(engine.runtime.size, 0, "runtime 成对清空");
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["C659 fold 成功会作废 full 标记：标量落盘之前闸门必须拒收"] = async (t) => {
+  const { Engine } = await loadEngine();
+  const dir = tmpDir("gokifu-c659-foldwin-");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, {
+    graphDir: dir,
+    auto: false,
+    growthFloorTokens: 0,
+    minFoldTokens: 0,
+    retainRatio: 0.1,
+    closeoutMinEvents: 5,
+  });
+  engine.coldGraphQuietMs = 0;
+  const session = makeSession({ id: "c659-foldwin" });
+  try {
+    for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+    await ctx.emitRaw("session/event", session, userEvent(session, "根目标"));
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    clearFlushTimers(engine);
+
+    // 前提：这一轮 idle 已经做过成功的 full 落盘 ⇒ 闸门本来是放行的
+    const before = engine.releaseColdGraphs({ reason: "probe-before-fold" });
+    t.eq(before.released, [session.id], `fold 之前这张图本来可以被回收（前提），实际 ${JSON.stringify(before.skipped)}`);
+
+    // 回收后图没了 —— 重新造一份：发事件重载 + idle 做 full flush
+    await ctx.emitRaw("session/event", session, userEvent(session, "重新载入"));
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    clearFlushTimers(engine);
+    t.eq(engine.graphs.has(session.id), true, "图已重载");
+
+    // 真跑一次 fold（把 compactRegion 换成可控桩，产出一次成功折叠）
+    const realRegion = engine.compactRegion;
+    engine.compactRegion = async () => ({ shadowedRange: { start: 1, end: 2 }, shadowedTokenCount: 0 });
+    try {
+      await engine.compactIfNeeded({ session, options: {} }, "archive", undefined);
+    } finally {
+      engine.compactRegion = realRegion;
+    }
+    clearFlushTimers(engine);
+
+    // 折叠成功改了标量，但还没等到下一次 full 落盘 ⇒ 闸门必须拒收
+    const afterFold = engine.releaseColdGraphs({ reason: "probe-after-fold" });
+    t.eq(afterFold.released, [], "fold 之后、full 落盘之前不许回收（否则标量记账丢失）");
+    t.ok((afterFold.skipped["no-full-flush"] ?? 0) >= 1, `必须归因为 no-full-flush，实际 ${JSON.stringify(afterFold.skipped)}`);
+
+    // 回合边界补一次 full 落盘 ⇒ 恢复放行
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    clearFlushTimers(engine);
+    const freed = engine.releaseColdGraphs({ reason: "probe-after-full" });
+    t.eq(freed.released, [session.id], `full 落盘之后必须恢复放行，实际 ${JSON.stringify(freed.skipped)}`);
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["C659 回收会一并释放 sessionRefs 与 lastSeen：只删图不算回收"] = async (t) => {
+  const { Engine } = await loadEngine();
+  const dir = tmpDir("gokifu-c659-refs-");
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  engine.coldGraphQuietMs = 0;
+  const a = makeSession({ id: "c659-refs-a" });
+  try {
+    await ctx.emitRaw("session/event", a, userEvent(a, "甲：第一轮"));
+    await ctx.emitRaw("agent/status", { agent: { session: a }, status: "idle" });
+    clearFlushTimers(engine);
+
+    t.ok(engine.getGraphCacheStats().sessionRefs >= 1, "前提：sessionRefs 里确实挂着 Session 引用");
+    t.ok(engine.getGraphCacheStats().lastSeen.some((row) => row.sessionId === a.id), "前提：lastSeen 有这条");
+
+    const released = engine.releaseColdGraphs({ reason: "probe" });
+    t.eq(released.released, [a.id], "冷图被回收");
+
+    const stats = engine.getGraphCacheStats();
+    t.eq(stats.graphs, 0, "graphs 已释放");
+    t.eq(stats.runtime, 0, "runtime 成对释放");
+    t.eq(stats.sessionRefs, 0, "sessionRefs 必须一起释放（只删图 = 内存不降）");
+    t.eq(stats.lastSeen.some((row) => row.sessionId === a.id), false, "lastSeen 也要清（否则表本身会无限长）");
+
+    // 回收后再来事件：从磁盘重载，且 sessionRefs 重新挂上
+    await ctx.emitRaw("session/event", a, userEvent(a, "甲：第二轮"));
+    t.eq(engine.graphs.has(a.id), true, "新事件能从磁盘重载图");
+    t.ok(engine.getGraphCacheStats().sessionRefs >= 1, "重载后 sessionRefs 重新挂上");
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+tests["C659 回收之后仍然认得出「这个会话我处理过」：归档收尾不许被静默跳过"] = async (t) => {
+  const { Engine } = await loadEngine();
+  const dir = tmpDir("gokifu-c659-seen-");
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false, closeoutMinEvents: 1 });
+  engine.coldGraphQuietMs = 0;
+  const session = makeSession({ id: "c659-seen" });
+  // 宿主 store 里它仍然是 live 的（真实场景：#onWorkspaceChange 就是靠 ctx.sessions.get 找回来）
+  ctx.sessions = { get: (id) => (id === session.id ? session : null) };
+  try {
+    await ctx.emitRaw("session/event", session, userEvent(session, "第一轮"));
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    clearFlushTimers(engine);
+
+    const released = engine.releaseColdGraphs({ reason: "probe" });
+    t.eq(released.released, [session.id], "冷图被回收");
+    const after = engine.getGraphCacheStats();
+    t.eq(after.sessionRefs, 0, "重引用（Session 对象）必须删掉");
+    t.ok(after.seenIds >= 1, "但「本进程见过它」这条轻量判据必须留着");
+    t.eq(engine.archivedBaselineKnown, false, "前提：归档基线还不知道（首次 domain/changed）");
+
+    // 归档事件：基线未知 + sessionRefs 已删 ⇒ 只能靠 seenIds 认出来
+    await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: [session.id] } });
+    t.eq(await waitFor(() => engine.graphs.has(session.id) === true), true, "归档收尾必须把图读回来（不许因为 sessionRefs 被删就静默跳过）");
+
+    // 反例：本进程从没见过的会话 id，不该被硬做收尾（历史归档白花模型调用）
+    const before = engine.graphs.size;
+    await ctx.emitRaw("domain/changed", { domain: "workspace", table: "", key: "", operation: "put", value: { archivedSessionIds: [session.id, "c659-never-seen"] } });
+    t.eq(engine.graphs.has("c659-never-seen"), false, "没见过的会话不硬做收尾");
+    t.eq(engine.graphs.size >= before, true, "已有图不受影响");
   } finally {
     clearFlushTimers(engine);
     nodeFs.rmSync(dir, { recursive: true, force: true });
