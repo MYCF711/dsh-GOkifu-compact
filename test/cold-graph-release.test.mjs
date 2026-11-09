@@ -757,3 +757,29 @@ tests["C659 回收之后仍然认得出「这个会话我处理过」：归档�
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
 };
+
+tests["C661 终态路径不受静默窗口约束：disposed 后**默认窗口**下也要立刻回收"] = async (t) => {
+  const fx = await closeoutFixture("gokifu-c661-terminal-", "c661-terminal");
+  const { ctx, engine, session } = fx;
+  try {
+    // ★ 关键：把窗口恢复成**生产默认值**。C659 初版 9 处用例都把它压到 0，
+    //   于是「closeout 的 finally 里 unpin → release」被刚推过的 lastSeenAt 以
+    //   `recent` 拒绝这件事被完全掩盖 —— 独立复核就是这么把它抓出来的。
+    engine.coldGraphQuietMs = 15 * 60 * 1000;
+    t.eq(engine.getGraphCacheStats().quietMs, 15 * 60 * 1000, "前提：窗口是生产默认的 15 分钟");
+
+    await ctx.emitRaw("session/disposed", session);
+    t.eq(engine.graphs.has(session.id), true, "收尾折叠没完成前图还在（别急着回收）");
+    fx.releaseFold();
+
+    const released = await waitFor(() => engine.graphs.has(session.id) === false, { timeoutMs: 8000 });
+    t.eq(released, true, "默认 15 分钟窗口下，disposed 收尾完成后必须立刻回收（终态不受静默窗口约束）");
+    t.eq(engine.getGraphCacheStats().pins.length, 0, "pin 归零");
+
+    const disk = await readGraphReplayed(fx.dir, session.id);
+    t.ok(disk.closeout !== null && typeof disk.closeout === "object", "回收前 closeout 已落盘（不是丢账）");
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(fx.dir, { recursive: true, force: true });
+  }
+};

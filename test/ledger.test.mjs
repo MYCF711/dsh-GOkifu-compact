@@ -727,7 +727,7 @@ tests["AX-08 ⑤：不得重复注入同值 —— 两条边记同一个值只�
 tests["AX-08 ⑥：超条数上限 ⇒ 计数 + graph.json 指针（不静默丢）"] = (t) => {
   const facts = [0, 1, 2].map((i) => ({ kind: "value", value: `值${i}`, quote: `值${i}`, evidenceSeq: 10 + i, validAtSeq: 10 + i, source: "tool:bash" }));
   const g = valueFactGraph({ facts, sessionId: "ax08-cap" });
-  const r = renderLedger(g, { maxTokens: 4000, factGuard: true, maxValueFacts: 2, treeDir: "D:/DeepSeek Harness/home/chess-context/sessions/ax08", traceRoot: "sessions" });
+  const r = renderLedger(g, { maxTokens: 4000, factGuard: true, maxValueFacts: 2, treeDir: "D:/fixture/chess-context/sessions/ax08", traceRoot: "sessions" });
   t.eq(r.valueFactStats.shown, 2, "上限 2 ⇒ 只渲染 2 条");
   t.eq(r.valueFactStats.omitted, 1, "省略数必须真实");
   t.includes(r.text, "另有 1 条值事实未展开", "省略必须印出计数（沉默 = 断言没有）");

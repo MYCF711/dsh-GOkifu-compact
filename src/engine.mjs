@@ -1195,9 +1195,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    */
   #pinGraph(id, reason = "use") {
     if (typeof id !== "string" || id.length === 0) return () => {};
-    // ★ C659：被 pin = 正在用它 ⇒ 同时把「最近有动静」推到现在，
-    //   否则长时间折叠（模型慢）会让静默窗口在 pin 期间就过期。
-    this.#markSeen(id);
+    // ★ C661：**这里不许推静默窗口**。C659 初版在 pin 时调 `#markSeen`，理由是「长时间折叠期间
+    //   窗口会过期」——多余：pin 期间闸门本来就以 `pinned` 拒收。真正的后果是反向的：
+    //   closeout 的 `finally` 是 `unpin() → #releaseColdGraph(...)`，刚被推过的 `lastSeenAt`
+    //   让第六判据 `recent` **必然命中** ⇒「disposed/archive 在最终 flush 之后回收」在默认
+    //   15 分钟窗口下**永远不成立**（单会话进程内等于永不回收）。独立复核用默认窗口实测复现。
     const cur = this.graphPins.get(id) ?? { count: 0, reasons: new Set() };
     cur.count += 1;
     cur.reasons.add(String(reason));
@@ -1242,7 +1244,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     if (this.activeSessions.has(id)) return { released: false, reason: "active" };
     // ★ C659：第六个判据 —— 静默窗口。兜住「不发 agent/status」的路径（离线补折 / 脚本 /
     //   无头 / 长工具），见 COLD_GRAPH_QUIET_MS 的注释。
-    if (this.#isRecentlySeen(id)) return { released: false, reason: "recent" };
+    // ★ C661：**终态路径不受静默窗口约束**。"closeout:*" 只有两个调用点（disposed / archive，
+    //   都在最终 full flush 之后），此时「这个会话结束了」已是确定事实，再拿 15 分钟窗口拦它
+    //   只会把「关窗即回收」变成「等下一个会话 idle」—— 那正是用户抱怨的那个洞。
+    const terminal = typeof reason === "string" && reason.startsWith("closeout:");
+    if (!terminal && this.#isRecentlySeen(id)) return { released: false, reason: "recent" };
     const last = this.lastFlush.get(id);
     if (last === undefined || last.ok !== true || last.full !== true) return { released: false, reason: "no-full-flush" };
     const st = this.runtime.get(id);
@@ -4118,6 +4124,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   「同一份正文只许出现一次」。缺口是设计：覆盖率审计把它列进 `NO_BODY_PATHS`。
       g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), boundary: foldBoundaryOf(g, { start, end }), summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
+      // ★ C661：tier-2 也会改 foldMarks（只在 full 落盘时写全），而下面这次 `#flush(session)`
+      //   是增量 —— `foldMarks` 不在 dirty 集里时 persist 可能一个字节都不写。所以这里和主 fold
+      //   一样作废 `full` 标记：否则 15 分钟窗口内被扫回收，这条 tier-2 折痕只存在内存里，
+      //   重载后两个旧 checkpoint 还在 ⇒ 下次再合并一次（多一次模型调用）。
+      try {
+        this.#invalidateFullFlush(session.id);
+      } catch {
+        /* 记账失败不影响压缩 */
+      }
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);
     }

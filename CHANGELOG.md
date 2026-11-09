@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C661 | 修 C659 自己引入的闸门自锁：终态路径跳过静默窗口（关窗即回收） |
 | C660 | 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip |
 | C659 | 冷图回收补三处风险 + 长进程 RSS 实测（418MB 在 8 秒内还回系统） |
 | C658 | 冷图安全回收：五条件闸门 + 折叠与补账 pin |
@@ -694,6 +695,31 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 
 ### 压缩记账与保真
 
+### C661 · 修 C659 自己引入的闸门自锁：终态路径跳过静默窗口（关窗即回收）
+
+发布前独立复核抓到 C659 自己引入的一个真缺陷，本版一并修掉（**这是 1.19.0 的发布阻塞项**）。
+
+**缺陷**：`#pinGraph` 里调了 `#markSeen(id)`（C659 为了「长时间折叠期间静默窗口别过期」加的）。而 closeout 的 `finally` 是 `unpin() → #releaseColdGraph(...)` —— 刚被 pin 推过的 `lastSeenAt` 让第六判据 `recent` **必然命中**，于是：
+
+> **「disposed / archive 在 closeout 最终 flush 之后回收」在生产默认的 15 分钟窗口下永远不成立。**
+
+后果：关窗/归档后图不会立刻回收，要等 15 分钟**再**有另一个会话 idle 才会被扫走；如果进程里只有这一个会话、之后再也不 idle，则**本进程内永不回收**（只有进程退出才释放）——正好是「关窗就该还内存」这个用户诉求落空的地方。
+
+为什么单测没抓到：C659 的 9 处用例都显式把 `engine.coldGraphQuietMs = 0` 压掉了窗口，**把生产默认行为整个掩盖了**。复核用默认窗口复现：`resident after disposed + 6s: true`、`lastSeen ageMs=6008`、`lastFlush={ok:true,full:true}`。
+
+**修法**（两条一起）：
+1. `#pinGraph` **不再**调 `#markSeen` —— pin 期间闸门本来就以 `pinned` 拒收，推窗口没有意义，只有反作用。
+2. 闸门加**终态豁免**：`reason` 以 `closeout:` 开头（disposed / archive 两个调用点，都在最终 full flush 之后）时**跳过 `recent`** —— 那时「这个会话结束了」已是确定事实，再拿 15 分钟窗口拦它只会把「关窗即回收」变成「等下一个会话 idle」。
+
+**同批修的另外两条**（也是复核提的、同一类「full 标记」问题）：
+- **tier-2 合并成功路径也没有作废 `full` 标记**：它 push `foldMark` 后只调 `#flush(session)`（增量），而 `foldMarks` 不在 dirty 集里时 `persist.flush` 可能一个字节都不写 ⇒ 15 分钟内被回收，这条 tier-2 折痕只存在内存里，重载后两个旧 checkpoint 还在 ⇒ 下次再合并一次（多一次模型调用）。现在同样调 `#invalidateFullFlush`。
+- **`test/ledger.test.mjs` 里新增了一条真实私有绝对路径**（一条指向本机 home 的真实路径）会随公开仓库泄露 —— 换成 `D:/fixture/...`（同文件其它夹具本来就是这个写法）。
+- **`scripts/graph-cache-memory.mjs` 不该进 npm 包**：它 `import` 的是 `test/engine-harness.test.mjs`，而 `test/` 不在 `package.json.files` ⇒ 装上跑必崩。已在 `files` 里显式排除，并在文档里写明「源码仓库内工具」。
+
+**新增用例**：`C661 终态路径不受静默窗口约束` —— 这一条**故意不压窗口**（恢复生产默认 15 分钟），断言 disposed 收尾完成后**立刻**回收且 closeout 已落盘。`cold-graph-release` **12 → 13 用例**。
+
+**顺带清掉一处过期说法**：`HANDOFF.md` 里「冷图仍未合入 / live 未生效」已按事实改成「已合入（`f3622a7`）、**live 仍未生效**」；handoff 门禁的 WARN 数从 320 更正为 400。
+
 ### C660 · 把 AX-03 冻结产物版本化：干净 checkout 上 K2-13 不再 ENOENT、K2H 不再整组 skip
 
 **问题**：`test/k2-value-reader.test.mjs` 的 K2-13 与 `test/k2-hash-check.test.mjs` 的整组用例，读的是 `tmp/axiom-2026-11-07/ax03/` 下的冻结产物 —— 那是 **git 忽略**的私有目录。于是在**干净 checkout / 新克隆**上：K2-13 直接 `ENOENT` 判红，K2H 整组 `skip`。
@@ -743,7 +769,7 @@ C656 把冷图回收的**闸门**做出来了，但四条交接风险没修；C6
 - **RSS 修正**：t6 复核写的「RSS 不会立刻归还」是**只等了一拍**的结论。实测第 8 秒就从 479.6 MB 掉回 **67.4 MB** —— V8 的 decommit 会把它还给系统。所以这个功能的真实收益不只是「不再继续涨」，而是**真的把 418 MB 还回去**。
 - 磁盘零变化：1592 张图 mtime 逐个未变（回收路径只有 `Map.delete`）。
 
-**测试**：`cold-graph-release` **8 → 11 用例**（静默窗口 / fold 后 full 窗口 / sessionRefs 与 lastSeen 一并释放），并给原 8 条用例显式把窗口压到 0 —— 第六判据由专门用例验，不许靠「默认窗口恰好放行」蒙过去。
+**测试**：`cold-graph-release` **8 → 13 用例**（静默窗口 / fold 后 full 窗口 / sessionRefs 与 lastSeen 一并释放），并给原 8 条用例显式把窗口压到 0 —— 第六判据由专门用例验，不许靠「默认窗口恰好放行」蒙过去。
 
 ### C658 · 冷图安全回收：五条件闸门 + 折叠与补账 pin
 

@@ -37,6 +37,7 @@
     "docs",
     "evidence",
     "scripts",
+    "!scripts/graph-cache-memory.mjs",
     "cordis.patch.yml",
     "CHANGELOG.md",
     "QUICKSTART.md",
