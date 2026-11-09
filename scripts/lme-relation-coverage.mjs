@@ -19,9 +19,14 @@
  *   R8 “current” 必须是该主体最新一次值事件（槽位旧值不得冒充 current）；
  *      会被新值取代的槽位（current / constraint）的旧值必须显式标旧 —— 删掉旧值行同样判红。
  *
+ * 状态书写形态（checker v3 起双形态）：
+ *   v3 形态 `seq=303 e-ku01-a current=later-ok status=settled`（状态占 key=value 值位）
+ *   v4 形态 `seq=303 e-ku01-a current=later-ok [settled]`（状态是行尾方括号标签，不占值位）
+ *   两种形态的**判据完全相同**；v4 形态另加 4 条负例（C19–C22），删标签/坏词/旧值不标旧/附加字段不落地都要判红。
+ *
  * 用法：
- *   node scripts/lme-relation-coverage.mjs --fixtures <v3.json> [--baseline <v1.json>] [--json]
- *   node scripts/lme-relation-coverage.mjs --self-test --fixtures <v3.json> [--baseline <v1.json>]
+ *   node scripts/lme-relation-coverage.mjs --fixtures <v3|v4.json> [--baseline <v1.json>] [--json]
+ *   node scripts/lme-relation-coverage.mjs --self-test --fixtures <v3|v4.json> [--baseline <v1.json>]
  *
  * exit 0 = 全部通过；exit 1 = 有失败项；exit 2 = 用法/读取错误。
  */
@@ -79,6 +84,15 @@ const ARCHIVE_MARK = "[archive-only]";
 const META_RE = /(?:["'](?:answer|evidenceSeqs|grader|applicability|fullContext|compactContext)["']\s*:|(?:^|\s)(?:answer|evidenceSeqs|grader|applicability|fullContext|compactContext)\s*[:=]|\bgold\b)/im;
 const RELATION_RE = /^seq=(\d+)\s+(\S+)\s+(current|old)=(\S+)\s+status=(\S+)(?:\s+.*)?$/;
 const STATE_RE = /^seq=(\d+)\s+(\S+)\s+status=(\S+)(?:\s+.*)?$/;
+/**
+ * v4（渲染消歧）形态：状态不占 `key=value` 值位，改成行尾方括号标签。
+ *   seq=303 e-ku01-a current=later-ok [settled]
+ *   seq=374 e-ku08-a [right-censored]
+ * 检查器同时认 v3 的 `status=<词>` 与 v4 的 `[<词>]` 两种书写形态，
+ * 判据（状态词表 / 与该行独立重算的状态一致 / 旧值必须标旧）完全不变。
+ */
+const RELATION_TAG_RE = /^seq=(\d+)\s+(\S+)\s+(current|old)=(\S+)\s+\[([^\]]+)\](?:\s+.*)?$/;
+const STATE_TAG_RE = /^seq=(\d+)\s+(\S+)\s+\[([^\]]+)\](?:\s+.*)?$/;
 
 const COMPARISON_ANSWERS = new Set(["before", "after"]);
 
@@ -134,12 +148,12 @@ export function parseCompact(text) {
   for (const [index, line] of rawLines.entries()) {
     if (line.trim() === "") continue;
     const lineNo = index + 1;
-    const rel = RELATION_RE.exec(line);
+    const rel = RELATION_RE.exec(line) ?? RELATION_TAG_RE.exec(line);
     if (rel) {
       relation.push({ raw: line, lineNo, seq: Number(rel[1]), subject: rel[2], kind: rel[3], value: rel[4], status: rel[5] });
       continue;
     }
-    const st = STATE_RE.exec(line);
+    const st = STATE_RE.exec(line) ?? STATE_TAG_RE.exec(line);
     if (st) {
       state.push({ raw: line, lineNo, seq: Number(st[1]), subject: st[2], status: st[3] });
       continue;
@@ -253,6 +267,15 @@ function statusOverrideAllowed(event, subject, status) {
 }
 
 function parseAux(row) {
+  // v4 形态：状态在 `[<词>]` 标签里，附加字段接在标签之后。
+  const tag = /(?:^|\s)\[[^\]]+\](?:\s+(.*))?$/.exec(row.raw ?? "");
+  if (tag) {
+    return (tag[1] ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.includes("="))
+      .map((token) => ({ key: token.slice(0, token.indexOf("=")), value: token.slice(token.indexOf("=") + 1) }));
+  }
   const match = /\sstatus=(\S+)(?:\s+(.*))?$/.exec(row.raw ?? "");
   if (!match || !match[2]) return [];
   return match[2]
@@ -644,6 +667,39 @@ export const COUNTEREXAMPLES = [
       mutate(fixture, "KU-02", (question) => {
         question.compactContext =
           "seq=313 constraint current=retain-20 status=current\nseq=311 constraint current=retain-10 status=current";
+      }),
+  },
+  // v4（渲染消歧）形态的四类负例：状态改成 `[<词>]` 之后，判据一条都不许松。
+  {
+    id: "C19-v4-tag-dropped",
+    expect: "v4 形态把状态标签整段删掉（只剩值行）时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-01", (question) => {
+        question.compactContext = "seq=303 e-ku01-a current=later-ok\nseq=301 e-ku01-a old=failed [superseded]";
+      }),
+  },
+  {
+    id: "C20-v4-tag-not-in-vocab",
+    expect: "v4 方括号里的状态词不在状态词表时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-01", (question) => {
+        question.compactContext = "seq=303 e-ku01-a current=later-ok [fine]\nseq=301 e-ku01-a old=failed [superseded]";
+      }),
+  },
+  {
+    id: "C21-v4-old-tag-not-marked",
+    expect: "v4 形态旧值行的方括号标签不是标旧词时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-01", (question) => {
+        question.compactContext = "seq=303 e-ku01-a current=later-ok [settled]\nseq=301 e-ku01-a old=failed [current]";
+      }),
+  },
+  {
+    id: "C22-v4-aux-ungrounded",
+    expect: "v4 形态方括号标签之后的附加字段不是被引用行原文时必须判红",
+    build: (fixture) =>
+      mutate(fixture, "KU-01", (question) => {
+        question.compactContext = "seq=303 e-ku01-a current=later-ok [settled] answer=later-ok";
       }),
   },
 ];
