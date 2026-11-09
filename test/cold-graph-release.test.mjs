@@ -783,3 +783,43 @@ tests["C661 终态路径不受静默窗口约束：disposed 后**默认窗口**�
     nodeFs.rmSync(fx.dir, { recursive: true, force: true });
   }
 };
+
+tests["C662 还有没写出去的节点文档 ⇒ 不许回收（否则 nodes/<id>.md 永远写不出来）"] = async (t) => {
+  const { Engine } = await loadEngine();
+  const dir = tmpDir("gokifu-c662-pending-");
+  const ctx = makeCtx();
+  const engine = new Engine(ctx, { graphDir: dir, auto: false });
+  engine.coldGraphQuietMs = 0;
+  const session = makeSession({ id: "c662-pending" });
+  try {
+    // ① 第一次 full 落盘 = firstWrite，会把所有节点文档写全并清空 pending
+    await ctx.emitRaw("session/event", session, userEvent(session, "第一轮"));
+    await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+    clearFlushTimers(engine);
+    t.eq(engine.persist.hasPendingNodeDocs(session.id), false, "前提：firstWrite 之后 pending 是空的");
+
+    // ② 再进一个节点，然后走**普通 full**（不是 tree）—— 节流分支只把它攒进 pending
+    const g = engine.graphs.get(session.id);
+    addUserNode(g, { seq: session.nextSeq(), text: "只进内存、还没到写 md 的那一步" });
+    engine.persist.flush({ id: session.id, cwd: session.cwd ?? undefined }, g, { full: true });
+    t.eq(engine.persist.hasPendingNodeDocs(session.id), true, "前提：普通 full 之后 pending 里确实攒了节点");
+
+    // ③ 此时「full 成功 + dirty 为空 + pending 非空」—— 回收必须拒收
+    const refused = engine.releaseColdGraphs({ reason: "probe" });
+    t.eq(refused.released, [], "pending 非空时不许回收（放行 = 那些 md 永远写不出来）");
+    t.ok((refused.skipped["node-docs-pending"] ?? 0) >= 1, `必须归因为 node-docs-pending，实际 ${JSON.stringify(refused.skipped)}`);
+
+    // ④ tree 落盘把 pending 写出去之后才放行
+    engine.persist.flush({ id: session.id, cwd: session.cwd ?? undefined }, g, { tree: true });
+    t.eq(engine.persist.hasPendingNodeDocs(session.id), false, "tree 落盘后 pending 清空");
+    t.eq(engine.releaseColdGraphs({ reason: "probe" }).released, [session.id], "pending 清空后正常回收");
+
+    // ⑤ 磁盘上那个节点的 md 真的在（不是"放行了但没写"）
+    const disk = await readGraphReplayed(dir, session.id);
+    const ids = Object.keys(disk.nodes);
+    t.ok(ids.length > 0, "磁盘上仍有节点");
+  } finally {
+    clearFlushTimers(engine);
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+};

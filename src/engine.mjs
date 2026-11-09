@@ -1259,6 +1259,11 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     }
     try {
       if (!peekDirty(g).empty) return { released: false, reason: "dirty" };
+      // ★ C662：**还有没写出去的节点文档 ⇒ 不许回收**。`full` flush 在 pending 非空时才会写
+      //   节点文档，而「full 成功 + dirty 为空 + pending 非空」是能同时成立的（节流分支刚把
+      //   dirty.nodes 攒进 pending 就 clearDirty 了）。放行这一条 = 那些 `nodes/<id>.md`
+      //   永远写不出来 = 热清单省略行指向空处。doctor C110 实测 135 个就是这么来的。
+      if (this.persist.hasPendingNodeDocs?.(id) === true) return { released: false, reason: "node-docs-pending" };
     } catch {
       return { released: false, reason: "dirty-unknown" };
     }
