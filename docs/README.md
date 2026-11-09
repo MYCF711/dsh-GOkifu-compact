@@ -59,4 +59,5 @@
 | `草稿-持续优化.md` | R1–R4 迭代草稿 |
 | `计划表.md` | 已归档（现行任务表在仓库根 `计划表.md`） |
 | `ui-差距矩阵.md` | 插件 UI 对照官方结构树/素材库的五态差距矩阵（same/derived/partial/missing/extra），含最小修改依据 |
+| [`../design/README.md`](../design/README.md) | **`design/` 四屏可交互原型**（DSH Web 外壳 + 压缩面板总览/折痕/配置）：按官方 dist 的真实几何与令牌写，每处数值都标了出自哪个包哪个文件；`_tools/render.cjs` 可渲染核对 | 动面板代码前（先在这里定住长什么样、点下去怎么动） |
 | `重启后验证清单.md` | 首次装机后的验证清单（现由 `post-restart-check` 承担） |
