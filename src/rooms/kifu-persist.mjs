@@ -318,6 +318,24 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
     }
   }
 
+  /**
+   * ★ C662：这个会话还有**没写出去的节点文档**吗？
+   *
+   * 为什么必须问：`flush({full:true})` 在 `tree=false && pending 为空` 时走的是**节流**分支
+   * （只把 `dirty.nodes` 攒进 `pending`，一个 `nodes/<id>.md` 都不写）。而冷图回收的闸门
+   * 只要求「有过一次成功的 full 落盘」—— 于是「full 成功 + pending 非空 + dirty 为空」
+   * 这个组合会被放行，**pending 里的节点文档就永远写不出来了**。
+   *
+   * 这不是理论：本机 doctor C110 实测 **135 个节点缺 md**（热清单省略行 `nodes/<id>.md`
+   * 指向它们 ⇒ 空指针），根因正是「会话在被节流窗口内归档/回收」。
+   * @param {string} id 会话 id
+   * @returns {boolean}
+   */
+  function hasPendingNodeDocs(id) {
+    const key = String(id ?? "session");
+    return (nodesPendingMd.get(key)?.size ?? 0) > 0;
+  }
+
   /** 忘掉一个会话的三张表（将来 `session/disposed` 的唯一清理点；本次不接）。 */
   function forget(id) {
     const key = String(id ?? "session");
@@ -326,5 +344,5 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
     nodesPendingMd.delete(key);
   }
 
-  return { root, load, flush, persistBudget, forget };
+  return { root, load, flush, persistBudget, forget, hasPendingNodeDocs };
 }
