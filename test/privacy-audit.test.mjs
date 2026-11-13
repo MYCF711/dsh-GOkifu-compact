@@ -4,7 +4,7 @@ import nodePath from "node:path";
 import nodeOs from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { auditChanged, formatReport, scanLine, scanText, RULE } from "../scripts/privacy-audit.mjs";
+import { auditChanged, auditPack, formatReport, scanLine, scanText, RULE } from "../scripts/privacy-audit.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
@@ -218,6 +218,17 @@ tests["K31-pack 公开合成 fixture 全绿：回环、D:/fixture、示例邮箱
     t.includes(r.out, "public-synthetic=");
     t.includes(r.out, "public-declared=1");
   } finally { cleanup(dir); }
+};
+
+tests["K31-pack 仓库自身发布面必须 0 confirmed / 0 review（生成器曾漏 3 条 P3-PATH review）"] = (t) => {
+  // ★ 这条把「隐私门对**本仓**是绿的」变成单测判据，而不是只靠 CI 里另跑一次 `--pack`。
+  //   2026-11-08：scripts/make-presets-override.mjs 的注释写死本机 home、默认参数写死系统目录，
+  //   判出 48/53/90 三条 review；修完必须回到 0/0，且不许再靠加豁免把它盖掉。
+  const report = formatReport(auditPack({ cwd: ROOT }));
+  const tail = report.text.slice(-1200);
+  t.eq(report.counts.confirmed, 0, `confirmed 必须 0：\n${tail}`);
+  t.eq(report.counts.review, 0, `review 必须 0：\n${tail}`);
+  t.eq(report.ok, true, `pack 必须放行：\n${tail}`);
 };
 
 tests["K31-pack 未知二进制不得静默跳过，必须 SCAN-BINARY 真红"] = (t) => {

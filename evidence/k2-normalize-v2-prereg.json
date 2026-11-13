@@ -1,0 +1,151 @@
+{
+  "schema": "k2-normalize-v2-prereg-v1",
+  "status": "FROZEN",
+  "adoption": "NOT_ADOPTED",
+  "implementation": "NOT_APPLIED",
+  "createdAt": "2026-11-08T10:56:00+08:00",
+  "frozenAt": "2026-11-08T10:56:00+08:00",
+  "frozenAtRev": "edd4a9c7a7e824239ea8355e3c0c1504cad4ac8e",
+  "taskId": "N2-k2-normalize-round2",
+  "version": "k2-normalize-v2",
+  "kind": "versioned-opt-in-post-hoc-prereg",
+  "scope": {
+    "appliesTo": "K-2 reader output normalization only",
+    "graders": [
+      "exact",
+      "set",
+      "ordered",
+      "UNKNOWN"
+    ],
+    "optIn": true,
+    "defaultOff": true,
+    "activation": "explicit opt-in only; never enabled by default and never applied to historical results",
+    "oldNormalizeAnswer": "preserved unchanged for historical reproduction",
+    "sharedGraderChange": false,
+    "k27Affected": false,
+    "productCodeChanged": false
+  },
+  "hashes": {
+    "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+    "ax03PreregSha256": "193947bb8492755110addcbc56623d4725c30a9110a9623d950374ba8812ecc3",
+    "ax03FixturesSha256": "3ce54ac77f9936e1b6a8a7433fc56dd04b163b5364765be2152e446d35c7f23b",
+    "readerScriptSha256": "ea6512a00ce1f16585b198dc2322b13e6bf9813db5cf45c6a596c35d2e38e805",
+    "graderScriptSha256": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "rawManifestSha256": "feb5e4c0388cf2d50cd44aeae3efeab6102fe865478bf1d8ce0191290f27b08c",
+    "k2ResultSha256": "193052caaea6be3342c26357045d79bc8707e0b97a4d465ae931f7dee38ad95f",
+    "privateProposalSha256": "9ad1f211694f4edfaf23e73d08017e515b6b99c82f11252060a16513c2c63bb0",
+    "privateProposalSchema": "k2-normalization-proposal-v1",
+    "privateProposalStatus": "PROPOSED_NOT_APPLIED",
+    "privatePreregSha256": "33cb6dc65cacbe5a359f862402b1f542b32a78258d0569b87c2f930de56fa4e2",
+    "privatePreregSchema": "k2-normalize-v2-prereg-v1",
+    "privatePreregStatus": "FROZEN",
+    "testVectorSetSha256": "e7ed12de8d9fd78e959ef0dc4027d2228dd8d3f94ef088c92419ee958b63c46a"
+  },
+  "rules": {
+    "orderOfOperations": [
+      "trim leading and trailing whitespace",
+      "strip one triple-backtick code fence only when it wraps the whole answer",
+      "strip one matching whole-string quote/backtick pair only when the inner text contains no same-kind quote character; otherwise leave the string unchanged",
+      "for set/ordered: parse a valid JSON array if present; otherwise strip one outer [] layer when present; otherwise split on comma, semicolon, Chinese comma, Chinese semicolon or newline",
+      "for each list element: trim and strip one matching element quote/backtick pair only when the inner text contains no same-kind quote character",
+      "drop empty list elements; preserve order and duplicates for ordered; join list elements with ', '",
+      "pass the normalized value to the unchanged gradeAnswer"
+    ],
+    "allowedTransformations": [
+      "whitespace trim and whitespace-run collapse already performed by exactText",
+      "one layer of paired quote/backtick wrapper around a whole answer",
+      "one layer of paired quote/backtick wrapper per list element",
+      "list delimiter split and canonical comma-space join"
+    ],
+    "forbiddenTransformations": [
+      "translation or transliteration",
+      "alias or synonym injection",
+      "case folding",
+      "Unicode NFKC",
+      "number formatting",
+      "path separator normalization",
+      "reordering for ordered",
+      "deduplication for ordered",
+      "dropping extra elements",
+      "semantic similarity or judge model"
+    ]
+  },
+  "testVectors": {
+    "count": 21,
+    "valuesPublished": false,
+    "manifestDisclosure": "Only aggregate count, hash and category metadata is public; actual test-vector inputs and expected values remain private in the N2 proposal.",
+    "sha256": "e7ed12de8d9fd78e959ef0dc4027d2228dd8d3f94ef088c92419ee958b63c46a",
+    "hashBasis": "sha256 of canonical JSON (object keys sorted) of the private 21-vector set",
+    "categories": {
+      "format-positive": 13,
+      "semantic-negative": 8
+    },
+    "negativeCategories": [
+      "semantic-translation",
+      "case-folding",
+      "extra-explanation",
+      "undeclared-alias",
+      "ordered-reorder",
+      "missing-element",
+      "extra-element",
+      "abstention-case"
+    ]
+  },
+  "officialK2": {
+    "rawResultsUnchanged": true,
+    "rawFullCorrect": 7,
+    "rawCompactCorrect": 8,
+    "rawDegradedCount": 1,
+    "unknownIncrease": 1,
+    "answerPresentCoverage": "10/10 both arms",
+    "gate6": false,
+    "status": "FAIL",
+    "adoption": "NOT_ADOPTED"
+  },
+  "offlineReplay": {
+    "method": "Read the existing 20 raw JSON files and re-grade locally with the proposed v2 normalizer; no reader, no network, no raw-file writes.",
+    "rawFiles": 20,
+    "httpStatusOk": 20,
+    "readerErrors": 0,
+    "current": {
+      "fullCorrect": 7,
+      "compactCorrect": 8,
+      "degradedCount": 1,
+      "unknownIncrease": 1,
+      "gate6": false
+    },
+    "v2": {
+      "fullCorrect": 7,
+      "compactCorrect": 9,
+      "degradedCount": 0,
+      "unknownIncrease": 1,
+      "answerPresentCoverage": "10/10 both arms",
+      "gate6": false,
+      "changedRows": 1,
+      "changedRowCategory": "ordered-list-quote-format"
+    },
+    "summarizeStatusWarning": "v2 would make summarize.status PASS because degraded becomes empty; this is NOT the K-2 gate. gate6 remains false because unknownIncrease is still 1."
+  },
+  "reportingContract": {
+    "officialColumn": "raw",
+    "secondaryColumn": "v2",
+    "gate6Formula": "noRegression && abstentionClean && answerPresentCoverage.full == 10/10 && answerPresentCoverage.compact == 10/10",
+    "summarizeStatusIsNotGate": true,
+    "formatNormalizationIsNotQualityGain": true,
+    "cannotRetroactivelyChangeT7": true
+  },
+  "publicExposure": {
+    "containsRawAnswers": false,
+    "containsQuestionText": false,
+    "containsSessionIds": false,
+    "containsPerSampleRows": false,
+    "containsLocalPrivatePaths": false
+  },
+  "nonGoals": [
+    "do not modify existing normalizeAnswer or gradeAnswer",
+    "do not change questions, answers, aliases, graders or thresholds",
+    "do not re-run any real reader model",
+    "do not rewrite the 2026-11-08 T7 raw results or k2-result.json",
+    "do not change K-27"
+  ]
+}

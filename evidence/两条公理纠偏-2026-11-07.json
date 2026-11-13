@@ -1,0 +1,101 @@
+{
+  "schema": "axiom-rectification-v1",
+  "date": "2026-11-07",
+  "decision": "NOT_ADOPTED",
+  "baseline": {
+    "head": "3d3d009",
+    "tests": {
+      "passed": 2158,
+      "failed": 0
+    }
+  },
+  "integration": {
+    "branch": "task/axiom-integration",
+    "head": "66b5ad3",
+    "tests": {
+      "passed": 2309,
+      "failed": 0
+    },
+    "boundary": 0,
+    "privacy": {
+      "confirmed": 0,
+      "review": 0
+    }
+  },
+  "gates": {
+    "k26Precision": {
+      "status": "FAIL",
+      "gold": 11,
+      "adjudicated": 15,
+      "precision": 0.733333,
+      "threshold": 0.95,
+      "samplesRun": 1,
+      "samplesTotal": 12,
+      "mustKeepCovered": 5,
+      "mustKeepTotal": 37,
+      "pending": 0
+    },
+    "k2Reader": {
+      "status": "PASS",
+      "baselineCorrect": 10,
+      "candidateCorrect": 10,
+      "total": 10,
+      "degraded": 0,
+      "unknownIncrease": 0
+    },
+    "k27Reader": {
+      "status": "FAIL",
+      "pilotCorrect": 7,
+      "pilotTotal": 10,
+      "pilotAcc": 0.7,
+      "delta": -0.1,
+      "formal": "NOT_RUN",
+      "formalCalls": 0
+    },
+    "fullTests": {
+      "status": "PASS",
+      "passed": 2309,
+      "failed": 0
+    },
+    "independentReview": {
+      "status": "FAIL",
+      "p0": 2,
+      "p1": 4
+    }
+  },
+  "defaults": {
+    "factGuard": false,
+    "changed": false
+  },
+  "findings": [
+    "P0-1: K-2 3/10; renderer only emits kind+path+seq, not the literal value",
+    "P0-2: guardEventRole only reads message.role; 25/40 user/message are not human; SUBJECT_MISMATCH never fires",
+    "P1-1: online/offline evidence sources diverge (1330 vs 2345 events; 1025 seqs only offline; 48 same-seq text differences)",
+    "P1-2: three-path parity test is tautological (both sides buildGuardSource)",
+    "P1-3: guardRecord is not self-contained (quoteVerbatim boolean only)",
+    "P1-4: K-27 compact aligned 1/50 and not used in evaluation"
+  ],
+  "mutationChecks": {
+    "dropQuote": "red",
+    "futureEvidence": "red in fact-guard, NOT covered in integration",
+    "removeValueFacts": "red"
+  },
+  "unverified": [
+    "K-26 11/12 samples not run; 32/37 anchors NOT_RUN",
+    "K-27 formal 50/50 not run; pilot compact is frozen fixture, not current-code regeneration",
+    "guard=true reproducibility not measured",
+    "upstream wps-lingxi/marvis mixing not controlled",
+    "pre-existing privacy --pack review=3 in scripts/make-presets-override.mjs, unrelated"
+  ],
+  "k2Reader": {
+    "status": "PASS",
+    "baselineCorrect": 10,
+    "candidateCorrect": 10,
+    "total": 10,
+    "degraded": 0,
+    "unknownIncrease": 0,
+    "valueFactRenderLimit": 32,
+    "commit": "6ed72e2",
+    "runs": 2
+  }
+}

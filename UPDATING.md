@@ -29,7 +29,7 @@ node scripts/sync-doc-numbers.mjs --write
 node scripts/sync-doc-numbers.mjs --check
 
 # 4) 全量门禁（不是 --fast）
-npm run gate                             # 8 判分门 + 5 条参考门
+npm run gate                             # 9 判分门 + 5 条参考门
 
 # 5) 提交 + 打 tag + 推（**commit 与 tag 一起推**）
 #    先推 commit 再补 tag，CI 会在「维护一致性」那一步红（tag 还不存在）。

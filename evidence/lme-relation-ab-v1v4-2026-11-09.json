@@ -1,0 +1,918 @@
+{
+  "schema": "k27-relation-ab-v1",
+  "generatedBy": "scripts/lme-relation-ab.mjs",
+  "modelCalls": 0,
+  "authorization": {
+    "preregStatus": "AUTHORIZED",
+    "runsAuthorized": 2,
+    "runsObserved": 2,
+    "modelCallsPlanned": 120,
+    "modelCallsObserved": 120,
+    "retriesObserved": 0,
+    "retriesBasis": "runner 单样本单次调用、无重试分支；errorsObserved=0 才记 0，否则记 null 不猜",
+    "errorsObserved": 0
+  },
+  "experimentId": "k27-relation-ab-v1v4-1",
+  "preregSha256": "188fd37590e9bc34ca1314b176d437760a2ccd38111c336a48cd0dd66a5c503c",
+  "controlSha256": "811eb9e4a7a427da19720d913b783c2a6b61b9fc535a3c4c8d8c0b97f6b990d7",
+  "treatmentSha256": "a7bfa965157703a4b26caf9415cd168be6cb466542a376f0395a0e7f1f74402e",
+  "decisionBand": "POSITIVE_SIGNAL",
+  "decisionWhy": "多数票 10 → 10，样本级 29/30 → 30/30，无回归题",
+  "validity": {
+    "control": {
+      "sampleCorrect": 30,
+      "sampleTotal": 30,
+      "majorityCorrect": 10,
+      "questions": 10,
+      "pass": true,
+      "calls": 20
+    },
+    "treatment": {
+      "sampleCorrect": 30,
+      "sampleTotal": 30,
+      "majorityCorrect": 10,
+      "questions": 10,
+      "pass": true,
+      "calls": 20
+    }
+  },
+  "full": {
+    "control": {
+      "majorityCorrect": 10,
+      "samplesCorrect": 30,
+      "samplesTotal": 30
+    },
+    "treatment": {
+      "majorityCorrect": 10,
+      "samplesCorrect": 30,
+      "samplesTotal": 30
+    }
+  },
+  "compact": {
+    "control": {
+      "majorityCorrect": 10,
+      "samplesCorrect": 29,
+      "samplesTotal": 30,
+      "chars": 776
+    },
+    "treatment": {
+      "majorityCorrect": 10,
+      "samplesCorrect": 30,
+      "samplesTotal": 30,
+      "chars": 811
+    }
+  },
+  "flips": {
+    "regressions": [],
+    "fixes": []
+  },
+  "ku01": {
+    "controlCompactVotes": {
+      "later-ok": 2,
+      "UNKNOWN": 1
+    },
+    "treatmentCompactVotes": {
+      "later-ok": 3
+    },
+    "controlCompactMajorityCorrect": true,
+    "treatmentCompactMajorityCorrect": true,
+    "treatmentStatusWordAsAnswer": false,
+    "controlContextChars": 82,
+    "treatmentContextChars": 84
+  },
+  "perQuestion": [
+    {
+      "id": "IE-01",
+      "type": "IE",
+      "full": {
+        "control": {
+          "votes": {
+            "n-ie01-root": 3
+          },
+          "majorityAnswer": "n-ie01-root",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 128
+        },
+        "treatment": {
+          "votes": {
+            "n-ie01-root": 3
+          },
+          "majorityAnswer": "n-ie01-root",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 128
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "n-ie01-root": 3
+          },
+          "majorityAnswer": "n-ie01-root",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 74
+        },
+        "treatment": {
+          "votes": {
+            "n-ie01-root": 3
+          },
+          "majorityAnswer": "n-ie01-root",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 49
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "IE-02",
+      "type": "IE",
+      "full": {
+        "control": {
+          "votes": {
+            "e-ie02-parse": 3
+          },
+          "majorityAnswer": "e-ie02-parse",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        },
+        "treatment": {
+          "votes": {
+            "e-ie02-parse": 3
+          },
+          "majorityAnswer": "e-ie02-parse",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "e-ie02-parse": 3
+          },
+          "majorityAnswer": "e-ie02-parse",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 74
+        },
+        "treatment": {
+          "votes": {
+            "e-ie02-parse": 3
+          },
+          "majorityAnswer": "e-ie02-parse",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 73
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "MR-01",
+      "type": "MR",
+      "full": {
+        "control": {
+          "votes": {
+            "e-mr01-a,e-mr01-b": 3
+          },
+          "majorityAnswer": "e-mr01-a,e-mr01-b",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 179
+        },
+        "treatment": {
+          "votes": {
+            "e-mr01-a,e-mr01-b": 3
+          },
+          "majorityAnswer": "e-mr01-a,e-mr01-b",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 179
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "e-mr01-a,e-mr01-b": 3
+          },
+          "majorityAnswer": "e-mr01-a,e-mr01-b",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 77
+        },
+        "treatment": {
+          "votes": {
+            "e-mr01-a,e-mr01-b": 3
+          },
+          "majorityAnswer": "e-mr01-a,e-mr01-b",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 87
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "MR-02",
+      "type": "MR",
+      "full": {
+        "control": {
+          "votes": {
+            "e-mr02-a, e-mr02-c": 1,
+            "e-mr02-a,e-mr02-c": 2
+          },
+          "majorityAnswer": "e-mr02-a,e-mr02-c",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 195
+        },
+        "treatment": {
+          "votes": {
+            "e-mr02-a,e-mr02-c": 3
+          },
+          "majorityAnswer": "e-mr02-a,e-mr02-c",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 195
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "e-mr02-a,e-mr02-c": 3
+          },
+          "majorityAnswer": "e-mr02-a,e-mr02-c",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 74
+        },
+        "treatment": {
+          "votes": {
+            "e-mr02-a,e-mr02-c": 3
+          },
+          "majorityAnswer": "e-mr02-a,e-mr02-c",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 128
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "KU-01",
+      "type": "KU",
+      "full": {
+        "control": {
+          "votes": {
+            "later-ok": 3
+          },
+          "majorityAnswer": "later-ok",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        },
+        "treatment": {
+          "votes": {
+            "later-ok": 3
+          },
+          "majorityAnswer": "later-ok",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "later-ok": 2,
+            "UNKNOWN": 1
+          },
+          "majorityAnswer": "later-ok",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 2,
+          "samples": 3,
+          "contextChars": 82
+        },
+        "treatment": {
+          "votes": {
+            "later-ok": 3
+          },
+          "majorityAnswer": "later-ok",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 84
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "KU-02",
+      "type": "KU",
+      "full": {
+        "control": {
+          "votes": {
+            "retain-20": 3
+          },
+          "majorityAnswer": "retain-20",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        },
+        "treatment": {
+          "votes": {
+            "retain-20": 3
+          },
+          "majorityAnswer": "retain-20",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 149
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "retain-20": 3
+          },
+          "majorityAnswer": "retain-20",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 81
+        },
+        "treatment": {
+          "votes": {
+            "retain-20": 3
+          },
+          "majorityAnswer": "retain-20",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 92
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "TR-01",
+      "type": "TR",
+      "full": {
+        "control": {
+          "votes": {
+            "before": 3
+          },
+          "majorityAnswer": "before",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 144
+        },
+        "treatment": {
+          "votes": {
+            "before": 3
+          },
+          "majorityAnswer": "before",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 144
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "before": 3
+          },
+          "majorityAnswer": "before",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 79
+        },
+        "treatment": {
+          "votes": {
+            "before": 3
+          },
+          "majorityAnswer": "before",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 73
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "TR-02",
+      "type": "TR",
+      "full": {
+        "control": {
+          "votes": {
+            "after": 3
+          },
+          "majorityAnswer": "after",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 139
+        },
+        "treatment": {
+          "votes": {
+            "after": 3
+          },
+          "majorityAnswer": "after",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 139
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "after": 3
+          },
+          "majorityAnswer": "after",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 63
+        },
+        "treatment": {
+          "votes": {
+            "after": 3
+          },
+          "majorityAnswer": "after",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 61
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "ABS-01",
+      "type": "ABS",
+      "full": {
+        "control": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 156
+        },
+        "treatment": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 156
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 98
+        },
+        "treatment": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 81
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    },
+    {
+      "id": "ABS-02",
+      "type": "ABS",
+      "full": {
+        "control": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 157
+        },
+        "treatment": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 157
+        }
+      },
+      "compact": {
+        "control": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 74
+        },
+        "treatment": {
+          "votes": {
+            "UNKNOWN": 3
+          },
+          "majorityAnswer": "UNKNOWN",
+          "majorityCorrect": true,
+          "gradeCode": "ok",
+          "sampleCorrect": 3,
+          "samples": 3,
+          "contextChars": 83
+        }
+      },
+      "flips": {
+        "regressed": false,
+        "fixed": false
+      },
+      "treatmentStatusWordAsAnswer": false
+    }
+  ],
+  "checks": [
+    {
+      "id": "hash:v1Fixture",
+      "expected": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
+      "actual": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
+      "ok": true
+    },
+    {
+      "id": "hash:v3Fixture",
+      "expected": "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
+      "actual": "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
+      "ok": true
+    },
+    {
+      "id": "hash:v4Fixture",
+      "expected": "fd3e0d15f4bd499ed2415788fbef297786f3b506f7982720e2bdb6aa1e0ad644",
+      "actual": "fd3e0d15f4bd499ed2415788fbef297786f3b506f7982720e2bdb6aa1e0ad644",
+      "ok": true
+    },
+    {
+      "id": "hash:rendererV3",
+      "expected": "306dd46eb7ba43731c3846a9a7d7ff32fbc9d80a3cf937dd91da610a3b64d3f9",
+      "actual": "306dd46eb7ba43731c3846a9a7d7ff32fbc9d80a3cf937dd91da610a3b64d3f9",
+      "ok": true
+    },
+    {
+      "id": "hash:rendererV4",
+      "expected": "9c8fe134f8c212db48562ad1a7ba4f11d65761094e120883b8b3ae98699425f1",
+      "actual": "9c8fe134f8c212db48562ad1a7ba4f11d65761094e120883b8b3ae98699425f1",
+      "ok": true
+    },
+    {
+      "id": "hash:checkerV3",
+      "expected": "4a667ec1c8d13ef1e201c31cdfbc5c5c51701624b6eabcef578962869c55e3d0",
+      "actual": "4a667ec1c8d13ef1e201c31cdfbc5c5c51701624b6eabcef578962869c55e3d0",
+      "ok": true
+    },
+    {
+      "id": "hash:grader",
+      "expected": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+      "actual": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+      "ok": true
+    },
+    {
+      "id": "hash:runner",
+      "expected": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+      "actual": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+      "ok": true
+    },
+    {
+      "id": "run:model",
+      "expected": "deepseek-v4.1-flash-1017",
+      "actual": "deepseek-v4.1-flash-1017",
+      "ok": true
+    },
+    {
+      "id": "run:endpoint",
+      "expected": "http://127.0.0.1:3425/v1/chat/completions",
+      "actual": "http://127.0.0.1:3425/v1/chat/completions",
+      "ok": true
+    },
+    {
+      "id": "run:variant",
+      "expected": "v5cmp-en",
+      "actual": "v5cmp-en",
+      "ok": true
+    },
+    {
+      "id": "run:postprocess",
+      "expected": "none",
+      "actual": "none",
+      "ok": true
+    },
+    {
+      "id": "run:selectionRule",
+      "expected": "first 2 per type in frozen fixture order",
+      "actual": "first 2 per type in frozen fixture order",
+      "ok": true
+    },
+    {
+      "id": "run:selected",
+      "expected": [
+        {
+          "id": "IE-01",
+          "type": "IE",
+          "applicability": "task-process/boundary",
+          "grader": "exact",
+          "answer": "n-ie01-root"
+        },
+        {
+          "id": "IE-02",
+          "type": "IE",
+          "applicability": "task-process/failure",
+          "grader": "exact",
+          "answer": "e-ie02-parse"
+        },
+        {
+          "id": "MR-01",
+          "type": "MR",
+          "applicability": "task-process/failure",
+          "grader": "ordered",
+          "answer": [
+            "e-mr01-a",
+            "e-mr01-b"
+          ]
+        },
+        {
+          "id": "MR-02",
+          "type": "MR",
+          "applicability": "task-process/update",
+          "grader": "set",
+          "answer": [
+            "e-mr02-a",
+            "e-mr02-c"
+          ]
+        },
+        {
+          "id": "KU-01",
+          "type": "KU",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "later-ok"
+        },
+        {
+          "id": "KU-02",
+          "type": "KU",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "retain-20"
+        },
+        {
+          "id": "TR-01",
+          "type": "TR",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "before"
+        },
+        {
+          "id": "TR-02",
+          "type": "TR",
+          "applicability": "task-process/multi-fold",
+          "grader": "exact",
+          "answer": "after"
+        },
+        {
+          "id": "ABS-01",
+          "type": "ABS",
+          "applicability": "task-process/failure",
+          "grader": "UNKNOWN",
+          "answer": "UNKNOWN"
+        },
+        {
+          "id": "ABS-02",
+          "type": "ABS",
+          "applicability": "task-process/boundary",
+          "grader": "UNKNOWN",
+          "answer": "UNKNOWN"
+        }
+      ],
+      "actual": [
+        {
+          "id": "IE-01",
+          "type": "IE",
+          "applicability": "task-process/boundary",
+          "grader": "exact",
+          "answer": "n-ie01-root"
+        },
+        {
+          "id": "IE-02",
+          "type": "IE",
+          "applicability": "task-process/failure",
+          "grader": "exact",
+          "answer": "e-ie02-parse"
+        },
+        {
+          "id": "MR-01",
+          "type": "MR",
+          "applicability": "task-process/failure",
+          "grader": "ordered",
+          "answer": [
+            "e-mr01-a",
+            "e-mr01-b"
+          ]
+        },
+        {
+          "id": "MR-02",
+          "type": "MR",
+          "applicability": "task-process/update",
+          "grader": "set",
+          "answer": [
+            "e-mr02-a",
+            "e-mr02-c"
+          ]
+        },
+        {
+          "id": "KU-01",
+          "type": "KU",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "later-ok"
+        },
+        {
+          "id": "KU-02",
+          "type": "KU",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "retain-20"
+        },
+        {
+          "id": "TR-01",
+          "type": "TR",
+          "applicability": "task-process/update",
+          "grader": "exact",
+          "answer": "before"
+        },
+        {
+          "id": "TR-02",
+          "type": "TR",
+          "applicability": "task-process/multi-fold",
+          "grader": "exact",
+          "answer": "after"
+        },
+        {
+          "id": "ABS-01",
+          "type": "ABS",
+          "applicability": "task-process/failure",
+          "grader": "UNKNOWN",
+          "answer": "UNKNOWN"
+        },
+        {
+          "id": "ABS-02",
+          "type": "ABS",
+          "applicability": "task-process/boundary",
+          "grader": "UNKNOWN",
+          "answer": "UNKNOWN"
+        }
+      ],
+      "ok": true
+    },
+    {
+      "id": "validity:control",
+      "expected": "30/30 样本 且 10/10 多数票",
+      "actual": "30/30 样本 · 10/10 多数",
+      "ok": true
+    },
+    {
+      "id": "validity:treatment",
+      "expected": "30/30 样本 且 10/10 多数票",
+      "actual": "30/30 样本 · 10/10 多数",
+      "ok": true
+    }
+  ],
+  "issues": [],
+  "ok": true,
+  "preservedStatus": {
+    "formal5050": "NOT_RUN",
+    "verdict": "NOT_ADOPTED",
+    "relationFixture": "FROZEN_NOT_RUN",
+    "defaultOn": false
+  },
+  "note": "PILOT_ONLY：10 题 pilot 的 +1/−1 在噪声量级；本文件不代表 formal 50/50 通过，也不代表关系行有效，更不授权修改默认值。公开面不含逐样本原始模型输出。"
+}

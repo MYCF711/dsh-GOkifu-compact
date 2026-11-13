@@ -1,0 +1,301 @@
+{
+  "schema": "k2-value-reader-fixtures-v1",
+  "frozen": true,
+  "taskId": "AX-03",
+  "preregSha256": "cda2f2d0a14b10589e842ae955a58101ca943b2d6c011735599cf674cd77ea78",
+  "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+  "armMapping": {
+    "full": "baseline: user/assistant 文本 + 原始 tool/result（当前生产行为，未清理）",
+    "compact": "every-step: user/assistant 文本 + 生产 renderFacts(graph)；原始 tool/result 不进入上下文"
+  },
+  "callBudget": {
+    "questions": 10,
+    "callsPerQuestion": 2,
+    "plannedCalls": 20,
+    "maxCalls": 24,
+    "retries": 0
+  },
+  "contextBuilder": "buildReaderFixtures({home}) —— full=原始 tool/result + 文本；compact=文本 + 生产 renderFacts(graph)。AX-12 必须在运行时用当时代码生成，不得冻结 compact 正文。",
+  "questions": [
+    {
+      "id": "K2-O1",
+      "origin": "original-4",
+      "kind": "write",
+      "sessionHash": "8ca0b786fa93ef9f",
+      "sourceSeq": 44,
+      "sourceTool": "write",
+      "question": "write 工具成功创建文件后，结果的 `<content>` 里写的是什么？",
+      "answer": "Created file",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-O2",
+      "origin": "original-4",
+      "kind": "read-failure",
+      "sessionHash": "8ca0b786fa93ef9f",
+      "sourceSeq": 24,
+      "sourceTool": "read",
+      "question": "read 工具读取一个不存在的 `AGENTS.md` 时，错误原文以哪个前缀开头？",
+      "answer": "Error: cannot read",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "safe"
+    },
+    {
+      "id": "K2-O3",
+      "origin": "original-4",
+      "kind": "api",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 35,
+      "sourceTool": "github",
+      "question": "GitHub API 返回的 magpie-Jet-Hub 仓库 JSON 中，id 与 private 的值分别是什么？",
+      "answer": [
+        "1436032364",
+        "false"
+      ],
+      "grader": "set",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-O4",
+      "origin": "original-4",
+      "kind": "bash-failure",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 25,
+      "sourceTool": "bash",
+      "question": "第一次 git clone 失败时，无法连接的主机与端口是什么？",
+      "answer": "github.com:443",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "safe"
+    },
+    {
+      "id": "K2-N1",
+      "origin": "new-success-value",
+      "kind": "write",
+      "sessionHash": "8ca0b786fa93ef9f",
+      "sourceSeq": 46,
+      "sourceTool": "write",
+      "question": "write 工具写入 `group-d.md` 后，返回结果里的路径中，`agents-inserts` 的上一级目录名是什么？",
+      "answer": "dsh-latest-upgrade",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "safe"
+    },
+    {
+      "id": "K2-N2",
+      "origin": "new-success-value",
+      "kind": "read",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 171,
+      "sourceTool": "read",
+      "question": "read 回来的 `provider-registry.js` 中，`CodeArts (华为云)` 对应的 provider id 是什么？",
+      "answer": "codearts",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-N3",
+      "origin": "new-success-value",
+      "kind": "read",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 172,
+      "sourceTool": "read",
+      "question": "read 回来的 `plugin.mjs` 中，`DSH_PROVIDERS` 数组的前三个元素是什么？",
+      "answer": [
+        "accio",
+        "astudio",
+        "autoclaw"
+      ],
+      "grader": "ordered",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-N4",
+      "origin": "new-success-value",
+      "kind": "api",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 35,
+      "sourceTool": "github",
+      "question": "GitHub API 返回的 magpie-Jet-Hub 仓库 JSON 中，node_id 是什么？",
+      "answer": "R_kgDOVZgdbA",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-N5",
+      "origin": "new-success-value",
+      "kind": "api",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 129,
+      "sourceTool": "github",
+      "question": "GitHub API 返回的 `vendor/lib` 目录列表中，`accio-adapter.d.ts` 的 sha 是什么？",
+      "answer": "c6f9d7a186c54e87f79007f6e08626dcb8701e8c",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "degraded"
+    },
+    {
+      "id": "K2-N6",
+      "origin": "new-success-value",
+      "kind": "api",
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "sourceSeq": 129,
+      "sourceTool": "github",
+      "question": "GitHub API 返回的 `vendor/lib` 目录列表中，`accio-adapter.d.ts` 的 size 是多少字节？",
+      "answer": "23738",
+      "grader": "exact",
+      "aliases": [],
+      "hypothesis": "degraded"
+    }
+  ],
+  "sources": [
+    {
+      "sessionHash": "8ca0b786fa93ef9f",
+      "workspace": "--D-DeepSeek~0020Harness-default-workspace--",
+      "eventCount": 73,
+      "badEventLines": 0,
+      "frames": 29,
+      "factsChars": 3380,
+      "fullChars": 43585,
+      "compactChars": 41981
+    },
+    {
+      "sessionHash": "6fc8fe5d1ef3c3da",
+      "workspace": "--D-DeepSeek~0020Harness-~53CD~4EE3-work~0020buddy--",
+      "eventCount": 178,
+      "badEventLines": 0,
+      "frames": 91,
+      "factsChars": 5817,
+      "fullChars": 250736,
+      "compactChars": 38944
+    }
+  ],
+  "coverage": [
+    {
+      "id": "K2-O1",
+      "kind": "write",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "Created file"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-O2",
+      "kind": "read-failure",
+      "full": true,
+      "compact": true,
+      "pieces": [
+        "Error: cannot read"
+      ],
+      "hypothesis": "safe",
+      "matched": true
+    },
+    {
+      "id": "K2-O3",
+      "kind": "api",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "1436032364",
+        "false"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-O4",
+      "kind": "bash-failure",
+      "full": true,
+      "compact": true,
+      "pieces": [
+        "github.com:443"
+      ],
+      "hypothesis": "safe",
+      "matched": true
+    },
+    {
+      "id": "K2-N1",
+      "kind": "write",
+      "full": true,
+      "compact": true,
+      "pieces": [
+        "dsh-latest-upgrade"
+      ],
+      "hypothesis": "safe",
+      "matched": true
+    },
+    {
+      "id": "K2-N2",
+      "kind": "read",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "codearts"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-N3",
+      "kind": "read",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "accio",
+        "astudio",
+        "autoclaw"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-N4",
+      "kind": "api",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "R_kgDOVZgdbA"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-N5",
+      "kind": "api",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "c6f9d7a186c54e87f79007f6e08626dcb8701e8c"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    },
+    {
+      "id": "K2-N6",
+      "kind": "api",
+      "full": true,
+      "compact": false,
+      "pieces": [
+        "23738"
+      ],
+      "hypothesis": "degraded",
+      "matched": true
+    }
+  ],
+  "leakPrecheck": {
+    "ok": true,
+    "mode": "structure+context",
+    "checked": 20,
+    "errors": []
+  }
+}

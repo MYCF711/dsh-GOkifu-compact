@@ -29,6 +29,8 @@ const DEFAULT_OUT = nodePath.join(HERE, "..", "evidence", "lme-pilot-reader-2026
 const MODEL = process.env.LME_READER_MODEL || "deepseek-v4.1-flash-1017";
 const VARIANT = process.env.LME_READER_VARIANT || "v1";
 const POSTPROCESS = process.env.LME_READER_POSTPROCESS || "none";
+/** v4m：同一题同一上下文采样 N 次，按归一化答案多数判定（默认 1 = 旧行为）。 */
+const SAMPLES = Math.max(1, Math.min(5, Number(process.env.LME_READER_SAMPLES) || 1));
 const ENDPOINT = process.env.LME_READER_ENDPOINT || "http://127.0.0.1:3425/v1/chat/completions";
 const PER_TYPE = 2;
 
@@ -89,6 +91,21 @@ export const READER_PROMPTS = Object.freeze({
     "For a list answer, output the exact ids in the order they appear, comma-separated. " +
     "If no span explicitly records the requested value, output exactly UNKNOWN. " +
     "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+  /**
+   * v4（AX-27）：在 v2 的「逐字 span」基础上，专门处理**比较题**（之前/之后）。
+   * v2 要求输出上下文原文 span，但 TR 题的金标准是单词 `before` / `after`，
+   * 于是模型答对事实也判错。v4 显式要求：比较题只输出 before/after（或中文 之前/之后）。
+   */
+  v4:
+    "You answer a single question from the supplied context. " +
+    "Silently find the smallest verbatim span that answers the question; do not show that step. " +
+    "If the question asks whether one event happened before or after another, output exactly one word: " +
+    "`before` or `after` (中文题可输出 之前 / 之后)，不要输出别的文字。 " +
+    "Otherwise output only the span, exactly as written: no explanation, no quotes, no code fence. " +
+    "For a list answer, output the exact ids in the order they appear, comma-separated. " +
+    "If no span explicitly records the requested value, output exactly UNKNOWN. " +
+    "Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
+  "v5cmp-en": "You answer a single question from the supplied context. Silently find the smallest verbatim span that answers the question; do not show that step. If the question asks whether one event happened before or after another, output exactly one lowercase English word: `before` or `after`. Do not answer in Chinese and do not translate. Otherwise output only the span, exactly as written: no explanation, no quotes, no code fence. For a list answer, output the exact ids in the order they appear, comma-separated. If no span explicitly records the requested value, output exactly UNKNOWN. Never substitute a status word (untested, right-censored, pending) for UNKNOWN.",
   v3extract:
     "You are an evidence extractor. Find the shortest verbatim span in the context that answers the question. " +
     "Output only that span, exactly as written; no explanation, no quotes, no code fence. " +
@@ -184,13 +201,27 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
       const payload = makeReaderPayload(item, arm);
       assertReaderPayload(payload);
       log(`[${index + 1}/${selected.length}] ${item.id} ${arm}`);
-      let call;
-      try {
-        call = VARIANT === "v3" ? await callTwoStep(payload) : await callModel(payload);
-      } catch (error) {
-        call = { raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) };
+      const calls = [];
+      for (let sample = 0; sample < SAMPLES; sample += 1) {
+        try {
+          calls.push(VARIANT === "v3" ? await callTwoStep(payload) : await callModel(payload));
+        } catch (error) {
+          calls.push({ raw: null, finishReason: "error", usage: null, latencyMs: 0, error: String(error?.message ?? error) });
+        }
       }
-      const answer = postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS, question: payload.question });
+      const normalized = calls.map((call) => postProcessAnswer(normalizeReaderAnswer(call.raw), payload.context, { mode: POSTPROCESS, question: payload.question }));
+      const counts = new Map();
+      for (const value of normalized) counts.set(value, (counts.get(value) ?? 0) + 1);
+      let answer = normalized[0] ?? "";
+      let best = 0;
+      for (const [value, count] of counts) if (count > best) { best = count; answer = value; }
+      const chosen = calls[normalized.indexOf(answer)] ?? calls[0];
+      const usage = calls.reduce((acc, call) => ({
+        prompt_tokens: Number(acc.prompt_tokens ?? 0) + Number(call?.usage?.prompt_tokens ?? 0),
+        completion_tokens: Number(acc.completion_tokens ?? 0) + Number(call?.usage?.completion_tokens ?? 0),
+        total_tokens: Number(acc.total_tokens ?? 0) + Number(call?.usage?.total_tokens ?? 0),
+      }), {});
+      const call = { ...chosen, usage: SAMPLES > 1 ? usage : chosen?.usage, latencyMs: calls.reduce((sum, c) => sum + Number(c?.latencyMs ?? 0), 0) };
       const grade = gradeAnswer(item.answer, answer, item.grader, item.aliases ?? []);
       results.push({
         id: item.id,
@@ -205,6 +236,7 @@ export async function runPilot({ fixtures, log = console.log } = {}) {
         usage: call.usage,
         latencyMs: call.latencyMs,
         trace: call.trace ?? null,
+        ...(SAMPLES > 1 ? { samples: normalized } : {}),
         ...(call.error ? { error: call.error } : {}),
       });
     }

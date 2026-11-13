@@ -24,19 +24,23 @@ import { BlockAssembler, LlmError, contentHasImage, createUserMessage } from "@d
 
 import { peekDirty, restoreFromSnapshot, fromJSON, toJSON, sha, hashSet, mergeNodeInto, failureEdges, foldClosureOf, foldBoundaryOf } from "./rooms/kifu-model.mjs";
 import { writeBuildStamp } from "./rooms/build-stamp.mjs";
-import { observeEvent } from "./rooms/keeper.mjs";
+import { observeEvent, messageText, injectionKind } from "./rooms/keeper.mjs";
 import { createWorldTracker } from "./rooms/world.mjs";
 import { isCheckpointSource, normalizeRange, planFold } from "./rooms/fold-planner.mjs";
 import { debtOfGraph, closeoutSettles, listDebts, rankDebts } from "./rooms/closeout-backfill.mjs";
 import {closeoutTimeoutAdvice, recentFoldP90, CLOSEOUT_MAX_FOLD_TOKENS, closeoutExceedsLimit, planCloseoutChunks, planChunkedCloseout, runChunkedCloseout, applyCloseoutOutcome} from "./rooms/closeout-plan.mjs";
-import { renderFacts, danglingStats, estimateTokens } from "./rooms/ledger.mjs";
+import { renderFacts, danglingStats, estimateTokens, collectConstraints } from "./rooms/ledger.mjs";
 import { measureFoldQuality, sanitizeSummaryIds } from "./rooms/fold-quality.mjs";
-import { buildChessInstruction, extractConstraintsBlock } from "./rooms/facts-prompt.mjs";
+import { buildChessInstruction, extractConstraintsBlock, parseFactGuardEnvelope, renderFactGuardedSummary } from "./rooms/facts-prompt.mjs";
+// ★ AX-06（2026-11-07）：事实守卫（K-26 实验线）。只在 `factGuard:true` 时被调用；
+//   默认 false ⇒ 下面的 summarize 一行都不走它（零解析、零裁决）。冷代码、零模型调用。
+import { guardModelOutput } from "./rooms/fact-guard.mjs";
+import { isValueFact } from "./rooms/tool-value-facts.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
-import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget, sumFoldUsage } from "./rooms/offline-fold.mjs";
+import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget, sumFoldUsage, toolDigestLine } from "./rooms/offline-fold.mjs";
 import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd-log.mjs";
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
@@ -420,6 +424,33 @@ const edgeSeq = (e) =>
 
 const FOLD_RETRY_BASE_SEQ = 30;
 const FOLD_RETRY_CAP_SEQ = 480;
+
+/**
+ * ★ C659：冷图回收的**静默窗口**（毫秒）。默认 15 分钟。
+ *
+ * 为什么需要它：C656 的活跃性只认宿主发的 `agent/status`（`idle` / `running`）。
+ * 但有些路径**不一定发这个事件** —— 离线补折、脚本/无头调用、以及宿主在回合中间
+ * 没收到的状态；这些会话不在 `activeSessions` 里，别的会话一 idle 就可能把它的图扫走。
+ *
+ * 兜底判据：**这个会话最近一次有动静（事件 / 状态 / 被 pin）离现在不到 15 分钟，就不回收。**
+ * 选 15 分钟而不是「立刻」：一个正在跑长工具（`pnpm install`、构建、下载）的回合可能
+ * 好几分钟没有新事件，抽走它的图等于丢运行态（退避计数 / world 触碰集合）。
+ *
+ * 代价是「刚结束但还在 15 分钟内」的图会多留一会儿 —— 相对于 1549 张图 ≈ +290MB 的
+ * 常驻，这个延迟是可接受的；它不会累积（过窗后第一次 idle 就会收）。
+ */
+const COLD_GRAPH_QUIET_MS = 15 * 60 * 1000;
+
+/**
+ * ★ C659：`seenIds` 的上限（FIFO 淘汰）。默认 4096。
+ *
+ * 为什么要留这么一张表却又要封顶：`sessionRefs` 里是**整个 Session 对象**（重），
+ * 回收时必须删（否则图释放了内存也不降）；但删掉之后，「这个会话在本进程处理过」
+ * 这条信息就没了 —— 归档事件再来时 `#onWorkspaceChange` 的分支会变窄。
+ * 所以只留 **id 字符串**（每个几十字节），并在 4096 条后按插入顺序淘汰最老的。
+ * 4096 × ~60B ≈ 240KB —— 相对 290MB 的图缓存可以忽略。
+ */
+const SEEN_IDS_CAP = 4096;
 
 /** 热清单标记档位（ledger.mjs 的 `markers` 选项）。 */
 
@@ -858,6 +889,38 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     /** ★ P3：每会话基线 graph.json 的内容哈希（16 位）；delta 帧用它做 generation 保护。 */
     /** ★ P3：已进入 graph.json/delta 但还没写过 nodes/<id>.md 的节点（fold 时补写）。 */
     this.runtime = new Map();
+    /* ── ★ C656：冷图安全回收（「会话回收」切片）───────────────────────────────
+     * 背景：`graphs` / `runtime` 是按会话常驻的，**从来没有清理路径**（A1 F17，见
+     *   `docs/架构-房间契约.md` §R09「状态归属」）。真机实测：一台机器 1547 个会话、
+     *   单张图最大 ~10 MB JSON —— 进程活久了就是「窗口早关了，图还在内存里」。
+     *   这里补的不是「到点就删」，而是**一个闸门**（`#releaseColdGraph`）：
+     *   只有「落盘成功（full）+ 会话非活跃 + 没有人在用（pin）+ 没有待写的 timer + 图不脏」
+     *   五条全绿，才把 runtime 与 graph **成对**释放；任何一条不满足就留着。
+     * 为什么必须成对：runtime 里挂着 world 触碰集合、fold 退避计数与 loop 配额 ——
+     *   只删图会让下一次事件拿「新读进来的图」配「旧的运行态」，比不回收更糟。
+     * 为什么必须 pin：收尾折叠 / 离线补折都是**异步**的，闸门在这中间抽走图，
+     *   那条折叠就会对着一个即将被丢弃的对象写账（钱花了，盘上没有）。 */
+    /** 正在用这张图的人数（fold / closeout / offline / backfill）—— >0 一律不回收。 */
+    this.graphPins = new Map();
+    /** 每个会话最近一次落盘的结局；闸门只认 `ok && full` —— 落盘失败 = 失败图，必须留。 */
+    this.lastFlush = new Map();
+    /** 正在跑回合的会话（`agent/status: running`）—— 活跃图绝不回收。 */
+    this.activeSessions = new Set();
+    /**
+     * ★ C659：每个会话**最近一次有动静**的时刻（`session/event` / `agent/status` / 被 pin）。
+     * 闸门的第六个判据 `recent` 只读它 —— 用来兜住「会话不一定发 agent/status」那些路径
+     * （离线补折 / 脚本 / 无头），见 `COLD_GRAPH_QUIET_MS` 的注释。
+     */
+    this.lastSeenAt = new Map();
+    /** ★ C659：静默窗口（毫秒）。实例字段而不是常量，测试可以把窗口压到 0 / 拉开。 */
+    this.coldGraphQuietMs = COLD_GRAPH_QUIET_MS;
+    /**
+     * ★ C659：**本进程处理过事件的会话 id**（封顶 `SEEN_IDS_CAP`，FIFO 淘汰）。
+     * 回收删掉 `sessionRefs` 之后，归档路径靠它还能认出「这个会话我处理过」。
+     */
+    this.seenIds = new Set();
+    /** 回收统计（doctor / 测试可读；纯观测，不落盘）。 */
+    this.coldGraphStats = { released: 0, lastAt: 0, skipped: {} };
     /** ★ TIER2-SEMANTICS（task-142）：tier-2 重入保护 —— 常规 fold 之后与 pressure 分支都会收 checkpoint，
      *  同一时刻只允许一个 tier-2 在跑（防递归 / 二次 compactRegion）。 */
     this._tier2InFlight = false;
@@ -1039,9 +1102,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // ★ A2-2 行为变更②：写序/字节全在 R01；失败返回 {ok:false} 且 **dirty 不清**，这里打一行 warn。
     // ★ C149：把「本会话的图是刚重建出来的」告诉落盘方 —— 那种图上做「按图清理」会删掉旧图的真实文档。
     const result = this.persist.flush({ id: session.id, cwd: session.cwd }, g, { tree, full, closeout, repaired: this.repairedGraphs.has(session.id) });
+    // ★ C656：回收闸门要判「这张图到底落稳了没有」—— 只信 persist 的返回值，不信"我调过 flush"。
+    this.#noteFlush(session.id, result, { full });
     if (!result.ok) {
       this.ctx.logger?.warn?.(`chess-context: 棋谱落盘失败（不影响压缩）：${result.error}`);
     }
+    return result;
   }
   /**
    * 落盘（debounce）。以前是「每 25 个事件才写一次」，实测会导致：
@@ -1059,6 +1125,213 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.flushTimers.set(key, timer);
   }
 
+  /* ────────────────────── 冷图安全回收（C656） ────────────────────── */
+
+  /** 记一次落盘结局（回收闸门判「full flush ok」只看它，不看"我调过 flush"）。 */
+  #noteFlush(id, result, { full = false } = {}) {
+    if (typeof id !== "string" || id.length === 0) return;
+    const ok = result !== null && result !== undefined && result.ok !== false;
+    const prev = this.lastFlush.get(id);
+    // `full` 的含义是「这张图有过一次成功的全量落盘，此后没再失败」：
+    //   · 之后的增量落盘成功不取消它（数据仍然完整）；
+    //   · 任何一次失败把 ok/full 一起清掉 —— 之后必须再有**一次成功的 full** 才重新可回收。
+    const fullOk = ok ? (full === true || (prev?.ok === true && prev?.full === true)) : false;
+    this.lastFlush.set(id, {
+      ok,
+      full: fullOk,
+      at: Date.now(),
+      error: ok ? null : String(result?.error ?? "unknown").slice(0, 200),
+    });
+  }
+
+  #isGraphPinned(id) {
+    return (this.graphPins.get(id)?.count ?? 0) > 0;
+  }
+
+  /**
+   * ★ C659：记「这个会话还有动静」。`session/event` / `agent/status` / pin 三处都调。
+   * 不做任何判据 —— 只把时间戳推到现在，闸门自己在 `#isRecentlySeen` 里比窗口。
+   */
+  #markSeen(id) {
+    if (typeof id !== "string" || id.length === 0) return;
+    this.lastSeenAt.set(id, Date.now());
+    if (!this.seenIds.has(id)) {
+      this.seenIds.add(id);
+      if (this.seenIds.size > SEEN_IDS_CAP) {
+        // Set 的迭代顺序 = 插入顺序 ⇒ 删最老的那条
+        const oldest = this.seenIds.values().next().value;
+        if (oldest !== undefined) this.seenIds.delete(oldest);
+      }
+    }
+  }
+
+  /** ★ C659：静默窗口内有过动静 ⇒ 视作可能仍在用，不回收。 */
+  #isRecentlySeen(id, now = Date.now()) {
+    const at = this.lastSeenAt.get(id);
+    if (typeof at !== "number") return false;
+    return now - at < this.coldGraphQuietMs;
+  }
+
+  /**
+   * ★ C659：**封死「fold 成功 → 下一次 full 落盘」这个窗口**。
+   *
+   * 折叠成功会改一批**标量**（`lastFoldSeq` / `foldCount` / `foldThrash` / foldMarks…），
+   * 这些标量只在 `full` 落盘时写全；中间的增量落盘只写图与 delta。若在这段时间里把图
+   * 回收掉，标量就丢了 —— 下次从磁盘读回来会认为「没折过」，退避与配额从 0 起算。
+   *
+   * 所以 fold 成功后把 `full` 标记作废，闸门必须等到**下一次成功的 full 落盘**才放行。
+   * 正常路径上这一步不需要额外动作：回合结束的 `agent/status: idle` 本来就会做一次 full flush。
+   */
+  #invalidateFullFlush(id) {
+    if (typeof id !== "string" || id.length === 0) return;
+    const prev = this.lastFlush.get(id);
+    if (prev === undefined || prev.full !== true) return;
+    this.lastFlush.set(id, { ...prev, full: false });
+  }
+
+  /**
+   * 钉住一张图（可嵌套）。返回**幂等**的释放函数 —— 调用方一律用 try/finally 收口：
+   * 漏一个 pin 的代价是这张图从此永远不会被回收（比泄漏一次写更糟）。
+   */
+  #pinGraph(id, reason = "use") {
+    if (typeof id !== "string" || id.length === 0) return () => {};
+    // ★ C661：**这里不许推静默窗口**。C659 初版在 pin 时调 `#markSeen`，理由是「长时间折叠期间
+    //   窗口会过期」——多余：pin 期间闸门本来就以 `pinned` 拒收。真正的后果是反向的：
+    //   closeout 的 `finally` 是 `unpin() → #releaseColdGraph(...)`，刚被推过的 `lastSeenAt`
+    //   让第六判据 `recent` **必然命中** ⇒「disposed/archive 在最终 flush 之后回收」在默认
+    //   15 分钟窗口下**永远不成立**（单会话进程内等于永不回收）。独立复核用默认窗口实测复现。
+    const cur = this.graphPins.get(id) ?? { count: 0, reasons: new Set() };
+    cur.count += 1;
+    cur.reasons.add(String(reason));
+    this.graphPins.set(id, cur);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.#unpinGraph(id);
+    };
+  }
+
+  #unpinGraph(id) {
+    const cur = this.graphPins.get(id);
+    if (cur === undefined) return;
+    cur.count -= 1;
+    if (cur.count > 0) return;
+    this.graphPins.delete(id);
+  }
+
+  /**
+   * ★ C656：**冷图安全回收的唯一闸门** —— 成对释放 `runtime` + `graphs`。
+   *
+   * 五条必须同时成立（任何一条不成立都返回 `{released:false, reason}`，**图留在内存**）：
+   *   ① 没有 pin —— 折叠 / 收尾 / 离线补折正在用它（都是异步路径，抽走等于丢账）；
+   *   ② 没有 debounce timer —— 还有一次写没落地；
+   *   ③ 会话非活跃（`agent/status` 不是 running）—— 活跃图绝不回收；
+   *   ④ 有过一次**成功的 full 落盘**、且此后没有失败 —— 「保留失败图」：落盘失败时内存是唯一副本；
+   *   ⑤ 图不脏 —— 同上，脏 = 有改动还没写下去。
+   *
+   * 只有这五条全绿才删；删的时候 runtime 与 graph 一起删（单删任一半都会让下一次事件
+   * 拿"新图 + 旧运行态"或"旧图 + 新运行态"，比泄漏更糟）。
+   *
+   * @returns {{released:boolean, reason:string, sessionId?:string}}
+   */
+  #releaseColdGraph(id, reason = "manual") {
+    if (typeof id !== "string" || id.length === 0) return { released: false, reason: "no-id" };
+    const g = this.graphs.get(id);
+    if (g === undefined) return { released: false, reason: "not-resident" };
+    if (this.#isGraphPinned(id)) return { released: false, reason: "pinned" };
+    if (this.flushTimers.has(id)) return { released: false, reason: "flush-pending" };
+    if (this.activeSessions.has(id)) return { released: false, reason: "active" };
+    // ★ C659：第六个判据 —— 静默窗口。兜住「不发 agent/status」的路径（离线补折 / 脚本 /
+    //   无头 / 长工具），见 COLD_GRAPH_QUIET_MS 的注释。
+    // ★ C661：**终态路径不受静默窗口约束**。"closeout:*" 只有两个调用点（disposed / archive，
+    //   都在最终 full flush 之后），此时「这个会话结束了」已是确定事实，再拿 15 分钟窗口拦它
+    //   只会把「关窗即回收」变成「等下一个会话 idle」—— 那正是用户抱怨的那个洞。
+    const terminal = typeof reason === "string" && reason.startsWith("closeout:");
+    if (!terminal && this.#isRecentlySeen(id)) return { released: false, reason: "recent" };
+    const last = this.lastFlush.get(id);
+    if (last === undefined || last.ok !== true || last.full !== true) return { released: false, reason: "no-full-flush" };
+    const st = this.runtime.get(id);
+    if ((Number(st?.foldFailures) || 0) > 0 || (Number(st?.tier2Failures) || 0) > 0) {
+      // 保留失败图：退避状态（foldFailures / lastFoldFailureSeq / forceRulesNext）只活在 runtime 里，
+      // 释放后再来事件会从 0 起算 —— 那正是 C177/C178 修过的「每个事件都白花一次模型调用」。
+      return { released: false, reason: "fold-failure" };
+    }
+    try {
+      if (!peekDirty(g).empty) return { released: false, reason: "dirty" };
+      // ★ C662：**还有没写出去的节点文档 ⇒ 不许回收**。`full` flush 在 pending 非空时才会写
+      //   节点文档，而「full 成功 + dirty 为空 + pending 非空」是能同时成立的（节流分支刚把
+      //   dirty.nodes 攒进 pending 就 clearDirty 了）。放行这一条 = 那些 `nodes/<id>.md`
+      //   永远写不出来 = 热清单省略行指向空处。doctor C110 实测 135 个就是这么来的。
+      if (this.persist.hasPendingNodeDocs?.(id) === true) return { released: false, reason: "node-docs-pending" };
+    } catch {
+      return { released: false, reason: "dirty-unknown" };
+    }
+    this.graphs.delete(id);
+    this.runtime.delete(id);
+    this.lastFlush.delete(id);
+    // ★ C659：`sessionRefs` 也是按会话常驻的强引用（归档 Session 对象）。只删图不删它，
+    //   Session 就被吊在内存里 —— 那正是「回收了但还是不降」的一半原因。
+    //   安全：`session/event` 与 `agent/status` 两个入口都会在真正用到之前先 `set` 回来；
+    //   `#sessionRef(id)` 的落盘路径本来就不依赖这条引用（C514）。
+    this.sessionRefs.delete(id);
+    this.lastSeenAt.delete(id);
+    this.coldGraphStats.released += 1;
+    this.coldGraphStats.lastAt = Date.now();
+    return { released: true, reason, sessionId: id };
+  }
+
+  /**
+   * 按同一道闸门扫一遍当前驻留的图。`keep` 里的会话永不回收（idle 路径用它保住
+   * 「这一轮刚结束的会话」—— 下一轮很可能立刻又用它，重读一次基线不划算）。
+   */
+  #sweepColdGraphs({ keep = [], reason = "idle" } = {}) {
+    const kept = new Set((Array.isArray(keep) ? keep : []).filter((x) => typeof x === "string" && x.length > 0));
+    const released = [];
+    const skipped = {};
+    for (const id of [...this.graphs.keys()]) {
+      if (kept.has(id)) {
+        skipped.keep = (skipped.keep ?? 0) + 1;
+        continue;
+      }
+      const r = this.#releaseColdGraph(id, reason);
+      if (r.released === true) released.push(id);
+      else if (r.reason !== "not-resident") skipped[r.reason] = (skipped[r.reason] ?? 0) + 1;
+    }
+    for (const [why, n] of Object.entries(skipped)) {
+      this.coldGraphStats.skipped[why] = (this.coldGraphStats.skipped[why] ?? 0) + n;
+    }
+    return { released, skipped };
+  }
+
+  /**
+   * ★ C656：维护入口（doctor / 测试 / 手工排查）—— 按**与 idle 路径完全相同的闸门**扫一遍。
+   * 不传 `keep` = 连"当前会话"也允许回收（调用方自己确保没有回合在跑）。
+   */
+  releaseColdGraphs({ keep = [], reason = "manual" } = {}) {
+    return this.#sweepColdGraphs({ keep, reason });
+  }
+
+  /** ★ C656/C659：缓存快照（doctor / 测试读；字段只增不改）。 */
+  getGraphCacheStats() {
+    const now = Date.now();
+    return {
+      graphs: this.graphs.size,
+      runtime: this.runtime.size,
+      // ★ C659：会话引用表的大小单独报 —— 它是「回收了但内存没降」的常见来源。
+      sessionRefs: this.sessionRefs.size,
+      seenIds: this.seenIds.size,
+      quietMs: this.coldGraphQuietMs,
+      lastSeen: [...this.lastSeenAt.entries()].map(([id, at]) => ({ sessionId: id, ageMs: now - at })),
+      pins: [...this.graphPins.entries()].map(([id, v]) => ({ sessionId: id, count: v.count, reasons: [...v.reasons] })),
+      active: [...this.activeSessions],
+      pendingFlush: [...this.flushTimers.keys()],
+      released: this.coldGraphStats.released,
+      skipped: { ...this.coldGraphStats.skipped },
+      lastReleaseAt: this.coldGraphStats.lastAt,
+    };
+  }
+
   /* ────────────────────────── 每步落账 ────────────────────────── */
 
   #bindKeeper() {
@@ -1066,6 +1339,8 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     ctx.on("session/event", (session, event) => {
       try {
         this.sessionRefs.set(session.id, session);
+        // ★ C659：任何事件都算「这个会话还有动静」—— 活跃性不再只依赖 agent/status。
+        this.#markSeen(session.id);
         const g = this.#graph(session);
         const st = this.#runtimeFor(session);
         st.events += 1;
@@ -1078,10 +1353,18 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     });
     ctx.on("agent/status", ({ agent, status }) => {
       if (agent?.session) this._lastActiveAgent = agent;
+      const activeId = agent?.session?.id;
       try {
         if (agent?.session?.id) this.sessionRefs.set(agent.session.id, agent.session);
       } catch {
         /* 引用只是便利，记不下不影响主路径 */
+      }
+      // ★ C656：活跃性只认宿主发的两种状态（`idle` | `running`，见 docs/DSH-技术测绘.md §api-catalog）。
+      //   未知状态按 running 处理 —— 宁可少回收一张，也不要在回合中间把图抽走。
+      if (typeof activeId === "string" && activeId.length > 0) {
+        this.#markSeen(activeId); // ★ C659：状态事件同样推静默窗口
+        if (status === "idle") this.activeSessions.delete(activeId);
+        else this.activeSessions.add(activeId);
       }
       if (status === "idle") {
         try {
@@ -1095,6 +1378,16 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           this.#backfillIfPending(agent.session);
         } catch (error) {
           ctx.logger?.warn?.(`chess-context: 补做归档收尾失败（不影响会话）：${String(error)}`);
+        }
+        // ★ C656：回合边界也是「别的会话现在都冷了」的信号 ⇒ 顺手按统一闸门回收。
+        //   保留当前会话（下一轮很可能马上又用它）；其它会话若有未落盘的写/pin 会被闸门自己拒掉。
+        try {
+          const swept = this.#sweepColdGraphs({ keep: [activeId], reason: "idle" });
+          if (swept.released.length > 0) {
+            ctx.logger?.debug?.(`chess-context: 冷图回收 ${swept.released.length} 张（另保留 ${Object.values(swept.skipped).reduce((a, b) => a + b, 0)} 张）`);
+          }
+        } catch (error) {
+          ctx.logger?.warn?.(`chess-context: 冷图回收失败（不影响压缩）：${String(error)}`);
         }
       }
     });
@@ -1118,6 +1411,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     //   见 dsh-tool-cordis 的 api-catalog：`{domain, table, key, operation, value}`）。
     //   两个入口共用同一段收尾，且按 id 去重（同一个会话只收尾一次）。
     ctx.on("session/disposed", (session) => {
+      // ★ C656：销毁 = 这个会话**确定不活跃**了。不清掉 activeSessions 的话，若它最后一条
+      //   `agent/status` 是 running（宿主崩溃/强退路径），收尾后的回收会被闸门以 `active` 拒掉，
+      //   图就永远留在内存里 —— 正好是这次要修的那个洞。
+      try {
+        if (typeof session?.id === "string") this.activeSessions.delete(session.id);
+        if (typeof session?.id === "string") this.lastSeenAt.delete(session.id); // ★ C659
+      } catch {
+        /* 活跃性表坏掉不许影响收尾 */
+      }
       this.#closeout(session, "disposed");
       try {
         this.sessionRefs.delete(session?.id);
@@ -1209,8 +1511,19 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     for (const id of newlyArchived(previous, current)) {
       // 只对**本进程真的处理过事件**的会话收尾；基线可信时才放纵到宿主 store 里的 live 会话。
       // 历史归档（启动前就归档了）既没有事件流也没有会话对象，硬做只会白花一次模型调用。
-      const session = this.sessionRefs.get(id) ?? (baselineKnown ? this.#sessionRef(id) : null);
+      // ★ C659：`sessionRefs` 在冷图回收时会被删掉（那是重引用）。这里补一条「本进程见过它」的
+      //   轻量判据 `seenIds`，否则「冷掉 15 分钟后再归档」的会话会悄悄不做收尾 —— 那是我这次
+      //   修复引进的回归，必须堵上。
+      const seenHere = this.sessionRefs.has(id) || this.seenIds.has(id);
+      const session = this.sessionRefs.get(id) ?? (baselineKnown || seenHere ? this.#sessionRef(id) : null);
       if (!session) continue;
+      // ★ C656：归档 = 这个会话**确定不活跃**（宿主只拒 pre-step，它不是"在跑"）。
+      //   与 session/disposed 同源：不清活跃表的话，最后一条状态若是 running 就永远回收不掉。
+      try {
+        this.activeSessions.delete(id);
+      } catch {
+        /* 活跃性表坏掉不许影响收尾 */
+      }
       this.#closeout(session, "archive");
     }
   }
@@ -1236,6 +1549,18 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const agent = this.#asAgent(target);
     const session = agent?.session;
     if (!session || typeof session.id !== "string") return { ok: false, error: "no session" };
+    // ★ C656：补账/面板收尾也要跑一次**异步**折叠 ⇒ 全程 pin 住，闸门不许在折叠中间把图抽走。
+    //   unpin 放在 finally：异常路径漏一个 pin，这张图就永远回收不掉了。
+    const unpin = this.#pinGraph(session.id, `closeout-now:${source}`);
+    try {
+      return await this.#closeoutNowBody(agent, session, source);
+    } finally {
+      unpin();
+    }
+  }
+
+  /** `closeoutNow` 的主体（引脚由调用方负责）—— 逐条注释见上面的公开方法。 */
+  async #closeoutNowBody(agent, session, source) {
     try {
       this.#flush(session, { full: true, closeout: true });
     } catch {
@@ -1369,6 +1694,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    */
   #closeout(session, source = "disposed") {
     if (!session || typeof session.id !== "string") return;
+    const closeoutId = session.id;
     // ★ C216：同一次归档可能引来两个信号（workspace 域的 durable 写入 + 宿主顺手销毁了该会话），
     //   两者都能到 ⇒ 只让**先到的那个**做收尾，另一个在 10s 窗口内直接放行掉。
     //   注意只压「不同来源」的撞车：同一个来源再报一次（取消归档后再归档）仍然照做。
@@ -1376,71 +1702,93 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     const prev = this.closedOutAt.get(session.id);
     if (prev && prev.source !== source && now - prev.at < 10_000) return;
     this.closedOutAt.set(session.id, { at: now, source });
+    // ★ C656：收尾（含下面那次**异步**折叠）期间把图钉住 —— 回收闸门不许在中途把它抽走，
+    //   否则折叠会对着一个即将丢弃的对象记账：钱花了，盘上什么都没有。
+    const unpin = this.#pinGraph(closeoutId, `closeout:${source}`);
+    // 异步折叠自己负责在**落账之后**释放 pin 与回收；同步路径（不折/提前返回）走 finally。
+    let asyncRelease = false;
     try {
-      this.#flush(session, { full: true, closeout: true });
-    } catch {
-      /* 落盘失败不阻塞归档 */
-    }
-    try {
-      const g = this.#graph(session);
-      const last = (g.foldMarks ?? []).at(-1);
-      const lastSeq = Number(last?.seqEnd);
-      const endSeq = Number(session.seq);
-      const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
-      // ★ C530：**已经结清、而且没有新增事件** ⇒ 直接返回，别再折一次。
-      //   真机（2026-11-04）：3 小时内 61 个会话各被收尾一次，其中多数 `closeout.folded:1` 却
-      //   **没有产生任何新 foldMark** —— 等于每次都在花一次模型调用重做同一件事。
-      const prevCloseout = g.closeout ?? null;
-      if (
-        prevCloseout !== null &&
-        Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold &&
-        closeoutSettles(prevCloseout)
-      ) {
-        return;
+      try {
+        this.#flush(session, { full: true, closeout: true });
+      } catch {
+        /* 落盘失败不阻塞归档 */
       }
-      // ★ C575（第二轮复核 P0）：这里**原来也是整体替换**，而且是**主路径**（GUI 归档 /
-      //   session/disposed 都走 `#closeout`）。它先把「没折」写进磁盘再异步去折 —— 后果有三：
-      //   ① 抹掉 `chunkedFolded / partial / offlineUncoveredHead / foldError` ⇒ 证据凭空消失；
-      //   ② 这个字面量会被 `closeoutSettles` 判成"老记录 ⇒ 结清"（真机实测：154/154 条欠账
-      //      被这样擦一次后全部翻成 due:false）；
-      //   ③ 它在折叠**之前**就 flush 了，若这中间重启/退出，磁盘上留下的是"已结清"的假账。
-      //   ⇒ 合并写；并且**只要这次确实要折**，就先写 `foldAttempted:true, folded:0`
-      //     （在飞期间不许看起来结清，最小必须把它从"结清"里摘出来）。
-      const willFold = this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40);
-      const prevCloseoutForSource = g.closeout ?? null;
-      g.closeout = {
-        ...(g.closeout ?? {}),
-        at: Date.now(),
-        eventsSinceLastFold,
-        folds: (g.foldMarks ?? []).length,
-        // ★ C587（审核发现）：`source` 会被后来的 archive/disposed **覆盖掉离线折叠的归因**。
-        //   这里额外留一个不会被覆盖的 `foldSource`（doctor 的 bySource 靠它区分在线/离线）。
-        ...(prevCloseoutForSource?.foldOffline === true || prevCloseoutForSource?.source === "archive-offline"
-          ? { foldSource: "archive-offline" }
-          : {}),
-        source,
-        ...(willFold ? { foldAttempted: true, folded: 0 } : {}),
-      };
-      this.#flush(session, { full: true });
-      if (willFold) {
-        // ★ C298：分段收尾**不进 foldMarks**（走 compactRegion ⇒ 只记 ledger-budget.externalFolds），
-        //   所以收尾账里 `folds` 永远停在折之前。这里等它跑完把"分段折了几段"补记到 closeout 上，
-        //   否则 doctor/审计只会看到"记了 closeout 但没折过"，把已经折完的会话误报成欠账。
-        const sessionId = session.id;
-        // ★ C466：**收尾折叠的结果必须落账**。真机（2026-11-03）两次归档：
-        //   `closeout` 记下了（source=archive、尾巴 7706 / 1069 事件），但 foldMarks 是 0、日志里
-        //   只有一条 `compaction/start` 没有 `end`，另一次是上游 400 ⇒ **折了没有、失败了没有，图上看不出来**。
-        //   验证单要回答的正是这个问题，所以这里无论成功/失败/跳过都写回去。
-        // ★ C514：**把 {id, cwd} 一起带下去**。归档后 `sessionRefs` 里那条引用会被删掉，
-        //   原来的实现靠 sessionRefs 找 session 才能 flush —— 引用没了就**只改了内存、没落盘**，
-        //   于是"这次到底折了没有"在磁盘上永远看不到（真机 a09a4535 就是：closeout 里没有 folded）。
-        const ref = { id: sessionId, cwd: session.cwd };
-        void this.#closeoutFold(session, source)
-          .then((result) => this.#recordCloseoutOutcome(sessionId, ref, result, null))
-          .catch((error) => this.#recordCloseoutOutcome(sessionId, ref, null, error));
+      try {
+        const g = this.#graph(session);
+        const last = (g.foldMarks ?? []).at(-1);
+        const lastSeq = Number(last?.seqEnd);
+        const endSeq = Number(session.seq);
+        const eventsSinceLastFold = Number.isFinite(lastSeq) ? Math.max(0, endSeq - lastSeq) : endSeq;
+        // ★ C530：**已经结清、而且没有新增事件** ⇒ 直接返回，别再折一次。
+        //   真机（2026-11-04）：3 小时内 61 个会话各被收尾一次，其中多数 `closeout.folded:1` 却
+        //   **没有产生任何新 foldMark** —— 等于每次都在花一次模型调用重做同一件事。
+        const prevCloseout = g.closeout ?? null;
+        if (
+          prevCloseout !== null &&
+          Number(prevCloseout.eventsSinceLastFold) === eventsSinceLastFold &&
+          closeoutSettles(prevCloseout)
+        ) {
+          return;
+        }
+        // ★ C575（第二轮复核 P0）：这里**原来也是整体替换**，而且是**主路径**（GUI 归档 /
+        //   session/disposed 都走 `#closeout`）。它先把「没折」写进磁盘再异步去折 —— 后果有三：
+        //   ① 抹掉 `chunkedFolded / partial / offlineUncoveredHead / foldError` ⇒ 证据凭空消失；
+        //   ② 这个字面量会被 `closeoutSettles` 判成"老记录 ⇒ 结清"（真机实测：154/154 条欠账
+        //      被这样擦一次后全部翻成 due:false）；
+        //   ③ 它在折叠**之前**就 flush 了，若这中间重启/退出，磁盘上留下的是"已结清"的假账。
+        //   ⇒ 合并写；并且**只要这次确实要折**，就先写 `foldAttempted:true, folded:0`
+        //     （在飞期间不许看起来结清，最小必须把它从"结清"里摘出来）。
+        const willFold = this.chess.closeoutFold !== false && eventsSinceLastFold >= (this.chess.closeoutMinEvents ?? 40);
+        const prevCloseoutForSource = g.closeout ?? null;
+        g.closeout = {
+          ...(g.closeout ?? {}),
+          at: Date.now(),
+          eventsSinceLastFold,
+          folds: (g.foldMarks ?? []).length,
+          // ★ C587（审核发现）：`source` 会被后来的 archive/disposed **覆盖掉离线折叠的归因**。
+          //   这里额外留一个不会被覆盖的 `foldSource`（doctor 的 bySource 靠它区分在线/离线）。
+          ...(prevCloseoutForSource?.foldOffline === true || prevCloseoutForSource?.source === "archive-offline"
+            ? { foldSource: "archive-offline" }
+            : {}),
+          source,
+          ...(willFold ? { foldAttempted: true, folded: 0 } : {}),
+        };
+        this.#flush(session, { full: true });
+        if (willFold) {
+          // ★ C298：分段收尾**不进 foldMarks**（走 compactRegion ⇒ 只记 ledger-budget.externalFolds），
+          //   所以收尾账里 `folds` 永远停在折之前。这里等它跑完把"分段折了几段"补记到 closeout 上，
+          //   否则 doctor/审计只会看到"记了 closeout 但没折过"，把已经折完的会话误报成欠账。
+          const sessionId = session.id;
+          // ★ C466：**收尾折叠的结果必须落账**。真机（2026-11-03）两次归档：
+          //   `closeout` 记下了（source=archive、尾巴 7706 / 1069 事件），但 foldMarks 是 0、日志里
+          //   只有一条 `compaction/start` 没有 `end`，另一次是上游 400 ⇒ **折了没有、失败了没有，图上看不出来**。
+          //   验证单要回答的正是这个问题，所以这里无论成功/失败/跳过都写回去。
+          // ★ C514：**把 {id, cwd} 一起带下去**。归档后 `sessionRefs` 里那条引用会被删掉，
+          //   原来的实现靠 sessionRefs 找 session 才能 flush —— 引用没了就**只改了内存、没落盘**，
+          //   于是"这次到底折了没有"在磁盘上永远看不到（真机 a09a4535 就是：closeout 里没有 folded）。
+          const ref = { id: sessionId, cwd: session.cwd };
+          // ★ C656：这一条是**唯一**的异步收尾路径 ⇒ 由它负责在落账之后 unpin + 回收。
+          asyncRelease = true;
+          void this.#closeoutFold(session, source)
+            .then((result) => this.#recordCloseoutOutcome(sessionId, ref, result, null))
+            .catch((error) => this.#recordCloseoutOutcome(sessionId, ref, null, error))
+            .finally(() => {
+              unpin();
+              // 「closeout 最终 flush 之后回收」：走到这里说明结局已经写回磁盘（#recordCloseoutOutcome
+              // 里的 full flush，或折叠自己的 tree flush）。闸门仍会逐条复核，失败/脏图一律留下。
+              this.#releaseColdGraph(sessionId, `closeout:${source}`);
+            });
+        }
+      } catch (error) {
+        this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
       }
-    } catch (error) {
-      this.ctx.logger?.warn?.(`chess-context: 归档收尾记账失败（不影响归档）：${String(error)}`);
+    } finally {
+      if (!asyncRelease) {
+        unpin();
+        // 不折/提前返回/记账失败：上面那次 `full + closeout` 落盘就是「最终 flush」。
+        // 若它失败了，闸门会以 no-full-flush 拒绝 —— 失败图保留在内存里（下一轮还能再写）。
+        this.#releaseColdGraph(closeoutId, `closeout:${source}`);
+      }
     }
   }
 
@@ -1467,6 +1815,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       //   于是 `if (session !== undefined)` 静默跳过 ⇒ 结局只活在内存里。
       if (ref !== null && ref !== undefined && typeof ref.id === "string") {
         const written = this.persist.flush({ id: ref.id, cwd: ref.cwd }, live, { full: true });
+        // ★ C656：这条直连 persist 的写也要进「落盘结局表」—— 收尾的异步结局就是靠它提交的，
+        //   漏记会让回收闸门永远停在 no-full-flush（图白留一份，问题换了张皮）。
+        this.#noteFlush(ref.id, written, { full: true });
         if (written !== null && written !== undefined && written.ok === false) {
           this.ctx.logger?.warn?.(`chess-context: 收尾结局落盘失败（不影响归档）：${written.error}`);
         }
@@ -1644,6 +1995,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       shadowedEnd: range?.end,
       priorFold,
       preGraph: preGraphFold,
+      // ★ AX-06：只有 guard 开启时才多传两个键 —— 关掉时这次调用与旧版**逐字相同**
+      //   （不传 `factGuard:false` 这种"看起来一样"的写法，避免未来某天默认值反转）。
+      ...(this.chess.factGuard === true ? { factGuard: true, valueFacts: collectValueFacts(g, range) } : {}),
     });
 
     // ★ B1（2026-11-01）：`let` —— 下面的「摘要模型不可用 ⇒ 改走当前路由」分支要**换引用**，
@@ -1727,6 +2081,33 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     // 「如果去掉机械兜底，模型会丢多少约束」—— 它是决定「机械兜底值不值得维护」的唯一观测。
     // 必须在下面 push 机械段**之前**取，否则它就不是「模型自己的输出」了。
     const modelText = summary.map((block) => String(block.text ?? "")).join(String.fromCharCode(10));
+    // ★ AX-06（2026-11-07）：`factGuard` 开启时，hybrid 产物先过**冷代码**守卫再渲染。
+    //   约束（任务卡）：
+    //     · 同一次模型调用 —— 这里只读已经拿到的 `blocks()`，**不**为裁决再发请求；
+    //     · 默认 false ⇒ 整段不执行：零解析、零裁决、零新增字段，旧输出逐字不变；
+    //     · 非法结构显式 degraded（`degradedReason` 来自 `fact-guard.mjs` 的 reason code），
+    //       且**不把模型内容渲染成事实** —— 退回机械规则摘要（宁可少模型润色，不可多无源事实）；
+    //     · 被拒事实 / 引用被拒事实的叙事永远到不了 `renderFactGuardedSummary` 的已验证段。
+    let modelContribution = modelText;
+    let factGuardReport = null;
+    if (this.chess.factGuard === true) {
+      const guarded = guardSummaryOutput(modelText, session, range);
+      factGuardReport = guarded.report;
+      if (guarded.applied !== true) {
+        this.ctx.logger?.warn?.(
+          `chess-context: factGuard 判定模型结构不可用（${String(factGuardReport.degradedReason ?? "UNKNOWN")}）—— 不把模型内容渲染成事实，退回机械规则摘要`,
+        );
+        this.#markFoldMode(g, "rules");
+        const degradedResult = { ...ruleResult(), degraded: "facts", factGuard: factGuardReport };
+        this._lastSummaryFactGuard = factGuardReport;
+        return degradedResult;
+      }
+      const rendered = renderFactGuardedSummary(guarded.envelope, { range });
+      summary.length = 0;
+      summary.push({ type: "text", text: rendered.text });
+      modelContribution = rendered.modelText;
+      this._lastSummaryFactGuard = factGuardReport;
+    }
     // ★ 机械追加约束段：实测模型在 15 条失败边的压力下会把 3 条约束全丢（多规模测试 B 场景 0/3）。
     //   约束丢失 = 任务漂移，比失败边丢失更致命。所以约束不经过模型 —— 规则抽什么，产物里就有什么。
     const constraintsBlock = extractConstraintsBlock(renderFacts(g));
@@ -1774,7 +2155,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummarySanitizeRange =
         range === null || range === undefined || !Number.isFinite(range.end) ? null : `${range.start}-${range.end}`;
     }
-    this._lastSummaryModelText = modelText;
+    this._lastSummaryModelText = modelContribution;
     this._lastSummaryProvider = used.provider;
     this._lastSummaryModel = used.model;
     if (assembler.usage !== undefined) this._lastSummaryUsage = assembler.usage;
@@ -1831,6 +2212,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       provider: used.provider,
       model: used.model,
       maxTokens: this.chess.maxTokens,
+      // ★ AX-06：守卫报告只在**开启时**出现 —— guard=false 的返回值形状与旧版逐字一致。
+      ...(factGuardReport === null ? {} : { factGuard: factGuardReport }),
       ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
     };
   }
@@ -2624,10 +3007,21 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
             /* stat 失败就当不活 */
           }
         }
-        const loaded = this.persist.load({ id, cwd: "" });
-        const graph = loaded?.graph ?? null;
-        if (graph === null) continue;
-        this.graphs.set(id, graph);
+        // ★ C656：**活跃会话本轮一律不碰**（不写、更不覆盖）——「offline/backfill 不得覆盖已有活跃图」。
+        //   日志 mtime 只是"看起来不活"的弱证据；真正的判据是引擎自己知道的活跃性/占用：
+        //   回合在跑（active）或折叠正在用（pin）时，磁盘副本可能比内存里旧一整个回合。
+        if (this.activeSessions.has(id) || this.#isGraphPinned(id)) continue;
+        // ★ C656：**已有内存图时绝不拿磁盘副本覆盖它**。上一轮补账留下的常驻图可能比磁盘新
+        //   （落盘失败/还没 full），覆盖 = 把内存里的真相换成旧账，下一次 flush 还会把它写回盘。
+        //   磁盘图只用于"这张图还不在内存里"的情况。
+        const resident = this.graphs.get(id);
+        let graph = resident ?? null;
+        if (graph === null) {
+          const loaded = this.persist.load({ id, cwd: "" });
+          graph = loaded?.graph ?? null;
+          if (graph === null) continue;
+          this.graphs.set(id, graph);
+        }
         // ★ C527：**一次 tick 里连续补**。大会话的缺口动辄上万事件，一次一段的话
         //   30 分钟补一段 ≈ 要补好几天（真机 00b50089：缺口 1.04M tok ≈ 7 段）。
         //   这里在**时间预算**内连续推进，直到没有欠账或预算用尽。
@@ -2839,6 +3233,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    */
   async #offlineCloseoutFold(target, { transportRetry = false, provider = null, model = null, signal = null, callModel: providedCallModel = null } = {}) {
     let claimed = null;
+    let unpin = null;
     const foldAbort = new AbortController();
     let foldDeadlineTimer = null;
     let detachCallerAbort = null;
@@ -2851,6 +3246,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (this._backfillInFlight.has(id)) return { tier: "offline", folded: 0, chunks: 0, stopped: "busy", partial: true };
       this._backfillInFlight.add(id);
       claimed = id;
+      // ★ C656：**per-id pin** —— 离线补折是长异步（读日志 + 模型 + 写回），
+      //   中途任何一次 idle 回收都不许把这张图抽走；unpin 在 finally，异常也不漏。
+      unpin = this.#pinGraph(id, "offline");
       const graph = this.graphs.get(id);
       if (graph === undefined || graph === null) return null;
       // 会话日志在 <home>/sessions/**，而 graphDir = <home>/chess-context/sessions
@@ -3049,6 +3447,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       let persistError = null;
       try {
         const written = this.persist.flush({ id, cwd: graph.cwd ?? "" }, graph, { full: true });
+        // ★ C656：这条直连 persist 的 full 写就是补折的提交点 —— 必须进「落盘结局表」，
+        //   否则回收闸门永远看到 no-full-flush（补过的会话白留一份图在内存里）。
+        this.#noteFlush(id, written, { full: true });
         if (written !== null && written !== undefined && written.ok === false) {
           this.ctx.logger?.warn?.(`chess-context: 离线补折落盘失败（不影响压缩）：${written.error}`);
           if (providedCallModel !== null) persistError = `离线补折落盘失败：${String(written.error ?? "unknown").slice(0, 260)}`;
@@ -3069,6 +3470,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     } finally {
       if (foldDeadlineTimer !== null) clearTimeout(foldDeadlineTimer);
       detachCallerAbort?.();
+      // ★ C656：先解 pin 再放开"同会话只跑一次"的锁 —— 顺序反了会出现「锁已放、pin 还在」
+      //   的窗口（下一轮立刻进来被上一轮的 pin 挡住回收，虽然只是浪费，但语义不该含糊）。
+      try {
+        unpin?.();
+      } catch {
+        /* 解 pin 失败不许影响补折结局 */
+      }
       if (claimed !== null) this._backfillInFlight.delete(claimed);
     }
   }
@@ -3084,6 +3492,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   async compactNow(agent, signal, sourceCommandId) {
     const ownerNow = ENGINE_BY_CTX.get(this?.ctx);
     if (ownerNow !== undefined && ownerNow !== this) return ownerNow.compactNow(agent, signal, sourceCommandId);
+    // ★ C656：手动 `/compact` 同样是一次**异步**折叠（模型调用 + 回写 + flush）⇒ 全程 pin 住图。
+    // ★ C215 兼容：`this` 可能是"只有 ctx 的外来对象"（宿主持有的是代理/方法被摘下来调用），
+    //   私有字段的品牌检查会当场抛 `Receiver must be an instance` —— 那不是 C656 要管的事，
+    //   保持旧行为（交给 `super.compactNow` 去判），只在真身上加 pin。
+    let unpin = () => {};
+    try {
+      unpin = this.#pinGraph(agent?.session?.id, "manual-compact");
+    } catch {
+      /* 外来 this：不 pin，也不改它的失败语义 */
+    }
     this._manualCompactDepth = (this._manualCompactDepth ?? 0) + 1;
     try {
       const result = await super.compactNow(agent, signal, sourceCommandId);
@@ -3115,6 +3533,8 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       this._lastSummaryProvider = undefined;
       this._lastSummaryModel = undefined;
       this._lastSummaryUsage = undefined;
+      // ★ C656：折叠结束才解 pin（异常路径也走这里）。
+      unpin();
     }
   }
 
@@ -3169,6 +3589,27 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   /* ─────────────────── 触发策略：growth-gated 增量 fold ─────────────────── */
 
   async compactIfNeeded(agent, trigger, signal) {
+    // ★ C656：**折叠全程 pin 住图**。fold 是异步的（模型调用 + 写回 + flush），
+    //   回收闸门在这中间抽走图 = 摘要写进一个马上被丢掉的对象（钱花了、盘上没有）。
+    //   与 closeout / 离线补折同一把锁：叠着进来只会把计数加一，不会互相放行。
+    const ownerNeeded = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerNeeded !== undefined && ownerNeeded !== this) return ownerNeeded.compactIfNeeded(agent, trigger, signal);
+    // ★ C215 兼容：外来 `this`（只有 ctx 的代理对象）拿不到私有字段 —— 不 pin，保持原有失败语义。
+    let unpin = () => {};
+    try {
+      unpin = this.#pinGraph(agent?.session?.id, "fold");
+    } catch {
+      /* 外来 this：交给下面主体按原来的方式失败 */
+    }
+    try {
+      return await this.#compactIfNeededBody(agent, trigger, signal);
+    } finally {
+      unpin();
+    }
+  }
+
+  /** `compactIfNeeded` 的主体（fold pin 由调用方负责；注释见同名公开方法上的 C600/C177 说明）。 */
+  async #compactIfNeededBody(agent, trigger, signal) {
     if (agent?.session) this._lastActiveAgent = agent;
     // ★ C600：**活跃回合**是唯一能安全拿到宿主服务的地方。这里把 `ctx.llm` 抓住存下来，
     //   并顺手把"定时器攒下的待办"启动 —— 补账仍然异步跑（不阻塞本回合），
@@ -3403,6 +3844,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       ls.loopFoldCount = (ls.loopFoldCount ?? 0) + 1;
     }
     const after = meter.measure(session);
+    // ★ C659：折叠成功会改一批只在 full 落盘时写出的标量（lastFoldSeq / foldCount /
+    //   foldThrash / foldMarks…）⇒ 作废 full 标记，闸门必须等到下一次成功的 full 落盘。
+    try {
+      this.#invalidateFullFlush(session.id);
+    } catch {
+      /* 记账失败不影响压缩 */
+    }
     // 压缩成功 ⇒ 告警计数清零（告警是「当前有故障」，不是「历史有过故障」）
     st.foldFailures = 0;
     st.lastFoldFailureSeq = 0;
@@ -3681,6 +4129,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   「同一份正文只许出现一次」。缺口是设计：覆盖率审计把它列进 `NO_BODY_PATHS`。
       g.foldMarks.push({ at: Date.now(), seqStart: start, seqEnd: end, tier2: true, trigger: "tier2", closure: foldClosureOf(g, { start, end }), boundary: foldBoundaryOf(g, { start, end }), summaryChars, quality });
       if (g.foldMarks.length > FOLD_MARKS_KEEP) g.foldMarks = g.foldMarks.slice(-FOLD_MARKS_KEEP);
+      // ★ C661：tier-2 也会改 foldMarks（只在 full 落盘时写全），而下面这次 `#flush(session)`
+      //   是增量 —— `foldMarks` 不在 dirty 集里时 persist 可能一个字节都不写。所以这里和主 fold
+      //   一样作废 `full` 标记：否则 15 分钟窗口内被扫回收，这条 tier-2 折痕只存在内存里，
+      //   重载后两个旧 checkpoint 还在 ⇒ 下次再合并一次（多一次模型调用）。
+      try {
+        this.#invalidateFullFlush(session.id);
+      } catch {
+        /* 记账失败不影响压缩 */
+      }
       this.#flush(session);
       this.ctx.logger?.info?.(`chess-context: tier-2 合并最老的两个 checkpoint（seq ${start}–${end}）`);
     }
@@ -3752,6 +4209,9 @@ const RESOLVE_ORDER = [
   "summarizationProvider", "summarizationModel", "maxTokens", "growthFloorTokens", "minFoldTokens",
   "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace",
   "onLedgerBudget", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "graphDir", "worldHashMaxFiles",
+  // ★ AX-06（2026-11-07）：事实守卫开关（默认 false，语义在 `resolveConfig` 里净化：只有字面 true 才开）。
+  //   不加进这张白名单 ⇒ 宿主传进来的 `factGuard` 会被 `resolveChess` 静默丢掉（开关永远打不开）。
+  "factGuard",
 ];
 
 /** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */
@@ -3892,12 +4352,9 @@ function backfillState(g, st, worldHash, chess) {
 }
 
 function collectConstraintText(g) {
-  const out = [];
-  for (const id of g.order) {
-    const node = g.nodes[id];
-    if (node?.kind === "user") out.push(...(node.constraints ?? []));
-  }
-  return out;
+  // ★ C656：约束收集只有一份口径（R06 `collectConstraints`：按原文去重）。
+  //   规则兜底摘要曾在这里自己走一遍、再 `slice(0, 12)` —— 第 13/14 条就是这样丢的。
+  return collectConstraints(g);
 }
 
 function edgeTouchedPaths(edge) {
@@ -3908,6 +4365,185 @@ function edgeTouchedPaths(edge) {
 /** ★ C487：规则摘要每行里 action / error 的字符上限（超出部分可按 evidence seq 回读）。 */
 const RULE_LINE_FIELD_CHARS = 80;
 
+/* ═══════════════════ AX-06：factGuard 的证据源与值型事实 ═══════════════════ */
+
+/** 事件类型 → 主体（与 `fact-guard.mjs` 的 `SUBJECTS` 同一枚举）。 */
+const GUARD_ROLE_BY_EVENT_TYPE = Object.freeze({
+  "user/message": "user",
+  "assistant/message": "assistant",
+  "tool/result": "tool",
+  // ★ AX-17（P1-1）：离线证据源（`offline-fold.mjs` 的 `GUARD_ROLE_BY_EVENT`）有这一条，
+  //   在线以前缺 ⇒ 同一个 `evidenceSeq` 的 `tool/call` 候选 online REJECTED、offline SUPPORTED，
+  //   违反「同输入同裁决」。补上后两条路径的事件类型 → 主体映射逐条相同。
+  "tool/call": "tool",
+  "system/message": "system",
+});
+const GUARD_ROLES = new Set(["user", "assistant", "tool", "harness", "system"]);
+/** 证据源上限：一次 fold 的区间不会这么大，但它们是外部输入，不许撑爆内存。 */
+const GUARD_MAX_EVENTS = 4000;
+/** 值型事实进事实块的上限（一行一条，再多就变成回灌）。 */
+const VALUE_FACTS_LIMIT = 40;
+
+/** 取事件携带的消息对象（`user/message` 的 event.data 本身就是消息，assistant/tool 在 data.message 里）。 */
+function guardEventMessage(event) {
+  const data = event?.data;
+  if (data === null || typeof data !== "object") return null;
+  if (data.message !== null && typeof data.message === "object") return data.message;
+  if (typeof data.role === "string") return data;
+  return null;
+}
+
+/** 取事件携带的 `source.kind`（`user/message` 在 `data.source`，assistant/tool 在 `data.message.source`）。 */
+function guardEventSourceKind(event) {
+  const data = event?.data;
+  if (data === null || typeof data !== "object") return null;
+  const direct = data.source?.kind;
+  if (typeof direct === "string" && direct !== "") return direct;
+  const nested = data.message?.source?.kind;
+  if (typeof nested === "string" && nested !== "") return nested;
+  return null;
+}
+
+function guardEventRole(event) {
+  const type = String(event?.type ?? "");
+  const message = guardEventMessage(event);
+  const role = typeof message?.role === "string" ? message.role : null;
+  // ★ AX-17（P0-2）：`user/message` 的 `role` **由宿主恒填 "user"** —— DSH 把子代理收尾
+  //   （`subagent-settled`）、`agent-message`、`agent-instructions`、`runtime-context`、
+  //   `skill-catalog`、`time-context`、`tool-jobs`、`chess-context`、`compact-checkpoint` 等
+  //   注入消息也投递成 `user/message`（2026-11-07 真机日志实测 12 种 `source.kind`）。
+  //   只看 `role` ⇒ 这类事件的主体永远是 `user`，主体混同判据对它们永不触发；
+  //   模型写正确主体 `harness` 反而会被拒。主体改由 `source.kind` 派生：
+  //   人类来源（`user` / `prompt` / `human`，与 keeper 的注入分类**同一份判定**）⇒ `user`，
+  //   其余来源 ⇒ `harness`。没有 `source.kind` 的旧消息退回 `role`（旧行为逐字不变）。
+  if (type === "user/message") {
+    const kind = guardEventSourceKind(event);
+    if (kind !== null) return injectionKind({ source: { kind } }) === null ? "user" : "harness";
+  }
+  if (role !== null && GUARD_ROLES.has(role)) return role;
+  return GUARD_ROLE_BY_EVENT_TYPE[type] ?? null;
+}
+
+function guardEventText(event) {
+  // ★ AX-17（P1-1）：`tool/call` 的文本与离线证据源**同一份** `toolDigestLine`
+  //   （`offline-fold.mjs` 的 `buildGuardSource` 那一行）—— 不复制文本逻辑。
+  if (String(event?.type ?? "") === "tool/call") {
+    try {
+      return toolDigestLine(event.data);
+    } catch {
+      return "";
+    }
+  }
+  const message = guardEventMessage(event);
+  if (message === null) return "";
+  try {
+    return messageText(message);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 守卫的证据源 = **本段折叠区间内**的会话事件 `{seq, role, text}`。
+ *
+ * 为什么不是全量：摘要只折叠这一段，模型能引用的 seq 也只能是这一段里出现过的；
+ * 把区间外的事件也当证据，等于允许「拿别的段落的话给这一段背书」（跨段引用）。
+ * `range` 为空（宿主直调 / 单测直调 `summarize`）时退回 surface 全量 —— **不放水**：
+ * 守卫生成的裁决里每条都带 `evidenceSeq`，读者能自己核对这段证据当时在不在。
+ *
+ * ★ AX-17：**导出给测试对拍** —— 这是在线路径唯一的证据源构造函数，离线路径的对拍
+ * （`buildGuardSource`）必须与它逐字段相同，否则「同输入同裁决」只是口号。
+ *
+ * @param {object} session 宿主 session（读 `seq` 与 `eventAt(seq)`）
+ * @param {{start:number,end:number}|null} range
+ * @returns {Array<{seq:number, role:string, text:string}>}
+ */
+export function collectGuardEvents(session, range) {
+  const events = [];
+  const at = typeof session?.eventAt === "function" ? session.eventAt.bind(session) : null;
+  if (at === null) return events;
+  const start = Number.isFinite(range?.start) ? Math.max(0, Math.trunc(range.start)) : 0;
+  // ★ AX-17（P1-1）：**必须按 seq 走完整事件日志，不能只走 `session.surface.nodes`**。
+  //   DSH 的 surface 只收 message 类事件（`SURFACE_EVENT_TYPES` = system/developer/user/
+  //   assistant message + tool/result）；`tool/call` **不在 surface 上**（真机日志 `surfaceOp`
+  //   恒为 null）。只走 surface 会把 tool/call 整类漏掉 —— 那正是 P1-1 的根因
+  //   （同一 seq 的 tool/call 候选 online REJECTED / offline SUPPORTED）。
+  //   `session.eventAt(seq)` 读的是完整追加日志（`log[seq]`），所以按 seq 走才拿得到它们。
+  const end = Number.isFinite(range?.end)
+    ? Math.trunc(range.end)
+    : Number.isSafeInteger(session?.seq) && session.seq > 0
+      ? session.seq - 1
+      : -1;
+  for (let seq = start; seq <= end; seq += 1) {
+    let event = null;
+    try {
+      event = at(seq);
+    } catch {
+      event = null;
+    }
+    if (event === null || event === undefined) continue;
+    const role = guardEventRole(event);
+    const text = guardEventText(event);
+    if (role === null || text === "") continue;
+    events.push({ seq, role, text });
+    if (events.length >= GUARD_MAX_EVENTS) break;
+  }
+  return events;
+}
+
+/**
+ * AX-06：把模型输出过一遍事实守卫（**冷代码、零模型调用**）。
+ * @returns {{applied:boolean, envelope:object, report:object}}
+ */
+function guardSummaryOutput(rawText, session, range) {
+  const source = { sessionId: session?.id ?? null, events: collectGuardEvents(session, range) };
+  const parsed = parseFactGuardEnvelope(rawText);
+  // 解析不出信封 ⇒ 把原文交给守卫，让它用**同一套 reason code** 出降级信封（不自己造码）。
+  const envelope = parsed.ok
+    ? guardModelOutput(parsed.value, { factGuard: true, session: source })
+    : guardModelOutput(rawText, { factGuard: true, session: source });
+  const summary = envelope?.summary ?? {};
+  const report = {
+    enabled: true,
+    applied: envelope?.applied === true,
+    degraded: envelope?.degraded === true,
+    degradedReason: envelope?.degradedReason ?? parsed.reason ?? null,
+    facts: Number(summary.total ?? 0),
+    supported: Number(summary.supported ?? 0),
+    unverified: Number(summary.unverified ?? 0),
+    pending: Number(summary.pending ?? 0),
+    rejected: Number(summary.rejected ?? 0),
+    narratives: Number(summary.narratives?.total ?? 0),
+    narrativesSupported: Number(summary.narratives?.supported ?? 0),
+    evidenceEvents: source.events.length,
+  };
+  return { applied: report.applied, envelope, report };
+}
+
+/**
+ * AX-06：本段折叠区间里的**值型事实**（AX-02 抽、AX-04 落边）。
+ * 只在 `factGuard:true` 时进事实块 —— 它们是机械抽取、带 evidence seq 的可回证短值，
+ * 不是「模型自己说的」。`isValueFact` 是 AX-02 的契约校验器，这里再验一次（旧图/脏图不长假值）。
+ */
+function collectValueFacts(graph, range, limit = VALUE_FACTS_LIMIT) {
+  const rows = [];
+  const seen = new Set();
+  const bounded = Number.isFinite(range?.start) && Number.isFinite(range?.end);
+  for (const edge of Object.values(graph?.edges ?? {})) {
+    if (!Array.isArray(edge?.valueFacts)) continue;
+    for (const fact of edge.valueFacts) {
+      if (isValueFact(fact) !== true) continue;
+      if (bounded && (fact.evidenceSeq < range.start || fact.evidenceSeq > range.end)) continue;
+      const key = `${fact.kind}\u0000${String(fact.value)}\u0000${fact.evidenceSeq}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(fact);
+    }
+  }
+  rows.sort((a, b) => a.evidenceSeq - b.evidenceSeq);
+  return rows.slice(0, limit);
+}
+
 /** 规则摘要：零模型调用，结构与棋谱摘要一致。 */
 function ruleSummary(g, range) {
   const failures = failureEdges(g);
@@ -3915,7 +4551,13 @@ function ruleSummary(g, range) {
   lines.push("## 目标");
   const root = g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
   lines.push(`- ${root ? root.text.split("\n")[0] : "(none)"}`);
-  for (const c of collectConstraintText(g).slice(0, 12)) lines.push(`- ${c}`);
+  // ★ C656：**约束一条都不许丢**（重注入契约 §1 ②「逐字」/ fold-quality「最终产物 = 1 是设计保证」）。
+  //   这里曾有 `.slice(0, 12)` —— 真机 2026-11-08（pressure fold，seq 509-1600）走的正是本函数的
+  //   规则兜底（hybrid 试模型失败 ⇒ fallback="rules"），于是第 13/14 条约束**一个字都没进摘要**，
+  //   落盘 quality.constraintRecall=0.857、missingConstraints 恰为那两条。
+  //   现在不设上限：约束是**硬性事实**，不是叙事，宁可摘要长一点也不能少一条（同 `renderFacts`
+  //   的 `CONSTRAINTS_VERBATIM` 与离线补回段；那两条路径本来就没有上限）。
+  for (const c of collectConstraintText(g)) lines.push(`- ${c}`);
   lines.push("");
   lines.push("## 棋谱（状态节点）");
   const agents = g.order.map((id) => g.nodes[id]).filter((n) => n?.kind === "agent");

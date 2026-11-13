@@ -1,0 +1,66 @@
+{
+  "ok": true,
+  "home": "<DSH_HOME>/chess-context",
+  "totalGraphFiles": 1592,
+  "picked": 12,
+  "pickedBytes": 56589184,
+  "pickedMiB": 54,
+  "biggest": {
+    "i": 0,
+    "bytes": 10036778
+  },
+  "nodes": 54417,
+  "edges": 59805,
+  "heapBaseMB": 7.9,
+  "heapLoadedMB": 80.2,
+  "heapAfterReleaseMB": 9.7,
+  "heapGrewMB": 72.2,
+  "heapRetainedMB": 1.8,
+  "rssBaseMB": 67.6,
+  "rssLoadedMB": 181.5,
+  "rssAfterReleaseMB": 176.2,
+  "rssGrewMB": 113.9,
+  "rssRetainedMB": 108.6,
+  "perGraphKB": 6163,
+  "released": 12,
+  "skipped": {},
+  "soak": [],
+  "checks": [
+    {
+      "id": "released-all",
+      "ok": true,
+      "detail": "12/12"
+    },
+    {
+      "id": "graphs-empty",
+      "ok": true,
+      "detail": "graphs=0"
+    },
+    {
+      "id": "runtime-empty",
+      "ok": true,
+      "detail": "runtime=0"
+    },
+    {
+      "id": "sessionRefs-empty",
+      "ok": true,
+      "detail": "sessionRefs=0"
+    },
+    {
+      "id": "lastSeen-empty",
+      "ok": true,
+      "detail": "lastSeen=0"
+    },
+    {
+      "id": "heap-freed",
+      "ok": true,
+      "detail": "grew=72.2MB retained=1.8MB"
+    },
+    {
+      "id": "disk-untouched",
+      "ok": true,
+      "detail": "12/12 mtime 未变"
+    }
+  ],
+  "sessionIds": "已剥离（私有会话 id 不出仓库；按名次编号 + 字节/节点/边形状保留）"
+}

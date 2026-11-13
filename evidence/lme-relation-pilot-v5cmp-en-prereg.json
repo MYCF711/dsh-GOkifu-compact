@@ -1,0 +1,193 @@
+{
+  "schema": "lme-reader-prereg-v2",
+  "status": "FROZEN_NOT_RUN",
+  "frozenAt": "2026-11-09T02:24:00+08:00",
+  "frozenOn": "integration HEAD feda4cb + checker v2（本文件与 checker v2 同一轮冻结）",
+  "experimentId": "k27-relation-compact-v5cmp-en-1",
+  "title": "K-27 关系行 compact 对照预注册（v5cmp-en，60 调用硬上限）",
+  "why": "K-27 v3 关系行夹具已离线验证「主体+证据seq+当前值+状态共行」（RL1/RL2），但真实 reader 从未在关系行 compact 上跑过。本预注册只冻结一轮对照：同一 v5cmp-en prompt、同一模型/端点、同一 pilot 选样规则与样本数，唯一变化是 compact 臂渲染成 v3 关系行；full 臂作为有效性对照。目的是给「关系行是否值得进一步投入」提供一次可复算的证据，不是 50/50 formal，也不是质量门。",
+
+  "design": {
+    "runner": "scripts/lme-pilot-reader.mjs（冻结不修改；`--run --write`）",
+    "runnerCommand": "LME_READER_VARIANT=v5cmp-en LME_READER_SAMPLES=3 LME_PILOT_FIXTURES=evidence/lme-task50-v3-relation.fixtures.json LME_PILOT_OUT=evidence/lme-relation-pilot-v5cmp-en-2026-11-09.json node scripts/lme-pilot-reader.mjs --run --write",
+    "fixture": "evidence/lme-task50-v3-relation.fixtures.json",
+    "fixtureRole": "compact 臂读 compactContext（关系行）；full 臂读 fullContext（与 v1 逐字相同）",
+    "arms": ["full", "compact"],
+    "selection": "first 2 per type in frozen fixture order（runner 内 selectPilot，与既有 v5cmp-en pilot 完全同规则）",
+    "selectedQuestions": ["IE-01", "IE-02", "MR-01", "MR-02", "KU-01", "KU-02", "TR-01", "TR-02", "ABS-01", "ABS-02"],
+    "samplesPerArm": 3,
+    "logicalLines": 20,
+    "plannedCalls": 60,
+    "hardCallCap": 60,
+    "retries": 0,
+    "retrySemantics": "任何一次调用失败（非 2xx / 超时 / 解析失败）即整轮作废并按失败记录，不重试、不补样、不换样本；作废后不得用剩余预算补跑",
+    "aggregation": "每条逻辑行 3 个样本先做既有 normalizeAnswer，再取多数票；平票取第 1 个样本（与 pilot 口径一致）",
+    "grading": "scripts/lme-task50.mjs 的既有 grader（exact / set / ordered / UNKNOWN），aliases 为空",
+    "outputs": {
+      "json": "evidence/lme-relation-pilot-v5cmp-en-2026-11-09.json",
+      "md": "evidence/lme-relation-pilot-v5cmp-en-2026-11-09.md",
+      "rawPerSample": "写入上述 json 的 results（逐样本 raw 只在本机 evidence/ 内，公开面只给聚合）"
+    }
+  },
+
+  "reader": {
+    "model": "deepseek-v4.1-flash-1017",
+    "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+    "variant": "v5cmp-en",
+    "promptSha256": "8ac9aee5cf426f7482abb581c78f45b9282f60b57f655f6ba042d63dd408a08f",
+    "promptChars": 662,
+    "postprocess": "none",
+    "temperature": 0,
+    "maxTokens": 2048,
+    "stream": false,
+    "timeoutMs": 120000
+  },
+
+  "budget": {
+    "unit": "chat/completions 调用次数",
+    "hardCap": 60,
+    "planned": 60,
+    "spentBeforeRun": 0,
+    "onFailure": "整轮作废并如实记录；不重试、不追加、不改样本",
+    "wallClockEstimate": "按既有 v5cmp-en pilot 的 60 次调用量级估计（不作承诺）"
+  },
+
+  "validityGate": {
+    "rule": "full 臂必须同时满足：① 30/30 样本判分正确；② 10/10 逻辑题多数票正确",
+    "onFail": "整轮判 INVALID：只报告 full 臂的失效情况，不解读 compact 臂的任何差异",
+    "why": "full 上下文在两版夹具中逐字相同；full 臂若掉分，说明模型/端点/prompt 或环境变了，本轮不可用于比较"
+  },
+
+  "reporting": {
+    "perQuestion": "10 题 × 2 臂的 3 样本票型（3/3、2/3、1/3、0/3）与多数票结果",
+    "bands": "stable-correct = 3/3；boundary = 1–2/3；stable-wrong = 0/3",
+    "perType": "五类各 2 题（6 样本/类），只报计数与票型，不重算仓库门禁阈值",
+    "abstention": "ABS-01/02 的 UNKNOWN 票数单列；编造答案单独点名",
+    "cost": "compact 字符数、full 字符数、每臂调用数",
+    "reference": "与既有 v5cmp-en v1 夹具 pilot（evidence/lme-pilot-reader-v5cmp-en-2026-11-08.json，60 调用，full 10/10、compact 9/10）并排展示；该历史 run 不重跑"
+  },
+
+  "decisionBands": {
+    "note": "以下只决定「要不要为关系行再投入一轮更大样本」，不构成质量门、不改变任何既有阈值、不触发默认开启",
+    "INVALID": "validityGate 未过 → 只报告，不解读",
+    "EXPLORATORY_POSITIVE": "full 门通过 且 compact 臂 stable-correct ≥ 9/10 且 五类中没有一类 ≤ 1/2",
+    "EXPLORATORY_NEGATIVE": "full 门通过 且 compact 臂多数票正确 ≤ 6/10",
+    "BOUNDARY": "其余情况；只追加诊断（逐题票型 + 失败类型），不加样本、不改 prompt",
+    "explicitlyNot": "不是 K-27 formal 50/50 的通过/否决，不是「关系行有效」的因果证明"
+  },
+
+  "knownDifferencesV1ToV3": {
+    "why": "v3 不是 v1 compact 的超集：它按关系行重投影，同时丢弃了部分非金标准内容。阅读本轮结果时必须把「语法变化」与「内容变化」分开，否则 compact 变好/变差无法归因到关系行本身。",
+    "evidenceRowsDropped": {
+      "count": 18,
+      "meaning": "v1 的若干 evidenceSeqs 行在 v3 compact 中不再逐字出现（其余证据行仍在）",
+      "questions": {
+        "IE-01": [101],
+        "IE-04": [131],
+        "IE-08": [171],
+        "MR-03": [221],
+        "MR-04": [231, 232],
+        "MR-05": [241],
+        "MR-07": [261],
+        "MR-09": [285],
+        "MR-10": [292],
+        "KU-06": [351],
+        "KU-07": [364],
+        "KU-09": [381],
+        "TR-03": [421],
+        "TR-04": [431],
+        "TR-06": [451],
+        "TR-07": [471],
+        "TR-08": [483],
+        "TR-09": [492]
+      },
+      "inThisPilot": { "IE-01": [101], "others": "pilot 的其余 9 题证据行全部保留" }
+    },
+    "foldContextDropped": {
+      "v1QuestionsWithFoldMention": 50,
+      "v3QuestionsWithFoldMention": 9,
+      "meaning": "多数量型题的 compact 不再出现 fold-1/fold-2 语境；pilot 内 MR-01/MR-02/KU-01/KU-02 均无 fold 语境"
+    },
+    "absProjectionChanged": {
+      "questions": 10,
+      "meaning": "v1 用摘要行（如 `checkpoint fold-1: known edge=…`），v3 改成逐条原文证据行；pilot 内 ABS-01/ABS-02 受影响"
+    },
+    "comparisonProjectionChanged": {
+      "questions": 2,
+      "meaning": "before/after 比较题同样从摘要改为两行原文；pilot 内 TR-01/TR-02 受影响"
+    },
+    "compactChars": { "v1": 3882, "v3": 4267, "delta": "+9.92%" },
+    "implication": "本轮是「v1 语法+内容」对「v3 关系行+内容差」的对照，不是纯语法消融；若要干净归因，需另立项做「v1 语法 + 只补关系字段」第三臂（本预注册不含）"
+  },
+
+  "positionalDerivations": {
+    "count": 6,
+    "items": [
+      { "id": "MR-03", "kind": "fold-by-position", "seq": 224, "value": "fold-2", "declaredAt": [223] },
+      { "id": "MR-07", "kind": "fold-by-position", "seq": 264, "value": "fold-2", "declaredAt": [263] },
+      { "id": "MR-09", "kind": "fold-by-position", "seq": 282, "value": "fold-1", "declaredAt": [280] },
+      { "id": "TR-06", "kind": "fold-by-position", "seq": 454, "value": "fold-2", "declaredAt": [453] },
+      { "id": "TR-07", "kind": "latest-event-seq", "seq": 474, "value": "474", "basis": "唯一 latest=true 事件" },
+      { "id": "MR-04", "kind": "distinct-failed-edge-count", "seq": 234, "value": "3", "basis": "failed= 去重 3 条" }
+    ],
+    "approval": "REQUIRES_CAPTAIN_APPROVAL",
+    "why": "这 6 行的 current 值不是被引用事件上的字面值，而是按位置/计数推导，与 K5 §2「该值事件的 seq」字面读法有偏离；检查器会独立重算，但实验口径需要显式授权",
+    "inThisPilot": "pilot 选样为每类前 2 题，恰好 0/6 落在推导行上（MR-01/02、TR-01/02、KU-01/02 均为字面行）",
+    "ifNotAuthorized": "扩到 50 题前必须二选一：① 队长显式授权这 6 条推导；② 分层报告 —— 把 compact 臂结果按「字面关系行题」与「位置推导题」分列，推导题的得失不得归因给关系行本身"
+  },
+
+  "unchanged": [
+    "题面 / 答案 / evidenceSeqs / grader / applicability / fullContext（v1↔v3 逐字相同）",
+    "lme-task50 的既有阈值常量（total/perType/compactAccuracy/deltaTask/typeCompactAccuracy/typeDeltaTask/absUnknown/minFailureOrUpdate）",
+    "reader prompt（v5cmp-en，662 字符）与 runner 字节",
+    "模型 / 端点 / temperature / max_tokens / stream / 超时",
+    "aliases 为空（不得用别名把状态词或中文前后当等价答案）",
+    "既有 pilot / formal / v2 别名 run 的历史证据（不重跑、不回溯重判）"
+  ],
+
+  "forbidden": [
+    "改题面 / 答案 / evidenceSeqs / grader / 阈值 / prompt / runner",
+    "加 alias、加 token patch、把状态词当值",
+    "重试 / 补样 / 换样本 / 超预算调用",
+    "把本轮结果说成 50/50 formal 通过或质量门",
+    "默认开启关系行渲染",
+    "公开逐样本 raw 模型输出"
+  ],
+
+  "approval": {
+    "status": "NOT_AUTHORIZED",
+    "runsAuthorized": 0,
+    "modelCallsThisRound": 0,
+    "requires": [
+      "队长显式批准本预注册（含 knownDifferences 与 positionalDerivations 的处理方式）",
+      "确认 checker v2 与 v3 夹具哈希已冻结且未漂移",
+      "确认端点可用（先 `curl /v1/models` 探活，探活不计入 60 次预算）"
+    ],
+    "note": "未获批准前禁止执行 `--run`；本轮只冻结文件与哈希"
+  },
+
+  "hashes": {
+    "v1Fixture": "6a68e82b87ac1a0d27ede0f9d2af41c3d0d8bdcb462a9b80a104c4d98ad86082",
+    "v3Fixture": "9055b1b9b5c39d8238d6635434ddd6cb236672c5c9b8f041b4bd548132f240d9",
+    "renderer": "306dd46eb7ba43731c3846a9a7d7ff32fbc9d80a3cf937dd91da610a3b64d3f9",
+    "checker": "c8960385f6c7b97d97645b6b773d5477de0fc9074b00044ee29a6f79e193c78d",
+    "checkerVersion": "v2（补 X17/X21 两类槽位负覆盖盲点；反例自测 20/20）",
+    "grader": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "runner": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "prompt": "8ac9aee5cf426f7482abb581c78f45b9282f60b57f655f6ba042d63dd408a08f"
+  },
+
+  "preservedStatus": {
+    "formal5050": "NOT_RUN",
+    "verdict": "NOT_ADOPTED",
+    "relationFixture": "FROZEN_NOT_RUN",
+    "defaultOn": false
+  },
+
+  "references": [
+    "tmp/k5-review/RELATIONSHIP-LINE-PREREG-BOUNDARY.md（sha bc29f8c2…）",
+    "tmp/k27-relation-v3/REPORT.md（RL1 交付）",
+    "tmp/k27-relation-review/REPORT.md §5/§6（RL2 复核：2 条盲点 + 内容差）",
+    "evidence/lme-pilot-reader-v5cmp-en-2026-11-08.json（历史参照，不重跑）"
+  ]
+}

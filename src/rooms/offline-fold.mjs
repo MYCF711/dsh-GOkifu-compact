@@ -12,6 +12,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { evidenceSpan, isTruncatedFinish } from "./kifu-model.mjs";
 import { failuresInFoldRange, mentionsEdge, sanitizeSummaryIds } from "./fold-quality.mjs";
+// ★ AX-07：**离线补折与在线折叠共用同一套判据**。
+//   这里只 import 判据的**唯一来源**（AX-01 的 `guardModelOutput`、AX-02 的 `extractValueFacts`、
+//   R04 的 `classify`），本文件**一行裁决逻辑都不写** —— 复制一份 validator 就等于开第二条
+//   事实质量路径：两套代码迟早只修好其中一套，而那时「哪一套才是判据」已经无人能答。
+import { FACT_KINDS, SUBJECTS, guardModelOutput } from "./fact-guard.mjs";
+// ★ AX-21：`resultKindForValueFacts` 也从 AX-02 房间来 —— 「这次结果算不算可信」的判据
+//   在线（keeper）与离线（本文件的 collectFoldValueFacts）**只有一份**。
+import { extractValueFacts, resultKindForValueFacts } from "./tool-value-facts.mjs";
+import { classify } from "./verify.mjs";
 
 /** CJK 判定（与 ledger 的字符分类同口径）。 */
 const CJK_RE = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
@@ -774,7 +783,11 @@ export function renderFacts(graph, range) {
   const lines = [];
   const root = (graph?.rootUserNodeIds ?? []).map((id) => graph?.nodes?.[id]).filter(Boolean)[0];
   lines.push("## 目标（不可改写）", `- ${String(root?.text ?? "(none)").split("\n")[0]}`);
-  const constraints = allConstraints(graph).slice(0, 12);
+  // ★ C656：**一条都不许丢**。这里曾有 `.slice(0, 12)`（与热清单/规则摘要三处同源的 12 上限）：
+  //   提示词自己写着「## 约束（一条都不许丢）」，却先把第 13 条起砍掉 —— 模型连看都看不到，
+  //   只能靠写回点的补回段兜底（能补回产物，补不回「模型读过它」）。现在全量。
+  //   病态输入由本函数末尾的 `MAX_FACTS_CHARS` 统一截断并**显式标注**（不是静默丢）。
+  const constraints = allConstraints(graph);
   if (constraints.length > 0) {
     lines.push("", "## 约束（一条都不许丢）");
     for (const c of constraints) lines.push(`- ${c}`);
@@ -848,12 +861,15 @@ export function estimateTokens(text) {
 export function foldBudgetFor(input, configured = 8192) {
   const base = Number(configured) || 8192;
   const tokens = typeof input === "string" ? estimateTokens(input) : Math.ceil((Number(input) || 0) * 0.6);
-  if (!Number.isFinite(tokens) || tokens <= 0) return Math.max(1024, Math.min(16384, base));
-  return Math.max(1024, Math.min(16384, Math.max(base, tokens)));
+  if (!Number.isFinite(tokens) || tokens <= 0) return Math.max(1024, Math.min(HARD_MAX_TOKENS, base));
+  return Math.max(1024, Math.min(HARD_MAX_TOKENS, Math.max(base, tokens)));
 }
 
 /** ★ C599：所有 `max_tokens` 的硬上限（与 `foldBudgetFor` 的夹取上界、配置的 16,384 同一口径）。 */
+/** 单次折叠预算的硬上界（`offlineBudget` / 提示词长度估算用；C648 钉死 16384）。 */
 export const HARD_MAX_TOKENS = 16_384;
+/** 截断重试的硬上界：只用于「已撞顶再放大 2×」的重试，比预算上界高一档（AX-26）。 */
+export const RETRY_MAX_TOKENS = 32_768;
 
 /**
  * ★ C599：**按「剩余预算 ÷ 实测段耗时」算还能开几轮**。纯函数，便于单测。
@@ -900,13 +916,25 @@ export function suggestedLength(inputChars) {
   return { min, max };
 }
 
-export function buildOfflinePrompt({ facts, messages, range = null }) {
+export function buildOfflinePrompt({ facts, messages, range = null, factGuard = false, valueFacts = [] }) {
+  // ★ AX-07：`factGuard` 只影响**追加在末尾**的两段（值事实 + 输出格式）。
+  //   为什么追加在末尾而不是插进中间：C546 已经证明「易变内容放最后」才能命中前缀缓存；
+  //   而 guard=false 时 `guardTail` 是空数组 ⇒ 拼出来的字符串**逐字不变**。
+  const guardOn = factGuard === true;
   const rangeSafe = range === null || range === undefined ? { start: "?", end: "?" } : range;
   const inputChars = (messages ?? []).reduce((n, m) => n + String(m?.text ?? "").length, 0) + String(facts ?? "").length;
   const len = suggestedLength(inputChars);
   // ★ C538：id **单独标在标题行** —— 混在正文里模型不认（真机连着 3 次全写 n?）。
-  const body = (messages ?? []).map((m) => `### ${m.role}${typeof m.nodeId === "string" && m.nodeId !== "" ? ` · ${m.nodeId}` : ""}\n${m.text}`).join("\n\n");
-  return [
+  // ★ AX-07：守卫开启时**再补 seq**。事实候选必须能写 `evidenceSeq`，而 `[n123]` 只是棋谱 id
+  //   （`collectMessages` 从来不给 seq）。不给 seq 的话模型只能瞎编一个整数，守卫必然全拒。
+  const body = (messages ?? [])
+    .map((m) => {
+      const nodeId = typeof m.nodeId === "string" && m.nodeId !== "" ? ` · ${m.nodeId}` : "";
+      const seqTag = guardOn && Number.isSafeInteger(Number(m?.seq)) ? ` · seq ${Number(m.seq)}` : "";
+      return `### ${m.role}${nodeId}${seqTag}\n${m.text}`;
+    })
+    .join("\n\n");
+  const lines = [
     "你在为一个**已经归档**的会话做摘要。这些消息不会再被对话模型看到，只会进我们的棋谱。",
     "",
     "# 硬事实（必须全部保留，禁止改写约束与死路）",
@@ -957,7 +985,298 @@ export function buildOfflinePrompt({ facts, messages, range = null }) {
     // ★ C546：**易变内容放最后**（段范围每段都变）—— 这样同一轮分段的请求共享同一段前缀，
   //   第 2 段起就能命中缓存。
     "","## 原始坐标（本段）",`- 本段遮蔽 seq ${rangeSafe.start}-${rangeSafe.end}；逐字原文在 DSH 会话日志中（seq 可定位）。`,
-].join("\n");
+    // ★ AX-07：守卫开启时追加「值事实 + 输出格式」两段；guard=false ⇒ `[]` ⇒ 提示词逐字不变。
+    ...guardTail({ factGuard: guardOn, valueFacts }),
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * ★ AX-07：守卫开启时**追加在 prompt 末尾**的两段（guard=false ⇒ 空数组 ⇒ 提示词逐字不变）。
+ *
+ * 第一段是 AX-02 抽出来的**成功工具结果短值**：离线摘要的输入里本来没有工具结果（C481 的
+ * 有意排除），于是 K-2 那两类「删掉之后就答不出」的值（`Created file` + 路径、API 的 `id`/`private`）
+ * 在归档路径上同样会丢。把它们连同 `seq` 一起摆到模型面前，模型才有东西可逐字引用。
+ *
+ * 第二段是**输出格式**：`factGuard:true` 时整份输出必须是一个 JSON 信封（`{facts, narratives}`），
+ * 摘要正文搬进 `narratives[].text`。字段表从 `fact-guard.mjs` 的常量生成 —— 提示词里不抄第二份枚举。
+ *
+ * @param {{factGuard?: boolean, valueFacts?: Array<object>}} input
+ * @returns {string[]}
+ */
+function guardTail({ factGuard = false, valueFacts = [] } = {}) {
+  if (factGuard !== true) return [];
+  const facts = (Array.isArray(valueFacts) ? valueFacts : []).filter((fact) => fact !== null && typeof fact === "object");
+  const tail = [""];
+  if (facts.length > 0) {
+    tail.push("## 成功工具结果的值（可回证）");
+    tail.push("下面每一条都带着它所在事件的 `seq`；引用时 `quote` 必须**逐字**来自那个事件。");
+    for (const fact of facts.slice(0, 24)) {
+      tail.push(`- seq ${Number(fact.evidenceSeq)} · ${String(fact.kind)} · ${String(fact.value)} · quote: ${String(fact.quote)}`);
+    }
+    tail.push("");
+  }
+  tail.push(
+    "# 输出格式（事实守卫开启）",
+    "- **整份输出只有一个 JSON 对象**：不要代码围栏，不要 JSON 之外的任何字符，不要解释。",
+    '- 形状：`{"facts":[{"id","kind","subject","claim","quote","evidenceSeq","validAtSeq"}],"narratives":[{"id","text","factRefs","validAtSeq"}]}`。',
+    "- `narratives[].text` 就是上面「# 输出要求」里那份摘要正文（Markdown，二级标题分节，含 `## 约束（逐字）`）。",
+    "- `facts[]` 只放**能回证**的原子事实：`quote` 必须逐字出现在 `seq = evidenceSeq` 的那条事件里；" +
+      "`subject` 必须等于那条事件的 role（`user` / `assistant` / `tool`）。",
+    `- \`kind\` 只能取：${FACT_KINDS.join(" | ")}；\`subject\` 只能取：${SUBJECTS.join(" | ")}。`,
+    "- `narratives[].factRefs` 只能引用**本对象里出现过**的 fact id；引用了被拒事实的叙事会被整条丢掉。",
+    '- 没有证据的断言写成 `status:"UNVERIFIED"`（或 `"PENDING"`）——**它不会被当成事实**，但至少是诚实的。',
+  );
+  return tail;
+}
+
+/* ────────────────── AX-07 · 离线折叠的事实守卫（判据全部来自 AX-01 / AX-02）────────────────── */
+
+/**
+ * 离线守卫的契约版本。
+ *
+ * 与 `gokifu/fact-candidate/v1`（AX-01）是**两层**：那一层管「候选长什么样、裁决怎么出」，
+ * 这一层只管「离线折痕怎么把裁决一起落盘」。**本文件不定义任何新的裁决语义** ——
+ * 判据、原因码、枚举全部从 `fact-guard.mjs` / `tool-value-facts.mjs` / `verify.mjs` 取。
+ */
+export const OFFLINE_GUARD_CONTRACT = "gokifu/offline-fold-guard/v1";
+
+/** 摘要在非 `SUPPORTED` 时**必须**带的机器标记行前缀（读者一眼看出这段不是已验证事实）。 */
+export const GUARD_MARK_PREFIX = "> 事实守卫：";
+
+/** 整份摘要的裁决枚举（只是把逐条裁决汇总成一个词，**不新增判据**）。 */
+export const GUARD_VERDICT = Object.freeze({
+  SUPPORTED: "SUPPORTED",
+  UNVERIFIED: "UNVERIFIED",
+  REJECTED: "REJECTED",
+  DEGRADED: "DEGRADED",
+});
+
+/**
+ * 事件类型 → 守卫主体（`SUBJECTS` 的子集）。**角色只由事件类型决定**，不由模型声明 ——
+ * 这是「主体混同」那一类失真的机械判据（模型把 harness 注入写成「用户说」时必须能红）。
+ */
+const GUARD_ROLE_BY_EVENT = Object.freeze({
+  "user/message": "user",
+  "assistant/message": "assistant",
+  "tool/result": "tool",
+  "tool/call": "tool",
+  "system/message": "system",
+});
+
+/**
+ * ★ AX-07：**守卫的证据源 = 会话日志**（不是「模型看到的那份摘要输入」）。
+ *
+ * 为什么必须是日志：`quote` 要能回证到**原文**。而摘要输入是**派生视图**（reasoning 只留结论句、
+ * 宿主注入被剔除、工具结果整条不进）—— 拿派生视图当证据源，等于把「模型见过」当成「原文说过」，
+ * 那正是 K-26 里 92 条事实中 19 条被拒的同一类错误。
+ *
+ * 文本口径与 `collectMessages` 逐字一致（同样的 `reasoning:"conclude"` + `hostRole:"strip"`）——
+ * 所以「模型能引用的字」与「日志里查得到的字」是同一段；差别只在**多了**工具结果与工具调用行，
+ * 因为 K-2 的值型事实（`Created file`、API 的 `id`/`private`）本来就长在工具结果里。
+ *
+ * @param {Array<object>} events 会话事件（升序）
+ * @param {{sessionId?: string|null}} [options]
+ * @returns {{sessionId: string|null, events: Array<{seq:number, role:string, text:string}>}}
+ */
+export function buildGuardSource(events, { sessionId = null } = {}) {
+  const out = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event === null || typeof event !== "object") continue;
+    const role = GUARD_ROLE_BY_EVENT[event.type];
+    if (role === undefined) continue;
+    const seq = Number(event.seq);
+    if (!Number.isSafeInteger(seq) || seq < 0) continue;
+    const text =
+      event.type === "tool/call"
+        ? toolDigestLine(event.data)
+        : plainText(event.data?.message?.content ?? event.data?.content, { reasoning: "conclude", hostRole: "strip" });
+    if (String(text ?? "").trim() === "") continue;
+    out.push({ seq, role, text: String(text) });
+  }
+  const id = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId : null;
+  return { sessionId: id, events: out };
+}
+
+/**
+ * ★ AX-07：**复用 AX-02 的抽取器**抽「成功工具结果」的短值 —— 一行规则都不抄。
+ *
+ * 成功判定走 R04 `classify`（与 keeper 的结算判据**同一个来源**）：`success` → 抽；
+ * `weak`（read / shell：工具自报无错、无外部验证）→ 抽；`failure` / 无 weak 的 `unverified`
+ * → 抽取器自己返回 `[]`。
+ *
+ * ★ AX-21（2026-11-08）：**「结果算不算可信」也走同一份判据**（`resultKindForValueFacts`）。
+ *   旧版这里自己写了一个三元，漏了 keeper 私有的 `githubReadShaped` 映射 ⇒ GitHub 读形结果
+ *   （classify 给 `unverified` 且不带 `weak`）在离线路径**一条值都抽不出来**：
+ *   K-2 的 K2-O3（`id` / `private`）与 K2-N4（`node_id`）的答案片段因此根本不在折叠上下文里。
+ *   现在两条路径 import 同一个纯函数，`resultKind` 不可能再分叉。
+ *
+ * @param {Array<object>} events 会话事件（升序）
+ * @param {{rangeStart?: number|null, rangeEnd?: number|null}} [options] 只看落在区间内的结果
+ * @returns {Array<{kind:string, value:string|number|boolean, quote:string, evidenceSeq:number, validAtSeq:number, source:string}>}
+ */
+export function collectFoldValueFacts(events, { rangeStart = null, rangeEnd = null } = {}) {
+  const list = Array.isArray(events) ? events : [];
+  const from = Number.isFinite(Number(rangeStart)) ? Number(rangeStart) : -Infinity;
+  const to = Number.isFinite(Number(rangeEnd)) ? Number(rangeEnd) : Infinity;
+  /** callId → 工具名（工具结果是**哪一次调用**的产出，决定 classify 用哪套判据）。 */
+  const calls = new Map();
+  let lastCall = null;
+  const out = [];
+  for (const event of list) {
+    if (event === null || typeof event !== "object") continue;
+    const seq = Number(event.seq);
+    if (!Number.isSafeInteger(seq) || seq < 0) continue;
+    if (event.type === "tool/call") {
+      let args = event.data?.arguments;
+      if (typeof args === "string") {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          /* 不是 JSON 就原样留着：classify 只读 method/body/confirm 三个键，解析失败等于没有 */
+        }
+      }
+      const call = { name: String(event.data?.name ?? "").trim(), args };
+      const callId = event.data?.callId ?? event.data?.message?.toolCallId ?? event.data?.toolCallId ?? null;
+      if (callId !== null && callId !== undefined) calls.set(String(callId), call);
+      lastCall = call;
+      continue;
+    }
+    if (event.type !== "tool/result") continue;
+    if (seq < from || seq > to) continue;
+    const message = event.data?.message;
+    const text = plainText(message?.content ?? event.data?.content);
+    if (text.trim() === "") continue;
+    const callId = message?.source?.callId ?? message?.toolCallId ?? event.data?.callId ?? null;
+    const call = (callId === null || callId === undefined ? null : calls.get(String(callId))) ?? lastCall;
+    const isError = message?.isError === true;
+    const verdict = classify({ tool: call?.name ?? "", text, isError });
+    // 与 keeper 逐字段同一份判据（AX-21）：GitHub 读形 → weak，写形/其它 → 原样。
+    const resultKind = resultKindForValueFacts(verdict, call?.name ?? "", call?.args);
+    const facts = extractValueFacts({ tool: call?.name ?? "", result: text, resultKind, isError, evidenceSeq: seq });
+    for (const fact of facts) {
+      // 去重口径：同一种值 + 同一条证据只留一条（区间分段时会重复扫到同一条结果）。
+      if (out.some((seen) => seen.kind === fact.kind && seen.value === fact.value && seen.evidenceSeq === fact.evidenceSeq)) continue;
+      out.push(fact);
+    }
+  }
+  return out;
+}
+
+/**
+ * 把值事实渲染成**提示词里的一段**（`[]` ⇒ 空串，不产生任何段落）。
+ * 每条都带 `seq` 与逐字 `quote` —— 模型能照抄，守卫能回证。
+ * @param {Array<object>} valueFacts
+ * @returns {string}
+ */
+export function renderValueFactsBlock(valueFacts) {
+  const facts = (Array.isArray(valueFacts) ? valueFacts : []).filter((fact) => fact !== null && typeof fact === "object");
+  if (facts.length === 0) return "";
+  const lines = ["## 成功工具结果的值（可回证）", "这些短值来自**成功**的工具结果；引用时 `quote` 必须逐字来自该 `seq` 的事件。"];
+  for (const fact of facts.slice(0, 24)) lines.push(`- seq ${Number(fact.evidenceSeq)} · ${String(fact.kind)} · ${String(fact.value)} · quote: ${String(fact.quote)}`);
+  return lines.join("\n");
+}
+
+/**
+ * ★ AX-07：**离线守卫 = 直接调 AX-01 的 `guardModelOutput`**。
+ *
+ * 这个函数存在的唯一理由是「把事件源与开关接上」，它**不裁决、不改写、不排序**：
+ * 同一个 `raw` + 同一个事件源，离线路径与在线路径拿到的是**逐字段相同**的信封。
+ * 任何在这里加判断的改动都会让两条路径分叉 —— 那正是本刀要杜绝的「另一条事实质量路径」。
+ *
+ * @param {string|object} raw 模型输出（JSON 字符串或已解析对象）
+ * @param {{events?: Array<object>, sessionId?: string|null, factGuard?: boolean}} [options]
+ * @returns {object} AX-01 的信封
+ */
+export function guardOfflineFoldOutput(raw, { events = [], sessionId = null, factGuard = true } = {}) {
+  if (factGuard !== true) return guardModelOutput(raw, { factGuard: false });
+  return guardModelOutput(raw, { factGuard: true, session: buildGuardSource(events, { sessionId }) });
+}
+
+/** 摘要正文前的机器标记行（`SUPPORTED` ⇒ 空串，正文逐字不动）。 */
+function guardMarkerLine(record) {
+  if (record === null || record === undefined) return "";
+  if (record.verdict === GUARD_VERDICT.SUPPORTED) return "";
+  const codes = (Array.isArray(record.reasons) ? record.reasons : []).filter((code) => typeof code === "string" && code !== "").slice(0, 6);
+  return `${GUARD_MARK_PREFIX}${record.verdict}${codes.length > 0 ? `（${codes.join("、")}）` : ""}`;
+}
+
+/**
+ * ★ AX-07：把守卫信封变成「可写回的摘要正文 + 留痕记录」。
+ *
+ * 三条不变量（改这里之前先读）：
+ *   ① **不重新裁决、不升格**：记录里的逐条裁决**逐字段照抄**信封（`facts` / `narratives` / `summary`），
+ *      只额外派生一个 `verdict`（整份摘要的汇总词）。想改判据请改 `fact-guard.mjs`。
+ *   ② **引用了被拒事实的叙事整条丢掉**（`narratives[].verdict === "REJECTED"`）—— 它已经是
+ *      「不能当事实渲染」的正文，留在摘要里就是「把 UNVERIFIED/被拒写成事实」。
+ *   ③ **非 SUPPORTED 一律加机器标记行**：只靠 `foldMarks[].guard` 记录不够 —— 摘要正文会被
+ *      ledger / 面板 / 人直接读，读的人看不到 JSON。
+ *
+ * @param {object|null} envelope `guardModelOutput` 的返回值
+ * @param {string} rawText 模型原文（降级时**原样保留**，宁可留一段标了 UNVERIFIED 的正文）
+ * @returns {{text:string, record:object|null, verdict:string|null, reasons:string[]}}
+ */
+export function applyOfflineGuard(envelope, rawText) {
+  const raw = String(rawText ?? "");
+  if (envelope === null || envelope === undefined || envelope.enabled !== true) {
+    return { text: raw, record: null, verdict: null, reasons: [] };
+  }
+  const facts = Array.isArray(envelope.facts) ? envelope.facts : [];
+  const narratives = Array.isArray(envelope.narratives) ? envelope.narratives : [];
+  const reasons = [];
+  const push = (code) => {
+    if (typeof code === "string" && code !== "" && !reasons.includes(code)) reasons.push(code);
+  };
+  for (const verdict of facts) for (const reason of Array.isArray(verdict?.reasons) ? verdict.reasons : []) push(reason?.code);
+  for (const verdict of narratives) for (const reason of Array.isArray(verdict?.reasons) ? verdict.reasons : []) push(reason?.code);
+  // 记录 = 信封的**转写**（字段名与 AX-01 一致，方便 AX-14 拿两份对拍）。
+  const base = {
+    contract: OFFLINE_GUARD_CONTRACT,
+    candidateContract: envelope.contract ?? null,
+    enabled: true,
+    applied: envelope.applied === true,
+    degraded: envelope.degraded === true,
+    degradedReason: envelope.degradedReason ?? null,
+    // 恒 NOT_PROVEN：见 `fact-guard.mjs` 的 ENTAILMENT_NOTE。
+    semanticEntailment: "NOT_PROVEN",
+    facts,
+    narratives,
+    summary: envelope.summary ?? null,
+  };
+  // ① 不支持的结构化输出 ⇒ 显式 degraded（坏 JSON / 顶层不是对象 / 未知字段 …）。
+  if (envelope.degraded === true || envelope.applied !== true) {
+    const degradedReasons = reasons.length > 0 ? reasons : [String(envelope.degradedReason ?? GUARD_VERDICT.DEGRADED)];
+    const record = { ...base, verdict: GUARD_VERDICT.DEGRADED, reasons: degradedReasons };
+    return { text: [guardMarkerLine(record), raw].filter((part) => part !== "").join("\n\n"), record, verdict: record.verdict, reasons: degradedReasons };
+  }
+  // ② 只留「没被拒」的叙事；被拒的整条丢掉（它们引用了被拒事实）。
+  const kept = narratives.filter((verdict) => verdict?.verdict !== GUARD_VERDICT.REJECTED);
+  const text = kept
+    .map((verdict) => String(verdict?.text ?? ""))
+    .join("\n\n")
+    .trim();
+  const verdict = text === "" ? GUARD_VERDICT.REJECTED : kept.some((item) => item?.verdict === GUARD_VERDICT.UNVERIFIED) ? GUARD_VERDICT.UNVERIFIED : GUARD_VERDICT.SUPPORTED;
+  const record = { ...base, verdict, reasons, rejectedNarratives: narratives.length - kept.length };
+  if (text === "") {
+    // K-26 空回答根因：所有叙事都引用了被拒事实 ⇒ 正文为空。但 facts 里可能仍有
+    // SUPPORTED 事实；直接返回空会把「事实可判」误记成 empty-response。只渲染
+    // SUPPORTED 事实（facts-only 回退），标记 UNVERIFIED，绝不把被拒叙事写成事实。
+    const supported = facts.filter((verdict) => verdict?.verdict === GUARD_VERDICT.SUPPORTED);
+    if (supported.length > 0) {
+      const factsOnlyRecord = { ...record, verdict: GUARD_VERDICT.UNVERIFIED, factsOnly: true };
+      const factsText = supported
+        .map((verdict) => `- [${String(verdict?.id ?? "?")}] ${String(verdict?.subject ?? "?")}: ${String(verdict?.claim ?? "")}`)
+        .join(String.fromCharCode(10));
+      return {
+        text: [guardMarkerLine(factsOnlyRecord), "## 已验证事实（facts-only 回退）", factsText].join(String.fromCharCode(10, 10)),
+        record: factsOnlyRecord,
+        verdict: factsOnlyRecord.verdict,
+        reasons,
+      };
+    }
+    return { text: "", record, verdict, reasons };
+  }
+  return { text: [guardMarkerLine(record), text].filter((part) => part !== "").join("\n\n"), record, verdict, reasons };
 }
 
 /**
@@ -1003,6 +1322,16 @@ export async function runOfflineFold({
   maxTokensCap = 8192,
   callModel,
   measureQuality,
+  /**
+   * ★ AX-07：**事实守卫开关**（默认 `false` —— 旧行为逐字不变）。
+   *
+   * 默认值不在这里定：`fact-guard.mjs` 的 `DEFAULT_ENABLED` 来自 R15 的 `FACT_GUARD_DEFAULT`，
+   * 这里是**调用方显式传的那一个**（引擎/脚本从 `ctx.config.factGuard` 取）。写成 `false`
+   * 是为了「没传 = 老路径」，不是为了给配置挑默认值 —— 配置默认值仍由 `config-schema.mjs` 独占。
+   */
+  factGuard = false,
+  /** 守卫证据源的会话 id（跨会话 seq 判据要用；不给就是「不知道」，不编一个）。 */
+  sessionId = null,
 }) {
   const chunks = [];
   let stoppedEarly = null;
@@ -1043,7 +1372,12 @@ export async function runOfflineFold({
     const start = limit > 1 ? chunkStart : cov.start;
     const end = cov.end;
     const facts = renderFacts(graph, { start, end });
-    const prompt = buildOfflinePrompt({ facts, messages, range: { start: chunkStart, end: rangeEnd } });
+    // ★ AX-07：**成功工具结果的短值**（AX-02 抽取器）只在守卫开启时进硬事实块。
+    //   为什么不无条件加：guard=false 必须**逐字**保持旧行为（提示词一个字都不能动），
+    //   而这段确实改了输入（多了「## 成功工具结果的值」一节）。
+    const valueFacts = factGuard === true ? collectFoldValueFacts(events, { rangeStart: start, rangeEnd: end }) : [];
+    const factsBlock = valueFacts.length > 0 ? `${facts}\n\n${renderValueFactsBlock(valueFacts)}` : facts;
+    const prompt = buildOfflinePrompt({ facts: factsBlock, messages, range: { start: chunkStart, end: rangeEnd }, factGuard, valueFacts });
     const startedAt = Date.now();
     // ★ C540：**预算跟着输入长**。真机：13k 字符输入时 reasoning 就吃掉 6,936/8,192；
     //   38k 输入的思考只会更多 —— 固定 8192 会在大会话上再次"思考吃光"。
@@ -1054,7 +1388,7 @@ export async function runOfflineFold({
     //   默认模型换成 `kimi-k3.1-pro` 后实测：8,192 预算 ≈ 169 秒/段；若按 C582 的语言估算
     //   放到 16,384，生成时间翻倍 ⇒ 撞上 C590 的 240 秒截止 ⇒ **每次都判 deadline、一段都不折**。
     //   摘要本身受 `suggestedLength` 约束（真机 8.8k 字符已够），没必要为了"给足"而让它慢一倍。
-    const budgetCap = Math.max(1024, Math.min(16_384, Number(maxTokensCap) || 8_192));
+    const budgetCap = Math.max(1024, Math.min(HARD_MAX_TOKENS, Number(maxTokensCap) || 8_192));
     const budget = Math.min(budgetCap, foldBudgetFor(String(prompt ?? ""), maxTokens));
     let out = await callModel(prompt, { maxTokens: budget });
     // ★ T49：**付了钱的调用都要进账**。`out` 只回答「采用谁的正文」，`billed` / `billedCalls` 回答
@@ -1099,7 +1433,7 @@ export async function runOfflineFold({
       //       ⇒ **第一段能用的摘要连同这段时间一起作废**（24h 内 15 个会话落在 `offline:deadline`）。
       //   所以：只有"剩余时间 ≥ 已花时间 × 1.2"才开重试；算不下就保留第一次的结果并标 `truncated`
       //   —— 有据可查的"短摘要"远比"零产出"有用，而且不再多付一次模型钱。
-      const retryBudget = Math.min(HARD_MAX_TOKENS, Math.max(1024, budget * 2));
+      const retryBudget = Math.min(RETRY_MAX_TOKENS, Math.max(1024, budget * 2));
       const spentMs = Date.now() - startedAt;
       const roomMs = deadline === null || !Number.isFinite(Number(deadline)) ? Infinity : Number(deadline) - Date.now();
       if (roomMs > spentMs * 1.2) {
@@ -1130,6 +1464,33 @@ export async function runOfflineFold({
     let text = String(out?.text ?? "").trim();
     if (text === "") {
       return { chunks, coveredStart, coveredEnd, uncoveredHead: 0, uncoveredTail: Math.max(0, rangeEnd - (coveredEnd ?? rangeStart)), failed: "empty-response" };
+    }
+    // ★ AX-07：**先过事实守卫，再谈清洗/补回**。顺序有意义 ——
+    //   守卫判的是「模型交的这份结构化输出能不能算事实」，补回/清洗是对**已接受**正文的机械修补；
+    //   反过来先补回再守卫，等于拿补出来的字去回证模型自己写的话。
+    //   `factGuard !== true` 时这一段**一个字节都不执行**（`guard` 保持 `null`，chunk 不长新键）。
+    let guardRecord = null;
+    if (factGuard === true) {
+      const gated = applyOfflineGuard(guardOfflineFoldOutput(text, { events, sessionId, factGuard: true }), text);
+      // 整段都被拒 ⇒ 与 `empty-response` 同构：**不写半截账**（欠账留着下一轮补）。
+      // ★ 为什么不新登记一个「守卫拒绝」的停止原因：`STOPPED_REASONS` 是**冻结的跨进程协议表**，
+      //   它的项数被 `test/backfill-idle.test.mjs`（C647①，12 项）钉死，而本刀的可写路径
+      //   不含那个文件。语义上「守卫把整段都拒了」= 这次折叠**没有可用的正文**，属于
+      //   「不许写半截账」这一类；**为什么**没有正文由结果上的 `guard.verdict = REJECTED` 承载，
+      //   不硬塞进 `stopped`（那是给下游判「算不算放弃」的闭集，不是留言板）。
+      if (gated.text === "") {
+        return {
+          chunks,
+          coveredStart,
+          coveredEnd,
+          uncoveredHead: 0,
+          uncoveredTail: Math.max(0, rangeEnd - (coveredEnd ?? rangeStart)),
+          failed: STOPPED_EMPTY_RESPONSE,
+          guard: gated.record,
+        };
+      }
+      text = gated.text;
+      guardRecord = { ...gated.record, valueFacts: valueFacts.length };
     }
     // ★ C505：**提示词挡不住的东西用代码挡**（C458 同一原则）。
     //   离线摘要的实体引用现在靠提示词约束；真机 5 条离线折叠恰好没编 id，
@@ -1202,6 +1563,9 @@ export async function runOfflineFold({
       //   写回点据此**不写这个键** —— 写 `"unknown"` 会把「不可判」变成假的「已判」。
       finish: typeof out?.finish === "string" && out.finish !== "" ? out.finish : null,
       ms: Date.now() - startedAt,
+      // ★ AX-07：守卫的**裁决留痕**（只在 `factGuard:true` 时出现）。`guard=false` 时这两个键
+      //   一个都不写 —— 折痕的 JSON 形状与旧代码逐字相同（`test/offline-fold.test.mjs` 钉着）。
+      ...(guardRecord === null ? {} : { guard: guardRecord, valueFacts }),
     });
     coveredStart = coveredStart === null ? start : Math.min(coveredStart, start);
     coveredEnd = coveredEnd === null ? end : Math.max(coveredEnd, end);
@@ -1465,6 +1829,25 @@ function qualityWithFailureRepair(recorded, repairedIds, text) {
   };
 }
 
+/**
+ * ★ AX-07：**读一条折痕的正文**（`summaryText` 或按 `summaryTextRef` 解析）。
+ *
+ * 为什么需要它：C642 起「最后一段的正文只存一份」—— 那条折痕写的是
+ * `summaryTextRef: "lastOfflineSummary"`，正文本身在 `graph.lastOfflineSummary.text`。
+ * 于是「折痕的正文」有两个物理位置、一个逻辑值；**判断它们一不一致必须走同一个解析**，
+ * 而不是各自 `mark.summaryText ?? ""`（那会把「只存了引用」读成「正文是空」）。
+ *
+ * @param {object} graph 棋谱
+ * @param {object} mark 折痕（`graph.foldMarks[i]`）
+ * @returns {string} 正文（解析不出来就是空串 —— 调用方据此判「这条折痕没正文」）
+ */
+export function foldMarkSummaryText(graph, mark) {
+  if (mark === null || typeof mark !== "object") return "";
+  if (typeof mark.summaryText === "string") return mark.summaryText;
+  if (mark.summaryTextRef === "lastOfflineSummary") return String(graph?.lastOfflineSummary?.text ?? "");
+  return "";
+}
+
 export function applyOfflineFoldToGraph(graph, result, meta = {}) {
   const chunks = Array.isArray(result?.chunks) ? result.chunks : [];
   const now = Number.isFinite(meta.now) ? meta.now : Date.now();
@@ -1546,13 +1929,28 @@ export function applyOfflineFoldToGraph(graph, result, meta = {}) {
       inputTruncated: typeof chunk.inputTruncated === "boolean" ? chunk.inputTruncated : null,
       // 被裁掉的**条数**（整条丢弃 + 正文被切），给 doctor / 审计一个可核对的整数；不知道就是 null
       inputCutMessages: Number.isFinite(Number(chunk?.inputCutMessages)) ? Math.max(0, Number(chunk.inputCutMessages)) : null,
+      // ★ AX-07：**事实守卫的裁决留痕**。只在 `factGuard:true` 的折痕上出现 ——
+      //   `guard.verdict` 是「这段摘要算不算事实」的唯一机器判据（`SUPPORTED` / `UNVERIFIED` /
+      //   `REJECTED` / `DEGRADED`），逐条 `facts` / `narratives` 原样转写 AX-01 的裁决。
+      //   为什么必须落在这里：正文会被 ledger / 面板 / 人直接读，而「这段是 UNVERIFIED」只写在
+      //   内存里就等于没写 —— 下一轮折叠覆盖 `lastOfflineSummary` 之后再也查不到。
+      ...(chunk?.guard === null || chunk?.guard === undefined ? {} : { guard: chunk.guard }),
       offline: true,
     });
   }
   const last = chunks[chunks.length - 1];
   // ★ C641：用**补回后**的正文 —— 否则 `lastOfflineSummary` 与 mark 里那份对不上，
   //   而审计（`scripts/repair-coverage-audit.mjs`）正是拿这份原文重放补回的。
-  graphRef.lastOfflineSummary = { at: now, range: { start: last.start, end: last.end }, text: texts[texts.length - 1] ?? "", model: last.model ?? meta.model ?? null };
+  graphRef.lastOfflineSummary = {
+    at: now,
+    range: { start: last.start, end: last.end },
+    text: texts[texts.length - 1] ?? "",
+    model: last.model ?? meta.model ?? null,
+    // ★ AX-07：**同一份裁决必须同时出现在两处**。`lastOfflineSummary` 与它那条折痕是
+    //   「一条摘要只存一遍」的两个视图（C642），裁决也是同一个视图的一部分 ——
+    //   只写一边就会出现「正文说 SUPPORTED、折痕说 UNVERIFIED」的自相矛盾。
+    ...(last?.guard === null || last?.guard === undefined ? {} : { guard: last.guard }),
+  };
   const uncoveredHead = Number(result?.uncoveredHead) || 0;
   const uncoveredTail = Number(result?.uncoveredTail) || 0;
   // ★ C586：**"还有剩余缺口"也算没折完**。以前 `partial` 只看 uncoveredHead/Tail，

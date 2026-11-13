@@ -1,0 +1,92 @@
+{
+  "schema": "k2-value-reader-prereg-v1",
+  "taskId": "AX-03",
+  "objective": "在候选实现之前冻结 K-2 baseline/candidate 的问题、答案、判分、弃答与调用上限。",
+  "frozenAt": "2026-11-07T13:07:03.218Z",
+  "frozenAtRev": "5485acac98a6b851da19b45acc76af4f9b4006a4",
+  "armMapping": {
+    "full": "baseline: user/assistant 文本 + 原始 tool/result（当前生产行为，未清理）",
+    "compact": "every-step: user/assistant 文本 + 生产 renderFacts(graph)；原始 tool/result 不进入上下文"
+  },
+  "limits": {
+    "questions": 10,
+    "callsPerQuestion": 2,
+    "plannedCalls": 20,
+    "maxCalls": 24,
+    "retries": 0
+  },
+  "reader": {
+    "model": "deepseek-v4.1-flash-1017",
+    "endpoint": "http://127.0.0.1:3425/v1/chat/completions",
+    "temperature": 0,
+    "maxTokens": 1024,
+    "stream": false,
+    "timeoutMs": 120000
+  },
+  "abstention": {
+    "answer": "UNKNOWN",
+    "rule": "上下文没有明确记录该值时，只输出逐字 UNKNOWN；不得用状态词（untested/pending/archived/right-censored）代替，不得猜测。",
+    "forbiddenSubstitutes": [
+      "untested",
+      "pending",
+      "archived",
+      "right-censored",
+      "unknown",
+      "N/A",
+      "null"
+    ]
+  },
+  "graders": [
+    "exact",
+    "set",
+    "ordered",
+    "UNKNOWN"
+  ],
+  "freezeRules": [
+    "题面、金标准、判分器、弃答规则与调用上限在任何真实 reader 调用之前冻结；AX-12 只能读取，不得修改。",
+    "真实 reader 只跑一次：不重试、不换题、不删失败样本；UNKNOWN 与错误码原样进入分母。",
+    "compact 臂必须由 AX-12 用当时的代码现场生成（renderFacts），不得用冻结的 compact 文本冒充。",
+    "两臂除「原始 tool/result 是否保留」外，事件、模型路由、提示外壳、解码参数、超时全部相同。",
+    "任何题目变更都会改变 questionsSha256，使既有结果作废；作废不是坏结果，改题掩盖才是。"
+  ],
+  "originalQuestionCount": 4,
+  "questionIds": [
+    "K2-O1",
+    "K2-O2",
+    "K2-O3",
+    "K2-O4",
+    "K2-N1",
+    "K2-N2",
+    "K2-N3",
+    "K2-N4",
+    "K2-N5",
+    "K2-N6"
+  ],
+  "questionsSha256": "2c4d5f0bc93f0c0bf83414ece95f9937cc3d1836039d31ff5aad23734c989cd6",
+  "realRun": {
+    "executor": "AX-12",
+    "editor": "forbidden",
+    "retries": 0
+  },
+  "privacy": {
+    "tier": "private-tmp",
+    "note": "fixtures.json 只含短值答案与来源坐标，不含完整会话正文；公开 evidence 只允许聚合数字。"
+  },
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "total": 10,
+    "byOrigin": {
+      "original-4": 4,
+      "new-success-value": 6
+    },
+    "byKind": {
+      "write": 2,
+      "read": 2,
+      "api": 4,
+      "read-failure": 1,
+      "bash-failure": 1
+    },
+    "plannedCalls": 20
+  }
+}

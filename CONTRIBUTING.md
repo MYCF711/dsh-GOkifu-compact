@@ -42,7 +42,7 @@ node scripts/sync-doc-numbers.mjs --check  # 文档里的计数必须等于权�
 
 ```bash
 node test/run.mjs                        # 1) 先跑，确认真的绿
-npm run gate                             # 2) 8 判分门 + 擦亮基线（会回写 counts-baseline.json）
+npm run gate                             # 2) 9 判分门 + 擦亮基线（会回写 counts-baseline.json）
 node scripts/sync-doc-numbers.mjs --write # 3) 一次改完 9 份文档 / 20 处锚点
 node scripts/sync-doc-numbers.mjs --check # 4) 应当 exit 0
 ```
