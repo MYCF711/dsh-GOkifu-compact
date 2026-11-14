@@ -58,6 +58,13 @@ const SAMPLE_14 = [
 
 const LOCAL_HEADERS = { host: "127.0.0.1:19387", "content-type": "application/json" };
 
+
+/** ★ C664：读「生效文件」（有 pending 读 pending）。 */
+function readEffective(presetPath) {
+  const pending = `${presetPath}.pending`;
+  return nodeFs.readFileSync(nodeFs.existsSync(pending) ? pending : presetPath, "utf8");
+}
+
 function tempHome(presetText = SAMPLE_14) {
   const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-ui-cfg-"));
   const presetDir = nodePath.join(dir, "preset-bundles", "personal-assistant");
@@ -181,14 +188,14 @@ tests["B5 · 纯函数：越界报错带中文字段名与范围"] = async () =>
 
 tests["B5 · HTTP：save({growthFloorTokens:''}) 必须 400，且 preset 里绝不出现 growthFloorTokens: 0"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, { action: "save", patch: { growthFloorTokens: "" } });
     if (res.status !== 400) throw new Error(`空串应 400，得到 ${res.status}：${res.raw.slice(0, 160)}`);
     if (!String(res.json?.error ?? "").includes("不能为空")) throw new Error(`错误文本应说明不能为空，得到 ${JSON.stringify(res.json?.error)}`);
   });
-  const after = nodeFs.readFileSync(preset, "utf8");
+  const after = readEffective(preset);
   if (/growthFloorTokens:\s*0\b/.test(after)) throw new Error("空串被写成了 0（B5 未修）");
   if (after !== before) throw new Error("被拒的保存改了文件");
 };
@@ -200,7 +207,7 @@ tests["B5 · HTTP：合法数字字符串会被写成真数字（正例不能连
     const res = await call(handler, { action: "save", patch: { maxTokens: "4096" } });
     if (res.status !== 200 || res.json?.ok !== true) throw new Error(`合法保存应 200，得到 ${res.status}/${JSON.stringify(res.json)}`);
   });
-  const after = nodeFs.readFileSync(preset, "utf8");
+  const after = readEffective(preset);
   if (!/maxTokens:\s*4096\b/.test(after)) throw new Error(`应写成数字 4096，得到：${after.split("\n").filter((l) => l.includes("maxTokens")).join(" | ")}`);
   if (/maxTokens:\s*['"]4096['"]/.test(after)) throw new Error("写成字符串了");
 };
@@ -272,7 +279,7 @@ tests["B4 · 引擎那条 retainRatio ≥ thresholdRatio 修正也照做（来�
 
 tests["B6 · HTTP：白名单外的键 → 400 + skipped 列表，且整单不写"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     // retainTokens 是真实引擎键，但不在页面白名单里 —— 最容易被用户从别处抄过来的那种键
@@ -281,7 +288,7 @@ tests["B6 · HTTP：白名单外的键 → 400 + skipped 列表，且整单不�
     if (!Array.isArray(res.json?.skipped) || !res.json.skipped.includes("retainTokens")) throw new Error(`响应应带 skipped，得到 ${JSON.stringify(res.json?.skipped)}`);
     if (!String(res.json?.error ?? "").includes("retainTokens")) throw new Error(`错误文本应点名该键，得到 ${JSON.stringify(res.json?.error)}`);
   });
-  const after = nodeFs.readFileSync(preset, "utf8");
+  const after = readEffective(preset);
   if (after !== before) throw new Error("被拒的保存改了 preset");
   if (after.includes("thresholdRatio: 0.5")) throw new Error("同单里的合法键也被写进去了（应当是整单拒绝）");
 };
@@ -296,7 +303,7 @@ tests["B6 · saveConfig 默认严格：抛错并挂 .skipped；显式 strictKeys
     if (lenient.changed.length !== 1) throw new Error("宽松模式应写入合法键");
     if (!lenient.skipped.includes("nopeKey")) throw new Error("宽松模式也应回传 skipped");
   });
-  if (!/thresholdRatio:\s*0\.5/.test(nodeFs.readFileSync(preset, "utf8"))) throw new Error("宽松模式的合法键没写进去");
+  if (!/thresholdRatio:\s*0\.5/.test(readEffective(preset))) throw new Error("宽松模式的合法键没写进去");
 };
 
 tests["B6 · 正常保存（全部已知键）不受影响，且回传 effectiveConfig/unconfiguredKeys"] = async () => {

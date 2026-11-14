@@ -130,7 +130,7 @@ function uiDefaults() {
  *
  * @returns {string}
  */
-function resolveHome() {
+export function resolveHome() {
   const env = process.env.DSH_HOME;
   if (typeof env === "string" && env.length > 0) return env;
   return nodePath.join(nodeOs.homedir(), ".dsh");
@@ -184,7 +184,7 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
   let ownPreset = null;
   for (const bundle of readProfileBundles(profileDir)) {
     const file = nodePath.join(profileDir, "node_modules", bundle, "cordis.patch.yml");
-    const text = readTextOrNull(file);
+    const text = readPresetTextOrNull(file);
     if (text === null) continue;
     const declaresPreset = text.includes("@deepseek-ai/dsh-agent-preset");
     if (bundle === PKG_NAME) {
@@ -205,7 +205,7 @@ export function findPresetFiles(home = resolveHome(), profile = "desktop") {
     for (const entry of nodeFs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const file = nodePath.join(root, entry.name, "cordis.patch.yml");
-      const text = readTextOrNull(file);
+      const text = readPresetTextOrNull(file);
       if (text === null) continue;
       if (text.includes(PKG_NAME) || text.includes("- id: compaction-basic")) out.push({ name: entry.name, file, text });
     }
@@ -1083,6 +1083,14 @@ export const BACKUP_KEEP = 5;
 /** 备份文件名标记（保持旧命名，旧备份会被同一轮转逻辑收编）。 */
 export const BACKUP_MARK = ".bak-before-ui-";
 
+/** ★ C664：staging 后缀。面板只写它，实时 preset 不碰（运行中写它会热重载 → host exit(1)）。 */
+export const PENDING_SUFFIX = ".pending";
+
+/** ★ C664：preset 的**生效文本** = pending 优先（读路径也要 pending-aware，否则面板存完再读还是旧值）。 */
+function readPresetTextOrNull(file) {
+  return readTextOrNull(`${file}${PENDING_SUFFIX}`) ?? readTextOrNull(file);
+}
+
 /** 键名以这些词结尾 ⇒ 视为密钥载体（注意 `headroomTokens` 之类复数不会被误判）。 */
 const SECRET_KEY_RE = /(key|secret|password|passwd|credential|token)$/i;
 /** 值层面的密钥样式（常见 token 前缀 + PEM 私钥头）。 */
@@ -1385,6 +1393,7 @@ export function saveConfig(patch, options = {}) {
   const presets = findPresetFiles(home).filter((p) => p.text.includes(ENTRY_ID));
   if (presets.length === 0) throw new Error(`没有找到含 ${ENTRY_ID} 的 preset（先跑 install）`);
   const changed = [];
+  const staged = [];
   const pruned = [];
   let backup = null;
   let backupSkipped = null;
@@ -1395,8 +1404,10 @@ export function saveConfig(patch, options = {}) {
     const next = { ...parsed.config, ...clean };
     lastConfig = next;
     const block = renderEngineBlock(next, parsed.indent, parsed.commentLines);
+    // ★ C664：`preset.text` 已是生效文本（pending 优先）⇒ 同值判断天然正确。
     const text = preset.text.replace(parsed.raw, block);
     if (text === preset.text) continue;
+    const pendingPath = `${preset.file}${PENDING_SUFFIX}`;
     // 密钥面：源文件里已有密钥样式 ⇒ 不复制整份文件（否则每个备份都是明文副本）。
     // 新块里出现源文件没有的密钥样式 ⇒ 直接拒绝写（防止页面把密钥带进来）。
     const secretInSource = findSecretLike(preset.text);
@@ -1420,15 +1431,21 @@ export function saveConfig(patch, options = {}) {
         candidate = `${preset.file}${BACKUP_MARK}${stamp}-${n}`;
       }
       backup = candidate;
-      nodeFs.copyFileSync(preset.file, backup);
+      // ★ C664：备份源 pending 优先 —— 保存不再改实时文件，备份实时文件会让连存 8 次的备份完全一样。
+      nodeFs.copyFileSync(nodeFs.existsSync(pendingPath) ? pendingPath : preset.file, backup);
       pruned.push(...pruneBackups(preset.file, options.backupKeep ?? BACKUP_KEEP));
     }
-    nodeFs.writeFileSync(preset.file, text, "utf8");
+    // ★ C664：写 staging，不写实时文件。
+    nodeFs.writeFileSync(pendingPath, text, "utf8");
+    staged.push({ file: preset.file, pending: pendingPath });
     changed.push(preset.file);
   }
   const described = describeConfig(lastConfig ?? {});
   return {
     changed,
+    staged,
+    /** ★ C664：页面写入只到 staging ⇒ 本次运行内什么都没生效。 */
+    applied: staged.length === 0,
     skipped,
     backup,
     backupSkipped,
