@@ -1861,13 +1861,15 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
           onBudget: (ledger, s) => this.consumeLedgerBudget(ledger, s),
           onLog: (level, line) => ctx.logger?.[level]?.(line),
           // ★ C335：把"现在离阈值多近"交给渲染层（≥80% 才加一行提示；拿不到就 null）
+          // ★ C663：不只给百分比，把**分子/分母/窗口**一起带下去 —— 裸百分比会被读成
+          //   「上下文用了 93%」，而它的分母是折叠阈值（窗口的 30%/45%）。
           pressurePct: (() => {
             const p = this.ledgerBudget?.pressure;
             const tokens = Number(p?.tokens);
             const threshold = Number(p?.threshold);
-            return Number.isFinite(tokens) && Number.isFinite(threshold) && threshold > 0
-              ? (tokens / threshold) * 100
-              : null;
+            if (!(Number.isFinite(tokens) && Number.isFinite(threshold) && threshold > 0)) return null;
+            const windowTokens = Number(this.ledgerBudget?.pressureForMark?.window);
+            return { pct: (tokens / threshold) * 100, tokens, threshold, windowTokens: Number.isFinite(windowTokens) && windowTokens > 0 ? windowTokens : null };
           })(),
         });
         // ★ C90：渲染/注入抛错时 decideInjection 只写日志 —— 这里记进统计，doctor 才看得见

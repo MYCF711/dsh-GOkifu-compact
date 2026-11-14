@@ -141,13 +141,34 @@ export function ledgerDigest(graph, { foldFailures = 0, failures = null } = {}) 
  * @param {number|null} pressurePct
  * @returns {string}
  */
-export function pressureHintLine(pressurePct) {
-  const pct = Number(pressurePct);
+export function pressureHintLine(pressure) {
+  // ★ C663：可以传数字（旧形状，只有百分比），也可以传
+  //   `{ pct, tokens, threshold, windowTokens }`。
+  //   为什么要多这几个数：**裸百分比会被读成「上下文用了 93%」**，而它真正的分母是
+  //   **自动折叠阈值**（窗口的 30%/45%）。实测一例：tokens=147,656 / threshold=300,000 /
+  //   window=1,000,000 ⇒ 压力 49%，实际只占窗口 15%。到了 93% 那一档，窗口占用也才 28%。
+  //   给模型看一个没有分子/分母的百分比，等于制造一个它无法证伪的错觉（本项目自己的铁律：
+  //   没有定义式 + 分子 + 分母 + 时点的数字不可引用）。所以能带就带全。
+  const obj = pressure !== null && typeof pressure === "object" ? pressure : { pct: pressure };
+  const pct = Number(obj.pct);
   if (!Number.isFinite(pct) || pct < 80) return "";
   // ★ C336：**别提示做不到的动作**。第一版写的是"想现在压就调 manual compact"，
   //   但本插件**没有**给模型的手动压缩工具 —— 压缩是自动触发的，`/compact` 是**用户**的命令。
   //   让模型去调一个不存在的工具 = 制造幻觉动作。这里只**告知状态**。
-  return `# 压力 ${Math.round(pct)}% —— 接近自动折叠阈值（会自动触发，无需动作）`;
+  const num = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+    if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+    return String(Math.round(n));
+  };
+  const tokens = num(obj.tokens);
+  const threshold = num(obj.threshold);
+  const windowTokens = num(obj.windowTokens);
+  const detail = tokens !== "" && threshold !== ""
+    ? `（${tokens} / ${threshold} tokens 到折叠阈值${windowTokens !== "" ? `；窗口 ${windowTokens}，实际占用 ${Math.round((Number(obj.tokens) / Number(obj.windowTokens)) * 100)}%` : ""}）`
+    : "";
+  return `# 压力 ${Math.round(pct)}%${detail} —— 接近自动折叠阈值（会自动触发，无需动作）`;
 }
 
 export function foldFailureWarning(state) {
