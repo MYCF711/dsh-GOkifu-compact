@@ -62,6 +62,13 @@ const BACKUP_MARK = ".bak-before-ui-";
 const LOCAL_HEADERS = { host: "127.0.0.1:19387", "content-type": "application/json" };
 const BROWSER_HEADERS = { ...LOCAL_HEADERS, origin: "http://127.0.0.1:19387", "sec-fetch-site": "same-origin" };
 
+
+/** ★ C664：读「生效文件」（有 pending 读 pending）。 */
+function readEffective(presetPath) {
+  const pending = `${presetPath}.pending`;
+  return nodeFs.readFileSync(nodeFs.existsSync(pending) ? pending : presetPath, "utf8");
+}
+
 function tempHome(presetText = SAMPLE) {
   const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-ui-sec-"));
   const presetDir = nodePath.join(dir, "preset-bundles", "personal-assistant");
@@ -152,7 +159,7 @@ export const tests = {};
 
 tests["A1 · 跨站 text/plain 简单请求（evil.example）必须 403，且 preset 一个字节都不变"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, {
@@ -162,14 +169,14 @@ tests["A1 · 跨站 text/plain 简单请求（evil.example）必须 403，且 pr
     if (res.status !== 403) throw new Error(`跨站 text/plain 应 403，得到 ${res.status}：${res.raw.slice(0, 160)}`);
     if (res.json?.code !== "cross-site") throw new Error(`应命中 sec-fetch-site 分支，得到 code=${res.json?.code}`);
   });
-  const after = nodeFs.readFileSync(preset, "utf8");
+  const after = readEffective(preset);
   if (after !== before) throw new Error("跨站请求改写了 preset");
   if (backupNames(preset).length !== 0) throw new Error("跨站请求还产生了备份");
 };
 
 tests["A1 · 外站 Origin + application/json 必须 403"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, {
@@ -179,12 +186,12 @@ tests["A1 · 外站 Origin + application/json 必须 403"] = async () => {
     if (res.status !== 403) throw new Error(`外站 Origin 应 403，得到 ${res.status}`);
     if (res.json?.code !== "cross-origin") throw new Error(`应命中同源比对分支，得到 code=${res.json?.code}`);
   });
-  if (nodeFs.readFileSync(preset, "utf8") !== before) throw new Error("外站请求改写了 preset");
+  if (readEffective(preset) !== before) throw new Error("外站请求改写了 preset");
 };
 
 tests["A1 · 同 IP 异端口（实测 sec-fetch-site: same-site）也必须 403"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, {
@@ -193,7 +200,7 @@ tests["A1 · 同 IP 异端口（实测 sec-fetch-site: same-site）也必须 403
     });
     if (res.status !== 403) throw new Error(`same-site 应 403，得到 ${res.status}`);
   });
-  if (nodeFs.readFileSync(preset, "utf8") !== before) throw new Error("same-site 请求改写了 preset");
+  if (readEffective(preset) !== before) throw new Error("same-site 请求改写了 preset");
 };
 
 tests["A1 · Origin: null（沙箱/本地文件来源）必须 403"] = async () => {
@@ -236,13 +243,13 @@ tests["A1 · 同源浏览器请求（Origin == Host，含 sec-fetch-site: same-o
     if (res.status !== 200 || res.json?.ok !== true) throw new Error(`同源保存应成功，得到 ${res.status}/${JSON.stringify(res.json)}`);
     if (res.json?.changed?.length !== 1) throw new Error(`应写 1 个文件，得到 ${JSON.stringify(res.json?.changed)}`);
   });
-  const text = nodeFs.readFileSync(preset, "utf8");
+  const text = readEffective(preset);
   if (!text.includes("thresholdRatio: 0.55")) throw new Error("同源保存没写进文件");
 };
 
 tests["A1 · 非回环 Host（DNS rebinding 形状：Origin 与 Host 自洽）必须 403"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, {
@@ -252,7 +259,7 @@ tests["A1 · 非回环 Host（DNS rebinding 形状：Origin 与 Host 自洽）�
     if (res.status !== 403) throw new Error(`非回环 Host 应 403，得到 ${res.status}`);
     if (res.json?.code !== "untrusted-host") throw new Error(`应命中 Host 分支，得到 code=${res.json?.code}`);
   });
-  if (nodeFs.readFileSync(preset, "utf8") !== before) throw new Error("rebinding 形状的请求改写了 preset");
+  if (readEffective(preset) !== before) throw new Error("rebinding 形状的请求改写了 preset");
 };
 
 tests["A1 · Host 缺失 / 非法必须 403"] = async () => {
@@ -324,7 +331,7 @@ tests["A2 · 备份轮转：连写 8 次最多留 5 份，删掉的是最旧的"
 tests["A2 · preset 含密钥时不落明文备份，且响应里不得出现密钥值"] = async () => {
   const { home, preset } = tempHome(SECRET_SAMPLE);
   // 前置：fixture 里确实有密钥样式（否则这条测试是假绿）
-  if (!nodeFs.readFileSync(preset, "utf8").includes(FAKE_KEY)) throw new Error("fixture 没写进密钥，测试无效");
+  if (!readEffective(preset).includes(FAKE_KEY)) throw new Error("fixture 没写进密钥，测试无效");
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, { headers: BROWSER_HEADERS, body: { action: "save", patch: { auto: false } } });
@@ -335,14 +342,14 @@ tests["A2 · preset 含密钥时不落明文备份，且响应里不得出现密
     if (res.raw.includes(FAKE_KEY)) throw new Error("save 响应里泄露了密钥值");
   });
   if (backupNames(preset).length !== 0) throw new Error(`含密钥的 preset 仍产生了备份：${backupNames(preset).join(",")}`);
-  const text = nodeFs.readFileSync(preset, "utf8");
+  const text = readEffective(preset);
   if (!text.includes("auto: false")) throw new Error("非密钥字段没写进去");
   if (!text.includes(FAKE_KEY)) throw new Error("原有密钥被写坏了");
 };
 
 tests["A2 · 通过 patch 传密钥键：400 拒绝（不静默丢）、不落盘、不进备份"] = async () => {
   const { home, preset } = tempHome();
-  const before = nodeFs.readFileSync(preset, "utf8");
+  const before = readEffective(preset);
   await withHome(home, async () => {
     const { handler } = await mount();
     const res = await call(handler, { headers: BROWSER_HEADERS, body: { action: "save", patch: { summarizationApiKey: FAKE_KEY, thresholdRatio: 0.47 } } });
@@ -351,7 +358,7 @@ tests["A2 · 通过 patch 传密钥键：400 拒绝（不静默丢）、不落�
     if (!String(res.json?.error ?? "").includes("summarizationApiKey")) throw new Error(`错误文本里应出现键名，得到 ${JSON.stringify(res.json?.error)}`);
     if (res.raw.includes(FAKE_KEY)) throw new Error("响应里回显了密钥值");
   });
-  const text = nodeFs.readFileSync(preset, "utf8");
+  const text = readEffective(preset);
   if (text !== before) throw new Error("含白名单外键的请求竟然改了 preset");
   if (text.includes("thresholdRatio: 0.47")) throw new Error("同单里的合法键也不该被写（整单拒绝）");
   if (backupNames(preset).length !== 0) throw new Error("被拒的保存不该产生备份");

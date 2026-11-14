@@ -20,6 +20,13 @@ const require = createRequire(pathToFileURL(nodePath.join(ROOT, "package.json"))
 const installMod = await import(pathToFileURL(nodePath.join(ROOT, "scripts", "install.mjs")).href);
 const { parseEngineBlock, renderEngineBlock, PKG_NAME, ENTRY_ID } = installMod;
 
+
+/** ★ C664：读「生效文件」（有 pending 读 pending）。 */
+function readEffective(presetPath) {
+  const pending = `${presetPath}.pending`;
+  return nodeFs.readFileSync(nodeFs.existsSync(pending) ? pending : presetPath, "utf8");
+}
+
 function tempHome() {
   const dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "gokifu-ui-"));
   nodeFs.mkdirSync(nodePath.join(dir, "preset-bundles", "personal-assistant"), { recursive: true });
@@ -104,7 +111,7 @@ export const tests = {
     const result = uiMod.saveConfig({ thresholdRatio: 0.33 }, { home });
     if (result.changed.length !== 1) throw new Error(`应当写 1 个文件，得到 ${result.changed.length}`);
     if (!result.backup || !nodeFs.existsSync(result.backup)) throw new Error("没有备份");
-    const text = nodeFs.readFileSync(preset, "utf8");
+    const text = readEffective(preset);
     if (!text.includes("thresholdRatio: 0.33")) throw new Error("新值没写进去");
     if (!text.includes("command-compact")) throw new Error("写回吃掉了后面的条目");
     const again = uiMod.saveConfig({ thresholdRatio: 0.33 }, { home });
@@ -195,7 +202,7 @@ tests["host 路由：POST /gokifu/api 返回 state（含 config/health/today）"
     const saved = await call({ action: "save", patch: { thresholdRatio: 0.55 } });
     if (saved.json.ok !== true) throw new Error(`save 失败：${JSON.stringify(saved.json)}`);
     if (!saved.json.restartRequired) throw new Error("save 没提示需要重启");
-    const text = nodeFs.readFileSync(nodePath.join(home, "preset-bundles", "personal-assistant", "cordis.patch.yml"), "utf8");
+    const text = readEffective(nodePath.join(home, "preset-bundles", "personal-assistant", "cordis.patch.yml"));
     if (!text.includes("thresholdRatio: 0.55")) throw new Error("save 没写进文件");
   } finally {
     if (prevHome === undefined) delete process.env.DSH_HOME;

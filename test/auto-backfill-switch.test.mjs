@@ -31,6 +31,13 @@ async function withHome(prefix, fn) {
   }
 }
 
+
+/** ★ C664：读「生效文件」（有 pending 读 pending）。 */
+function readEffective(presetPath) {
+  const pending = `${presetPath}.pending`;
+  return nodeFs.readFileSync(nodeFs.existsSync(pending) ? pending : presetPath, "utf8");
+}
+
 function stopAutoBackfill(engine) {
   clearTimeout(engine?._autoBackfill?.first);
   clearInterval(engine?._autoBackfill?.timer);
@@ -283,13 +290,13 @@ tests["T68④ UI：默认关与费用说明可发现，配置可读写并可重�
 
     const opened = ui.saveConfig({ autoArchiveBackfill: true }, { home });
     t.eq(opened.effectiveConfig.autoArchiveBackfill, true, "保存打开后必须回传生效值 true");
-    t.includes(nodeFs.readFileSync(presetFile, "utf8"), "autoArchiveBackfill: true", "打开必须真的写进隔离 preset");
-    const reopened = parseEngineBlock(nodeFs.readFileSync(presetFile, "utf8"));
+    t.includes(readEffective(presetFile), "autoArchiveBackfill: true", "打开必须真的写进隔离 preset");
+    const reopened = parseEngineBlock(readEffective(presetFile));
     t.eq(ui.describeConfig(reopened.config).effective.autoArchiveBackfill, true, "UI 必须能读回 true");
 
     const closed = ui.saveConfig({ autoArchiveBackfill: false }, { home });
     t.eq(closed.effectiveConfig.autoArchiveBackfill, false, "重新关闭后必须回传生效值 false");
-    const reread = parseEngineBlock(nodeFs.readFileSync(presetFile, "utf8"));
+    const reread = parseEngineBlock(readEffective(presetFile));
     t.eq(reread.config.autoArchiveBackfill, false, "重新关闭必须真的写回 false");
   });
 };
