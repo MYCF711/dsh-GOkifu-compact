@@ -764,3 +764,26 @@ tests["AX-08 开关只认字面 true（'true' / 1 / null / false 都不开启实
     t.eq(injectedText(r).includes("VALUE FACTS"), false, `factGuard=${String(factGuard)} 不许开启值事实段`);
   }
 };
+
+tests["C663 压力行必须带分子/分母/窗口：裸百分比会被读成「上下文用了 93%」"] = async (t) => {
+  const { pressureHintLine } = await import("../src/rooms/hot-inject.mjs");
+  // 实测一例：tokens=147656 / threshold=300000 / window=1000000 ⇒ 压力 49%，窗口只占 15%。
+  const low = pressureHintLine({ pct: 49.2, tokens: 147656, threshold: 300000, windowTokens: 1000000 });
+  t.eq(low, "", "低于 80% 仍然一个字符都不加");
+
+  // 93% 这一档：窗口占用其实只有 28% —— 必须把这个数写出来，否则模型会以为快撑爆了
+  const hot = pressureHintLine({ pct: 93, tokens: 279000, threshold: 300000, windowTokens: 1000000 });
+  t.includes(hot, "# 压力 93%", "保留百分比（兼容既有读法）");
+  t.includes(hot, "279k / 300k tokens", "必须给出分子与分母（tokens / 折叠阈值）");
+  t.includes(hot, "窗口 1M", "必须给出上下文窗口");
+  t.includes(hot, "实际占用 28%", "必须给出**占窗口**的真实比例 —— 这才是「上下文占用程度」");
+  t.includes(hot, "会自动触发，无需动作", "别提示模型去调不存在的工具（C336）");
+
+  // 窗口未知时退化成不带窗口的形式，不能编一个数出来
+  const noWin = pressureHintLine({ pct: 85, tokens: 255000, threshold: 300000, windowTokens: null });
+  t.includes(noWin, "255k / 300k tokens", "没有窗口也要给分子/分母");
+  t.eq(noWin.includes("实际占用"), false, "窗口未知时不许编造占用比例");
+
+  // 旧形状（只传数字）仍然可用 —— 不改既有调用方的行为
+  t.includes(pressureHintLine(87), "# 压力 87%", "纯数字旧形状保持兼容");
+};
