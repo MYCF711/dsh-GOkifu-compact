@@ -53,5 +53,14 @@ jobs:
       - name: Boundary audit
         run: node scripts/boundary-audit.mjs
 
+      # ★ 脱敏门：**包内不得出现**私有路径 / 私有会话 id / 凭据。
+      #   判据与发布事务同源 —— `scripts/release.mjs` 在 push/tag/npm 之前跑的就是这一条
+      #   （`privacy-audit.mjs --pack`）。CI 原先不跑它 ⇒ 泄露可以先合进 main，
+      #   一路睡到发版那一刻才被拦住。这里把它提前到 PR 阶段。
+      #   用 `--pack` 而不是 `--changed`：前者扫的是**用户真正会下到的那 170 个文件**，
+      #   后者只看 diff（CI 里 diff 已经提交过了，等于什么都没看）。
+      - name: Privacy audit (pack)
+        run: node scripts/privacy-audit.mjs --pack
+
       - name: Full test suite
         run: node test/run.mjs
