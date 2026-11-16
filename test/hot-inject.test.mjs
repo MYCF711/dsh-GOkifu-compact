@@ -18,6 +18,7 @@ import {
   findLedgerNode,
   foldFailureWarning,
   ledgerDigest,
+  latestUserText,
   messageText,
 } from "../src/rooms/hot-inject.mjs";
 import nodeFs from "node:fs";
@@ -786,4 +787,371 @@ tests["C663 压力行必须带分子/分母/窗口：裸百分比会被读成「
 
   // 旧形状（只传数字）仍然可用 —— 不改既有调用方的行为
   t.includes(pressureHintLine(87), "# 压力 87%", "纯数字旧形状保持兼容");
+};
+
+/* ═════════════════ Q1：锚点召回的接入（2026-11-16，默认关） ═════════════════
+ *
+ * 目标：`queryRecall: true` 时把核心模块（`query-recall.mjs`，另一把刀）的机械召回段
+ * 加进热清单；**默认关时渲染逐字不变**。
+ *
+ * 为什么用注入的假召回器：核心模块由另一把刀落地 —— 本文件的六条判据必须在它缺席时
+ * 也能**独立证明热注入侧的接线正确**（真核心落地后的端到端用例见 Q1-10，自动生效）。
+ * 假召回器就是契约里的 `renderQueryRecall(graph, queryText, {limit, maxChars}) => {text, anchors, items, stats}`。
+ */
+
+/** 一条 user 消息（payloadMessages 的形状：`role` + `content` 数组）。 */
+const userMessage = (text, over = {}) => ({ id: `m-${text.length}`, role: "user", content: [{ type: "text", text }], source: { kind: "prompt" }, ...over });
+
+/** 假召回器：记录每次调用的 (graph, queryText, options)，按 produce 返回结果 / 抛错。 */
+function recallStub(produce) {
+  const calls = [];
+  const fn = (graph, queryText, options) => {
+    calls.push({ graph, queryText, options });
+    if (produce instanceof Error) throw produce;
+    const out = typeof produce === "function" ? produce(queryText, graph) : produce;
+    if (out instanceof Error) throw out;
+    return typeof out === "string" ? { text: out, anchors: [], items: [], stats: {} } : out;
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+const RECALL_CONFIG = { ...CONFIG, queryRecall: true };
+
+/** 默认配置下的纯清单文本（`run()` 的 sessionDir / CONFIG 与它逐项对齐）。 */
+const plainLedgerText = (g) =>
+  renderLedger(g, { maxTokens: 500, markers: "semantic", treeDir: "D:/tmp/ghost/sessions/s1", traceRoot: "sessions", factGuard: false }).text;
+
+tests["Q1-1 默认关闭：注入文本逐字等于纯清单，召回器一次都不调用"] = (t) => {
+  const g = graphWithFailure();
+  const payload = [userMessage("看看 src/rooms/ledger.mjs 的 renderLedger 为什么截断")];
+  const stub = recallStub("<query-recall>不该出现</query-recall>");
+
+  const session = makeSession({ id: "q1-off" });
+  const offState = makeState();
+  const r = run(session, g, offState, { payloadMessages: payload, renderQueryRecall: stub });
+  t.eq(r.action, "append", "首次注入");
+  t.eq(stub.calls.length, 0, "开关关着 ⇒ 召回器零调用（零额外计算）");
+  const text = messageText(commitAppend(session, r));
+  t.eq(text, plainLedgerText(g), "关着时注入文本必须逐字等于纯清单（没有多一行）");
+  // 契约（docs/架构-房间契约.md）：默认关闭时 **不读不写** `lastLedgerQueryRecallDigest`
+  t.eq(Object.prototype.hasOwnProperty.call(offState, "lastLedgerQueryRecallDigest"), false, "关着时不许写召回状态字段（状态形状与旧版逐字相同）");
+
+  // 显式 false 与「不写」必须逐字相同（默认值 = 关）
+  const session2 = makeSession({ id: "q1-false" });
+  const r2 = run(session2, g, makeState(), {
+    config: { ...CONFIG, queryRecall: false },
+    payloadMessages: payload,
+    renderQueryRecall: stub,
+  });
+  t.eq(messageText(commitAppend(session2, r2)), text, "不写 == 显式 false（逐字相同）");
+  t.eq(stub.calls.length, 0, "显式 false 同样零调用");
+};
+
+tests["Q1-2 开启 + 有锚点 ⇒ 召回段在压力行之后、清单正文之前，预算固定"] = (t) => {
+  const g = graphWithFailure();
+  const query = "为什么 src/rooms/ledger.mjs 的 renderLedger 会截断？";
+  const stub = recallStub("<query-recall>\n- ledger.mjs:120 renderLedger 截断\n</query-recall>");
+  const session = makeSession({ id: "q1-on" });
+  const r = run(session, g, makeState(), {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage(query)],
+    renderQueryRecall: stub,
+    pressurePct: 93,
+  });
+  t.eq(r.action, "append", "首次注入");
+  t.eq(stub.calls.length, 1, "开一次、注入一次 ⇒ 召回一次");
+  t.eq(stub.calls[0].queryText, query, "传给召回器的必须是本轮最新 user 文本");
+  t.eq(stub.calls[0].options, { limit: 6, maxChars: 1200 }, "调用参数固定（limit 6 / maxChars 1200）");
+
+  const text = messageText(commitAppend(session, r));
+  const pressureAt = text.indexOf("# 压力");
+  const recallAt = text.indexOf("<query-recall>");
+  const ledgerAt = text.indexOf("<chess-ledger>");
+  t.ok(pressureAt >= 0, "压力行必须在（pressurePct=93）");
+  t.ok(recallAt > pressureAt, "召回段必须在压力行之后");
+  t.ok(ledgerAt > recallAt, "召回段必须在清单正文之前");
+  t.includes(text, "- ledger.mjs:120 renderLedger 截断", "召回条目必须逐字送达");
+};
+
+tests["Q1-3 开启但无锚点/无匹配 ⇒ 一段都不加，且不会因此频繁注入"] = (t) => {
+  const g = graphWithFailure();
+  const stub = recallStub({ text: "", anchors: [], items: [], stats: {} });
+  const session = makeSession({ id: "q1-noanchor" });
+  const state = makeState();
+  const r = run(session, g, state, {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage("好，继续")],
+    renderQueryRecall: stub,
+  });
+  t.eq(r.action, "append", "热清单照常注入");
+  t.eq(stub.calls.length, 1, "开关开着仍问一次召回器（有没有锚点由核心模块判）");
+  const text = messageText(commitAppend(session, r));
+  t.eq(text, plainLedgerText(g), "无召回块 ⇒ 与纯清单逐字相同（不是空占位）");
+  t.eq(state.lastLedgerQueryRecallDigest, "", "无召回块时状态 digest 必须是空串");
+
+  // 空 digest 不能让判据失效：同 query 的下一步仍然 skip
+  const again = run(session, g, state, {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage("好，继续")],
+    renderQueryRecall: stub,
+  });
+  t.eq(again.action, "skip", "无召回块时下一步必须回到原有判据（skip）");
+  t.ok(["identical", "same-digest"].includes(again.reason), `原因必须沿用旧判据（实际 ${again.reason}）`);
+};
+
+tests["Q1-4 同一 query 不重复注入（identical），成功注入后记下召回 digest"] = (t) => {
+  const g = graphWithFailure();
+  const payload = [userMessage("看 src/rooms/ledger.mjs")];
+  const stub = recallStub("<query-recall>- ledger.mjs</query-recall>");
+  const session = makeSession({ id: "q1-same" });
+  const state = makeState();
+  commitAppend(session, run(session, g, state, { config: RECALL_CONFIG, payloadMessages: payload, renderQueryRecall: stub }));
+  t.eq(typeof state.lastLedgerQueryRecallDigest === "string" && state.lastLedgerQueryRecallDigest.length > 0, true, "成功注入后必须记下召回 digest");
+  const before = session.appended.length;
+  const again = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: payload, renderQueryRecall: stub });
+  t.eq(again.action, "skip", "同一 query 不许再注入");
+  t.eq(again.reason, "identical", "原因 identical");
+  t.eq(session.appended.length, before, "不许再 append");
+  t.eq(ledgerMessagesIn(session).length, 1, "surface 仍只有一条清单");
+};
+
+tests["Q1-5 query 改变 ⇒ 即使 graph 没动、事件没走也必须重新注入"] = (t) => {
+  const g = graphWithFailure();
+  const state = makeState();
+  const session = makeSession({ id: "q1-change" });
+  commitAppend(
+    session,
+    run(session, g, state, {
+      config: RECALL_CONFIG,
+      payloadMessages: [userMessage("看 src/rooms/ledger.mjs")],
+      renderQueryRecall: recallStub("<query-recall>- ledger.mjs</query-recall>"),
+    }),
+  );
+  // graph / seq / 失败边全都没动，只换 query
+  const second = run(session, g, state, {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage("看 src/rooms/hot-inject.mjs")],
+    renderQueryRecall: recallStub("<query-recall>- hot-inject.mjs</query-recall>"),
+  });
+  t.eq(second.action, "replace", "query 变了必须重新注入（绕过 same-digest / 限流）");
+  t.ne(second.reason, "identical", "不许判 identical");
+  const delivered = messageText(session.eventAt(ledgerMessagesIn(session).at(-1))?.data ?? {});
+  t.includes(delivered, "- hot-inject.mjs", "送达的必须是新 query 的召回段");
+  t.eq(delivered.includes("- ledger.mjs"), false, "旧 query 的召回段必须被替换掉");
+};
+
+tests["Q1-6 取最新 user 文本：旧 user 与自己注入的清单都不许当 query"] = (t) => {
+  const g = graphWithFailure();
+  const stub = recallStub("<query-recall>- bar.mjs</query-recall>");
+  run(makeSession({ id: "q1-latest" }), g, makeState(), {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage("旧问题：看 foo.mjs"), userMessage("新问题：看 bar.mjs")],
+    renderQueryRecall: stub,
+  });
+  t.eq(stub.calls.length, 1, "召回一次");
+  t.includes(stub.calls[0].queryText, "bar.mjs", "必须是最新那条 user 文本");
+  t.eq(stub.calls[0].queryText.includes("foo.mjs"), false, "旧 user 不许当 query");
+
+  // 自己注入的热清单排在最后 ⇒ 必须被跳过，继续往前取真 user 文本（防召回自我喂养）
+  const stub2 = recallStub("<query-recall>- bar.mjs</query-recall>");
+  run(makeSession({ id: "q1-skip-own" }), g, makeState(), {
+    config: RECALL_CONFIG,
+    payloadMessages: [
+      userMessage("新问题：看 src/rooms/hot-inject.mjs"),
+      { id: "old-ledger", role: "user", content: [{ type: "text", text: "<chess-ledger>旧清单</chess-ledger>" }], source: { kind: "chess-context", form: "ledger" } },
+    ],
+    renderQueryRecall: stub2,
+  });
+  t.includes(stub2.calls[0].queryText, "hot-inject.mjs", "热清单不是 user 输入 ⇒ 必须继续往前取");
+  t.eq(stub2.calls[0].queryText.includes("chess-ledger"), false, "自己注入的清单不许当 query");
+};
+
+tests["Q1-7 召回器抛错 ⇒ 只丢召回段，热清单照常注入（never-throws）"] = (t) => {
+  const g = graphWithFailure();
+  const warns = [];
+  const r = run(makeSession({ id: "q1-throw" }), g, makeState(), {
+    config: RECALL_CONFIG,
+    payloadMessages: [userMessage("看 src/rooms/ledger.mjs")],
+    renderQueryRecall: recallStub(new Error("recall down")),
+    onLog: (lvl, line) => warns.push([lvl, line]),
+  });
+  t.eq(r.action, "append", "热清单照常注入");
+  t.eq(r.decision.kind, "enter", "decision 必须原样返回（对话不中断）");
+  const text = messageText(r.decision.messages.find((m) => m.source?.kind === "chess-context") ?? {});
+  t.includes(text, "<chess-ledger>", "清单正文仍在");
+  t.eq(text.includes("query-recall"), false, "不许出现半个召回段");
+  t.ok(warns.some(([lvl, line]) => lvl === "warn" && line.includes("锚点召回失败")), "必须 warn 一行（可观测）");
+};
+
+tests["Q1-8 开关只认字面 true（'true' / 1 / null / false 都不开启召回）"] = (t) => {
+  const g = graphWithFailure();
+  for (const value of ["true", 1, null, undefined, false]) {
+    const stub = recallStub("<query-recall>不该出现</query-recall>");
+    const r = run(makeSession({ id: `q1-literal-${String(value)}` }), g, makeState(), {
+      config: { ...CONFIG, queryRecall: value },
+      payloadMessages: [userMessage("看 src/rooms/ledger.mjs")],
+      renderQueryRecall: stub,
+    });
+    t.eq(stub.calls.length, 0, `queryRecall=${String(value)} 不许调用召回器`);
+    const text = messageText(r.decision.messages.find((m) => m.source?.kind === "chess-context") ?? {});
+    t.eq(text.includes("query-recall"), false, `queryRecall=${String(value)} 不许出现召回段`);
+  }
+};
+
+tests["Q1-9 query 从有锚点变成无锚点 ⇒ 召回段必须撤回（再下一步才回到 skip）"] = (t) => {
+  const g = graphWithFailure();
+  const state = makeState();
+  const session = makeSession({ id: "q1-withdraw" });
+  commitAppend(
+    session,
+    run(session, g, state, {
+      config: RECALL_CONFIG,
+      payloadMessages: [userMessage("看 src/rooms/ledger.mjs")],
+      renderQueryRecall: recallStub("<query-recall>- ledger.mjs</query-recall>"),
+    }),
+  );
+  const empty = recallStub({ text: "", anchors: [], items: [], stats: {} });
+  const second = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage("继续")], renderQueryRecall: empty });
+  t.eq(second.action, "replace", "召回段消失也是一次内容变化 ⇒ 必须送达");
+  const delivered = messageText(session.eventAt(ledgerMessagesIn(session).at(-1))?.data ?? {});
+  t.eq(delivered.includes("query-recall"), false, "撤回后 surface 上不许残留召回段");
+  const third = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage("继续")], renderQueryRecall: empty });
+  t.eq(third.action, "skip", "撤回之后同样的 query 必须回到 skip（不频繁注入）");
+};
+
+tests["Q1-10 真核心模块（query-recall.mjs）落地后：默认路径自动接上真召回器"] = async (t) => {
+  const core = await import("../src/rooms/query-recall.mjs").catch(() => null);
+  if (typeof core?.renderQueryRecall !== "function") {
+    t.skip("核心模块 src/rooms/query-recall.mjs 尚未落地（另一把刀）—— 落地后本用例自动生效");
+    return;
+  }
+  // 真 keeper 落账的边（`read(file_path=…)` 是 `parseTouchedFileAction` 认的形态）
+  const g = createGraph({ sessionId: "s1", cwd: "D:/fixture/proj" });
+  const st = makeState();
+  observeEvent(g, userEvent("修 ledger 截断", 1), st);
+  observeEvent(g, assistantEvent("c1", "read", { file_path: "src/rooms/ledger.mjs" }, 2), st);
+  observeEvent(g, resultEvent("c1", "renderLedger 在 ledger.mjs:120 截断", 3, true), st);
+  const query = "为什么 src/rooms/ledger.mjs 的 renderLedger 会截断？";
+  const expected = core.renderQueryRecall(g, query, { limit: 6, maxChars: 1200 });
+  t.eq(typeof expected?.text, "string", "核心模块必须返回 { text: string }");
+  t.eq(expected.text.trim().length > 0, true, "夹具 + query 必须让核心模块真的召回到内容（否则下面的断言是恒真）");
+  // 不注入假召回器 ⇒ 走软加载的真模块（生产默认路径）
+  const session = makeSession();
+  const r = run(session, g, makeState(), { config: RECALL_CONFIG, payloadMessages: [userMessage(query)] });
+  const text = messageText(commitAppend(session, r));
+  const block = expected.text.trim();
+  t.includes(text, block, "默认路径必须用软加载的真核心模块的召回段");
+  t.ok(text.indexOf(block) < text.indexOf("<chess-ledger>"), "召回段必须在清单正文之前");
+};
+
+/* ═══════════════ Q1 返修：M-1（注入来源）/ M-2（两个 digest）/ 静态 import ═══════════════ */
+
+tests["M-1 只有真人来源能当 query：9 种注入 source 全部跳过（复用 keeper 的 HUMAN_SOURCES）"] = (t) => {
+  const INJECTED = [
+    "runtime-context",
+    "time-context",
+    "compact-checkpoint",
+    "subagent-settled",
+    "agent-message",
+    "plugin:hindsight",
+    "skill-catalog",
+    "tool-jobs",
+    "chess-context",
+  ];
+  t.eq(INJECTED.length >= 9, true, "至少覆盖 9 种注入来源");
+  for (const kind of INJECTED) {
+    const injected = { id: `inj-${kind}`, role: "user", content: [{ type: "text", text: "看 src/rooms/ledger.mjs 的 renderLedger" }], source: { kind } };
+    const real = userMessage("继续，先不改");
+    // 注入排在最后 ⇒ 必须继续往前找到真 user
+    t.eq(latestUserText([real, injected]), "继续，先不改", `${kind} 排在最后也不许被当 query`);
+    t.eq(latestUserText([injected]), "", `只有 ${kind} 时必须返回空串（不能拿注入去召回）`);
+  }
+  // keeper 的 HUMAN_SOURCES（user / prompt / human）必须被采用
+  for (const kind of ["user", "prompt", "human"]) {
+    const message = { id: `h-${kind}`, role: "user", content: [{ type: "text", text: `人话 ${kind}` }], source: { kind } };
+    t.eq(latestUserText([message]), `人话 ${kind}`, `${kind} 是真人来源，必须被采用`);
+  }
+  // 无 source.kind（旧格式）⇒ 才按 role 回退
+  t.eq(latestUserText([{ id: "n1", role: "user", content: [{ type: "text", text: "旧格式人话" }] }]), "旧格式人话", "无 source ⇒ role=user 回退");
+  t.eq(latestUserText([{ id: "n2", role: "assistant", content: [{ type: "text", text: "模型话" }] }]), "", "无 source 且 role=assistant ⇒ 不采用");
+  // `{message:{…}}` 包装形状：内层 source.kind 同样要拦
+  const wrapped = { message: { id: "w", role: "user", content: [{ type: "text", text: "<time-context>" }], source: { kind: "time-context" } } };
+  t.eq(latestUserText([wrapped, userMessage("真问题")]), "真问题", "内层 message 的 source.kind 也必须被拦");
+};
+
+tests["M-1 接线：recall 的 query 只取真人文本（注入消息排在最后也抢不走）"] = (t) => {
+  const g = graphWithFailure();
+  const stub = recallStub("<query-recall>- x</query-recall>");
+  run(makeSession({ id: "m1-wire" }), g, makeState(), {
+    config: RECALL_CONFIG,
+    payloadMessages: [
+      userMessage("为什么 src/rooms/ledger.mjs 会截断？"),
+      { id: "ctx", role: "user", content: [{ type: "text", text: "# runtime context\n看 src/rooms/hot-inject.mjs" }], source: { kind: "runtime-context" } },
+    ],
+    renderQueryRecall: stub,
+  });
+  t.eq(stub.calls.length, 1, "召回一次");
+  t.eq(stub.calls[0].queryText, "为什么 src/rooms/ledger.mjs 会截断？", "注入消息排在最后也不许抢走 query");
+};
+
+tests["M-2 同 query + 新命中边 + 1 事件 ⇒ 必须按原限流 skip（不许每步 replace）"] = (t) => {
+  const g = createGraph({ sessionId: "s1", cwd: "D:/fixture/proj" });
+  const keeperState = makeState();
+  observeEvent(g, userEvent("先读 ledger", 1), keeperState);
+  observeEvent(g, assistantEvent("c1", "read", { file_path: "src/rooms/ledger.mjs" }, 2), keeperState);
+  observeEvent(g, resultEvent("c1", "renderLedger 在 ledger.mjs:120 截断", 3, true), keeperState);
+  const query = "为什么 src/rooms/ledger.mjs 的 renderLedger 会截断？";
+  const stub = recallStub((_q, graph) => `<query-recall>命中 ${Object.keys(graph.edges).length} 条</query-recall>`);
+  const session = makeSession({ id: "m2" });
+  const state = makeState();
+  const first = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage(query)], renderQueryRecall: stub });
+  t.eq(first.action, "append", "首次注入");
+  commitAppend(session, first);
+  t.eq(stub.calls.length, 1, "首次召回一次");
+  // 同一个问题，图上多一条**命中**边（召回文本会变），事件只走 1 个
+  observeEvent(g, assistantEvent("c2", "read", { file_path: "src/rooms/ledger.mjs" }, 10), keeperState);
+  observeEvent(g, resultEvent("c2", "还是 ledger 的截断", 11, true), keeperState);
+  session.setSeq(session.seq + 1);
+  const appendedBefore = session.appended.length;
+  const second = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage(query)], renderQueryRecall: stub });
+  t.eq(second.action, "skip", "同 query 的召回文本变化不许绕过限流");
+  t.eq(second.reason, "throttled-events", `原因应为 throttled-events，实际 ${second.reason}`);
+  t.eq(session.appended.length, appendedBefore, "不许写 surface（没有 replace）");
+  t.eq(stub.calls.length, 2, "召回仍要算（文本变了，只是还没到送达时机）");
+};
+
+tests["M-2 query 变了但召回文本一字不差 ⇒ identical，并把 query digest 记账"] = (t) => {
+  const g = graphWithFailure();
+  const same = "<query-recall>- 同一条证据</query-recall>";
+  const session = makeSession({ id: "m2b" });
+  const state = makeState();
+  commitAppend(
+    session,
+    run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage("看 src/rooms/ledger.mjs")], renderQueryRecall: recallStub(same) }),
+  );
+  const q2 = "那 src/rooms/hot-inject.mjs 呢？";
+  const second = run(session, g, state, { config: RECALL_CONFIG, payloadMessages: [userMessage(q2)], renderQueryRecall: recallStub(same) });
+  t.eq(second.action, "skip", "召回文本没变 ⇒ 不许重写 surface");
+  t.eq(second.reason, "identical", "identical 判据仍看召回文本");
+  t.eq(state.lastLedgerQueryDigest, sha(q2), "query digest 必须记账（否则之后每次图变都绕过限流）");
+  t.eq(state.lastLedgerQueryRecallDigest, sha(same), "召回文本 digest 同时记账");
+};
+
+tests["M-2 默认关：两个 Q1 状态字段都不读不写（状态形状与旧版逐字相同）"] = (t) => {
+  const g = graphWithFailure();
+  const session = makeSession({ id: "m2-off" });
+  const state = makeState();
+  commitAppend(session, run(session, g, state, { payloadMessages: [userMessage("看 src/rooms/ledger.mjs")], renderQueryRecall: recallStub("<query-recall>不许出现</query-recall>") }));
+  t.eq(Object.prototype.hasOwnProperty.call(state, "lastLedgerQueryDigest"), false, "默认关不许写 lastLedgerQueryDigest");
+  t.eq(Object.prototype.hasOwnProperty.call(state, "lastLedgerQueryRecallDigest"), false, "默认关不许写 lastLedgerQueryRecallDigest");
+};
+
+tests["Q1 静态 import：直接 import query-recall 与 keeper，不再顶层动态软加载"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "hot-inject.mjs"), "utf8");
+  t.includes(src, 'from "./query-recall.mjs"', "必须静态 import 核心召回模块");
+  t.includes(src, 'from "./keeper.mjs"', "必须复用 keeper 的注入来源判据（HUMAN_SOURCES）");
+  t.eq(/await import\(/.test(src), false, "不许再有顶层 await import（软加载已退役）");
+  t.eq(src.includes("renderQueryRecallCore = null"), false, "不许再有软加载兜底变量");
+  t.includes(src, "锚点召回失败", "never-throws 仍在调用点（renderRecallBlock 的 catch）");
 };

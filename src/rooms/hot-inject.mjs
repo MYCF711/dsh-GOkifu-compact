@@ -26,13 +26,27 @@
  *   现在：值集合变了 ⇒ 绕过限流立刻送达；值集合没变 ⇒ 仍按原判据跳过（不重复注入同值）。
  *   **guard 关掉时** `factsUnchanged` 恒真、`factDigest` 恒 `""` ⇒ ③ 的判据逐字不变。
  *
- * 错误语义：**全部吞错并返回原 decision** —— 注入失败绝不阻塞对话。
+ * ★ Q1（2026-11-16）补第 ⑧ 条 —— **锚点召回的送达**（实验线，默认关）：
+ *   `config.queryRecall === true` 时，从**本轮最新 user 文本**里取 query，交给核心模块
+ *   `query-recall.mjs` 的 `renderQueryRecall(graph, queryText, {limit,maxChars})`；
+ *   它返回非空 `text` 才作为一段加在 **pressure 行之后、清单正文之前**。
+ *   ★ M-2：**两个 digest 分开**（`lastLedgerQueryDigest` = query 文本；`lastLedgerQueryRecallDigest` = 召回文本）：
+ *     · query 变了 ⇒ 允许**绕过限流**立刻送达（否则换文件永远等不到）；
+ *     · 同 query、图上只是多了命中边 ⇒ 召回文本变了也**仍按原限流**（否则图每长一条边就每步 replace）。
+ *   「identical」判据仍看**召回文本**是否一字不差；没有召回段时两个 digest 都是 `""`（判据与旧行为逐字相同）。
+ *   开关关掉 ⇒ 召回器**一次都不调用**、渲染一个字符都不变、两个状态字段**不读不写**。
  *
- * 依赖：R00（`failureEdges`/`sha`）、R06（`renderLedger`）。
+ * 错误语义：**全部吞错并返回原 decision** —— 注入失败绝不阻塞对话。
+ *   （召回器抛错时只丢召回段，热清单照常注入。）
+ *
+ * 依赖：R00（`failureEdges`/`sha`）、R03（`keeper.injectionKind` 判「人话来源」）、R06（`renderLedger`）、
+ *       R17（`renderQueryRecall`，静态 import；调用点仍有 never-throws 兜底）。
  */
 
 import { failureEdges, sha } from "./kifu-model.mjs";
+import { injectionKind } from "./keeper.mjs";
 import { renderLedger, renderMinimalLedger, valueFactDigest } from "./ledger.mjs";
+import { renderQueryRecall as renderQueryRecallCore } from "./query-recall.mjs";
 
 /** 限流：两次注入至少隔这么多事件。 */
 export const INJECT_MIN_EVENTS = 40;
@@ -55,6 +69,14 @@ export const HOT_LEDGER_REPIN_AFTER = 3;
 //   而真相是「这条已过时、以最新那条为准」。仍然保留标签名，让模型知道被折叠的是哪类块。
 export const LEDGER_STUB_TEXT = "[stale chess-ledger elided — superseded by the latest <chess-ledger>; the plugin keeps the full trace]";
 
+/**
+ * ★ Q1：召回段的固定预算 —— **不开放配置**。
+ * 理由同 C524：每多一个配置键就要同步 golden / UI 表 / 文档，而这一段的目的是「小、可预测」；
+ * 条数与字符上限由核心模块的机械召回保证（零模型调用），这里只钉住调用参数。
+ */
+export const QUERY_RECALL_LIMIT = 6;
+export const QUERY_RECALL_MAX_CHARS = 1200;
+
 /** 消息的纯文本（用于「内容一字不差就不动」的判定）。 */
 export function messageText(message) {
   const content = message?.content;
@@ -75,6 +97,85 @@ export function hasLedgerState(graph) {
   if ((graph?.rootUserNodeIds ?? []).some((id) => nodes[id])) return true;
   if (Object.values(nodes).some((n) => n?.kind === "agent" && (n.goal || n.worldHash))) return true;
   return Object.values(nodes).some((n) => (n.constraints ?? []).length > 0);
+}
+
+/**
+ * ★ Q1：这条消息**是不是真人输入**（召回 query 只认人话）。
+ *
+ * 判据**复用 keeper 的 HUMAN_SOURCES**（经它导出的 `injectionKind`：返回 `null` = user/prompt/human）：
+ * 会话里会混进大量**注入消息**（`runtime-context` / `time-context` / `compact-checkpoint` /
+ * `subagent-settled` / `agent-message` / `plugin:hindsight` / `skill-catalog` / `tool-jobs` /
+ * 我们自己的 `chess-context` …），它们的 role 也常常是 `user` —— 只看 role 会把注入当成用户问题，
+ * 于是拿一段系统上下文去召回（还会自我喂养）。
+ * `source.kind` **缺省**（旧格式 / 测试夹具）时才按 `role === "user"` 回退。
+ *
+ * @param {object} message
+ * @returns {boolean}
+ */
+export function isHumanQueryMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  const inner = message.message && typeof message.message === "object" ? message.message : null;
+  const source = message.source ?? inner?.source;
+  const role = message.role ?? inner?.role;
+  // ★ 无 kind（旧格式）⇒ 按 role 回退；有 kind ⇒ 用 keeper 的白名单（注入一律不算人话）。
+  if (source === undefined || source === null || source.kind === undefined || source.kind === null) return role === "user";
+  return injectionKind({ source }) === null;
+}
+
+/**
+ * ★ Q1：本轮**最新一条真人 user 消息**的纯文本（召回 query）。
+ *
+ * 两处来源，按优先级：本轮 `payloadMessages`（claims 的原始消息）→ 必要时退回 `decision.messages`。
+ * 为什么必须是**最新**那条：旧 user 文本早已被模型读过，拿它当 query 等于每轮召回同一批旧条目，
+ * 与「解决当前这一步的问题」无关。
+ * 为什么只认人话：见 `isHumanQueryMessage` —— 注入消息（含我们自己的热清单）role 也是 `user`。
+ *
+ * @param {Array} payloadMessages 本轮 claims 的原始消息
+ * @param {Array} [decisionMessages] waterfall 当前 decision 的消息（payload 里挑不出来时的兜底）
+ * @returns {string} 找不到人话 user 文本时返回空串
+ */
+export function latestUserText(payloadMessages = [], decisionMessages = []) {
+  const latest = (list) => {
+    if (!Array.isArray(list)) return "";
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const message = list[i];
+      if (!isHumanQueryMessage(message)) continue;
+      const inner = message.message && typeof message.message === "object" ? message.message : null;
+      const text = messageText(message) || messageText(inner ?? {});
+      if (text.trim() !== "") return text;
+    }
+    return "";
+  };
+  const fromPayload = latest(payloadMessages);
+  return fromPayload !== "" ? fromPayload : latest(decisionMessages);
+}
+
+/**
+ * ★ Q1：召回段（`{ text, digest }`），空串表示**不加段**。
+ *
+ * 四道闸：开关（调用方判）→ 有 query → 有召回器 → 核心模块返回非空 text。
+ * 无锚点 / 无匹配 ⇒ 核心模块返回 `text:""` ⇒ 这里也返回空串（不加任何占位）。
+ * 召回器抛错 ⇒ 只丢召回段并 warn 一行，**热清单照常注入**（never-throws 在本层的落点）。
+ *
+ * @param {{graph: object, queryText: string, render: Function|null, log?: Function}} args
+ * @returns {{text: string, digest: string}}
+ */
+export function renderRecallBlock({ graph, queryText = "", render = null, log = () => {} }) {
+  if (String(queryText ?? "").trim() === "") return { text: "", digest: "" };
+  if (typeof render !== "function") return { text: "", digest: "" };
+  try {
+    const recalled = render(graph, queryText, { limit: QUERY_RECALL_LIMIT, maxChars: QUERY_RECALL_MAX_CHARS });
+    const text = typeof recalled?.text === "string" ? recalled.text.trim() : "";
+    if (text === "") return { text: "", digest: "" };
+    return { text, digest: sha(text) };
+  } catch (error) {
+    try {
+      log("warn", `chess-context: 锚点召回失败（跳过召回段，热清单照常注入）：${String(error)}`);
+    } catch {
+      /* 日志坏掉也不许影响注入 */
+    }
+    return { text: "", digest: "" };
+  }
 }
 
 /**
@@ -262,6 +363,7 @@ export function elideLegacyLedgers(session, { createUserMessage, keep = 1 } = {}
  * @param {Function} args.createUserMessage  R09 注入（不 import DSH）
  * @param {Function} [args.onBudget]      (ledger, session) => void（P7 预算消费，归 R09）
  * @param {Function} [args.onLog]         (level, line) => void
+ * @param {Function} [args.renderQueryRecall]  召回器（默认用软加载的核心模块；测试可注入）
  * @returns {{decision: object, action: "replace"|"append"|"skip", reason: string}}
  */
 export function decideInjection({
@@ -279,6 +381,9 @@ export function decideInjection({
   //   启发来自 Focus 论文（agent 自主决定何时整理上下文）：把"要不要提前压"从不可见变成可决策。
   //   默认 null ⇒ 一行都不加，既有渲染与预算**零变化**（这也是不改 renderLedger 的原因）。
   pressurePct = null,
+  // ★ Q1：召回的注入位。生产路径不传 ⇒ 用软加载的 `query-recall.mjs` 的 `renderQueryRecall`；
+  //   直测时注入确定性的假召回器（不必依赖另一把刀是否已落地）。
+  renderQueryRecall = null,
 }) {
   const log = (level, line) => {
     try {
@@ -321,6 +426,33 @@ export function decideInjection({
     const factGuardOn = config?.factGuard === true;
     const factDigest = factGuardOn ? valueFactDigest(graph) : "";
     const factsUnchanged = !factGuardOn || (state.lastLedgerFactDigest ?? "") === factDigest;
+    // ★ Q1：**锚点召回**（实验线，默认关）。关掉 ⇒ 取都不取、算都不算（`recall.text === ""`、
+    //   `recallDigest === ""` ⇒ 下面所有判据与旧行为逐字相同）。
+    //   打开 ⇒ 只在**本轮最新 user 文本**有锚点时由核心模块给出召回段；
+    //   无锚点 / 无匹配 / 核心模块缺席 / 召回器抛错 ⇒ 空串（一段都不加，不是空占位）。
+    const queryRecallOn = config?.queryRecall === true;
+    // ★ Q1：query 文本本身（人话来源由 `latestUserText` 判；注入消息不算）。
+    const queryText = queryRecallOn ? latestUserText(payloadMessages, decision?.messages) : "";
+    const recall = queryRecallOn
+      ? renderRecallBlock({
+          graph,
+          queryText,
+          render: typeof renderQueryRecall === "function" ? renderQueryRecall : renderQueryRecallCore,
+          log,
+        })
+      : { text: "", digest: "" };
+    const recallText = recall.text;
+    const recallDigest = recall.digest;
+    // ★ M-2：**两个 digest 分开**，各自回答一个不同的问题：
+    //   · `queryDigest`（query 原文）⇒「这是不是**另一个问题**」。变了才允许绕过限流立刻送达；
+    //     否则「上一轮问 A 文件、这一轮问 B 文件」会被 same-digest / 限流静默挡掉，召回线等于没开。
+    //   · `recallDigest`（召回段文本）⇒「送达的内容变没变」。identical 判据仍看它；
+    //     但**它单独变化不许绕过限流** —— 同一问题下图上多一条命中边是常态，
+    //     每长一条边就 replace 一次 = 每步重写前缀（C600 实测 replace 中位重读 28 万 token）。
+    //   两个字段都只在开关打开时读/写（`!queryRecallOn` 短路）—— 默认路径的状态形状与旧版逐字相同。
+    const queryDigest = queryRecallOn && queryText.trim() !== "" ? sha(queryText) : "";
+    const queryChanged = queryRecallOn && (state.lastLedgerQueryDigest ?? "") !== queryDigest;
+    const recallUnchanged = !queryRecallOn || (state.lastLedgerQueryRecallDigest ?? "") === recallDigest;
     // ★ C563：**先判"这次到底要不要写"，再渲染**。渲染是这条路上最贵的一步
     //   （真机最大会话 142.4ms → 优化后 ~25ms/次），而实测 3,418 步里只写了 28 次（1%）。
     //   以前是先渲染再限流 ⇒ **99% 的渲染白做**。这里把限流判据提前（它们不需要渲染文本），
@@ -332,10 +464,18 @@ export function decideInjection({
       existingEarly === null && state.lastLedgerDigest === digestEarly && state.lastLedgerFailureCount !== undefined;
     // 清单还在、且 digest 与上次注入相同 ⇒ 内容没变（digest 只由根目标/约束/失败数决定）。
     // 这条必须在限流之前判，否则"内容没变"会被报成 "throttled-events"（语义没变，但原因变了）。
-    if (existingEarly && warning === "" && state.lastLedgerDigest === digestEarly && factsUnchanged) {
+    // ★ Q1：召回段也必须没变 —— 否则 query 换了一个文件也判 identical，召回永远送不出去。
+    if (existingEarly && warning === "" && state.lastLedgerDigest === digestEarly && factsUnchanged && recallUnchanged) {
+      // ★ M-2：内容一字不差也算「这个问题已经看过了」—— 记下 query digest，
+      //   否则 queryChanged 会一直为真，之后任何图变化都绕过限流。
+      if (queryRecallOn) {
+        state.lastLedgerQueryDigest = queryDigest;
+        state.lastLedgerQueryRecallDigest = recallDigest;
+      }
       return { decision, action: "skip", reason: "identical" };
     }
-    if (!lostToFoldEarly && warning === "" && factsUnchanged) {
+    // ★ M-2：**只有 query 变了**才绕过限流（召回文本单独变化不算「新问题」，仍按原限流走）。
+    if (!lostToFoldEarly && warning === "" && factsUnchanged && !queryChanged) {
       const minEventsEarly = (() => {
         const raw = Number(config?.hotLedgerMinEvents);
         return Number.isFinite(raw) && raw >= 1 ? Math.min(500, Math.trunc(raw)) : INJECT_MIN_EVENTS;
@@ -371,8 +511,10 @@ export function decideInjection({
 
     // ★ C335：压力 ≥80% 时加一行（约 20 token）。**不加**到 renderLedger 里，是为了让默认路径
     //   （没有压力信息 / 压力不高）一个字符都不变 —— 既有的 token 预算断言全部不受影响。
+    // ★ Q1：召回段排在**压力行之后、清单正文之前**（`recallText === ""` 时数组里就是空串，
+    //   filter 掉之后拼出来的字符串与旧版逐字相同）。
     const pressureLine = pressureHintLine(pressurePct);
-    const head = [warning, pressureLine].filter((line) => line !== "").join("\n");
+    const head = [warning, pressureLine, recallText].filter((line) => line !== "").join("\n");
     const ledgerText = head === "" ? ledger.text : `${head}\n${ledger.text}`;
     if (!ledgerText) return { decision, action: "skip", reason: "empty" };
 
@@ -383,6 +525,13 @@ export function decideInjection({
       // ★ AX-08：值集合可能变了、但渲染出来的那几条一模一样（例如新值落在省略计数里）——
       //   记下 digest，别让「值变了」每步都重渲染一次；省略行本身的数字一变，上面那条就不成立了。
       state.lastLedgerFactDigest = factDigest;
+      // ★ Q1：同理 —— 召回段也许变了但渲染文本一字不差（理论上 digest=sha(text) 已排除，
+      //   这里仍记一次是为了让状态与「已送达」保持一致，与 factDigest 是同一个理由）。
+      //   只在开关打开时写（契约：默认关闭时不读不写这个字段）。
+      if (queryRecallOn) {
+        state.lastLedgerQueryDigest = queryDigest;
+        state.lastLedgerQueryRecallDigest = recallDigest;
+      }
       return { decision, action: "skip", reason: "identical" };
     }
 
@@ -391,7 +540,8 @@ export function decideInjection({
     const lostToFold = existing === null && state.lastLedgerDigest === digest && state.lastLedgerFailureCount !== undefined;
     // 告警不走限流：它出现的那一刻就是必须被看见的那一刻。
     // ★ AX-08：值事实变了同样不走限流 —— 成功工具结果不产生失败边，按失败边口径永远等不到。
-    if (!lostToFold && warning === "" && factsUnchanged) {
+    // ★ M-2：同理 —— **query 变了**才不走限流；召回文本单独变化仍按原限流。
+    if (!lostToFold && warning === "" && factsUnchanged && !queryChanged) {
       // ★ C248：间隔可配（默认 40 = 旧行为）。见 config-schema 里 `hotLedgerMinEvents` 的说明。
       const minEvents = (() => {
         const raw = Number(config?.hotLedgerMinEvents);
@@ -469,6 +619,12 @@ export function decideInjection({
         // ★ AX-08：记住这次送达的值事实 —— 下一次同样的值就回到「identical / same-digest」跳过
         //   （**不重复注入同值**）。guard 关掉时这里恒是 `""`，状态形状不新增语义。
         state.lastLedgerFactDigest = factDigest;
+        // ★ Q1：记住这一次送达的召回段 —— 同一 query 的下一步回到「identical」跳过。
+        //   只在开关打开时写（契约：默认关闭时不读不写这个字段）。
+        if (queryRecallOn) {
+          state.lastLedgerQueryDigest = queryDigest;
+          state.lastLedgerQueryRecallDigest = recallDigest;
+        }
         log("debug", `chess-context: 替换失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens（surface 仍只有一条）`);
         // ★ C460：**这次替换到底作废了多少缓存**，取决于清单后面还有几条消息。
         //   doctor 一直说"replace = 改写 surface 中间那条 ⇒ 从那里起前缀失配"，但没说"中间"是哪儿。
@@ -489,6 +645,11 @@ export function decideInjection({
     state.lastLedgerInjectSeq = session.seq;
     state.lastLedgerFailureCount = ledger.failureCount;
     state.lastLedgerFactDigest = factDigest;
+    // ★ Q1：成功注入后记下召回段 digest（见上面替换路径的同一条说明；关着时不写）。
+    if (queryRecallOn) {
+      state.lastLedgerQueryDigest = queryDigest;
+      state.lastLedgerQueryRecallDigest = recallDigest;
+    }
     log(
       "debug",
       `chess-context: 注入失败清单 ${ledger.failureCount} 条 / ~${ledger.tokens} tokens` +

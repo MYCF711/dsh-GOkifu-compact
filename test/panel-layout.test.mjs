@@ -27,6 +27,7 @@ export const ADVANCED_FIELD_KEYS = Object.freeze([
   "hotLedgerMaxTokens",
   "hotLedgerMarkers",
   "hotLedgerReplace",
+  "queryRecall",
   "transposition",
   "tier2After",
   "firstFoldRatio",
@@ -301,7 +302,7 @@ function assertOverviewTree(tree) {
   if (findAll(tree, (node) => node.props?.["data-fold-compact"] === "false").length !== 0) throw new Error("完整折痕列表泄漏到总览");
   if (fieldKeys(tree).length !== 0) throw new Error("配置字段泄漏到总览");
   const text = textOf(tree);
-  for (const hidden of ["高级参数（18 项）", "常用配置（4 个控件）", ADVANCED_WARNING]) {
+  for (const hidden of ["高级参数（19 项）", "常用配置（4 个控件）", ADVANCED_WARNING]) {
     if (text.includes(hidden)) throw new Error(`总览泄漏了其它 tab 内容：${hidden}`);
   }
   // ★ 用户原话：健康检查 / 最近活跃会话 / 状态 / 补账「应该放在明显的地方」—— **必须在总览**。
@@ -314,7 +315,7 @@ function assertOverviewTree(tree) {
 function assertConfigTree(tree) {
   assertMutualExclusivity(tree, "config");
   const text = textOf(tree);
-  for (const wanted of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING]) {
+  for (const wanted of ["常用配置（4 个控件）", "高级参数（19 项）", ADVANCED_WARNING]) {
     if (!text.includes(wanted)) throw new Error(`配置 tab 缺少：${wanted}`);
   }
   // ★ 用户原话：健康检查 / 最近活跃会话 / 补账 在总览（不埋进配置最底下）。
@@ -385,7 +386,7 @@ export const CONFIG_TREE = clickTab(configPanel, "config");
 export const TAB_CONTENT_INVENTORY = [
   "=== TAB CONTENT INVENTORY ===",
   "OVERVIEW: 压缩状态 / 今日投入产出 / 最近折痕",
-  "CONFIG: 常用配置（4 个控件） / 高级参数（18 项） / 高级警告 / 配置保存控件与来源 / 健康检查 / 最近活跃会话 / 补账操作 / 检查更新",
+  "CONFIG: 常用配置（4 个控件） / 高级参数（19 项） / 高级警告 / 配置保存控件与来源 / 健康检查 / 最近活跃会话 / 补账操作 / 检查更新",
 ].join("\n");
 export const CONFIG_RENDER_EVIDENCE = [
   "=== CONFIG TAB: REAL REACT HOST TREE (1280x720; style/event props omitted) ===",
@@ -463,7 +464,7 @@ export const tests = {
     }
     // ★ 用户原话：健康检查 / 最近活跃会话 / 补账 / 检查更新「应该放在明显的地方」—— 它们（及其统计）**必须在总览**。
     //   只禁「配置参数」平铺到总览；「状态与操作」及其统计（涉及会话/棋谱总数/全库失败边）是用户要看的，**不算次级信息**。
-    for (const hidden of ["常用配置（4 个控件）", "高级参数（18 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "配置参数不许平铺到总览");
+    for (const hidden of ["常用配置（4 个控件）", "高级参数（19 项）", ADVANCED_WARNING]) t.notIncludes(text, hidden, "配置参数不许平铺到总览");
     for (const wanted of ["健康检查", "最近活跃会话", "开始补账", "检查更新"]) t.includes(text, wanted, `总览缺少「状态与操作」：${wanted}`);
     const sixMarkPanel = panelRenderer(fixture({ foldMarks: makeMarks(6) }));
     t.eq(findAll(sixMarkPanel.runtime.tree(), (node) => node.props?.["data-fold-row"] === "true").length, 5, "有6条数据时总览也只取最近5条");
@@ -515,18 +516,18 @@ export const tests = {
     const config = TAB_SWITCH_PROOF[2];
     t.eq(config.foldRows, 0, "配置 tab 不再平铺任何折痕");
     t.eq(config.primaryCards, 0, "配置 tab 不平铺总览卡片");
-    t.eq(config.fieldCount, 22, "配置 tab 同时包含常用4项与高级18项");
+    t.eq(config.fieldCount, 23, "配置 tab 同时包含常用4项与高级19项");
     t.eq(config.advancedWarning, true, "高级配置警告真实可见");
     t.eq({ ...TAB_SWITCH_PROOF[3], step: "initial" }, TAB_SWITCH_PROOF[0], "回切总览后真实树状态还原");
   },
 
-  "③b 配置 tab：常用4项 + 高级18项 + 警告 + 健康 + 活跃会话 + 补账；无内层滚动容器"(t) {
+  "③b 配置 tab：常用4项 + 高级19项 + 警告 + 健康 + 活跃会话 + 补账；无内层滚动容器"(t) {
     console.log(TAB_CONTENT_INVENTORY);
     console.log(CONFIG_RENDER_EVIDENCE);
     const panel = panelRenderer();
     const tree = clickTab(panel, "config");
-    t.eq(assertConfigTree(tree), [...T.COMMON_FIELD_KEYS, ...ADVANCED_FIELD_KEYS], "配置字段顺序为常用4项后高级18项，诊断卡集中在同一 tab");
-    t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 18, "22 - 4 = 18");
+    t.eq(assertConfigTree(tree), [...T.COMMON_FIELD_KEYS, ...ADVANCED_FIELD_KEYS], "配置字段顺序为常用4项后高级19项，诊断卡集中在同一 tab");
+    t.eq(T.FIELDS.length - T.COMMON_FIELD_KEYS.length, 19, "23 - 4 = 19");
     const threshold = loadClient();
     assertFixedThresholdControl(threshold.T, threshold.runtime);
     const scrolling = findAll(tree, (node) => node.props?.style?.overflowY === "auto" && node !== tree);

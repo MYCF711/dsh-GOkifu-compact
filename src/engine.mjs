@@ -4214,6 +4214,9 @@ const RESOLVE_ORDER = [
   // ★ AX-06（2026-11-07）：事实守卫开关（默认 false，语义在 `resolveConfig` 里净化：只有字面 true 才开）。
   //   不加进这张白名单 ⇒ 宿主传进来的 `factGuard` 会被 `resolveChess` 静默丢掉（开关永远打不开）。
   "factGuard",
+  // ★ Q1 B-1（2026-11-16）：锚点召回开关。**必须**进这张白名单 —— 否则 UI 里打开了 `queryRecall`，
+  //   `resolveChess` 也会把它丢掉（`this.chess.queryRecall` 恒 `undefined`），热注入永远看不到开关。
+  "queryRecall",
 ];
 
 /** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */

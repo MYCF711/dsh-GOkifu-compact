@@ -17,7 +17,7 @@
 | `重启验收清单-2026-11-02.md` | 人工整理（**1.17.6 版**：8 步判断新代码是否接管，每步给期望输出与不符处置） | 2026-11-02 | ①版本/进程 ②三条等重启的观测（注入动作 / fold 缓存命中 / 我们的指令占输入 / 归档收尾）③面板两卡+已修正失败 ④补账 dryRun→真跑 ⑤**真的归档一个会话**看 `closeout`（C216 最终判据）⑥bench 417 + graph-audit + boundary + handoff ⑦legacy foldMark（须先退出 DSH）⑧全套回归 971 passed |
 | `发布核对-2026-11-02.md` | 只读核对（`npm view` / `npm pack --dry-run` / `git tag` / `check-maintenance`） | 2026-11-02 | 本地 **1.17.1** vs registry **1.16.0**（1.17.0/1.17.1 均未发布）；8 个 tag 最后一个 `v1.16.0`；`check-maintenance` 失败 1；pack **128 files / 2.8 MB** 且全部来自 git 跟踪；附三步发布命令与逐步回滚 |
 | `变更审查包-C110-C140-2026-11-02.md` | 人工整理（把本轮 31 条提交按「行为变更 / 只增判据 / 文档判据」分开 + 5 个请审查者回答的问题） | 2026-11-02 | 供独立审查视角逐条挑错：B1–B7 行为变更（含 **B2 会删文件**）、随机化判据的假红/假绿风险、**已标注的 4 条诚实缺口**、边界自查 |
-| `持续优化-总览-2026-11-02.md` | 人工汇总（C1–C663 六条线 + 剩余待办；条目数只认仓库根 CHANGELOG 当次，不在本行抄第二份） | 2026-11-02 | 六条线的 2 分钟版：压缩质量/边界审计/落盘回滚/发布共存/文档一致性/调研否决；**唯一待办 = 重启 DSH** |
+| `持续优化-总览-2026-11-02.md` | 人工汇总（C1–C665 六条线 + 剩余待办；条目数只认仓库根 CHANGELOG 当次，不在本行抄第二份） | 2026-11-02 | 六条线的 2 分钟版：压缩质量/边界审计/落盘回滚/发布共存/文档一致性/调研否决；**唯一待办 = 重启 DSH** |
 | `k2-prune-ab-2026-11-06.json` | `node scripts/tool-result-prune-ab.mjs --home <DSH_HOME> --limit 10 --json`（只读离线 A/B） | 2026-11-06 | **已取代（SUPERSEDED）**：旧 10 会话因 raw/ norm 空白差异误报 14/23 条 missing；原 failureRecall **80.23%→77.26%** 与 REJECT 不再作为结论；仅保留作历史 |
 | `k32-snippet-normalization-2026-11-06.json` | 修复后 `isRememberedByGraph` + 受控 K-2（≤5MB、排除当前会话） | 2026-11-06 | P2：285 条 snippet，raw 缺 **14** → 归一化后缺 **0**；K-2 受控 10 会话 saved≈**1,122,809 tok**，failure/constraint **1→1**，**CANDIDATE**；仍不默认开启、未跑 reader |
 | `k2-controlled-2026-11-06.json` | 受控 K-2 原始输出（`MAX_MB=5`、排除当前根会话、10 条） | 2026-11-06 | evaluated=10 / failureEdges=30 / constraints=32；baseline 2,025,951 tok → every-step 903,142 tok，saved **1,122,809**；failure/constraint 1→1；decision=CANDIDATE；无会话 id |
@@ -114,3 +114,17 @@
 
 > **注意**：`real-fold-trigger` / `real-model` 会调本机 magpie 网关，**不是零成本**；
 > 前三个（bench / handoff / doctor）零模型调用，可以随便跑。
+
+---
+
+## Q1 查询召回（2026-11-16）· Stage A / Stage B 真实配对 / 独立复核
+
+| 文件 | 生成命令 | 生成时间 | 关键数字 |
+|---|---|---|---|
+| `query-recall-stage-a.fixtures.json` | `node scripts/query-recall-stage-a.mjs`（默认只读、0 模型调用；`--write` 才落结果） | 2026-11-16 | 纯合成 15 题 / 5 类（文件锚点 · 符号锚点 · 无锚点 · 失败原因 · 预算与排序 · 长 action）；图：base 13 节点 12 边、noisy 21 节点 20 边、empty 0/0；无真实会话 id / 路径 / 正文 |
+| `query-recall-stage-a.json` | `node scripts/query-recall-stage-a.mjs --write` | 2026-11-16 | Stage A 实跑 PASS：15/15、证据命中 15/15、漏召 0、误召 0；含 impl.sha256；纯合成聚合，无模型调用 |
+| `query-recall-stage-a-perf.json` | `node scripts/query-recall-stage-a.mjs --home <DSH_HOME> --json` | 2026-11-16 | 最大真实图只读基准：10,118,188 B / 10,252 节点 / 10,470 边；340 次渲染、命中 240；p50=8.11ms / p95=9.779ms，派生命中 p95=9.996ms；不含会话 id / 路径 / 正文 |
+| `query-recall-prereg-v1.json` | 人工冻结（先于任何真实调用） | 2026-11-16 | **PREREGISTERED**：20 题 × 2 臂 × 3 样本 = **120 次硬上限、0 重试**；Stage A 未过不得运行；reader 继承冻结 `scripts/lme-pilot-reader.mjs`；7 个输入 + perf sha；合成题上限 POSITIVE_SIGNAL、可计分题 18 |
+| `query-recall-pilot.results.json` | `node scripts/query-recall-pilot.mjs --run --authorize q1-query-recall-stage-b-1` | 2026-11-16 | **120/120 完成、0 重试、0 调用错误**；逐样本 raw / normalized / usage / 多数票（全部纯合成题）；裁决 NEGATIVE_SIGNAL |
+| `query-recall-pilot-public.json` | 同上 runner 自动生成 | 2026-11-16 | A0 8/20 → A1 15/20；UNKNOWN 样本 30→5；B-06 退化；p95 2265→2838ms；**NOT_ADOPTED**；不含 raw / endpoint / 路径 / 会话 id |
+| `query-recall-review-final.md` | `q1-review` 初审/复审 + Lead 最终复验 | 2026-11-16 | 2 BLOCKER / 5 MAJOR / 7 MINOR 全部闭环；全量 2541/0；Stage A 15/15；真实派生 p95 9.996ms；最终 NEGATIVE_SIGNAL |

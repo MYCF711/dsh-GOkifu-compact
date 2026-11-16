@@ -1,0 +1,3988 @@
+{
+  "schema": "query-recall-pilot-results-v1",
+  "version": 1,
+  "experimentId": "q1-query-recall-stage-b-1",
+  "status": "SCORED",
+  "generatedAt": "2026-11-16T15:46:47.127Z",
+  "synthetic": true,
+  "stageAStatus": "PASS",
+  "callsUsed": 120,
+  "retriesUsed": 0,
+  "authorization": {
+    "token": "q1-query-recall-stage-b-1",
+    "stageAP95Ms": 9.996,
+    "stageAP95Source": "evidence/query-recall-stage-a-perf.json"
+  },
+  "stageA": {
+    "status": "PASS",
+    "file": "evidence/query-recall-stage-a.json",
+    "sha256": "fecb0b2a8888312033641d185a38b06c8e9a5b21e552c58e833a78dc72e490b7",
+    "fixturesSha256": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0",
+    "aggregate": {
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "misses": 0,
+      "falsePositives": 0,
+      "hitRate": 1,
+      "tasks": 15
+    },
+    "p95Ms": 9.996,
+    "impl": {
+      "registered": true,
+      "declared": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b",
+      "actual": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b",
+      "ok": true
+    },
+    "perf": {
+      "file": "evidence/query-recall-stage-a-perf.json",
+      "sha256": "d5d84c85a3b265857f9631430f229cac28a139f936e3537896420598e0d1eea9",
+      "p95": 9.996,
+      "deltaError": false,
+      "samples": 340,
+      "graphBytes": 10118188,
+      "nodes": 10252,
+      "edges": 10470
+    }
+  },
+  "frozen": {
+    "prereg": {
+      "file": "evidence/query-recall-prereg-v1.json",
+      "sha256": "af4ec6be188665914d980a3bb0e492945986a33888d36450862571c91aa4d42a"
+    },
+    "fixtures": {
+      "file": "evidence/query-recall-stage-a.fixtures.json",
+      "sha256": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0"
+    },
+    "stageAScript": {
+      "file": "scripts/query-recall-stage-a.mjs",
+      "sha256": "46a44e9e3e1c983928d96bf47469aa462b6facb5727d2643b84d3963b0a61fdf"
+    },
+    "stageATest": {
+      "file": "test/query-recall-stage-a.test.mjs",
+      "sha256": "a1eb7b3a852de29439effc36062431372b6de825d6a5488187b1a5d4cdf0c7de"
+    },
+    "reader": {
+      "file": "scripts/lme-pilot-reader.mjs",
+      "sha256": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365"
+    },
+    "grader": {
+      "file": "scripts/lme-task50.mjs",
+      "sha256": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1"
+    },
+    "impl": {
+      "file": "src/rooms/query-recall.mjs",
+      "sha256": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b"
+    }
+  },
+  "reader": {
+    "variant": "v1",
+    "postprocess": "none",
+    "temperature": 0,
+    "maxTokens": 2048,
+    "samplesPerArm": 3,
+    "retries": 0,
+    "model": "group/deepseek-v4.1-flash-1017",
+    "endpointSource": "LME_READER_ENDPOINT（由运维注入，本文件不记录）"
+  },
+  "run": {
+    "callsUsed": 120,
+    "retriesUsed": 0,
+    "maxCalls": 120,
+    "startedAt": "2026-11-16T15:42:54.556Z",
+    "finishedAt": "2026-11-16T15:46:47.124Z",
+    "runOrder": "task-major：每题先 A0 × 3 样本，再 A1 × 3 样本",
+    "serial": true
+  },
+  "decision": "NEGATIVE_SIGNAL",
+  "adoption": "NOT_ADOPTED",
+  "saturationTriggered": false,
+  "decisionCap": "POSITIVE_SIGNAL",
+  "decisionCapReason": "决策上限：20 题合成集的题面 = base 答案 + 召回块直接答案，只能证明读者会读块，不能证明真实工作收益 ⇒ 最高 POSITIVE_SIGNAL，绝不 ADOPT",
+  "scorableTasks": 18,
+  "decisionReasons": [
+    "逐题回归：B-06（A0 多数票对、A1 不对）"
+  ],
+  "gates": {
+    "stageA": true,
+    "stageAP95Ms": 9.996,
+    "pairedNoRegression": false,
+    "unknownNotIncreased": true,
+    "tokenPositive": true,
+    "p95Positive": false,
+    "saturationCap": true
+  },
+  "aggregate": {
+    "A0": {
+      "majorityCorrect": 8,
+      "majorityUnknown": 10,
+      "majorityWrong": 2,
+      "majorityInvalid": 0,
+      "unknownSamples": 30,
+      "wrongSamples": 8,
+      "correctSamples": 22,
+      "errorSamples": 0,
+      "inputTokens": 18819,
+      "outputTokens": 5856,
+      "totalTokens": 24675,
+      "tokensPerCorrectMajority": 2352.38,
+      "wallMs": {
+        "p50": 1085,
+        "p95": 2265,
+        "count": 60
+      }
+    },
+    "A1": {
+      "majorityCorrect": 15,
+      "majorityUnknown": 2,
+      "majorityWrong": 3,
+      "majorityInvalid": 0,
+      "unknownSamples": 5,
+      "wrongSamples": 11,
+      "correctSamples": 44,
+      "errorSamples": 0,
+      "inputTokens": 23883,
+      "outputTokens": 8103,
+      "totalTokens": 31986,
+      "tokensPerCorrectMajority": 1592.2,
+      "wallMs": {
+        "p50": 1163,
+        "p95": 2838,
+        "count": 60
+      }
+    }
+  },
+  "byFamily": {
+    "file": {
+      "tasks": 8,
+      "A0": {
+        "correct": 2,
+        "unknown": 5,
+        "wrong": 1,
+        "unknownSamples": 15
+      },
+      "A1": {
+        "correct": 7,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 2
+      }
+    },
+    "failure": {
+      "tasks": 3,
+      "A0": {
+        "correct": 2,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      },
+      "A1": {
+        "correct": 2,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "symbol": {
+      "tasks": 7,
+      "A0": {
+        "correct": 4,
+        "unknown": 3,
+        "wrong": 0,
+        "unknownSamples": 9
+      },
+      "A1": {
+        "correct": 6,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "budget": {
+      "tasks": 1,
+      "A0": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      },
+      "A1": {
+        "correct": 0,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "abstention": {
+      "tasks": 1,
+      "A0": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      },
+      "A1": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      }
+    }
+  },
+  "tasks": [
+    {
+      "id": "B-01",
+      "family": "file",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e2",
+            "count": 3,
+            "votes": {
+              "e2": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 951,
+            "outputTokens": 125,
+            "totalTokens": 1076
+          },
+          "wallMs": {
+            "p50": 944,
+            "p95": 1132,
+            "sum": 2939,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 1,
+              "sample": 0,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 39,
+                "totalTokens": 356
+              },
+              "latencyMs": 1132,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 2,
+              "sample": 1,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 47,
+                "totalTokens": 364
+              },
+              "latencyMs": 944,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 3,
+              "sample": 2,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 39,
+                "totalTokens": 356
+              },
+              "latencyMs": 863,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e2",
+            "count": 3,
+            "votes": {
+              "e2": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1509,
+            "outputTokens": 95,
+            "totalTokens": 1604
+          },
+          "wallMs": {
+            "p50": 1063,
+            "p95": 1163,
+            "sum": 3170,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 4,
+              "sample": 0,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 503,
+                "outputTokens": 25,
+                "totalTokens": 528
+              },
+              "latencyMs": 1063,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 5,
+              "sample": 1,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 503,
+                "outputTokens": 35,
+                "totalTokens": 538
+              },
+              "latencyMs": 944,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 6,
+              "sample": 2,
+              "ok": true,
+              "raw": "e2",
+              "normalized": "e2",
+              "graded": "e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 503,
+                "outputTokens": 35,
+                "totalTokens": 538
+              },
+              "latencyMs": 1163,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-02",
+      "family": "failure",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e5",
+            "count": 3,
+            "votes": {
+              "e5": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 948,
+            "outputTokens": 111,
+            "totalTokens": 1059
+          },
+          "wallMs": {
+            "p50": 1060,
+            "p95": 1082,
+            "sum": 3078,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 7,
+              "sample": 0,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 32,
+                "totalTokens": 348
+              },
+              "latencyMs": 1060,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 8,
+              "sample": 1,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 28,
+                "totalTokens": 344
+              },
+              "latencyMs": 936,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 9,
+              "sample": 2,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 51,
+                "totalTokens": 367
+              },
+              "latencyMs": 1082,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e5",
+            "count": 3,
+            "votes": {
+              "e5": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1470,
+            "outputTokens": 93,
+            "totalTokens": 1563
+          },
+          "wallMs": {
+            "p50": 1020,
+            "p95": 1021,
+            "sum": 3033,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 10,
+              "sample": 0,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 490,
+                "outputTokens": 28,
+                "totalTokens": 518
+              },
+              "latencyMs": 1021,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 11,
+              "sample": 1,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 490,
+                "outputTokens": 35,
+                "totalTokens": 525
+              },
+              "latencyMs": 992,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 12,
+              "sample": 2,
+              "ok": true,
+              "raw": "e5",
+              "normalized": "e5",
+              "graded": "e5",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 490,
+                "outputTokens": 30,
+                "totalTokens": 520
+              },
+              "latencyMs": 1020,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-03",
+      "family": "failure",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "normalizequery is not a function",
+            "count": 3,
+            "votes": {
+              "normalizequery is not a function": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 927,
+            "outputTokens": 94,
+            "totalTokens": 1021
+          },
+          "wallMs": {
+            "p50": 952,
+            "p95": 1152,
+            "sum": 2921,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 13,
+              "sample": 0,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 309,
+                "outputTokens": 36,
+                "totalTokens": 345
+              },
+              "latencyMs": 1152,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 14,
+              "sample": 1,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 309,
+                "outputTokens": 23,
+                "totalTokens": 332
+              },
+              "latencyMs": 817,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 15,
+              "sample": 2,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 309,
+                "outputTokens": 35,
+                "totalTokens": 344
+              },
+              "latencyMs": 952,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "normalizequery is not a function",
+            "count": 3,
+            "votes": {
+              "normalizequery is not a function": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1479,
+            "outputTokens": 108,
+            "totalTokens": 1587
+          },
+          "wallMs": {
+            "p50": 1008,
+            "p95": 1040,
+            "sum": 3028,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 16,
+              "sample": 0,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 32,
+                "totalTokens": 525
+              },
+              "latencyMs": 1008,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 17,
+              "sample": 1,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 39,
+                "totalTokens": 532
+              },
+              "latencyMs": 980,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 18,
+              "sample": 2,
+              "ok": true,
+              "raw": "normalizeQuery is not a function",
+              "normalized": "normalizeQuery is not a function",
+              "graded": "normalizequery is not a function",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 37,
+                "totalTokens": 530
+              },
+              "latencyMs": 1040,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-04",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "6",
+            "count": 3,
+            "votes": {
+              "6": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 930,
+            "outputTokens": 65,
+            "totalTokens": 995
+          },
+          "wallMs": {
+            "p50": 985,
+            "p95": 1045,
+            "sum": 2978,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 19,
+              "sample": 0,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 24,
+                "totalTokens": 334
+              },
+              "latencyMs": 948,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 20,
+              "sample": 1,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 20,
+                "totalTokens": 330
+              },
+              "latencyMs": 1045,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 21,
+              "sample": 2,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 21,
+                "totalTokens": 331
+              },
+              "latencyMs": 985,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "6",
+            "count": 3,
+            "votes": {
+              "6": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1122,
+            "outputTokens": 86,
+            "totalTokens": 1208
+          },
+          "wallMs": {
+            "p50": 958,
+            "p95": 969,
+            "sum": 2742,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 22,
+              "sample": 0,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 374,
+                "outputTokens": 22,
+                "totalTokens": 396
+              },
+              "latencyMs": 958,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 23,
+              "sample": 1,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 374,
+                "outputTokens": 30,
+                "totalTokens": 404
+              },
+              "latencyMs": 969,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 24,
+              "sample": 2,
+              "ok": true,
+              "raw": "6",
+              "normalized": "6",
+              "graded": "6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 374,
+                "outputTokens": 34,
+                "totalTokens": 408
+              },
+              "latencyMs": 815,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-05",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "1200",
+            "count": 3,
+            "votes": {
+              "1200": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 933,
+            "outputTokens": 68,
+            "totalTokens": 1001
+          },
+          "wallMs": {
+            "p50": 870,
+            "p95": 1020,
+            "sum": 2676,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 25,
+              "sample": 0,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 27,
+                "totalTokens": 338
+              },
+              "latencyMs": 870,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 26,
+              "sample": 1,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 22,
+                "totalTokens": 333
+              },
+              "latencyMs": 1020,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 27,
+              "sample": 2,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 19,
+                "totalTokens": 330
+              },
+              "latencyMs": 786,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "1200",
+            "count": 3,
+            "votes": {
+              "1200": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1125,
+            "outputTokens": 71,
+            "totalTokens": 1196
+          },
+          "wallMs": {
+            "p50": 1135,
+            "p95": 1328,
+            "sum": 3400,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 28,
+              "sample": 0,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 375,
+                "outputTokens": 26,
+                "totalTokens": 401
+              },
+              "latencyMs": 1328,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 29,
+              "sample": 1,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 375,
+                "outputTokens": 23,
+                "totalTokens": 398
+              },
+              "latencyMs": 937,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 30,
+              "sample": 2,
+              "ok": true,
+              "raw": "1200",
+              "normalized": "1200",
+              "graded": "1200",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 375,
+                "outputTokens": 22,
+                "totalTokens": 397
+              },
+              "latencyMs": 1135,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-06",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": true,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "关闭",
+            "count": 2,
+            "votes": {
+              "关闭": 2,
+              "关": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 2,
+            "UNKNOWN": 0,
+            "WRONG": 1,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 930,
+            "outputTokens": 171,
+            "totalTokens": 1101
+          },
+          "wallMs": {
+            "p50": 1100,
+            "p95": 1159,
+            "sum": 3344,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 31,
+              "sample": 0,
+              "ok": true,
+              "raw": "关闭",
+              "normalized": "关闭",
+              "graded": "关闭",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 52,
+                "totalTokens": 362
+              },
+              "latencyMs": 1100,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 32,
+              "sample": 1,
+              "ok": true,
+              "raw": "关闭",
+              "normalized": "关闭",
+              "graded": "关闭",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 67,
+                "totalTokens": 377
+              },
+              "latencyMs": 1159,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 33,
+              "sample": 2,
+              "ok": true,
+              "raw": "关",
+              "normalized": "关",
+              "graded": "关",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 52,
+                "totalTokens": 362
+              },
+              "latencyMs": 1085,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "WRONG",
+          "majority": {
+            "answer": "关",
+            "count": 2,
+            "votes": {
+              "关（默认关闭）": 1,
+              "关": 2
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 0,
+            "WRONG": 3,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1101,
+            "outputTokens": 126,
+            "totalTokens": 1227
+          },
+          "wallMs": {
+            "p50": 1409,
+            "p95": 2838,
+            "sum": 4939,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 34,
+              "sample": 0,
+              "ok": true,
+              "raw": "关（默认关闭）",
+              "normalized": "关（默认关闭）",
+              "graded": "关（默认关闭）",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 81,
+                "totalTokens": 448
+              },
+              "latencyMs": 1409,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 35,
+              "sample": 1,
+              "ok": true,
+              "raw": "关",
+              "normalized": "关",
+              "graded": "关",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 2,
+                "totalTokens": 369
+              },
+              "latencyMs": 692,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 36,
+              "sample": 2,
+              "ok": true,
+              "raw": "关",
+              "normalized": "关",
+              "graded": "关",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 43,
+                "totalTokens": 410
+              },
+              "latencyMs": 2838,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-07",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "回放 delta",
+            "count": 2,
+            "votes": {
+              "回放 delta": 2,
+              "回放 delta。": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 2,
+            "UNKNOWN": 0,
+            "WRONG": 1,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 924,
+            "outputTokens": 140,
+            "totalTokens": 1064
+          },
+          "wallMs": {
+            "p50": 1039,
+            "p95": 1065,
+            "sum": 3143,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 37,
+              "sample": 0,
+              "ok": true,
+              "raw": "回放 delta",
+              "normalized": "回放 delta",
+              "graded": "回放 delta",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 308,
+                "outputTokens": 54,
+                "totalTokens": 362
+              },
+              "latencyMs": 1065,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 38,
+              "sample": 1,
+              "ok": true,
+              "raw": "回放 delta。",
+              "normalized": "回放 delta。",
+              "graded": "回放 delta。",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 308,
+                "outputTokens": 40,
+                "totalTokens": 348
+              },
+              "latencyMs": 1039,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 39,
+              "sample": 2,
+              "ok": true,
+              "raw": "回放 delta",
+              "normalized": "回放 delta",
+              "graded": "回放 delta",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 308,
+                "outputTokens": 46,
+                "totalTokens": 354
+              },
+              "latencyMs": 1039,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "回放 delta",
+            "count": 2,
+            "votes": {
+              "回放 delta": 2,
+              "回放 delta。": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 2,
+            "UNKNOWN": 0,
+            "WRONG": 1,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1104,
+            "outputTokens": 181,
+            "totalTokens": 1285
+          },
+          "wallMs": {
+            "p50": 990,
+            "p95": 1371,
+            "sum": 3121,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 40,
+              "sample": 0,
+              "ok": true,
+              "raw": "回放 delta",
+              "normalized": "回放 delta",
+              "graded": "回放 delta",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 77,
+                "totalTokens": 445
+              },
+              "latencyMs": 1371,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 41,
+              "sample": 1,
+              "ok": true,
+              "raw": "回放 delta。",
+              "normalized": "回放 delta。",
+              "graded": "回放 delta。",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 49,
+                "totalTokens": 417
+              },
+              "latencyMs": 760,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 42,
+              "sample": 2,
+              "ok": true,
+              "raw": "回放 delta",
+              "normalized": "回放 delta",
+              "graded": "回放 delta",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 55,
+                "totalTokens": 423
+              },
+              "latencyMs": 990,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-08",
+      "family": "file",
+      "derivableFrom": "base-context",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e9",
+            "count": 3,
+            "votes": {
+              "e9": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 951,
+            "outputTokens": 169,
+            "totalTokens": 1120
+          },
+          "wallMs": {
+            "p50": 1073,
+            "p95": 1117,
+            "sum": 3236,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 43,
+              "sample": 0,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 46,
+                "totalTokens": 363
+              },
+              "latencyMs": 1073,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 44,
+              "sample": 1,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 51,
+                "totalTokens": 368
+              },
+              "latencyMs": 1046,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 45,
+              "sample": 2,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 72,
+                "totalTokens": 389
+              },
+              "latencyMs": 1117,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e9",
+            "count": 3,
+            "votes": {
+              "e9": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1101,
+            "outputTokens": 107,
+            "totalTokens": 1208
+          },
+          "wallMs": {
+            "p50": 1057,
+            "p95": 1190,
+            "sum": 3265,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 46,
+              "sample": 0,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 29,
+                "totalTokens": 396
+              },
+              "latencyMs": 1018,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 47,
+              "sample": 1,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 39,
+                "totalTokens": 406
+              },
+              "latencyMs": 1057,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 48,
+              "sample": 2,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 39,
+                "totalTokens": 406
+              },
+              "latencyMs": 1190,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-09",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "WRONG",
+          "majority": {
+            "answer": "e9",
+            "count": 3,
+            "votes": {
+              "e9": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 0,
+            "WRONG": 3,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 951,
+            "outputTokens": 200,
+            "totalTokens": 1151
+          },
+          "wallMs": {
+            "p50": 1123,
+            "p95": 1231,
+            "sum": 3363,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 49,
+              "sample": 0,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 75,
+                "totalTokens": 392
+              },
+              "latencyMs": 1231,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 50,
+              "sample": 1,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 77,
+                "totalTokens": 394
+              },
+              "latencyMs": 1123,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 51,
+              "sample": 2,
+              "ok": true,
+              "raw": "e9",
+              "normalized": "e9",
+              "graded": "e9",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 317,
+                "outputTokens": 48,
+                "totalTokens": 365
+              },
+              "latencyMs": 1009,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e10",
+            "count": 3,
+            "votes": {
+              "e10": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1101,
+            "outputTokens": 339,
+            "totalTokens": 1440
+          },
+          "wallMs": {
+            "p50": 1480,
+            "p95": 2179,
+            "sum": 4756,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 52,
+              "sample": 0,
+              "ok": true,
+              "raw": "e10",
+              "normalized": "e10",
+              "graded": "e10",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 190,
+                "totalTokens": 557
+              },
+              "latencyMs": 2179,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 53,
+              "sample": 1,
+              "ok": true,
+              "raw": "e10",
+              "normalized": "e10",
+              "graded": "e10",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 57,
+                "totalTokens": 424
+              },
+              "latencyMs": 1097,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 54,
+              "sample": 2,
+              "ok": true,
+              "raw": "e10",
+              "normalized": "e10",
+              "graded": "e10",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 367,
+                "outputTokens": 92,
+                "totalTokens": 459
+              },
+              "latencyMs": 1480,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-10",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 933,
+            "outputTokens": 121,
+            "totalTokens": 1054
+          },
+          "wallMs": {
+            "p50": 1182,
+            "p95": 1403,
+            "sum": 3711,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 55,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 33,
+                "totalTokens": 344
+              },
+              "latencyMs": 1126,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 56,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 28,
+                "totalTokens": 339
+              },
+              "latencyMs": 1182,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 57,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 60,
+                "totalTokens": 371
+              },
+              "latencyMs": 1403,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "test/query-recall-stage-a.test.mjs",
+            "count": 3,
+            "votes": {
+              "test/query-recall-stage-a.test.mjs": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1107,
+            "outputTokens": 244,
+            "totalTokens": 1351
+          },
+          "wallMs": {
+            "p50": 1237,
+            "p95": 1323,
+            "sum": 3780,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 58,
+              "sample": 0,
+              "ok": true,
+              "raw": "test/query-recall-stage-a.test.mjs",
+              "normalized": "test/query-recall-stage-a.test.mjs",
+              "graded": "test/query-recall-stage-a.test.mjs",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 85,
+                "totalTokens": 454
+              },
+              "latencyMs": 1220,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 59,
+              "sample": 1,
+              "ok": true,
+              "raw": "test/query-recall-stage-a.test.mjs",
+              "normalized": "test/query-recall-stage-a.test.mjs",
+              "graded": "test/query-recall-stage-a.test.mjs",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 66,
+                "totalTokens": 435
+              },
+              "latencyMs": 1323,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 60,
+              "sample": 2,
+              "ok": true,
+              "raw": "test/query-recall-stage-a.test.mjs",
+              "normalized": "test/query-recall-stage-a.test.mjs",
+              "graded": "test/query-recall-stage-a.test.mjs",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 93,
+                "totalTokens": 462
+              },
+              "latencyMs": 1237,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-11",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 933,
+            "outputTokens": 134,
+            "totalTokens": 1067
+          },
+          "wallMs": {
+            "p50": 1241,
+            "p95": 1659,
+            "sum": 4075,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 61,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 43,
+                "totalTokens": 354
+              },
+              "latencyMs": 1659,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 62,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 45,
+                "totalTokens": 356
+              },
+              "latencyMs": 1175,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 63,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 311,
+                "outputTokens": 46,
+                "totalTokens": 357
+              },
+              "latencyMs": 1241,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "7-9",
+            "count": 3,
+            "votes": {
+              "7-9": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1107,
+            "outputTokens": 228,
+            "totalTokens": 1335
+          },
+          "wallMs": {
+            "p50": 1182,
+            "p95": 1552,
+            "sum": 3783,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 64,
+              "sample": 0,
+              "ok": true,
+              "raw": "7-9",
+              "normalized": "7-9",
+              "graded": "7-9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 68,
+                "totalTokens": 437
+              },
+              "latencyMs": 1182,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 65,
+              "sample": 1,
+              "ok": true,
+              "raw": "7-9",
+              "normalized": "7-9",
+              "graded": "7-9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 97,
+                "totalTokens": 466
+              },
+              "latencyMs": 1552,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 66,
+              "sample": 2,
+              "ok": true,
+              "raw": "7-9",
+              "normalized": "7-9",
+              "graded": "7-9",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 63,
+                "totalTokens": 432
+              },
+              "latencyMs": 1049,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-12",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 930,
+            "outputTokens": 116,
+            "totalTokens": 1046
+          },
+          "wallMs": {
+            "p50": 1136,
+            "p95": 1282,
+            "sum": 3381,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 67,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 42,
+                "totalTokens": 352
+              },
+              "latencyMs": 1282,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 68,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 37,
+                "totalTokens": 347
+              },
+              "latencyMs": 1136,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 69,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 310,
+                "outputTokens": 37,
+                "totalTokens": 347
+              },
+              "latencyMs": 963,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "不会",
+            "count": 2,
+            "votes": {
+              "不会": 2,
+              "不会。": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 2,
+            "UNKNOWN": 0,
+            "WRONG": 1,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1107,
+            "outputTokens": 188,
+            "totalTokens": 1295
+          },
+          "wallMs": {
+            "p50": 1323,
+            "p95": 1503,
+            "sum": 3949,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 70,
+              "sample": 0,
+              "ok": true,
+              "raw": "不会",
+              "normalized": "不会",
+              "graded": "不会",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 58,
+                "totalTokens": 427
+              },
+              "latencyMs": 1123,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 71,
+              "sample": 1,
+              "ok": true,
+              "raw": "不会。",
+              "normalized": "不会。",
+              "graded": "不会。",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 59,
+                "totalTokens": 428
+              },
+              "latencyMs": 1323,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 72,
+              "sample": 2,
+              "ok": true,
+              "raw": "不会",
+              "normalized": "不会",
+              "graded": "不会",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 369,
+                "outputTokens": 71,
+                "totalTokens": 440
+              },
+              "latencyMs": 1503,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-13",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 948,
+            "outputTokens": 154,
+            "totalTokens": 1102
+          },
+          "wallMs": {
+            "p50": 1100,
+            "p95": 1294,
+            "sum": 3364,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 73,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 44,
+                "totalTokens": 360
+              },
+              "latencyMs": 1100,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 74,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 42,
+                "totalTokens": 358
+              },
+              "latencyMs": 970,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 75,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 68,
+                "totalTokens": 384
+              },
+              "latencyMs": 1294,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 2,
+            "votes": {
+              "unknown": 2,
+              "e1": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 1,
+            "UNKNOWN": 2,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1077,
+            "outputTokens": 231,
+            "totalTokens": 1308
+          },
+          "wallMs": {
+            "p50": 1440,
+            "p95": 1804,
+            "sum": 4534,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 76,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 359,
+                "outputTokens": 48,
+                "totalTokens": 407
+              },
+              "latencyMs": 1804,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 77,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 359,
+                "outputTokens": 82,
+                "totalTokens": 441
+              },
+              "latencyMs": 1290,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 78,
+              "sample": 2,
+              "ok": true,
+              "raw": "e1",
+              "normalized": "e1",
+              "graded": "e1",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 359,
+                "outputTokens": 101,
+                "totalTokens": 460
+              },
+              "latencyMs": 1440,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-14",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 936,
+            "outputTokens": 129,
+            "totalTokens": 1065
+          },
+          "wallMs": {
+            "p50": 1125,
+            "p95": 1484,
+            "sum": 3642,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 79,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 312,
+                "outputTokens": 27,
+                "totalTokens": 339
+              },
+              "latencyMs": 1033,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 80,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 312,
+                "outputTokens": 46,
+                "totalTokens": 358
+              },
+              "latencyMs": 1125,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 81,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 312,
+                "outputTokens": 56,
+                "totalTokens": 368
+              },
+              "latencyMs": 1484,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e6",
+            "count": 3,
+            "votes": {
+              "e6": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1074,
+            "outputTokens": 95,
+            "totalTokens": 1169
+          },
+          "wallMs": {
+            "p50": 1066,
+            "p95": 1227,
+            "sum": 3254,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 82,
+              "sample": 0,
+              "ok": true,
+              "raw": "e6",
+              "normalized": "e6",
+              "graded": "e6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 358,
+                "outputTokens": 31,
+                "totalTokens": 389
+              },
+              "latencyMs": 961,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 83,
+              "sample": 1,
+              "ok": true,
+              "raw": "e6",
+              "normalized": "e6",
+              "graded": "e6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 358,
+                "outputTokens": 29,
+                "totalTokens": 387
+              },
+              "latencyMs": 1227,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 84,
+              "sample": 2,
+              "ok": true,
+              "raw": "e6",
+              "normalized": "e6",
+              "graded": "e6",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 358,
+                "outputTokens": 35,
+                "totalTokens": 393
+              },
+              "latencyMs": 1066,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-15",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 957,
+            "outputTokens": 2983,
+            "totalTokens": 3940
+          },
+          "wallMs": {
+            "p50": 7342,
+            "p95": 9836,
+            "sum": 22050,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 85,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 319,
+                "outputTokens": 1007,
+                "totalTokens": 1326
+              },
+              "latencyMs": 7342,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 86,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 319,
+                "outputTokens": 605,
+                "totalTokens": 924
+              },
+              "latencyMs": 4872,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 87,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 319,
+                "outputTokens": 1371,
+                "totalTokens": 1690
+              },
+              "latencyMs": 9836,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e5,e2",
+            "count": 2,
+            "votes": {
+              "e5, e2": 1,
+              "e5,e2": 2
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1479,
+            "outputTokens": 4204,
+            "totalTokens": 5683
+          },
+          "wallMs": {
+            "p50": 18179,
+            "p95": 42605,
+            "sum": 73805,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 88,
+              "sample": 0,
+              "ok": true,
+              "raw": "e5, e2",
+              "normalized": "e5, e2",
+              "graded": "e5, e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 400,
+                "totalTokens": 893
+              },
+              "latencyMs": 18179,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 89,
+              "sample": 1,
+              "ok": true,
+              "raw": "e5,e2",
+              "normalized": "e5,e2",
+              "graded": "e5,e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 1830,
+                "totalTokens": 2323
+              },
+              "latencyMs": 13021,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 90,
+              "sample": 2,
+              "ok": true,
+              "raw": "e5,e2",
+              "normalized": "e5,e2",
+              "graded": "e5,e2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 493,
+                "outputTokens": 1974,
+                "totalTokens": 2467
+              },
+              "latencyMs": 42605,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-16",
+      "family": "failure",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "WRONG",
+          "majority": {
+            "answer": "e2 成功，e5 失败",
+            "count": 2,
+            "votes": {
+              "e2 成功，e5 失败": 2,
+              "e2成功，e5失败": 1
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 0,
+            "WRONG": 3,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 945,
+            "outputTokens": 544,
+            "totalTokens": 1489
+          },
+          "wallMs": {
+            "p50": 1943,
+            "p95": 2265,
+            "sum": 5453,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 91,
+              "sample": 0,
+              "ok": true,
+              "raw": "e2 成功，e5 失败",
+              "normalized": "e2 成功，e5 失败",
+              "graded": "e2 成功，e5 失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 134,
+                "totalTokens": 449
+              },
+              "latencyMs": 1245,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 92,
+              "sample": 1,
+              "ok": true,
+              "raw": "e2 成功，e5 失败",
+              "normalized": "e2 成功，e5 失败",
+              "graded": "e2 成功，e5 失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 193,
+                "totalTokens": 508
+              },
+              "latencyMs": 1943,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 93,
+              "sample": 2,
+              "ok": true,
+              "raw": "e2成功，e5失败",
+              "normalized": "e2成功，e5失败",
+              "graded": "e2成功，e5失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 217,
+                "totalTokens": 532
+              },
+              "latencyMs": 2265,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "WRONG",
+          "majority": {
+            "answer": "e2 成功，e5 失败",
+            "count": 3,
+            "votes": {
+              "e2 成功，e5 失败": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 0,
+            "WRONG": 3,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1467,
+            "outputTokens": 683,
+            "totalTokens": 2150
+          },
+          "wallMs": {
+            "p50": 2077,
+            "p95": 2667,
+            "sum": 6722,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 94,
+              "sample": 0,
+              "ok": true,
+              "raw": "e2 成功，e5 失败",
+              "normalized": "e2 成功，e5 失败",
+              "graded": "e2 成功，e5 失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 489,
+                "outputTokens": 304,
+                "totalTokens": 793
+              },
+              "latencyMs": 2667,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 95,
+              "sample": 1,
+              "ok": true,
+              "raw": "e2 成功，e5 失败",
+              "normalized": "e2 成功，e5 失败",
+              "graded": "e2 成功，e5 失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 489,
+                "outputTokens": 191,
+                "totalTokens": 680
+              },
+              "latencyMs": 2077,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 96,
+              "sample": 2,
+              "ok": true,
+              "raw": "e2 成功，e5 失败",
+              "normalized": "e2 成功，e5 失败",
+              "graded": "e2 成功，e5 失败",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 489,
+                "outputTokens": 188,
+                "totalTokens": 677
+              },
+              "latencyMs": 1978,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-17",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 945,
+            "outputTokens": 139,
+            "totalTokens": 1084
+          },
+          "wallMs": {
+            "p50": 1074,
+            "p95": 1102,
+            "sum": 3181,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 97,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 46,
+                "totalTokens": 361
+              },
+              "latencyMs": 1102,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 98,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 51,
+                "totalTokens": 366
+              },
+              "latencyMs": 1005,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 99,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 42,
+                "totalTokens": 357
+              },
+              "latencyMs": 1074,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "2",
+            "count": 3,
+            "votes": {
+              "2": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1197,
+            "outputTokens": 380,
+            "totalTokens": 1577
+          },
+          "wallMs": {
+            "p50": 1403,
+            "p95": 2054,
+            "sum": 4843,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 100,
+              "sample": 0,
+              "ok": true,
+              "raw": "2",
+              "normalized": "2",
+              "graded": "2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 399,
+                "outputTokens": 130,
+                "totalTokens": 529
+              },
+              "latencyMs": 1403,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 101,
+              "sample": 1,
+              "ok": true,
+              "raw": "2",
+              "normalized": "2",
+              "graded": "2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 399,
+                "outputTokens": 165,
+                "totalTokens": 564
+              },
+              "latencyMs": 2054,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 102,
+              "sample": 2,
+              "ok": true,
+              "raw": "2",
+              "normalized": "2",
+              "graded": "2",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 399,
+                "outputTokens": 85,
+                "totalTokens": 484
+              },
+              "latencyMs": 1386,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-18",
+      "family": "budget",
+      "derivableFrom": "recall",
+      "goldKind": "abstention",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 945,
+            "outputTokens": 131,
+            "totalTokens": 1076
+          },
+          "wallMs": {
+            "p50": 903,
+            "p95": 1032,
+            "sum": 2732,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 103,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 31,
+                "totalTokens": 346
+              },
+              "latencyMs": 903,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 104,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 51,
+                "totalTokens": 366
+              },
+              "latencyMs": 797,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 105,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 315,
+                "outputTokens": 49,
+                "totalTokens": 364
+              },
+              "latencyMs": 1032,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "WRONG",
+          "majority": {
+            "answer": "mod21",
+            "count": 3,
+            "votes": {
+              "mod21": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 0,
+            "WRONG": 3,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1104,
+            "outputTokens": 444,
+            "totalTokens": 1548
+          },
+          "wallMs": {
+            "p50": 1655,
+            "p95": 1779,
+            "sum": 4417,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 106,
+              "sample": 0,
+              "ok": true,
+              "raw": "mod21",
+              "normalized": "mod21",
+              "graded": "mod21",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 101,
+                "totalTokens": 469
+              },
+              "latencyMs": 983,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 107,
+              "sample": 1,
+              "ok": true,
+              "raw": "mod21",
+              "normalized": "mod21",
+              "graded": "mod21",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 169,
+                "totalTokens": 537
+              },
+              "latencyMs": 1655,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 108,
+              "sample": 2,
+              "ok": true,
+              "raw": "mod21",
+              "normalized": "mod21",
+              "graded": "mod21",
+              "outcome": "WRONG",
+              "correct": false,
+              "unknown": false,
+              "wrong": true,
+              "usage": {
+                "inputTokens": 368,
+                "outputTokens": 174,
+                "totalTokens": 542
+              },
+              "latencyMs": 1779,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-19",
+      "family": "abstention",
+      "derivableFrom": "recall",
+      "goldKind": "abstention",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 954,
+            "outputTokens": 79,
+            "totalTokens": 1033
+          },
+          "wallMs": {
+            "p50": 912,
+            "p95": 1328,
+            "sum": 3110,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 109,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 26,
+                "totalTokens": 344
+              },
+              "latencyMs": 1328,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 110,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 26,
+                "totalTokens": 344
+              },
+              "latencyMs": 870,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 111,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 27,
+                "totalTokens": 345
+              },
+              "latencyMs": 912,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 954,
+            "outputTokens": 82,
+            "totalTokens": 1036
+          },
+          "wallMs": {
+            "p50": 968,
+            "p95": 1088,
+            "sum": 2937,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 112,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 28,
+                "totalTokens": 346
+              },
+              "latencyMs": 1088,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 113,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 29,
+                "totalTokens": 347
+              },
+              "latencyMs": 968,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 114,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 318,
+                "outputTokens": 25,
+                "totalTokens": 343
+              },
+              "latencyMs": 881,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "B-20",
+      "family": "file",
+      "derivableFrom": "recall",
+      "goldKind": "exact",
+      "regression": false,
+      "arms": {
+        "A0": {
+          "outcome": "UNKNOWN",
+          "majority": {
+            "answer": "unknown",
+            "count": 3,
+            "votes": {
+              "unknown": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 0,
+            "UNKNOWN": 3,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 948,
+            "outputTokens": 183,
+            "totalTokens": 1131
+          },
+          "wallMs": {
+            "p50": 1168,
+            "p95": 1215,
+            "sum": 3496,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 115,
+              "sample": 0,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 65,
+                "totalTokens": 381
+              },
+              "latencyMs": 1168,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 116,
+              "sample": 1,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 45,
+                "totalTokens": 361
+              },
+              "latencyMs": 1113,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 117,
+              "sample": 2,
+              "ok": true,
+              "raw": "UNKNOWN",
+              "normalized": "UNKNOWN",
+              "graded": "unknown",
+              "outcome": "UNKNOWN",
+              "correct": false,
+              "unknown": true,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 316,
+                "outputTokens": 73,
+                "totalTokens": 389
+              },
+              "latencyMs": 1215,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        },
+        "A1": {
+          "outcome": "CORRECT",
+          "majority": {
+            "answer": "e3",
+            "count": 3,
+            "votes": {
+              "e3": 3
+            }
+          },
+          "counts": {
+            "CORRECT": 3,
+            "UNKNOWN": 0,
+            "WRONG": 0,
+            "ERROR": 0
+          },
+          "usage": {
+            "inputTokens": 1098,
+            "outputTokens": 118,
+            "totalTokens": 1216
+          },
+          "wallMs": {
+            "p50": 1031,
+            "p95": 1245,
+            "sum": 3188,
+            "count": 3
+          },
+          "samples": [
+            {
+              "index": 118,
+              "sample": 0,
+              "ok": true,
+              "raw": "e3",
+              "normalized": "e3",
+              "graded": "e3",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 366,
+                "outputTokens": 34,
+                "totalTokens": 400
+              },
+              "latencyMs": 912,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 119,
+              "sample": 1,
+              "ok": true,
+              "raw": "e3",
+              "normalized": "e3",
+              "graded": "e3",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 366,
+                "outputTokens": 50,
+                "totalTokens": 416
+              },
+              "latencyMs": 1245,
+              "finishReason": "stop",
+              "error": null
+            },
+            {
+              "index": 120,
+              "sample": 2,
+              "ok": true,
+              "raw": "e3",
+              "normalized": "e3",
+              "graded": "e3",
+              "outcome": "CORRECT",
+              "correct": true,
+              "unknown": false,
+              "wrong": false,
+              "usage": {
+                "inputTokens": 366,
+                "outputTokens": 34,
+                "totalTokens": 400
+              },
+              "latencyMs": 1031,
+              "finishReason": "stop",
+              "error": null
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "calls": 120,
+  "notes": [
+    "私有明细文件：含逐样本 raw 回答（本题全部为纯合成文本）；公开面请看 query-recall-pilot-public.json。",
+    "不写 endpoint；endpoint 只由 LME_READER_ENDPOINT 注入。",
+    "本文件不构成采纳结论之外的任何质量/能力声明；生产默认仍为 NOT_ADOPTED。"
+  ]
+}

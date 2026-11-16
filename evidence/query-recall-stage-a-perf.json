@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "mode": "bench",
+  "bench": {
+    "graphBytes": 10118188,
+    "nodes": 10252,
+    "edges": 10470,
+    "deltaFrames": 0,
+    "deltaError": false,
+    "fixedQueries": 5,
+    "queries": 17,
+    "derived": {
+      "pathsTried": 10,
+      "pathsHit": 10,
+      "symbolsTried": 2,
+      "symbolsHit": 2
+    },
+    "iterationsPerQuery": 20,
+    "samples": 340,
+    "renderMs": {
+      "p50": 8.11,
+      "p95": 9.779,
+      "max": 13.127
+    },
+    "derivedRenderMs": {
+      "p50": 8.454,
+      "p95": 9.996,
+      "max": 13.127
+    },
+    "chars": {
+      "max": 1192
+    },
+    "renderHits": {
+      "hit": 240,
+      "total": 340
+    },
+    "rssMB": {
+      "before": 190.2,
+      "after": 264.3,
+      "delta": 74.1
+    }
+  }
+}

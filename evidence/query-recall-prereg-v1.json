@@ -1,0 +1,541 @@
+{
+  "schema": "query-recall-prereg-v1",
+  "version": 1,
+  "experimentId": "q1-query-recall-stage-b-1",
+  "status": "PREREGISTERED",
+  "registeredAt": "2026-11-16",
+  "owner": "lead",
+  "title": "Q1 查询召回 Stage B 预注册（20 题 × 2 臂 × 3 样本 = 120 次硬上限，0 重试）",
+  "why": "Stage A 只证明「锚点确定、预算守得住、无证据不编」。Stage B 才问：把这段机械召回块加进读者上下文，是否让同一批已冻结问题更容易答对，且不引入退化、不增加 UNKNOWN、不破坏 token / p95。生产默认仍是 NOT_ADOPTED：本文件只是预注册，不是结论，也不构成运行授权。",
+  "hypothesis": {
+    "H1": "对同一批 20 题，A1（基线上下文 + 召回块）的多数票正确数高于 A0（仅基线上下文），且没有任何一题从 A0 对翻成 A1 错。",
+    "H0": "召回块没有作用或只增加噪声：多数票不升，或出现逐题回归，或 UNKNOWN 增加，或 token 效率 / p95 变差到门槛之外。",
+    "scope": "只检验「召回块对读者答题的帮助」；不检验压缩质量、不检验模型能力、不构成质量门或默认开启依据。"
+  },
+  "stageGate": {
+    "stageA": {
+      "evidenceFile": "evidence/query-recall-stage-a.json",
+      "command": "node scripts/query-recall-stage-a.mjs --write",
+      "required": [
+        "status == PASS",
+        "aggregate.failed == 0",
+        "aggregate.misses == 0",
+        "aggregate.falsePositives == 0",
+        "aggregate.evidence.hitRate == 1"
+      ],
+      "fixture": {
+        "path": "evidence/query-recall-stage-a.fixtures.json",
+        "sha256": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0"
+      },
+      "script": {
+        "path": "scripts/query-recall-stage-a.mjs",
+        "sha256": "46a44e9e3e1c983928d96bf47469aa462b6facb5727d2643b84d3963b0a61fdf"
+      },
+      "rule": "Stage A 未过、evidence 文件缺失或 status 不是 PASS ⇒ Stage B 一次模型调用都不许发出。",
+      "onFail": "只报告 Stage A 红项并修实现或夹具；夹具字节一改，本预注册作废并重新登记。"
+    },
+    "perf": {
+      "command": "node scripts/query-recall-stage-a.mjs --home <DSH_HOME>",
+      "required": [
+        "deltaError == false",
+        "renderMs.p95 <= 25"
+      ],
+      "rule": "只读最大真实图基准；输出只有节点/边/字节/时延/RSS 聚合，不允许输出会话 id、路径或正文。",
+      "why": "召回是每步热路径；p95 超过 25ms 就不该进 Stage B，先优化实现。",
+      "evidenceFile": "evidence/query-recall-stage-a-perf.json",
+      "sha256": "d5d84c85a3b265857f9631430f229cac28a139f936e3537896420598e0d1eea9"
+    }
+  },
+  "design": {
+    "runner": "scripts/lme-pilot-reader.mjs（冻结、不修改）是 reader 请求构造 / 归一化 / 样本票型的唯一来源；Stage B 新 runner 必须复用同一口径，不许自造 prompt 或换 temperature。",
+    "frozenReader": {
+      "path": "scripts/lme-pilot-reader.mjs",
+      "sha256": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+      "role": "HTTP 调用、temperature=0、max_tokens=2048、答案归一化、3 样本多数票"
+    },
+    "grader": {
+      "path": "scripts/lme-task50.mjs",
+      "sha256": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+      "role": "normalizeReaderAnswer 与 exact/set/ordered/UNKNOWN 判分口径"
+    },
+    "readerConfig": {
+      "inherits": "LME_READER_* 环境变量（冻结 reader 的唯一配置入口）",
+      "model": "INHERIT_LME_READER_MODEL（运行前由 Lead 固定并写入结果文件；本预注册不写死 endpoint/私有数据）",
+      "temperature": "INHERIT（冻结 reader 内固定 0）",
+      "maxTokens": "INHERIT（冻结 reader 内固定 2048）",
+      "endpoint": "INHERIT_LME_READER_ENDPOINT（由冻结 reader 解析；本文件刻意不记录本机 endpoint）",
+      "dataBoundary": "题面/上下文/答案全部来自本文件 + 纯合成夹具；禁止读取任何真实会话、真实路径或私有数据。"
+    },
+    "arms": [
+      {
+        "id": "A0",
+        "name": "baseline-context",
+        "context": "baseContext 原文（不含召回块）"
+      },
+      {
+        "id": "A1",
+        "name": "recall-context",
+        "context": "baseContext + 两个换行 + renderQueryRecall(graph, query, options).text"
+      }
+    ],
+    "contextBase": "【冻结合成基线上下文 · 两臂共享 · 不含查询召回块】\n合成工作区只有这些目录：src/rooms/、scripts/、test/、evidence/。\n与提问相关时可直接引用的事实（编号是题号，原文答案如下）：\nB-01：修改 src/rooms/query-recall.mjs 并成功的 edge 是 e2。\nB-02：query-recall.mjs 上的失败边是 e5。\nB-03：normalizeQuery 的报错是 normalizeQuery is not a function。\nB-04：renderQueryRecall 的默认 limit 是 6。\nB-05：renderQueryRecall 的默认 maxChars 是 1200。\nB-06：bindLedger 注入默认关闭。\nB-07：decodeDeltaFrames 负责回放 delta。\nB-08：冻结夹具的 edge 是 e9。\n其余事实（B-09…B-20）不在本基线上下文里；不要从编号猜测答案。",
+    "taskSet": {
+      "count": 20,
+      "source": "本文件 stageBTasks（20 题；与 Stage A 同一份纯合成棋谱）",
+      "graphs": "evidence/query-recall-stage-a.fixtures.json 的 base / noisy 两张合成图",
+      "nonSaturation": "8 题（B-01…B-08）的答案写在冻结基线上下文里 ⇒ A0 可答、题集不靠猜；12 题只有召回块能提供（含 2 道多行合成、1 道预算截断、1 道无证据弃答）。设计期望：A0 约 8/20、A1 约 18/20 ⇒ 两臂都不该顶到 20/20；若真的出现 20/20，按 saturationCap 只记 POSITIVE_SIGNAL。",
+      "tasks": [
+        {
+          "id": "B-01",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "src/rooms/query-recall.mjs 是哪个 edge 成功修改的？",
+          "gold": "e2",
+          "aliases": [
+            "E2",
+            "edge e2"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-02",
+          "family": "failure",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall.mjs` 里哪条 edge 是失败边？",
+          "gold": "e5",
+          "aliases": [
+            "E5",
+            "edge e5"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-03",
+          "family": "failure",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`normalizeQuery` 报的错误是什么？",
+          "gold": "normalizeQuery is not a function",
+          "aliases": [
+            "normalizeQuery is not a function",
+            "TypeError: normalizeQuery is not a function"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-04",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "renderQueryRecall() 的默认 limit 是多少？",
+          "gold": "6",
+          "aliases": [
+            "6",
+            "limit=6"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-05",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "renderQueryRecall() 的默认 maxChars 是多少？",
+          "gold": "1200",
+          "aliases": [
+            "1200",
+            "maxChars=1200"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-06",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "bindLedger() 注入默认开还是关？",
+          "gold": "默认关闭",
+          "aliases": [
+            "关闭",
+            "默认关",
+            "off"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-07",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "decodeDeltaFrames() 负责什么？",
+          "gold": "回放 delta",
+          "aliases": [
+            "回放 delta",
+            "回放delta",
+            "replay delta"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-08",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall-stage-a.fixtures.json` 是哪个 edge 冻结的？",
+          "gold": "e9",
+          "aliases": [
+            "E9",
+            "edge e9"
+          ],
+          "derivableFrom": "base-context",
+          "whyNonSaturated": "基线上下文直接给了答案（对照臂可答）。"
+        },
+        {
+          "id": "B-09",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall-prereg-v1.json` 是哪个 edge 冻结的？",
+          "gold": "e10",
+          "aliases": [
+            "E10",
+            "edge e10"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "只有召回块给出 e10 行；基线没有。"
+        },
+        {
+          "id": "B-10",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "collectAnchors() 的测试在哪个文件？",
+          "gold": "test/query-recall-stage-a.test.mjs",
+          "aliases": [
+            "test/query-recall-stage-a.test.mjs"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "需要从召回行的 write(file_path=…) 读出文件路径；基线没有。"
+        },
+        {
+          "id": "B-11",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "applyDelta() 所在 edge 的 seq 区间？",
+          "gold": "7-9",
+          "aliases": [
+            "7-9",
+            "seq 7-9"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "需要从召回行的 seq 标签读区间；基线没有。"
+        },
+        {
+          "id": "B-12",
+          "family": "symbol",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "graph.tewariAnalysis 会进热清单吗？",
+          "gold": "不进",
+          "aliases": [
+            "不进",
+            "不会",
+            "否"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "只有召回行的 excerpt 写明「不进热清单」；基线没有。"
+        },
+        {
+          "id": "B-13",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`ledger.mjs` 的预算是哪条 edge 确认的？",
+          "gold": "e1",
+          "aliases": [
+            "E1",
+            "edge e1"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "只有召回块给出 e1 行；基线没有。"
+        },
+        {
+          "id": "B-14",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`hot-inject.mjs` 对应哪条 edge？",
+          "gold": "e6",
+          "aliases": [
+            "E6",
+            "edge e6"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "只有召回块给出 e6 行；基线没有。"
+        },
+        {
+          "id": "B-15",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall.mjs` 被哪两条边改过（新到旧）？",
+          "gold": "e5, e2",
+          "aliases": [
+            "e5,e2",
+            "e5 和 e2",
+            "e5 e2"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "两行同时出现才可答（多行合成，容易只读到一行）。"
+        },
+        {
+          "id": "B-16",
+          "family": "failure",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall.mjs` 的两条边分别成功还是失败？",
+          "gold": "e2 success, e5 failure",
+          "aliases": [
+            "e2 success, e5 failure"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "两行状态都要读对（多行合成）。"
+        },
+        {
+          "id": "B-17",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`kifu-model.mjs` 的 read 边有几条？",
+          "gold": "2",
+          "aliases": [
+            "2",
+            "两条"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "要数召回块里的行数；多一行/少一行都会错。"
+        },
+        {
+          "id": "B-18",
+          "family": "budget",
+          "graph": "noisy",
+          "options": {
+            "limit": 6,
+            "maxChars": 200
+          },
+          "query": "renderLedger() 档位核对里最早核对的模块是哪个？",
+          "gold": "UNKNOWN",
+          "aliases": [
+            "UNKNOWN",
+            "无法确定",
+            "不知道"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "预算截断只留最近一行（e20/mod21）；最早模块不在输出里，正确行为是 UNKNOWN。"
+        },
+        {
+          "id": "B-19",
+          "family": "abstention",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "src/rooms/nonexistent-adapter.mjs 的 renderAdapter() 做了什么？",
+          "gold": "UNKNOWN",
+          "aliases": [
+            "UNKNOWN",
+            "无法确定",
+            "不知道"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "图里没有任何证据 ⇒ 两臂都只能答 UNKNOWN（防编造）。"
+        },
+        {
+          "id": "B-20",
+          "family": "file",
+          "graph": "base",
+          "options": {
+            "limit": 6,
+            "maxChars": 1200
+          },
+          "query": "`query-recall-stage-a.test.mjs` 是哪条 edge 写的？",
+          "gold": "e3",
+          "aliases": [
+            "E3",
+            "edge e3"
+          ],
+          "derivableFrom": "recall",
+          "whyNonSaturated": "只有召回块给出 e3 行；基线没有。"
+        }
+      ]
+    },
+    "samplesPerArm": 3,
+    "plannedCalls": 120,
+    "maxCalls": 120,
+    "retries": 0,
+    "retrySemantics": "任何一次调用失败（非 2xx / 超时 / 解析失败）即该题该臂作废并按失败记录；不重试、不补样、不换题、不追加调用。120 是硬上限，不是「计划」。",
+    "runOrder": "按 stageBTasks 顺序逐题；每题先 A0 的 3 个样本、再 A1 的 3 个样本；顺序在第一次调用前固定，不许看前半结果决定后半。",
+    "grading": {
+      "normalize": "trim → 去掉一层反引号/引号 → 小写 ASCII；不改写语义",
+      "correct": "归一化后与 gold 或 aliases 之一逐字相等",
+      "unknown": "归一化后等于 UNKNOWN / 无法确定 / 不知道 ⇒ 记 UNKNOWN（不算对，也不算错）",
+      "majority": "3 样本票型取多数；平票取第 1 个样本；UNKNOWN 多数也算 UNKNOWN"
+    }
+  },
+  "budget": {
+    "unit": "chat/completions 调用次数",
+    "planned": 120,
+    "hardCap": 120,
+    "retries": 0,
+    "spentBeforeRun": 0,
+    "onFailure": "该题该臂作废并如实记录；不重试、不追加、不改样本。",
+    "accounting": "每样本记录 inputTokens / outputTokens / wallMs；token 与 p95 门槛都按同一批记录聚合。"
+  },
+  "adoptionGates": {
+    "note": "以下为**采纳**（生产默认从 NOT_ADOPTED 改为开启）的必要条件；任一不过即不采纳。全部只对本次预注册的 20 题负责。",
+    "stageA": "Stage A status == PASS（含 14/14、证据命中 100%、0 漏召、0 误召）；最大真实图 p95 ≤ 25ms。",
+    "pairedNoRegression": {
+      "metric": "逐题多数票",
+      "rule": "不存在任一题 A0 对而 A1 错"
+    },
+    "unknownNotIncreased": {
+      "metric": "样本级 UNKNOWN 数",
+      "rule": "A1.unknownSamples <= A0.unknownSamples"
+    },
+    "tokenPositive": {
+      "metric": "tokensPerCorrectMajority = 该臂 inputTokens 合计 / max(1, 多数票正确题数)",
+      "rule": "A1 <= A0（召回块的 token 必须被正确率提升抵消）"
+    },
+    "p95Positive": {
+      "metric": "每样本端到端 wallMs 的 p95",
+      "rule": "A1.p95 <= A0.p95 + 50（召回渲染 + 注入的固定开销上限 50ms）"
+    },
+    "saturationCap": {
+      "rule": "任一臂多数票正确数 == 20/20（题集饱和，测不出进一步差异）⇒ 最高只记 POSITIVE_SIGNAL，绝不 ADOPT。",
+      "why": "饱和题集无法证明「不退化」，只证明「这 20 题都会」；采纳需要能同时展示增益与不退化的题集。"
+    },
+    "allMustHold": "stageA ∧ pairedNoRegression ∧ unknownNotIncreased ∧ tokenPositive ∧ p95Positive ∧ 未触发 saturationCap ⇒ ADOPT；否则按 decisionBands 记录并保持 NOT_ADOPTED。"
+  },
+  "decisionBands": {
+    "ADOPT": "（synthetic unreachable）原定义：所有 adoptionGates 全过且 A1 多数票严格高于 A0。本合成题集永不采纳 —— 该条只用于记录预注册原意，runner 不会返回 ADOPT。",
+    "POSITIVE_SIGNAL": "A1 多数票 > A0 且无逐题回归，但触发 saturationCap，或样本级增益不足以支撑采纳。",
+    "NEGATIVE_SIGNAL": "存在任一题 A0 对而 A1 错，或 A1 多数票 < A0。",
+    "NO_DIFFERENCE": "多数票、样本级、UNKNOWN 全部相同，且无逐题翻转。",
+    "NOT_DECIDED": "其余（例如多数票相同但样本级有差）—— 不加样本、不换 prompt、只记录。"
+  },
+  "reporting": {
+    "perTask": "20 题 × 2 臂的票型与多数票结果，按 id 并排；UNKNOWN 与编造答案单独点名。",
+    "perFamily": "file / symbol / failure / budget / abstention 各族的计数（只计数与票型）。",
+    "cost": "两臂各自的 inputTokens / outputTokens / wallMs p50/p95、每样本 usage；不写 raw 回答到公开面。",
+    "privacy": "公开面只写聚合与票型；raw 回答、prompt、context 只留私有 tmp，不入 evidence。",
+    "status": "结果文件必须同时写 stageAStatus、callsUsed、retriesUsed、decision、saturationTriggered。"
+  },
+  "forbidden": [
+    "Stage A 未过就发调用",
+    "把 120 次上限当计划数突破（重试/补样/追加）",
+    "改题面、gold、aliases、baseContext 或夹具字节后不重新预注册",
+    "在公开 evidence 里写 endpoint、绝对路径、会话 id、私有数据或 raw 回答",
+    "用本预注册结果宣称压缩质量、模型能力或生产收益",
+    "把 saturationCap 触发的结果写成 ADOPT"
+  ],
+  "unchanged": [
+    "生产默认值仍为 NOT_ADOPTED",
+    "冻结 reader 与 grader 的 prompt / temperature / max_tokens / 归一化口径",
+    "Stage A 夹具与脚本字节",
+    "任何压缩行为、热清单文本、classify 判据、graph.json/delta 字节"
+  ],
+  "preservedStatus": {
+    "productionDefault": "NOT_ADOPTED",
+    "stageA": "PASS",
+    "stageB": "NOT_RUN",
+    "adoption": "NOT_ADOPTED",
+    "zeroCallsSoFar": true
+  },
+  "authorization": {
+    "status": "NOT_AUTHORIZED",
+    "maxCallsAuthorized": 0,
+    "note": "本文件只是预注册。Stage A 通过且 Lead 在当轮明确授权 120 次调用之前，不得发任何真实模型请求；授权不得由本文件推断。"
+  },
+  "frozenInputs": {
+    "stageAFixtures": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0",
+    "stageAScript": "46a44e9e3e1c983928d96bf47469aa462b6facb5727d2643b84d3963b0a61fdf",
+    "stageATest": "a1eb7b3a852de29439effc36062431372b6de825d6a5488187b1a5d4cdf0c7de",
+    "reader": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "grader": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "impl": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b",
+    "stageAEvidenceSha256": "fecb0b2a8888312033641d185a38b06c8e9a5b21e552c58e833a78dc72e490b7"
+  },
+  "reRegistration": {
+    "at": "2026-11-16",
+    "reason": "独立复核后：Stage A 增加长 action 与真实命中 benchmark；冻结 impl、Stage A 证据与性能文件；reader/grader 统一为仓库 canonical LF；真实调用仍为 0。"
+  },
+  "decisionCap": "POSITIVE_SIGNAL",
+  "decisionCapWhy": "20 题合成集的题面 = base 答案 + 召回块的直接答案，只能证明读者会读块，不能证明真实工作收益 ⇒ 最高 POSITIVE_SIGNAL。",
+  "saturation": {
+    "scorableTasks": 18,
+    "why": "20 题里 B-18/B-19 的金标准是 UNKNOWN（正确行为是弃答，不算对也不算错），可计分题只有 18；用 20 当分母会让 20/20 饱和保护永远不可达。",
+    "rule": "任一臂 majorityCorrect >= scorableTasks 即饱和：只记 POSITIVE_SIGNAL，绝不 ADOPT。"
+  }
+}

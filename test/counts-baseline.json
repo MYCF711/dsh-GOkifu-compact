@@ -1,5 +1,5 @@
 {
- "total": 2045,
+ "total": 2133,
  "files": {
   "accept-newcode.test.mjs": 3,
   "action-cost.test.mjs": 6,
@@ -41,7 +41,7 @@
   "closeout-settles.test.mjs": 8,
   "cold-graph-release.test.mjs": 14,
   "compare-models.test.mjs": 0,
-  "config-schema.test.mjs": 2,
+  "config-schema.test.mjs": 3,
   "config-table.test.mjs": 3,
   "constraint-fidelity.test.mjs": 8,
   "context-curve.test.mjs": 3,
@@ -61,7 +61,7 @@
   "doctor-silent-stop.test.mjs": 7,
   "doctor-switch.test.mjs": 3,
   "empty-response.test.mjs": 4,
-  "engine-harness.test.mjs": 128,
+  "engine-harness.test.mjs": 129,
   "engine-retry-assembler.test.mjs": 2,
   "evidence-consistency.test.mjs": 25,
   "evidence-privacy.test.mjs": 8,
@@ -90,7 +90,7 @@
   "graph-fixtures.test.mjs": 5,
   "graph-invariants.test.mjs": 1,
   "handoff-check.test.mjs": 33,
-  "hot-inject.test.mjs": 15,
+  "hot-inject.test.mjs": 31,
   "human-message.test.mjs": 15,
   "index-fingerprint.test.mjs": 2,
   "inject-tail.test.mjs": 2,
@@ -169,6 +169,9 @@
   "profile-io.test.mjs": 2,
   "progress-index.test.mjs": 2,
   "prompt-bleed.test.mjs": 6,
+  "query-recall-pilot.test.mjs": 36,
+  "query-recall-stage-a.test.mjs": 10,
+  "query-recall.test.mjs": 23,
   "range-fidelity.test.mjs": 18,
   "range.test.mjs": 0,
   "reasoning-share.test.mjs": 7,
@@ -226,7 +229,7 @@
   "truncation-consumers.test.mjs": 4,
   "truncation-criteria.test.mjs": 11,
   "ui-backfill.test.mjs": 12,
-  "ui-config.test.mjs": 13,
+  "ui-config.test.mjs": 14,
   "ui-health.test.mjs": 0,
   "ui-heartbeat.test.mjs": 5,
   "ui-home.test.mjs": 0,
@@ -250,6 +253,6 @@
   "worldhash.test.mjs": 0,
   "ws-install.test.mjs": 19
  },
- "passed": 2454,
- "passedAt": "2026-11-14T15:57:05.450Z"
+ "passed": 2541,
+ "passedAt": "2026-11-16T15:43:14.003Z"
 }
