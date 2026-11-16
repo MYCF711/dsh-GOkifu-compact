@@ -3834,3 +3834,52 @@ tests["AX17-5 factGuard:false ⇒ 含 tool/call 与 agent-message 的会话仍�
   t.eq(run.out.summary[0]?.text, raw, "guard 关掉时模型输出必须原样进摘要（零解析、零裁决）");
   t.eq(run.out.llmStreamCall, true, "正常模型产物仍按旧路径落账");
 };
+
+/* ───────────────── Q1 B-1：queryRecall 的宿主配置接线（2026-11-16 返修） ───────────────── */
+
+tests["Q1 B-1：宿主配置的 queryRecall 真的进 this.chess，并注入真召回段；默认关一段都不加"] = async () => {
+  const { Engine, graphDir } = await load();
+  // 图里落一条 `read(file_path=…)` 边 —— 核心召回模块只认这种机械可回证的锚点
+  const replay = async (session, ctx) => {
+    await ctx.emitRaw("session/event", session, userEvent("先读 ledger", 1));
+    await ctx.emitRaw("session/event", session, assistantEvent("q1c1", "read", { file_path: "src/rooms/ledger.mjs" }, 2));
+    await ctx.emitRaw("session/event", session, resultEvent("q1c1", "renderLedger 在 ledger.mjs:120 截断", 3, true));
+    await ctx.emitRaw("session/event", session, { type: "step/end", seq: 4, data: { turn: 1, step: 1 } });
+  };
+  const step = async (ctx, session, query) => {
+    const claimed = [{ id: "claimed-q1", role: "user", content: [{ type: "text", text: query }] }];
+    const agent = { session, options: { provider: "p", model: "m" } };
+    const decision = await ctx.waterfall("agent/pre-step", { agent, messages: claimed, step: 1, signal: undefined }, () => ({ kind: "enter", messages: claimed }));
+    const injected = decision.messages.filter((m) => m.source?.kind === "chess-context");
+    if (injected.length > 1) throw new Error(`surface 上不该有多条清单：${injected.length}`);
+    return injected[0]?.content[0]?.text ?? "";
+  };
+
+  // ① 打开：`RESOLVE_ORDER` 漏了 queryRecall 时，this.chess.queryRecall 会是 undefined
+  //    （面板里打开、引擎永远不召回 —— 这正是 B-1 的现场）
+  const sessionOn = makeSession({ id: "sess-q1-on" });
+  const ctxOn = makeCtx();
+  const engineOn = new Engine(ctxOn, { graphDir, auto: false, queryRecall: true });
+  if (engineOn.chess.queryRecall !== true) {
+    throw new Error(`engine.chess.queryRecall = ${JSON.stringify(engineOn.chess.queryRecall)}（应为 true；漏进 RESOLVE_ORDER 就会是 undefined）`);
+  }
+  await replay(sessionOn, ctxOn);
+  const onText = await step(ctxOn, sessionOn, "为什么 src/rooms/ledger.mjs 的 renderLedger 会截断？");
+  if (!onText.includes("## 当前问题相关证据（机械召回）")) throw new Error(`没注入真召回段：\n${onText}`);
+  if (!onText.includes("<chess-ledger>")) throw new Error(`热清单本体也不见了：\n${onText}`);
+  if (onText.indexOf("## 当前问题相关证据（机械召回）") > onText.indexOf("<chess-ledger>")) {
+    throw new Error(`召回段必须在清单正文之前：\n${onText}`);
+  }
+
+  // ② 默认关：同一张图、同一条 query ⇒ 一个字都不加（默认路径逐字不变）
+  const sessionOff = makeSession({ id: "sess-q1-off" });
+  const ctxOff = makeCtx();
+  const engineOff = new Engine(ctxOff, { graphDir, auto: false });
+  if (engineOff.chess.queryRecall !== false) {
+    throw new Error(`默认应是 false，得到 ${JSON.stringify(engineOff.chess.queryRecall)}`);
+  }
+  await replay(sessionOff, ctxOff);
+  const offText = await step(ctxOff, sessionOff, "为什么 src/rooms/ledger.mjs 的 renderLedger 会截断？");
+  if (offText.includes("当前问题相关证据")) throw new Error(`默认关不许出现召回段：\n${offText}`);
+  if (!offText.includes("<chess-ledger>")) throw new Error("默认关仍然要注入热清单");
+};

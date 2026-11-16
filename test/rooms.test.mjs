@@ -81,8 +81,16 @@ const ROOMS = {
   },
   "hot-inject": {
     file: "hot-inject.mjs",
-    allowed: ["./kifu-model.mjs", "./ledger.mjs"],
+    // ★ Q1 M-1：`keeper.injectionKind` 是「人话来源」的**单一判据**（HUMAN_SOURCES）——
+    //   R08 复用它，而不是再抄一份 source 白名单；代价是新增一条 R08 → R03 的依赖边。
+    allowed: ["./kifu-model.mjs", "./keeper.mjs", "./ledger.mjs", "./query-recall.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
+  "query-recall": {
+    // Q1：按当前问题里的文件/符号锚点机械召回已有图边；零模型、零 I/O、零常驻缓存。
+    file: "query-recall.mjs",
+    allowed: ["./kifu-model.mjs", "./touched-files.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /^node:/],
   },
   "verify": {
     file: "verify.mjs",
@@ -442,20 +450,22 @@ export const tests = {
     t.notIncludes(install, "export function replaceCompactionBlock", "install.mjs 不得再有自持实现");
   },
 
-  "A2-1：preset 块格式逐字未变（engineBlock 27 行 / 21 个配置键；C524 加 autoBackfill）"(t) {
+  "A2-1：preset 块格式逐字未变（engineBlock 28 行 / 22 个配置键；C524 加 autoBackfill，Q1-UI 加 queryRecall）"(t) {
     // 动态 import 房间，直接比对块内容 —— 这是「一个字节都不许变」的机器判据。
     return import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href).then((room) => {
       const block = room.engineBlock();
-      t.eq(block.length, 27, "engineBlock 行数（C524 加 autoBackfill）");
+      t.eq(block.length, 28, "engineBlock 行数（C524 加 autoBackfill；Q1-UI 加 queryRecall）");
       t.eq(block[0], "# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。", "首行注释");
       t.eq(block[3], "- id: gokifu-compact", "id 行");
       t.eq(block[4], "  name: 'dsh-gokifu-compact/engine'", "name 行（单引号）");
       t.eq(block[8], "    firstFoldRatio: 0.30      # 首折阈值：只作用于本会话第一次 fold（0 = 关闭）", "S8 首折行（紧跟在 thresholdRatio 之后）");
-      t.eq(block[22], "    tier2After: 8", "tier2After 行（前一行是 autoBackfill）");
-      t.eq(block[25], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
-      t.eq(block[26], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
+      t.eq(block[21], "    queryRecall: false         # 按当前问题里的文件/符号补已有证据（默认关，零模型调用）", "Q1-UI 召回开关行（面板可开关，默认关）");
+      t.eq(block[23], "    tier2After: 8", "tier2After 行（Q1-UI 之后整体下移一位）");
+      t.eq(block[26], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
+      t.eq(block[27], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
       const parsed = room.parseEngineBlock(block.join("\n"));
-      t.eq(Object.keys(parsed.config).length, 21, "配置键数（C524 +1）");
+      t.eq(Object.keys(parsed.config).length, 22, "配置键数（C524 +1；Q1-UI +1）");
+      t.eq(parsed.config.queryRecall, false, "queryRecall 解析成布尔 false（不是字符串）");
       t.eq(parsed.config.thresholdRatio, 0.45, "thresholdRatio 数值型");
       t.eq(parsed.config.firstFoldRatio, 0.3, "firstFoldRatio 数值型（0.30 → 0.3）");
       t.eq(parsed.config.summarizationProvider, "", "空字符串写成 ''");
@@ -522,7 +532,7 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "tool-value-facts", "touched-files", "user-patch", "verify", "world", "zstd-log"],
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "tool-value-facts", "touched-files", "user-patch", "verify", "world", "zstd-log"],
       "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
     );
     // 判据自检

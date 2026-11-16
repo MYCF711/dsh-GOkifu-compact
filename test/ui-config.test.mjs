@@ -364,3 +364,44 @@ tests["一致性 · 中文字段名与 client.js 的 FIELDS label 一致，且�
     if (mismatches.length > 0) throw new Error(`字段名漂移：\n  ${mismatches.join("\n  ")}`);
   });
 };
+
+/* ───────────────────── Q1-UI：召回开关的面板读写（2026-11-16） ───────────────────── */
+
+/**
+ * `queryRecall` 从「引擎作用域」提升为 **preset 作用域** 之后，UI 必须真的能开关它：
+ * 页面读 state 看到默认 false → 点开 → 保存 → preset 里出现那一行（带解释）→ 再关掉能写回 false。
+ * 这条门禁盯的是「面板上有开关、保存却写不进去」这类假可用。
+ */
+tests["Q1-UI · queryRecall 面板可开关：默认 false / save 写回 preset（带注释）/ 再次关闭写回 false"] = async () => {
+  const { home, preset } = tempHome();
+  await withHome(home, async () => {
+    const { handler } = await mount();
+
+    // ① 初始：未配置 ⇒ 生效值 false、来源 default、且在未配置列表里（面板显示「默认关」）
+    const state = await call(handler, { action: "state" });
+    if (state.json.config.queryRecall !== false) throw new Error(`默认应是 false，得到 ${JSON.stringify(state.json.config.queryRecall)}`);
+    if (state.json.configOrigins.queryRecall !== "default") throw new Error(`来源应是 default，得到 ${JSON.stringify(state.json.configOrigins.queryRecall)}`);
+    if (!state.json.unconfiguredKeys.includes("queryRecall")) throw new Error("未配置时该键应在 unconfiguredKeys 里");
+
+    // ② 打开：走 HTTP save（页面提交字符串 "true" 也必须被规整），preset 必须出现该行且**保留解释**
+    const on = await call(handler, { action: "save", patch: { queryRecall: "true" } });
+    if (on.status !== 200 || on.json?.ok !== true) throw new Error(`打开应 200，得到 ${on.status}/${JSON.stringify(on.json)}`);
+    if (on.json.skipped.length !== 0) throw new Error(`不该有 skipped，得到 ${JSON.stringify(on.json.skipped)}`);
+    if (on.json.effectiveConfig.queryRecall !== true) throw new Error(`回传生效值应是 true，得到 ${JSON.stringify(on.json.effectiveConfig.queryRecall)}`);
+    const writtenOn = readEffective(preset);
+    if (!/^\s*queryRecall: true\s*$/m.test(writtenOn) && !/^\s*queryRecall: true\s+#/m.test(writtenOn)) throw new Error(`preset 里没写进 queryRecall: true：\n${writtenOn}`);
+    if (!/^\s*queryRecall: true\s+#\s*按当前问题/m.test(writtenOn)) throw new Error("写回的行丢了 KEY_COMMENTS 的解释（UI 保存不许丢注释）");
+
+    // ③ 关闭：再存 false，行必须写回 false（保留键位，用户还能再看回来）
+    const off = await call(handler, { action: "save", patch: { queryRecall: false } });
+    if (off.status !== 200) throw new Error(`关闭应 200，得到 ${off.status}/${JSON.stringify(off.json)}`);
+    if (off.json.effectiveConfig.queryRecall !== false) throw new Error(`回传生效值应是 false，得到 ${JSON.stringify(off.json.effectiveConfig.queryRecall)}`);
+    const writtenOff = readEffective(preset);
+    if (!/^\s*queryRecall: false/m.test(writtenOff)) throw new Error(`preset 里没写回 queryRecall: false：\n${writtenOff}`);
+
+    // ④ 不顺手改别的键：同文件里既有行保持原样
+    for (const keep of ["hotLedger: true", "tier2After: 8", "thresholdRatio: 0.45"]) {
+      if (!writtenOff.includes(keep)) throw new Error(`保存顺手改坏了既有行：${keep}`);
+    }
+  });
+};

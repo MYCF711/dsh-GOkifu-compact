@@ -1,14 +1,14 @@
 /**
  * config-schema —— 配置的**单一来源**（R15，A2-4，2026-10-30）
  *
- * 背景：同一份配置在 5 个地方各写一遍（`engine.mjs` 的 `Config` 23 键 / `resolveChess()` 20 键 /
- * `ui.mjs` 的 `DEFAULTS` 16 键 + 范围 + 枚举 + 中文名 / `lib/client.js` 的 `FIELDS` 15 键 /
- * `install.mjs` 的 `engineBlock()` 15 键）。它们已经漂移过：`maxTokens` 曾同时是
+ * 背景：同一份配置在 5 个地方各写一遍（`engine.mjs` 的 `Config` 33 键 / `resolveChess()` 28 键
+ * （另加 `autoArchiveBackfill` 注入位）/ `ui.mjs` 的 `DEFAULTS` 23 键 + 范围 + 枚举 + 中文名 /
+ * `lib/client.js` 的 `FIELDS` 23 键 / `install.mjs` 的 `engineBlock()` 22 键）。它们已经漂移过：`maxTokens` 曾同时是
  * 4096 / 2048 / 8192，`retainRatio >= thresholdRatio` 的修正只在两处里的一处生效。
  *
  * 本房间是**唯一真值**：
- *   · `SCHEMA` 23 行（key / type / default / where / range / values / label / desc）
- *   · `PRESET_KEYS` 17（含顺序 —— `engineBlock()` 的模板顺序必须与它一致，`test/config-schema` 钉住）
+ *   · `SCHEMA` 33 行（key / type / default / where / range / values / label / desc）
+ *   · `PRESET_KEYS` 23（含顺序 —— `engineBlock()` 的模板顺序必须与它一致，`test/config-schema` 钉住）
  *   · `BASE_KEYS` 11（透传给官方基类的那批同名键）
  *   · `configDefaults()` / `fieldLabels()` / `describe(key)` —— 派生只读表
  *   · `resolveConfig(raw)` —— 引擎侧「原始配置 → 生效配置」（含净化与 `retainRatio` 修正）
@@ -30,7 +30,16 @@
  */
 export const FACT_GUARD_DEFAULT = false;
 
-/** 32 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
+/**
+ * ★ Q1（2026-11-16）：`queryRecall` 的**默认值单一来源**。
+ *
+ * 锚点召回是实验线（未做真机采纳评测）：默认必须是**关**。
+ * `src/rooms/hot-inject.mjs` 只认 `config.queryRecall === true` 才做召回计算，
+ * 所以「默认关」只有一处字面量 —— 将来要改默认，只改这里 + 同步测试。
+ */
+export const QUERY_RECALL_DEFAULT = false;
+
+/** 33 行唯一真值。顺序 = 官方基类键在前、棋谱扩展在后（与 `engine.mjs` 今天的字段顺序一致）。 */
 export const SCHEMA = Object.freeze([
   // —— 与官方后端同名（语义一致，默认值不同）——
   {
@@ -131,11 +140,26 @@ export const SCHEMA = Object.freeze([
     label: "事实守卫",
     desc: "实验开关（默认关）：模型摘要里的事实候选必须先过冷代码回证（subject / quote 逐字 / 同会话 seq / 时点）才能落成事实",
   },
+  // ★ Q1（2026-11-16）：**锚点召回**（实验线）。默认关 —— 未做真机采纳评测前不许默认开启。
+  //   ★ Q1-UI：**preset 作用域**（面板可开关）。进 `DEFAULTS` / `FIELD_LABELS` / `describeConfig`，
+  //   并同步进 `PRESET_KEYS` 与 `preset-format.mjs` 的 `engineBlock()`（否则 UI 保存写不回这一行）。
+  //   只有**字面 true** 才开启；字符串 "true" / 1 一律净化成 false（实验开关不靠真值转换）。
+  {
+    key: "queryRecall",
+    type: "boolean",
+    default: QUERY_RECALL_DEFAULT,
+    where: "preset",
+    label: "按问题召回代码证据（实验）",
+    desc:
+      "实验开关（默认关，零额外模型调用）：打开后每轮从本轮最新用户消息里识别明确的文件/符号锚点，" +
+      "把机械召回的棋谱条目作为一段附在热清单前（条数与字符上限固定）；无锚点或无匹配时一段都不加。" +
+      "关掉（不写或写 false）即恢复逐字不变的旧渲染",
+  },
 ]);
 
 const BY_KEY = new Map(SCHEMA.map((entry) => [entry.key, entry]));
 
-/** preset 里允许出现的 17 个键（**顺序即 `engineBlock()` 的模板顺序**，`maxTokens` 今天不在模板里）。 */
+/** preset 里允许出现的 23 个键（**顺序即 `engineBlock()` 的模板顺序**，`maxTokens` 今天不在模板里）。 */
 export const PRESET_KEYS = Object.freeze([
   "auto",
   "thresholdRatio",
@@ -153,6 +177,7 @@ export const PRESET_KEYS = Object.freeze([
   "hotLedgerMaxTokens",
   "hotLedgerMarkers",
   "hotLedgerReplace",
+  "queryRecall",
   "transposition",
   "tier2After",
   "closeoutFold",
@@ -208,6 +233,8 @@ const LABEL_ORDER = Object.freeze([
   //   两个引擎键都能写在 preset 的 `config:` 块里，但**不在这张 UI 表里**。
   "hotLedgerReplace",
   "hotLedgerMarkers",
+  // ★ Q1-UI：面板开关 —— 与 `lib/client.js` 的 FIELDS label 必须逐字相同（`ui-config` 的门禁）。
+  "queryRecall",
   "transposition",
   "tier2After",
   "closeoutFold",
@@ -285,6 +312,8 @@ export function resolveConfig(raw = {}) {
     // ★ AX-01：默认 false 的开关 —— 只有字面 true 才开（`!== false` 语义在这里是反的，
     //   写成 `!== false` 会让 undefined / "true" / 1 全部把实验线打开）。
     factGuard: c.factGuard === true,
+    // ★ Q1：默认 false 的开关 —— 同样只有**字面 true** 才开（理由同 factGuard）。
+    queryRecall: c.queryRecall === true,
   };
   // 与 A2-4 之前 engine.mjs 的结尾修正逐字相同：保留尾部不得 ≥ 触发阈值。
   if (out.retainRatio >= out.thresholdRatio) out.retainRatio = Math.max(0.05, out.thresholdRatio - 0.05);

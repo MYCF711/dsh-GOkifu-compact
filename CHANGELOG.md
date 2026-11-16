@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C665 | Q1 代码锚点召回：实现与性能达标，真实配对退化，保持 NOT_ADOPTED |
 | C663 | 压力行只给裸百分比 ⇒ 模型把 28% 的窗口占用读成 93% |
 | C662 | 冷图回收会丢掉 pending 节点文档（135 个空指针的根因） |
 | C661 | 修 C659 自己引入的闸门自锁：终态路径跳过静默窗口（关窗即回收） |
@@ -726,6 +727,34 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C665 · Q1 代码锚点召回：实现与性能达标，真实配对退化，保持 NOT_ADOPTED
+
+**结论：`NEGATIVE_SIGNAL` / `NOT_ADOPTED`，`queryRecall` 默认 `false`。** 这是一次完整实现 + 独立复核 + 真实配对证伪，不是默认功能发布。
+
+## 实现
+
+- 新增 `src/rooms/query-recall.mjs`：从当前真实 user query 中保守提取文件/符号锚点，只读现有图边，top-K 机械召回；零模型调用、零 I/O、无常驻缓存。
+- `hot-inject` 只认 keeper `HUMAN_SOURCES`；queryDigest 与 recallText digest 分离，同 query 图增长不绕限流；默认关闭时文本与状态逐项不变。
+- `queryRecall` 进 R15/preset/UI，默认 false；`RESOLVE_ORDER` 已接通到 `this.chess`，不是只能写不能读的假开关。
+- 长 action 为失败原因后缀预留空间；Windows 相对路径、点链边界、maxChars 精确记账均有回归测试。
+
+## 独立复核与性能
+
+- `q1-review` 初审 2 BLOCKER / 5 MAJOR / 7 MINOR，复审与 Lead 最终复验全部闭环。
+- Engine 129/129；hot-inject 43/43；Q1 core 23 + Stage A 10 + pilot 36 = 69/69。
+- Stage A **15/15**，漏召 0、误召 0；含 215 字符 action 的失败原因保留。
+- 最大真实图 10,118,188 B / 10,252 节点 / 10,470 边：340 次渲染、命中 240；render p95 9.779ms、派生 p95 **9.996ms**（门槛 25ms）。
+
+## 真实 Stage B（预注册后运行）
+
+- 20 题 × A0/A1 × 3 样本 = **120/120 完成，0 重试、0 调用错误**。
+- A0 多数票正确 **8/20**，A1 **15/20**；UNKNOWN 样本 **30 → 5**。
+- 但 **B-06 从 A0 对退化为 A1 错**：A1 多数票 `关` 不符合冻结 gold `默认关闭` 与 aliases（`关闭/默认关/off`）。没有事后扩 alias 或修改 grader。
+- token 效率为正，但 wall p95 **2265 → 2838ms**，`p95Positive=false`。
+- 最终 **`NEGATIVE_SIGNAL` / `NOT_ADOPTED`**。合成题即使无退化也只允许 POSITIVE_SIGNAL，不能 ADOPT。
+
+证据：`evidence/query-recall-review-final.md`、`query-recall-pilot.results.json`、`query-recall-pilot-public.json`、Stage A 与 perf JSON。
 
 ### C663 · 压力行只给裸百分比 ⇒ 模型把 28% 的窗口占用读成 93%
 

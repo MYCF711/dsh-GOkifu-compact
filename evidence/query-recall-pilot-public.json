@@ -1,0 +1,598 @@
+{
+  "schema": "query-recall-pilot-public-v1",
+  "version": 1,
+  "experimentId": "q1-query-recall-stage-b-1",
+  "status": "SCORED",
+  "generatedAt": "2026-11-16T15:46:47.127Z",
+  "synthetic": true,
+  "stageAStatus": "PASS",
+  "stageAP95Ms": 9.996,
+  "callsUsed": 120,
+  "retriesUsed": 0,
+  "maxCalls": 120,
+  "samplesPerArm": 3,
+  "model": "group/deepseek-v4.1-flash-1017",
+  "arms": {
+    "A0": {
+      "majorityCorrect": 8,
+      "majorityUnknown": 10,
+      "majorityWrong": 2,
+      "majorityInvalid": 0,
+      "unknownSamples": 30,
+      "wrongSamples": 8,
+      "correctSamples": 22,
+      "errorSamples": 0,
+      "inputTokens": 18819,
+      "outputTokens": 5856,
+      "totalTokens": 24675,
+      "tokensPerCorrectMajority": 2352.38,
+      "wallMs": {
+        "p50": 1085,
+        "p95": 2265,
+        "count": 60
+      }
+    },
+    "A1": {
+      "majorityCorrect": 15,
+      "majorityUnknown": 2,
+      "majorityWrong": 3,
+      "majorityInvalid": 0,
+      "unknownSamples": 5,
+      "wrongSamples": 11,
+      "correctSamples": 44,
+      "errorSamples": 0,
+      "inputTokens": 23883,
+      "outputTokens": 8103,
+      "totalTokens": 31986,
+      "tokensPerCorrectMajority": 1592.2,
+      "wallMs": {
+        "p50": 1163,
+        "p95": 2838,
+        "count": 60
+      }
+    }
+  },
+  "gates": {
+    "stageA": true,
+    "stageAP95Ms": 9.996,
+    "pairedNoRegression": false,
+    "unknownNotIncreased": true,
+    "tokenPositive": true,
+    "p95Positive": false,
+    "saturationCap": true
+  },
+  "decision": "NEGATIVE_SIGNAL",
+  "adoption": "NOT_ADOPTED",
+  "saturationTriggered": false,
+  "decisionCap": "POSITIVE_SIGNAL",
+  "decisionCapReason": "决策上限：20 题合成集的题面 = base 答案 + 召回块直接答案，只能证明读者会读块，不能证明真实工作收益 ⇒ 最高 POSITIVE_SIGNAL，绝不 ADOPT",
+  "scorableTasks": 18,
+  "stageAPerfSha256": "d5d84c85a3b265857f9631430f229cac28a139f936e3537896420598e0d1eea9",
+  "decisionReasons": [
+    "逐题回归：B-06（A0 多数票对、A1 不对）"
+  ],
+  "byFamily": {
+    "file": {
+      "tasks": 8,
+      "A0": {
+        "correct": 2,
+        "unknown": 5,
+        "wrong": 1,
+        "unknownSamples": 15
+      },
+      "A1": {
+        "correct": 7,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 2
+      }
+    },
+    "failure": {
+      "tasks": 3,
+      "A0": {
+        "correct": 2,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      },
+      "A1": {
+        "correct": 2,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "symbol": {
+      "tasks": 7,
+      "A0": {
+        "correct": 4,
+        "unknown": 3,
+        "wrong": 0,
+        "unknownSamples": 9
+      },
+      "A1": {
+        "correct": 6,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "budget": {
+      "tasks": 1,
+      "A0": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      },
+      "A1": {
+        "correct": 0,
+        "unknown": 0,
+        "wrong": 1,
+        "unknownSamples": 0
+      }
+    },
+    "abstention": {
+      "tasks": 1,
+      "A0": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      },
+      "A1": {
+        "correct": 0,
+        "unknown": 1,
+        "wrong": 0,
+        "unknownSamples": 3
+      }
+    }
+  },
+  "perTask": [
+    {
+      "id": "B-01",
+      "family": "file",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e2": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e2": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-02",
+      "family": "failure",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e5": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e5": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-03",
+      "family": "failure",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "normalizequery is not a function": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "normalizequery is not a function": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-04",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "6": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "6": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-05",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "1200": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "1200": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-06",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "关闭": 2,
+          "关": 1
+        }
+      },
+      "A1": {
+        "outcome": "WRONG",
+        "votes": {
+          "关（默认关闭）": 1,
+          "关": 2
+        }
+      },
+      "regression": true
+    },
+    {
+      "id": "B-07",
+      "family": "symbol",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "回放 delta": 2,
+          "回放 delta。": 1
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "回放 delta": 2,
+          "回放 delta。": 1
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-08",
+      "family": "file",
+      "derivableFrom": "base-context",
+      "A0": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e9": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e9": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-09",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "WRONG",
+        "votes": {
+          "e9": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e10": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-10",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "test/query-recall-stage-a.test.mjs": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-11",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "7-9": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-12",
+      "family": "symbol",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "不会": 2,
+          "不会。": 1
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-13",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 2,
+          "e1": 1
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-14",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e6": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-15",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e5, e2": 1,
+          "e5,e2": 2
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-16",
+      "family": "failure",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "WRONG",
+        "votes": {
+          "e2 成功，e5 失败": 2,
+          "e2成功，e5失败": 1
+        }
+      },
+      "A1": {
+        "outcome": "WRONG",
+        "votes": {
+          "e2 成功，e5 失败": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-17",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "2": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-18",
+      "family": "budget",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "WRONG",
+        "votes": {
+          "mod21": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-19",
+      "family": "abstention",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "regression": false
+    },
+    {
+      "id": "B-20",
+      "family": "file",
+      "derivableFrom": "recall",
+      "A0": {
+        "outcome": "UNKNOWN",
+        "votes": {
+          "unknown": 3
+        }
+      },
+      "A1": {
+        "outcome": "CORRECT",
+        "votes": {
+          "e3": 3
+        }
+      },
+      "regression": false
+    }
+  ],
+  "abstentions": [
+    {
+      "id": "B-10",
+      "arm": "A0"
+    },
+    {
+      "id": "B-11",
+      "arm": "A0"
+    },
+    {
+      "id": "B-12",
+      "arm": "A0"
+    },
+    {
+      "id": "B-13",
+      "arm": "A0"
+    },
+    {
+      "id": "B-13",
+      "arm": "A1"
+    },
+    {
+      "id": "B-14",
+      "arm": "A0"
+    },
+    {
+      "id": "B-15",
+      "arm": "A0"
+    },
+    {
+      "id": "B-17",
+      "arm": "A0"
+    },
+    {
+      "id": "B-18",
+      "arm": "A0"
+    },
+    {
+      "id": "B-19",
+      "arm": "A0"
+    },
+    {
+      "id": "B-19",
+      "arm": "A1"
+    },
+    {
+      "id": "B-20",
+      "arm": "A0"
+    }
+  ],
+  "fabrications": [
+    {
+      "id": "B-18",
+      "arm": "A1"
+    }
+  ],
+  "frozen": {
+    "prereg": "af4ec6be188665914d980a3bb0e492945986a33888d36450862571c91aa4d42a",
+    "fixtures": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0",
+    "stageAScript": "46a44e9e3e1c983928d96bf47469aa462b6facb5727d2643b84d3963b0a61fdf",
+    "stageATest": "a1eb7b3a852de29439effc36062431372b6de825d6a5488187b1a5d4cdf0c7de",
+    "reader": "c035954aa4a63464076c40cac8f114b0db58565b819a57a5b6d204269255e365",
+    "grader": "d8eaf62e1911a09021e825a85940db8a24676463232f9f20b486b6503511bee1",
+    "impl": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b"
+  },
+  "privacy": {
+    "synthetic": true,
+    "rawAnswers": "not-in-this-file",
+    "endpoint": "not-recorded",
+    "paths": "not-recorded",
+    "sessionIds": "none"
+  },
+  "notes": [
+    "公开聚合：只含聚合与票型；raw 回答只在私有明细文件里。",
+    "本题全部为纯合成题面/上下文/答案；不含真实会话、真实路径或私有数据。",
+    "生产默认仍为 NOT_ADOPTED：本文件只记录本次预注册实验的判定。"
+  ]
+}

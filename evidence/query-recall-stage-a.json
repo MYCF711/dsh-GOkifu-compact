@@ -1,0 +1,257 @@
+{
+  "schema": "query-recall-stage-a-result",
+  "version": 1,
+  "generatedAt": "2026-11-16T15:19:54.302Z",
+  "status": "PASS",
+  "synthetic": true,
+  "zeroModelCalls": true,
+  "command": "node scripts/query-recall-stage-a.mjs --write",
+  "fixtures": {
+    "file": "query-recall-stage-a.fixtures.json",
+    "sha256": "103328854158693dabec3384fea3b8422e387fef0a55a91b14b0b8f66ad56fe0",
+    "tasks": 15
+  },
+  "impl": {
+    "file": "query-recall.mjs",
+    "sha256": "3d9ca1b389d0814df265609102fb21c91f2c41dbb351c6403ee29b9e8521585b"
+  },
+  "aggregate": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0,
+    "evidence": {
+      "matched": 15,
+      "expected": 15,
+      "hitRate": 1
+    },
+    "misses": 0,
+    "falsePositives": 0,
+    "chars": {
+      "p50": 154,
+      "p95": 620,
+      "max": 620
+    },
+    "renderMs": {
+      "p50": 0.084,
+      "p95": 2.429,
+      "max": 2.429
+    }
+  },
+  "perTask": [
+    {
+      "id": "SA-01",
+      "class": "full-path",
+      "family": "file-anchor",
+      "passed": true,
+      "chars": 518,
+      "anchors": 1,
+      "items": 3,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-02",
+      "class": "windows-path",
+      "family": "file-anchor",
+      "passed": true,
+      "chars": 111,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-03",
+      "class": "relative-path",
+      "family": "file-anchor",
+      "passed": true,
+      "chars": 228,
+      "anchors": 1,
+      "items": 2,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-04",
+      "class": "backtick-basename",
+      "family": "file-anchor",
+      "passed": true,
+      "chars": 109,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-05",
+      "class": "function-symbol",
+      "family": "symbol-anchor",
+      "passed": true,
+      "chars": 167,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-06",
+      "class": "method-symbol",
+      "family": "symbol-anchor",
+      "passed": true,
+      "chars": 154,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-07",
+      "class": "no-anchor",
+      "family": "no-anchor",
+      "passed": true,
+      "chars": 0,
+      "anchors": 0,
+      "items": 0,
+      "recall": {
+        "matched": 0,
+        "expected": 0
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-08",
+      "class": "multi-file-synonym",
+      "family": "file-anchor",
+      "passed": true,
+      "chars": 620,
+      "anchors": 2,
+      "items": 4,
+      "recall": {
+        "matched": 2,
+        "expected": 2
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-09",
+      "class": "no-evidence",
+      "family": "no-anchor",
+      "passed": true,
+      "chars": 0,
+      "anchors": 2,
+      "items": 0,
+      "recall": {
+        "matched": 0,
+        "expected": 0
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-10",
+      "class": "failure-reason",
+      "family": "failure-reason",
+      "passed": true,
+      "chars": 568,
+      "anchors": 1,
+      "items": 3,
+      "recall": {
+        "matched": 3,
+        "expected": 3
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-11",
+      "class": "budget-truncation",
+      "family": "budget-and-order",
+      "passed": true,
+      "chars": 134,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-12",
+      "class": "stable-ordering",
+      "family": "budget-and-order",
+      "passed": true,
+      "chars": 151,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-13",
+      "class": "limit-cap",
+      "family": "budget-and-order",
+      "passed": true,
+      "chars": 270,
+      "anchors": 1,
+      "items": 1,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-14",
+      "class": "empty-graph",
+      "family": "no-anchor",
+      "passed": true,
+      "chars": 0,
+      "anchors": 2,
+      "items": 0,
+      "recall": {
+        "matched": 0,
+        "expected": 0
+      },
+      "problems": []
+    },
+    {
+      "id": "SA-15",
+      "class": "failure-reason-long-action",
+      "family": "failure-reason",
+      "passed": true,
+      "chars": 368,
+      "anchors": 1,
+      "items": 2,
+      "recall": {
+        "matched": 1,
+        "expected": 1
+      },
+      "problems": []
+    }
+  ],
+  "notes": [
+    "只含纯合成夹具的聚合与逐题计数；不含图、query、正文、会话 id 或路径。",
+    "真实最大图的性能基准不进本文件（--home 模式只打印聚合，不落盘）。",
+    "本文件不构成生产采纳结论：默认仍是 NOT_ADOPTED，Stage B 见 evidence/query-recall-prereg-v1.json。"
+  ]
+}

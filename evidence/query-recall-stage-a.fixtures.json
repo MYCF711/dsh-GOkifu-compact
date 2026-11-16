@@ -1,0 +1,1553 @@
+{
+  "schema": "query-recall-stage-a-fixtures",
+  "version": 1,
+  "generatedAt": "2026-11-16",
+  "status": "SYNTHETIC_ONLY",
+  "zeroModelCalls": true,
+  "about": "Q1 查询召回 Stage A 夹具：纯合成棋谱 + 合成 query，只判确定性文件/符号锚点；不含任何真实会话 id、路径或正文。",
+  "notes": [
+    "graph 字段是 graphs 里的命名引用；每个任务必须能解析到一个存在的图（脚本会判 dangling 引用）。",
+    "图边 action 用 keeper 的真实形态（read/edit/write(file_path=…)）；路径锚点只从文件类工具解析，bash 命令里的路径不算。",
+    "expected 是证据召回率的分母；mandatory 是硬门槛（缺一条即失败）；forbidden 是误召（出现即失败）。证据文本只算 text/items，不算 anchors 里的 query 回显。",
+    "expectedAnchors/forbiddenAnchors 用 {contains} 匹配 anchors 的 JSON 文本，不绑定锚点的具体字段名。",
+    "expectEmptyText：无锚点或无匹配证据时必须返回空串与 0 items（契约：无锚点输出空串）；expectNoAnchors 只在 query 本身没有锚点时要求 anchors 为空。",
+    "repeat=N 会在同一进程里重复渲染 N 次，逐字节比对 text/anchors/items（稳定排序与幂等）。",
+    "minRecall 默认 1；无软证据项。",
+    "Windows 路径题（SA-02）的反斜杠在公开 JSON 里用 unicode 转义（u005c）写出，解析后仍是单个反斜杠；这样文件文本里不出现 UNC 形状的连续反斜杠。",
+    "本夹具不含真实数据；真实最大图只读性能基准走 node scripts/query-recall-stage-a.mjs --home <DSH_HOME>，输出不含会话 id/路径/正文。"
+  ],
+  "families": [
+    {
+      "id": "file-anchor",
+      "label": "文件锚点（完整/Windows/相对/反引号 basename/同义多文件）"
+    },
+    {
+      "id": "symbol-anchor",
+      "label": "符号锚点（函数/方法）"
+    },
+    {
+      "id": "no-anchor",
+      "label": "无锚点/无证据/空图（必须空串）"
+    },
+    {
+      "id": "failure-reason",
+      "label": "失败原因"
+    },
+    {
+      "id": "budget-and-order",
+      "label": "预算截断 / limit 上限 / 稳定排序"
+    }
+  ],
+  "classes": [
+    "full-path",
+    "windows-path",
+    "relative-path",
+    "backtick-basename",
+    "function-symbol",
+    "method-symbol",
+    "no-anchor",
+    "multi-file-synonym",
+    "no-evidence",
+    "failure-reason",
+    "budget-truncation",
+    "stable-ordering",
+    "limit-cap",
+    "empty-graph",
+    "failure-reason-long-action"
+  ],
+  "contracts": {
+    "api": "renderQueryRecall(graph, queryText, {limit, maxChars}) => {text, anchors, items, stats}",
+    "anchors": "anchors 可以是数组，也可以是 {paths, symbols} 两个字符串数组（Q1 实现为后者）",
+    "budget": "text 长度不得超过 options.maxChars；items 长度不得超过 options.limit（或任务显式 maxItems）",
+    "empty": "没有任何可用证据时 text 必须是空串、items 长度为 0",
+    "determinism": "同一 (graph, query, options) 的多次渲染必须逐字节相同"
+  },
+  "graphs": {
+    "base": {
+      "version": 1,
+      "nodes": {
+        "n1": {
+          "id": "n1",
+          "kind": "user",
+          "seq": 1,
+          "turn": null,
+          "text": "根目标：给热注入加 query recall。只用确定性文件/符号锚点，绝不调用模型。约束：不改 src/rooms/ledger.mjs 的 renderLedger 文本。",
+          "constraints": [
+            "不改 src/rooms/ledger.mjs 的 renderLedger 文本"
+          ],
+          "ts": 0
+        },
+        "n2": {
+          "id": "n2",
+          "kind": "agent",
+          "seq": 2,
+          "turn": null,
+          "goal": "读取 src/rooms/ledger.mjs，确认 renderLedger 的预算参数（ledger-budget.json）",
+          "worldHash": "w02",
+          "constraintHash": "c02",
+          "via": "e1",
+          "ts": 0
+        },
+        "n3": {
+          "id": "n3",
+          "kind": "agent",
+          "seq": 3,
+          "turn": null,
+          "goal": "新增 src/rooms/query-recall.mjs，导出 renderQueryRecall；collectAnchors 收集文件与符号锚点",
+          "worldHash": "w03",
+          "constraintHash": "c03",
+          "via": "e2",
+          "ts": 0
+        },
+        "n4": {
+          "id": "n4",
+          "kind": "agent",
+          "seq": 4,
+          "turn": null,
+          "goal": "补测试 test/query-recall-stage-a.test.mjs，覆盖 collectAnchors 与 normalizeQuery",
+          "worldHash": "w04",
+          "constraintHash": "c04",
+          "via": "e3",
+          "ts": 0
+        },
+        "n5": {
+          "id": "n5",
+          "kind": "agent",
+          "seq": 5,
+          "turn": null,
+          "goal": "预算：limit=6，maxChars=1200；超限按 anchor 粒度截断",
+          "worldHash": "w05",
+          "constraintHash": "c05",
+          "via": "e4",
+          "ts": 0
+        },
+        "n6": {
+          "id": "n6",
+          "kind": "agent",
+          "seq": 6,
+          "turn": null,
+          "goal": "修复 TypeError：normalizeQuery is not a function —— 改为从 collectAnchors 导入",
+          "worldHash": "w06",
+          "constraintHash": "c06",
+          "via": "e5",
+          "ts": 0
+        },
+        "n7": {
+          "id": "n7",
+          "kind": "agent",
+          "seq": 7,
+          "turn": null,
+          "goal": "在 src/rooms/hot-inject.mjs 的 bindLedger 注入点接上 query recall（默认关闭）",
+          "worldHash": "w07",
+          "constraintHash": "c07",
+          "via": "e6",
+          "ts": 0
+        },
+        "n8": {
+          "id": "n8",
+          "kind": "agent",
+          "seq": 8,
+          "turn": null,
+          "goal": "最大真实图只读基准：只输出节点/边/字节/时延/RSS 聚合",
+          "worldHash": "w08",
+          "constraintHash": "c08",
+          "via": "e7",
+          "ts": 0
+        },
+        "n9": {
+          "id": "n9",
+          "kind": "agent",
+          "seq": 9,
+          "turn": null,
+          "goal": "先 decodeDeltaFrames 回放 delta，再交给 applyDelta；直接读 src/rooms/kifu-model.mjs 的 graph.json 会少一回合",
+          "worldHash": "w09",
+          "constraintHash": "c09",
+          "via": "e8",
+          "ts": 0
+        },
+        "n10": {
+          "id": "n10",
+          "kind": "agent",
+          "seq": 10,
+          "turn": null,
+          "goal": "冻结 evidence/query-recall-stage-a.fixtures.json：14 道纯合成任务",
+          "worldHash": "w10",
+          "constraintHash": "c10",
+          "via": "e9",
+          "ts": 0
+        },
+        "n11": {
+          "id": "n11",
+          "kind": "agent",
+          "seq": 11,
+          "turn": null,
+          "goal": "Stage B 预注册：20 题 × 2 臂 × 3 样本 = 120 次硬上限",
+          "worldHash": "w11",
+          "constraintHash": "c11",
+          "via": "e10",
+          "ts": 0
+        },
+        "n12": {
+          "id": "n12",
+          "kind": "agent",
+          "seq": 12,
+          "turn": null,
+          "goal": "tewariAnalysis 只做手割分析，不进热清单（src/rooms/kifu-model.mjs）",
+          "worldHash": "w12",
+          "constraintHash": "c12",
+          "via": "e11",
+          "ts": 0
+        },
+        "n13": {
+          "id": "n13",
+          "kind": "agent",
+          "seq": 13,
+          "turn": null,
+          "goal": "长 action（≥210 字符）失败边：errorSnippet 末尾 marker 必须出现在召回行里",
+          "worldHash": "w13",
+          "constraintHash": "c13",
+          "via": "e12",
+          "ts": 0
+        }
+      },
+      "edges": {
+        "e1": {
+          "id": "e1",
+          "from": "n1",
+          "to": "n2",
+          "intent": "确认 renderLedger 的预算参数",
+          "action": "read(file_path=src/rooms/ledger.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 1,
+            "end": 2
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e2": {
+          "id": "e2",
+          "from": "n2",
+          "to": "n3",
+          "intent": "新增 renderQueryRecall 并导出（默认 limit=6，maxChars=1200）",
+          "action": "edit(file_path=src/rooms/query-recall.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 2,
+            "end": 3
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e3": {
+          "id": "e3",
+          "from": "n3",
+          "to": "n4",
+          "intent": "补测试覆盖 collectAnchors 与 normalizeQuery",
+          "action": "write(file_path=test/query-recall-stage-a.test.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 3,
+            "end": 4
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e4": {
+          "id": "e4",
+          "from": "n4",
+          "to": "n5",
+          "intent": "跑 Stage A",
+          "action": "bash(command=node scripts/query-recall-stage-a.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 4,
+            "end": 5
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e5": {
+          "id": "e5",
+          "from": "n4",
+          "to": "n6",
+          "intent": "修归一化",
+          "action": "edit(file_path=src/rooms/query-recall.mjs)",
+          "result": "failure",
+          "verify": {
+            "kind": "error",
+            "summary": "normalizeQuery is not a function"
+          },
+          "errorSnippet": "TypeError: normalizeQuery is not a function",
+          "evidence": {
+            "start": 4,
+            "end": 6
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e6": {
+          "id": "e6",
+          "from": "n5",
+          "to": "n7",
+          "intent": "接上 bindLedger 注入点（默认关闭）",
+          "action": "edit(file_path=src/rooms/hot-inject.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 5,
+            "end": 7
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e7": {
+          "id": "e7",
+          "from": "n6",
+          "to": "n8",
+          "intent": "真实图基准",
+          "action": "bash(command=node scripts/query-recall-stage-a.mjs --home <DSH_HOME>)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 6,
+            "end": 8
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e8": {
+          "id": "e8",
+          "from": "n7",
+          "to": "n9",
+          "intent": "先 decodeDeltaFrames 回放 delta，再交给 applyDelta",
+          "action": "read(file_path=src/rooms/kifu-model.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 7,
+            "end": 9
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e9": {
+          "id": "e9",
+          "from": "n9",
+          "to": "n10",
+          "intent": "冻结夹具",
+          "action": "edit(file_path=evidence/query-recall-stage-a.fixtures.json)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 9,
+            "end": 10
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e10": {
+          "id": "e10",
+          "from": "n10",
+          "to": "n11",
+          "intent": "冻结预注册",
+          "action": "write(file_path=evidence/query-recall-prereg-v1.json)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 10,
+            "end": 11
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e11": {
+          "id": "e11",
+          "from": "n10",
+          "to": "n12",
+          "intent": "graph.tewariAnalysis 只做手割分析，不进热清单",
+          "action": "read(file_path=src/rooms/kifu-model.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 10,
+            "end": 12
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e12": {
+          "id": "e12",
+          "from": "n12",
+          "to": "n13",
+          "intent": "长 action 失败边：失败原因必须完整保留",
+          "action": "edit(file_path=src/rooms/query-recall.mjs content=\"把 renderLedger 的预算窗口从 1200 扩展到 2400，保留失败原因段落，确保 normalizeQuery 的 TypeError 上下文不被截断；再补一条 renderLedger 预算窗口说明与一条窗口越界说明，并记录触发时的预算窗口与渲染预算参数，action 本身不承载失败原因的末尾标记\")",
+          "result": "failure",
+          "verify": {
+            "kind": "error",
+            "summary": "renderLedger budget window overflow marker-long-action-tail-7c1e"
+          },
+          "errorSnippet": "TypeError: renderLedger budget window overflow marker-long-action-tail-7c1e",
+          "evidence": {
+            "start": 12,
+            "end": 13
+          },
+          "transposition": false,
+          "ts": 0
+        }
+      },
+      "order": [
+        "n1",
+        "n2",
+        "n3",
+        "n4",
+        "n5",
+        "n6",
+        "n7",
+        "n8",
+        "n9",
+        "n10",
+        "n11",
+        "n12",
+        "n13"
+      ],
+      "stateIndex": {},
+      "rootUserNodeIds": [
+        "n1"
+      ],
+      "foldCount": 0,
+      "checkpointSeq": null,
+      "foldMarks": [],
+      "lastFoldUsage": null
+    },
+    "noisy": {
+      "version": 1,
+      "nodes": {
+        "n1": {
+          "id": "n1",
+          "kind": "user",
+          "seq": 1,
+          "turn": null,
+          "text": "renderLedger() 的预算档位核对任务",
+          "constraints": [],
+          "ts": 0
+        },
+        "n2": {
+          "id": "n2",
+          "kind": "agent",
+          "seq": 2,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod02 的核对（src/rooms/mod02.mjs）",
+          "worldHash": "w02",
+          "constraintHash": "c02",
+          "via": "e1",
+          "ts": 0
+        },
+        "n3": {
+          "id": "n3",
+          "kind": "agent",
+          "seq": 3,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod03 的核对（src/rooms/mod03.mjs）",
+          "worldHash": "w03",
+          "constraintHash": "c03",
+          "via": "e2",
+          "ts": 0
+        },
+        "n4": {
+          "id": "n4",
+          "kind": "agent",
+          "seq": 4,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod04 的核对（src/rooms/mod04.mjs）",
+          "worldHash": "w04",
+          "constraintHash": "c04",
+          "via": "e3",
+          "ts": 0
+        },
+        "n5": {
+          "id": "n5",
+          "kind": "agent",
+          "seq": 5,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod05 的核对（src/rooms/mod05.mjs）",
+          "worldHash": "w05",
+          "constraintHash": "c05",
+          "via": "e4",
+          "ts": 0
+        },
+        "n6": {
+          "id": "n6",
+          "kind": "agent",
+          "seq": 6,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod06 的核对（src/rooms/mod06.mjs）",
+          "worldHash": "w06",
+          "constraintHash": "c06",
+          "via": "e5",
+          "ts": 0
+        },
+        "n7": {
+          "id": "n7",
+          "kind": "agent",
+          "seq": 7,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod07 的核对（src/rooms/mod07.mjs）",
+          "worldHash": "w07",
+          "constraintHash": "c07",
+          "via": "e6",
+          "ts": 0
+        },
+        "n8": {
+          "id": "n8",
+          "kind": "agent",
+          "seq": 8,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod08 的核对（src/rooms/mod08.mjs）",
+          "worldHash": "w08",
+          "constraintHash": "c08",
+          "via": "e7",
+          "ts": 0
+        },
+        "n9": {
+          "id": "n9",
+          "kind": "agent",
+          "seq": 9,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod09 的核对（src/rooms/mod09.mjs）",
+          "worldHash": "w09",
+          "constraintHash": "c09",
+          "via": "e8",
+          "ts": 0
+        },
+        "n10": {
+          "id": "n10",
+          "kind": "agent",
+          "seq": 10,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod10 的核对（src/rooms/mod10.mjs）",
+          "worldHash": "w10",
+          "constraintHash": "c10",
+          "via": "e9",
+          "ts": 0
+        },
+        "n11": {
+          "id": "n11",
+          "kind": "agent",
+          "seq": 11,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod11 的核对（src/rooms/mod11.mjs）",
+          "worldHash": "w11",
+          "constraintHash": "c11",
+          "via": "e10",
+          "ts": 0
+        },
+        "n12": {
+          "id": "n12",
+          "kind": "agent",
+          "seq": 12,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod12 的核对（src/rooms/mod12.mjs）",
+          "worldHash": "w12",
+          "constraintHash": "c12",
+          "via": "e11",
+          "ts": 0
+        },
+        "n13": {
+          "id": "n13",
+          "kind": "agent",
+          "seq": 13,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod13 的核对（src/rooms/mod13.mjs）",
+          "worldHash": "w13",
+          "constraintHash": "c13",
+          "via": "e12",
+          "ts": 0
+        },
+        "n14": {
+          "id": "n14",
+          "kind": "agent",
+          "seq": 14,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod14 的核对（src/rooms/mod14.mjs）",
+          "worldHash": "w14",
+          "constraintHash": "c14",
+          "via": "e13",
+          "ts": 0
+        },
+        "n15": {
+          "id": "n15",
+          "kind": "agent",
+          "seq": 15,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod15 的核对（src/rooms/mod15.mjs）",
+          "worldHash": "w15",
+          "constraintHash": "c15",
+          "via": "e14",
+          "ts": 0
+        },
+        "n16": {
+          "id": "n16",
+          "kind": "agent",
+          "seq": 16,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod16 的核对（src/rooms/mod16.mjs）",
+          "worldHash": "w16",
+          "constraintHash": "c16",
+          "via": "e15",
+          "ts": 0
+        },
+        "n17": {
+          "id": "n17",
+          "kind": "agent",
+          "seq": 17,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod17 的核对（src/rooms/mod17.mjs）",
+          "worldHash": "w17",
+          "constraintHash": "c17",
+          "via": "e16",
+          "ts": 0
+        },
+        "n18": {
+          "id": "n18",
+          "kind": "agent",
+          "seq": 18,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod18 的核对（src/rooms/mod18.mjs）",
+          "worldHash": "w18",
+          "constraintHash": "c18",
+          "via": "e17",
+          "ts": 0
+        },
+        "n19": {
+          "id": "n19",
+          "kind": "agent",
+          "seq": 19,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod19 的核对（src/rooms/mod19.mjs）",
+          "worldHash": "w19",
+          "constraintHash": "c19",
+          "via": "e18",
+          "ts": 0
+        },
+        "n20": {
+          "id": "n20",
+          "kind": "agent",
+          "seq": 20,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod20 的核对（src/rooms/mod20.mjs）",
+          "worldHash": "w20",
+          "constraintHash": "c20",
+          "via": "e19",
+          "ts": 0
+        },
+        "n21": {
+          "id": "n21",
+          "kind": "agent",
+          "seq": 21,
+          "turn": null,
+          "goal": "renderLedger 预算档位 mod21 的核对（src/rooms/mod21.mjs）",
+          "worldHash": "w21",
+          "constraintHash": "c21",
+          "via": "e20",
+          "ts": 0
+        }
+      },
+      "edges": {
+        "e1": {
+          "id": "e1",
+          "from": "n1",
+          "to": "n2",
+          "intent": "renderLedger 预算档位 mod02 核对",
+          "action": "read(file_path=src/rooms/mod02.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 1,
+            "end": 2
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e2": {
+          "id": "e2",
+          "from": "n2",
+          "to": "n3",
+          "intent": "renderLedger 预算档位 mod03 核对",
+          "action": "read(file_path=src/rooms/mod03.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 2,
+            "end": 3
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e3": {
+          "id": "e3",
+          "from": "n3",
+          "to": "n4",
+          "intent": "renderLedger 预算档位 mod04 核对",
+          "action": "read(file_path=src/rooms/mod04.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 3,
+            "end": 4
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e4": {
+          "id": "e4",
+          "from": "n4",
+          "to": "n5",
+          "intent": "renderLedger 预算档位 mod05 核对",
+          "action": "read(file_path=src/rooms/mod05.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 4,
+            "end": 5
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e5": {
+          "id": "e5",
+          "from": "n5",
+          "to": "n6",
+          "intent": "renderLedger 预算档位 mod06 核对",
+          "action": "read(file_path=src/rooms/mod06.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 5,
+            "end": 6
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e6": {
+          "id": "e6",
+          "from": "n6",
+          "to": "n7",
+          "intent": "renderLedger 预算档位 mod07 核对",
+          "action": "read(file_path=src/rooms/mod07.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 6,
+            "end": 7
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e7": {
+          "id": "e7",
+          "from": "n7",
+          "to": "n8",
+          "intent": "renderLedger 预算档位 mod08 核对",
+          "action": "read(file_path=src/rooms/mod08.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 7,
+            "end": 8
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e8": {
+          "id": "e8",
+          "from": "n8",
+          "to": "n9",
+          "intent": "renderLedger 预算档位 mod09 核对",
+          "action": "read(file_path=src/rooms/mod09.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 8,
+            "end": 9
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e9": {
+          "id": "e9",
+          "from": "n9",
+          "to": "n10",
+          "intent": "renderLedger 预算档位 mod10 核对",
+          "action": "read(file_path=src/rooms/mod10.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 9,
+            "end": 10
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e10": {
+          "id": "e10",
+          "from": "n10",
+          "to": "n11",
+          "intent": "renderLedger 预算档位 mod11 核对",
+          "action": "read(file_path=src/rooms/mod11.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 10,
+            "end": 11
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e11": {
+          "id": "e11",
+          "from": "n11",
+          "to": "n12",
+          "intent": "renderLedger 预算档位 mod12 核对",
+          "action": "read(file_path=src/rooms/mod12.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 11,
+            "end": 12
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e12": {
+          "id": "e12",
+          "from": "n12",
+          "to": "n13",
+          "intent": "renderLedger 预算档位 mod13 核对",
+          "action": "read(file_path=src/rooms/mod13.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 12,
+            "end": 13
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e13": {
+          "id": "e13",
+          "from": "n13",
+          "to": "n14",
+          "intent": "renderLedger 预算档位 mod14 核对",
+          "action": "read(file_path=src/rooms/mod14.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 13,
+            "end": 14
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e14": {
+          "id": "e14",
+          "from": "n14",
+          "to": "n15",
+          "intent": "renderLedger 预算档位 mod15 核对",
+          "action": "read(file_path=src/rooms/mod15.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 14,
+            "end": 15
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e15": {
+          "id": "e15",
+          "from": "n15",
+          "to": "n16",
+          "intent": "renderLedger 预算档位 mod16 核对",
+          "action": "read(file_path=src/rooms/mod16.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 15,
+            "end": 16
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e16": {
+          "id": "e16",
+          "from": "n16",
+          "to": "n17",
+          "intent": "renderLedger 预算档位 mod17 核对",
+          "action": "read(file_path=src/rooms/mod17.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 16,
+            "end": 17
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e17": {
+          "id": "e17",
+          "from": "n17",
+          "to": "n18",
+          "intent": "renderLedger 预算档位 mod18 核对",
+          "action": "read(file_path=src/rooms/mod18.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 17,
+            "end": 18
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e18": {
+          "id": "e18",
+          "from": "n18",
+          "to": "n19",
+          "intent": "renderLedger 预算档位 mod19 核对",
+          "action": "read(file_path=src/rooms/mod19.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 18,
+            "end": 19
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e19": {
+          "id": "e19",
+          "from": "n19",
+          "to": "n20",
+          "intent": "renderLedger 预算档位 mod20 核对",
+          "action": "read(file_path=src/rooms/mod20.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 19,
+            "end": 20
+          },
+          "transposition": false,
+          "ts": 0
+        },
+        "e20": {
+          "id": "e20",
+          "from": "n20",
+          "to": "n21",
+          "intent": "renderLedger 预算档位 mod21 核对",
+          "action": "read(file_path=src/rooms/mod21.mjs)",
+          "result": "success",
+          "verify": {
+            "kind": "tool",
+            "summary": "ok"
+          },
+          "errorSnippet": "",
+          "evidence": {
+            "start": 20,
+            "end": 21
+          },
+          "transposition": false,
+          "ts": 0
+        }
+      },
+      "order": [
+        "n1",
+        "n2",
+        "n3",
+        "n4",
+        "n5",
+        "n6",
+        "n7",
+        "n8",
+        "n9",
+        "n10",
+        "n11",
+        "n12",
+        "n13",
+        "n14",
+        "n15",
+        "n16",
+        "n17",
+        "n18",
+        "n19",
+        "n20",
+        "n21"
+      ],
+      "stateIndex": {},
+      "rootUserNodeIds": [
+        "n1"
+      ],
+      "foldCount": 0,
+      "checkpointSeq": null,
+      "foldMarks": [],
+      "lastFoldUsage": null
+    },
+    "empty": {
+      "version": 1,
+      "nodes": {},
+      "edges": {},
+      "order": [],
+      "stateIndex": {},
+      "rootUserNodeIds": [],
+      "foldCount": 0,
+      "checkpointSeq": null,
+      "foldMarks": [],
+      "lastFoldUsage": null
+    }
+  },
+  "tasks": [
+    {
+      "id": "SA-01",
+      "class": "full-path",
+      "family": "file-anchor",
+      "query": "src/rooms/query-recall.mjs 是哪个节点创建的？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "query-recall.mjs"
+      ],
+      "mandatory": [
+        "query-recall.mjs"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "query-recall.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-02",
+      "class": "windows-path",
+      "family": "file-anchor",
+      "query": "`src\u005crooms\u005cledger.mjs` 的预算是多少？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "ledger.mjs"
+      ],
+      "mandatory": [
+        "ledger.mjs"
+      ],
+      "forbidden": [
+        "query-recall.mjs"
+      ],
+      "expectedAnchors": [
+        {
+          "contains": "ledger.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-03",
+      "class": "relative-path",
+      "family": "file-anchor",
+      "query": "./src/rooms/kifu-model.mjs 里 applyDelta 和 decodeDeltaFrames 怎么配合？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "kifu-model.mjs"
+      ],
+      "mandatory": [
+        "kifu-model.mjs"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "kifu-model.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-04",
+      "class": "backtick-basename",
+      "family": "file-anchor",
+      "query": "`hot-inject.mjs` 里的 bindLedger 注入点在哪？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "hot-inject.mjs"
+      ],
+      "mandatory": [
+        "hot-inject.mjs"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "hot-inject.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-05",
+      "class": "function-symbol",
+      "family": "symbol-anchor",
+      "query": "renderQueryRecall() 的签名和默认预算是什么？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "renderQueryRecall"
+      ],
+      "mandatory": [
+        "renderQueryRecall"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "renderQueryRecall"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-06",
+      "class": "method-symbol",
+      "family": "symbol-anchor",
+      "query": "graph.tewariAnalysis 是怎么判断 dead 的？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "tewariAnalysis"
+      ],
+      "mandatory": [
+        "tewariAnalysis"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "tewariAnalysis"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-07",
+      "class": "no-anchor",
+      "family": "no-anchor",
+      "query": "这个怎么办？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [],
+      "mandatory": [],
+      "forbidden": [],
+      "expectedAnchors": [],
+      "forbiddenAnchors": [],
+      "expectEmptyText": true,
+      "expectNoAnchors": true,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": null
+    },
+    {
+      "id": "SA-08",
+      "class": "multi-file-synonym",
+      "family": "file-anchor",
+      "query": "src/rooms/query-recall.mjs 和 src/rooms/hot-inject.mjs 的接口怎么对接？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "query-recall.mjs",
+        "hot-inject.mjs"
+      ],
+      "mandatory": [
+        "query-recall.mjs",
+        "hot-inject.mjs"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "query-recall.mjs"
+        },
+        {
+          "contains": "hot-inject.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-09",
+      "class": "no-evidence",
+      "family": "no-anchor",
+      "query": "src/rooms/nonexistent-adapter.mjs 的 renderAdapter() 做了什么？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [],
+      "mandatory": [],
+      "forbidden": [
+        "nonexistent-adapter.mjs",
+        "renderAdapter"
+      ],
+      "expectedAnchors": [],
+      "forbiddenAnchors": [],
+      "expectEmptyText": true,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": null
+    },
+    {
+      "id": "SA-10",
+      "class": "failure-reason",
+      "family": "failure-reason",
+      "query": "为什么归一化 `normalizeQuery` 会报 TypeError？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "normalizeQuery",
+        "query-recall.mjs",
+        "TypeError"
+      ],
+      "mandatory": [
+        "normalizeQuery",
+        "TypeError"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "normalizeQuery"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-11",
+      "class": "budget-truncation",
+      "family": "budget-and-order",
+      "query": "renderLedger() 的预算档位核对",
+      "graph": "noisy",
+      "options": {
+        "limit": 6,
+        "maxChars": 200
+      },
+      "expected": [
+        "renderLedger"
+      ],
+      "mandatory": [
+        "renderLedger"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "renderLedger"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-12",
+      "class": "stable-ordering",
+      "family": "budget-and-order",
+      "query": "applyDelta() 怎么重放 delta？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "applyDelta"
+      ],
+      "mandatory": [
+        "applyDelta"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "applyDelta"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 3,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-13",
+      "class": "limit-cap",
+      "family": "budget-and-order",
+      "query": "src/rooms/query-recall.mjs 相关还有哪些文件改动？",
+      "graph": "base",
+      "options": {
+        "limit": 1,
+        "maxChars": 1200
+      },
+      "expected": [
+        "query-recall.mjs"
+      ],
+      "mandatory": [
+        "query-recall.mjs"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "query-recall.mjs"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": 1,
+      "repeat": 1,
+      "minRecall": 1
+    },
+    {
+      "id": "SA-14",
+      "class": "empty-graph",
+      "family": "no-anchor",
+      "query": "src/rooms/ledger.mjs 的 renderLedger() 呢？",
+      "graph": "empty",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [],
+      "mandatory": [],
+      "forbidden": [],
+      "expectedAnchors": [],
+      "forbiddenAnchors": [],
+      "expectEmptyText": true,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": null
+    },
+    {
+      "id": "SA-15",
+      "class": "failure-reason-long-action",
+      "family": "failure-reason",
+      "query": "renderLedger() 的预算窗口为什么失败？",
+      "graph": "base",
+      "options": {
+        "limit": 6,
+        "maxChars": 1200
+      },
+      "expected": [
+        "marker-long-action-tail-7c1e"
+      ],
+      "mandatory": [
+        "marker-long-action-tail-7c1e"
+      ],
+      "forbidden": [],
+      "expectedAnchors": [
+        {
+          "contains": "renderLedger"
+        }
+      ],
+      "forbiddenAnchors": [],
+      "expectEmptyText": false,
+      "expectNoAnchors": false,
+      "maxItems": null,
+      "repeat": 1,
+      "minRecall": 1
+    }
+  ]
+}
