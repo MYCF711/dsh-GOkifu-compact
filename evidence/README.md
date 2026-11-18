@@ -128,3 +128,4 @@
 | `query-recall-pilot.results.json` | `node scripts/query-recall-pilot.mjs --run --authorize q1-query-recall-stage-b-1` | 2026-11-16 | **120/120 完成、0 重试、0 调用错误**；逐样本 raw / normalized / usage / 多数票（全部纯合成题）；裁决 NEGATIVE_SIGNAL |
 | `query-recall-pilot-public.json` | 同上 runner 自动生成 | 2026-11-16 | A0 8/20 → A1 15/20；UNKNOWN 样本 30→5；B-06 退化；p95 2265→2838ms；**NOT_ADOPTED**；不含 raw / endpoint / 路径 / 会话 id |
 | `query-recall-review-final.md` | `q1-review` 初审/复审 + Lead 最终复验 | 2026-11-16 | 2 BLOCKER / 5 MAJOR / 7 MINOR 全部闭环；全量 2541/0；Stage A 15/15；真实派生 p95 9.996ms；最终 NEGATIVE_SIGNAL |
+| `棋路-rpcId判据-2026-11-19.md` | 实测证据：为什么 `source.kind ∈ {user,prompt,human}` 判不出「使用者手打」——400 会话 403 条的 kind/rpcId 分布、本会话 31/31 反向验证、可复现命令 | 2026-11-19 | 判据只有 `source.rpcId`；委派任务书 kind 也是 `user` 占 99%；`schedule`/`goal`/`plugin:hindsight` 各有独立 kind 已被挡住；旧图无 `manual` 字段 ⇒ 不可回溯 |
