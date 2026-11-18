@@ -74,9 +74,9 @@ export function createGraph({ sessionId, cwd = "" }) {
  * 用户节点：原话逐字保存。★ 不可压缩、不可被后续节点覆盖（约束锚）。
  * @returns 新节点 id
  */
-export function addUserNode(g, { seq, turn = null, text, constraints }) {
+export function addUserNode(g, { seq, turn = null, text, constraints, manual, srcKind }) {
   const id = `n${g.nextNode++}`;
-  g.nodes[id] = {
+  const node = {
     id,
     kind: "user",
     seq,
@@ -85,6 +85,12 @@ export function addUserNode(g, { seq, turn = null, text, constraints }) {
     constraints: Array.isArray(constraints) ? [...constraints] : extractConstraints(text),
     ts: Date.now(),
   };
+  // ★ C667：只记「这条是不是使用者手动发送的」这个**事实**，以及来源 kind。
+  //   不记 `rpcId` 本身 —— 那是运行时标识，不许落进用户可读的图文件。
+  //   只有调用方显式给了才写，保证既有调用点的 graph.json 字节逐字不变（旧图无此字段 = 未知）。
+  if (manual !== undefined) node.manual = manual === true;
+  if (srcKind !== undefined) node.srcKind = String(srcKind);
+  g.nodes[id] = node;
   g.order.push(id);
   if (g.rootUserNodeIds.length === 0) g.rootUserNodeIds.push(id);
   g.updatedAt = Date.now();

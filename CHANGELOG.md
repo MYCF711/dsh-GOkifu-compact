@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C667 | 棋路第一步：落账记「是不是手动发送」，并给导出初稿 |
 | C666 | 换任务判据与约束抽取的双重误判：61.4%→29.0%，疑问句不再当禁令 |
 | C665 | Q1 代码锚点召回：实现与性能达标，真实配对退化，保持 NOT_ADOPTED |
 | C663 | 压力行只给裸百分比 ⇒ 模型把 28% 的窗口占用读成 93% |
@@ -728,6 +729,69 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C667 · 棋路第一步：落账记「是不是手动发送」，并给导出初稿
+
+**user-kifu（棋路）的第一步：先把"哪句是使用者手打的"这个事实落进图。**
+
+## 为什么必须现在做
+
+棋路只装**手动发送**的原话。原来唯一的判据是 `source.kind ∈ {user, prompt, human}`——**它挡不住 99% 的假人话**。
+
+真机实测（400 个会话、403 条 `kind` 属人话的消息）：
+
+| 分类 | 条数 |
+|---|---:|
+| 父代理发给子代理的任务书（kind 仍是 `user`，无 `rpcId`） | 377 |
+| 仍是委派口吻（"负责 40_foogallery 的全文读穿"） | 22 |
+| **带 `rpcId`（GUI 交互发送）** | **4** |
+
+样本："你是 37_404-solution 审计的孙代理，只负责 spelling 小范围"。本会话反过来：**31 条手动消息 31 条带 `rpcId`，0 条缺**。
+
+⇒ 判据只能是 `source.rpcId`。**而这个信息原来没落盘，每过一个会话就永久少一份、无法回溯。**
+
+## 改了什么
+
+`keeper` 落账时把来源写进 user 节点（`addUserNode` 新增可选参数）：
+
+```
+{ manual: true,  srcKind: "user" }   // GUI 手打
+{ manual: false, srcKind: "user" }   // 父代理委派（无 rpcId）
+```
+
+- **只记布尔事实 + kind**，**不记 `rpcId` 本身**——那是运行时标识，不许落进用户可读的图文件。
+- **既有调用点不给就不写** ⇒ 既有 `graph.json` 字节逐字不变（旧图无此字段 = 未知，不猜）。
+- **不改 digest**：`ledgerDigest` 只吃根目标/约束/失败边，加这个字段不影响注入判定。
+
+## 附带的初稿：`scripts/user-route.mjs`
+
+```
+node scripts/user-route.mjs --session <id>            # 演练，不写盘
+node scripts/user-route.mjs --session <id> --json     # 打印容器
+node scripts/user-route.mjs --session <id> --write    # 落 sessions/<id>/user-route.json
+node scripts/user-route.mjs --all [--write]           # 批量
+```
+
+容器形状（**没有 goal/pivot/polarity/lexicon/anchors**）：
+
+```json
+{ "version":1, "kind":"gokifu-user-route", "sessionId":"…", "cwd":"…", "builtAt":…,
+  "source":{ "graphRevision":null, "sessionEvents":null, "userNodes":3, "manualNodes":2 },
+  "messages":[ { "nodeId":"n1", "seq":9, "ts":…, "text":"逐字", "truncated":false } ] }
+```
+
+设计四条硬规矩（都写成测试了）：只装手动、**顺序即信息**（不排序不合并不摘要）、**逐字**（超 8000 字只截前缀并标 `truncated`）、**不产语义判断**。
+
+安全：delta 异常拒绝写盘；已有容器条数更多则不覆盖（与 C149「重建图不许按图清理」同一条道理）；写盘走 tmp+rename。
+
+## 诚实边界
+
+**旧会话导不出棋路。** C667 之前的图没有 `manual` 字段，无法回溯——`--session` 对旧图会得到 0 条并显式说明原因，不是漏抓。所以棋路从这一刀之后开始积累。
+
+## 验证
+
+- 新增 8 条测试（手动/委派区分、旧图不收、字段面冻结、逐字保留换行、超长只截不摘要、纯函数幂等且不改图、cwd、旧调用点字节不变）。
+- keeper 24/0、core 40/0、user-route 8/0；全量与边界审计见 CI。
 
 ### C666 · 换任务判据与约束抽取的双重误判：61.4%→29.0%，疑问句不再当禁令
 

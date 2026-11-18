@@ -354,7 +354,15 @@ export function observeEvent(g, event, state) {
       }
       const text = messageText(message);
       if (!text.trim()) return { changed: false };
-      const id = addUserNode(g, { seq: event.seq, turn: event.data?.turn ?? null, text, constraints: extractConstraints(text) });
+      // ★ C667：落账时记下「这条是不是使用者手动发送的」。
+      //   判据只有一条：`source.rpcId` 存在 ⇒ 从交互客户端（GUI）发出。
+      //   真机实测：本会话 31/31 手动消息带 rpcId；400 个会话里 403 条 `kind∈HUMAN_SOURCES`
+      //   只有 4 条带 rpcId，其余 99% 是父代理发给子代理的任务书（kind 同样是 "user"）。
+      //   所以「kind 是人话」不足以判定手动；**rpcId 才是**。这个信息一旦不记就永久丢失、无法回溯。
+      const src = message.source ?? {};
+      const manual = src.rpcId !== undefined && src.rpcId !== null && src.rpcId !== "";
+      const srcKind = typeof src.kind === "string" ? src.kind : undefined;
+      const id = addUserNode(g, { seq: event.seq, turn: event.data?.turn ?? null, text, constraints: extractConstraints(text), manual, srcKind });
       // ★ C461：换任务的那一条要留痕 —— 之后每轮请求都在为旧任务的历史付费（Claude Code 的解法是 /clear）
       try {
         const roots = (g.rootUserNodeIds ?? []).map((rid) => g.nodes?.[rid]).filter(Boolean);
