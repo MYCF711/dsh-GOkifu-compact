@@ -12,6 +12,7 @@
 
 import { createGraph, addUserNode } from "./graph-fixtures.mjs";
 import { observeEvent as keepObserve } from "../src/rooms/keeper.mjs";
+import { writeUserRoute, readUserRouteCount, userRoutePath } from "../src/rooms/user-route.mjs";
 import { buildUserRoute } from "../scripts/user-route.mjs";
 
 const ev = (type, seq, data) => ({ type, seq, data, time: Date.now() });
@@ -108,6 +109,92 @@ tests["C667 旧调用点不给来源 ⇒ 节点不多长字段（既有 graph.js
   const withSrc = addUserNode(g, { seq: 3, text: "新调用点", manual: true, srcKind: "user" });
   t.eq(withSrc.manual, true, "给了才写");
   t.eq("rpcId" in withSrc, false, "运行时 id 绝不落进图（只留布尔事实）");
+};
+
+
+/* ───── C668：落盘守卫（假 port，一个字节都不碰真盘）───── */
+
+function fakePort({ files = new Map(), failRename = false } = {}) {
+  return {
+    files,
+    exists: (f) => files.has(f),
+    read: (f) => files.get(f),
+    write: (f, text) => files.set(f, text),
+    rename: (a, b) => {
+      if (failRename) throw new Error("EBUSY");
+      files.set(b, files.get(a));
+      files.delete(a);
+    },
+    remove: (f) => files.delete(f),
+  };
+}
+
+function graphWithManual(texts) {
+  const g = createGraph({ sessionId: "s1" });
+  texts.forEach((t, i) => addUserNode(g, { seq: (i + 1) * 2, text: t, manual: true, srcKind: "user" }));
+  return g;
+}
+
+tests["C668 落盘：0 条手动原话 ⇒ 一个字节都不写（不留噪音文件）"] = (t) => {
+  const g = createGraph({ sessionId: "s1" });
+  addUserNode(g, { seq: 1, text: "我是孙代理", manual: false, srcKind: "user" });
+  const port = fakePort();
+  const r = writeUserRoute("D:/fixture/sess", g, { sessionId: "s1", port });
+  t.eq(r.ok, false, "不写");
+  t.eq(r.reason, "no-manual-messages", "要给出可读原因");
+  t.eq(port.files.size, 0, "盘上一个字节都没有");
+};
+
+tests["C668 落盘：已有容器条数更多 ⇒ 不覆盖（图落后一回合时保护旧件）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort();
+  const oldContainer = { version: 1, kind: "gokifu-user-route", messages: [{}, {}, {}] };
+  port.files.set(userRoutePath(dir), JSON.stringify(oldContainer));
+  t.eq(readUserRouteCount(dir, port), 3, "先确认能读出旧件条数");
+  const g = graphWithManual(["只说了一句"]);
+  const r = writeUserRoute(dir, g, { sessionId: "s1", port });
+  t.eq(r.ok, false, "不覆盖");
+  t.eq(r.reason.startsWith("would-shrink"), true, `reason 要说清是会变少：${r.reason}`);
+  t.eq(JSON.parse(port.files.get(userRoutePath(dir))).messages.length, 3, "旧件逐字没动");
+};
+
+tests["C668 落盘：先写 tmp 再 rename（半写文件不会出现）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort();
+  const g = graphWithManual(["你看着办", "修吧"]);
+  const r = writeUserRoute(dir, g, { sessionId: "s1", now: 123, port });
+  t.eq(r.ok, true, "应当写成功");
+  t.eq(r.count, 2, "条数要对");
+  t.eq([...port.files.keys()].filter((f) => f.includes(".tmp-")).length, 0, "tmp 必须已 rename 掉，不许残留");
+  t.eq(port.files.has(userRoutePath(dir)), true, "目标文件存在");
+  t.eq(JSON.parse(port.files.get(userRoutePath(dir))).kind, "gokifu-user-route", "内容可解析");
+};
+
+tests["C668 落盘：rename 失败也要清 tmp 且绝不抛错（归档路径不许炸）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort({ failRename: true });
+  const g = graphWithManual(["你看着办"]);
+  let threw = null;
+  let r = null;
+  try {
+    r = writeUserRoute(dir, g, { sessionId: "s1", port });
+  } catch (error) {
+    threw = error;
+  }
+  t.eq(threw, null, "绝不抛错");
+  t.eq(r.ok, false, "失败要返回 ok:false");
+  t.eq(String(r.reason).startsWith("rename-failed"), true, `reason 要能定位：${r.reason}`);
+  t.eq([...port.files.keys()].filter((f) => f.includes(".tmp-")).length, 0, "tmp 必须被清掉");
+  t.eq(port.files.has(userRoutePath(dir)), false, "不许留下半个目标文件");
+};
+
+tests["C668 墓碑：把 manual 过滤拿掉（把注入源也当手动）必须红"] = (t) => {
+  const g = createGraph({ sessionId: "s9" });
+  addUserNode(g, { seq: 1, text: "你看着办", manual: true, srcKind: "user" });
+  addUserNode(g, { seq: 3, text: "我是父代理的委派 prompt", manual: false, srcKind: "user" });
+  const route = buildUserRoute(g, { sessionId: "s9" });
+  t.eq(route.messages.length, 1, "只要少收一条，就说明 manual 判据还在生效");
+  t.eq(route.messages[0].text, "你看着办", "收的必须是手动那条");
 };
 
 export { tests };
