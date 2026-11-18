@@ -507,6 +507,19 @@ const CONSTRAINT_RE =
   /(必须|不要|不能|不许|禁止|只能|一定要|务必|记得|注意|要求|永远|绝不|never|must|do not|don't|only|always|required?)/i;
 
 /**
+ * ★ C666：A-not-A 疑问式（`能不能`/`要不要`/`是不是`…）。
+ *
+ * 这些短语**里面**嵌着 `不能`/`不要`/`不是`，会被 `CONSTRAINT_RE` 当成约束命中：
+ * 「看看**能不能**更进一步」「这个**能不能**在插件运行时做好」都被抽成了用户约束，
+ * 而它们只是疑问。真机 400 张图实测这类纯误标占全部约束的 0.8%（13/1673）——
+ * 比例不大，但 `collectConstraints` 会把它们逐字渲染进热清单的 CONSTRAINTS 段，
+ * 等于每步都在告诉模型「用户禁止了这件事」。
+ *
+ * 只用于**判定**：抽出来的句子仍逐字保留原话（不做任何改写）。
+ */
+const A_NOT_A_RE = /(能不能够|能不能|要不要|可不可以|是不是|有没有|会不会|行不行|对不对|该不该|好不好)/g;
+
+/**
  * 从用户原话里抽约束句。逐字保留原句（只去首尾空白），保证差一个「必须/最好」也不失真。
  * @returns string[]
  */
@@ -517,7 +530,8 @@ export function extractConstraints(text) {
     .split(/(?<=[。！？!?；;\n])/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-  const picked = sentences.filter((s) => CONSTRAINT_RE.test(s));
+  // ★ C666：先摘掉 A-not-A 疑问式再判 —— 「能不能不要用营销腔」摘掉 `能不能` 后仍剩 `不要`，照样命中。
+  const picked = sentences.filter((s) => CONSTRAINT_RE.test(s.replace(A_NOT_A_RE, "")));
   return picked.slice(0, 40);
 }
 
