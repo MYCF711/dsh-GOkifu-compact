@@ -38,6 +38,8 @@ import { guardModelOutput } from "./rooms/fact-guard.mjs";
 import { isValueFact } from "./rooms/tool-value-facts.mjs";
 import { SCHEMA, BASE_KEYS as BASE_KEY_LIST, resolveConfig } from "./rooms/config-schema.mjs";
 import { createFsPort, createPersistStore, graphRoot, sessionPaths } from "./rooms/kifu-persist.mjs";
+// ★ C668：会话级「棋路」容器。**只在归档收尾时落盘**（不进上下文、不进热清单、不调模型）。
+import { writeUserRoute } from "./rooms/user-route.mjs";
 import { decideInjection } from "./rooms/hot-inject.mjs";
 import { loopStreak, shouldFoldForLoop } from "./rooms/loop-guard.mjs";
 import { runOfflineFold, readDefaultModel, shouldTryOfflineFold, offlineFoldOutcome, applyOfflineFoldToGraph, roundsWithinBudget, sumFoldUsage, toolDigestLine } from "./rooms/offline-fold.mjs";
@@ -1566,6 +1568,9 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     } catch {
       /* 落盘失败不阻塞收尾 */
     }
+    // ★ C668：**归档时**产一次会话级棋路（用户决定：会话中压缩不产，归档时产）。
+    //   三条守卫都在房间里：图被重建 ⇒ 不写；0 条手动原话 ⇒ 不写；已有更多条 ⇒ 不覆盖。
+    this.#writeUserRoute(session);
     const g = this.#graph(session);
     const last = (g.foldMarks ?? []).at(-1);
     const lastSeq = Number(last?.seqEnd);
@@ -1692,6 +1697,27 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
    * @param {object} session
    * @param {"archive" | "disposed" | "backfill"} source 哪个信号触发的（写进 closeout 便于事后归因）
    */
+  /**
+   * ★ C668：把当前图的「手动原话」写成会话级棋路容器。
+   *
+   * **只在归档/收尾路径调用**（用户裁定：会话中压缩不产，归档时产）。三条纪律：
+   * · **永不抛错** —— 归档路径上的异常不许传给宿主（房间本身也不抛，这里再兜一层）；
+   * · **不进上下文** —— 不注入消息、不改热清单、不调模型；
+   * · **图是重建出来的就不写** —— 与 C149「重建图不许按图清理旧文档」同一条道理。
+   */
+  #writeUserRoute(session) {
+    try {
+      if (!session || typeof session.id !== "string") return;
+      const dir = sessionPaths(this.persist.root, session.id).dir;
+      const write = writeUserRoute(dir, this.#graph(session), { sessionId: session.id });
+      if (write.reason && /^would-shrink/.test(write.reason)) {
+        this.ctx.logger?.warn?.(`chess-context: 棋路容器未覆盖（${write.reason}）`);
+      }
+    } catch (error) {
+      this.ctx.logger?.warn?.(`chess-context: 棋路容器写盘异常（不影响归档）：${String(error)}`);
+    }
+  }
+
   #closeout(session, source = "disposed") {
     if (!session || typeof session.id !== "string") return;
     const closeoutId = session.id;
@@ -1713,6 +1739,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
       } catch {
         /* 落盘失败不阻塞归档 */
       }
+      this.#writeUserRoute(session);
       try {
         const g = this.#graph(session);
         const last = (g.foldMarks ?? []).at(-1);

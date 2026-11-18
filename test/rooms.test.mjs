@@ -92,6 +92,12 @@ const ROOMS = {
     allowed: ["./kifu-model.mjs", "./touched-files.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /^node:/],
   },
+  "user-route": {
+    // C668：会话级「棋路」容器 —— 图 → 有序手动原话 → 落盘；纯投影，不进上下文、不调模型。
+    file: "user-route.mjs",
+    allowed: ["node:fs", "node:path"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /(^|\/)kifu-model\.mjs$/],
+  },
   "verify": {
     file: "verify.mjs",
     allowed: [],
@@ -532,8 +538,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "tool-value-facts", "touched-files", "user-patch", "verify", "world", "zstd-log"],
-      "房间集合必须与契约 21 个一致（C339 新增 closeout-plan；C306 新增 profile-io；P6C-2 创建 R14 migrate；task-174 创建 R16 manual-compact；2026-11-01 新增 touched-files 与 fold-quality；2026-11-02 新增 user-patch 与 build-stamp；C216 新增 closeout-backfill）",
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
+      "房间集合必须与契约 22 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");

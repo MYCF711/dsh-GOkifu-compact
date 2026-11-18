@@ -3883,3 +3883,71 @@ tests["Q1 B-1：宿主配置的 queryRecall 真的进 this.chess，并注入真�
   if (offText.includes("当前问题相关证据")) throw new Error(`默认关不许出现召回段：\n${offText}`);
   if (!offText.includes("<chess-ledger>")) throw new Error("默认关仍然要注入热清单");
 };
+
+/* ───── C668：归档时产一次会话级棋路（只在归档，不进上下文）───── */
+
+tests["C668 归档收尾写出会话级棋路：只装手动原话，顺序与逐字不变"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c668-route");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  new Engine(ctx, {
+    graphDir: dir,
+    auto: false,
+    growthFloorTokens: 0,
+    minFoldTokens: 0,
+    retainRatio: 0.1,
+    closeoutMinEvents: 3,
+    closeoutTimeoutMs: 5000,
+  });
+  const session = makeSession({ id: "sess-c668" });
+  const manual = (text, seq) => ({
+    type: "user/message",
+    seq,
+    data: { id: `m${seq}`, role: "user", content: [{ type: "text", text }], source: { kind: "user", rpcId: `r-${seq}` } },
+  });
+  const brief = (text, seq) => ({
+    type: "user/message",
+    seq,
+    data: { id: `m${seq}`, role: "user", content: [{ type: "text", text }], source: { kind: "user" } },
+  });
+  await ctx.emitRaw("session/event", session, manual("你看着办", 1));
+  await ctx.emitRaw("session/event", session, brief("你是孙代理，只做静态读穿。", 2));
+  await ctx.emitRaw("session/event", session, manual("推了仓库吗？\n然后合并", 3));
+  for (let i = 4; i <= 10; i += 1) await ctx.emitRaw("session/event", session, userEvent("继续", i));
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  await ctx.emitRaw("session/disposed", session);
+  const file = nodePath.join(dir, "sessions", "sess-c668", "user-route.json");
+  for (let i = 0; i < 80 && !nodeFs.existsSync(file); i += 1) await new Promise((r) => setTimeout(r, 20));
+  if (!nodeFs.existsSync(file)) throw new Error("归档收尾必须写出 user-route.json（棋路容器）");
+  const route = JSON.parse(nodeFs.readFileSync(file, "utf8"));
+  if (route.kind !== "gokifu-user-route" || route.version !== 1) {
+    throw new Error(`容器头不对：${JSON.stringify({ kind: route.kind, version: route.version })}`);
+  }
+  const texts = route.messages.map((m) => m.text);
+  if (!texts.includes("你看着办") || !texts.includes("推了仓库吗？\n然后合并")) {
+    throw new Error(`手动原话必须逐字进容器：${JSON.stringify(texts)}`);
+  }
+  if (texts.some((t) => t.includes("孙代理"))) throw new Error("委派任务书不许进棋路（无 rpcId ⇒ manual=false）");
+  if (texts.some((t) => t === "继续")) throw new Error("注入来源（kind=prompt 无 rpcId）不许进棋路");
+  if (route.messages.length !== 2) throw new Error(`只该有 2 条手动原话，实际 ${route.messages.length}`);
+  if (!(route.messages[0].seq < route.messages[1].seq)) throw new Error("messages 必须按 seq 升序（顺序即信息）");
+};
+
+tests["C668 棋路容器不许进上下文：归档写完也不改热清单文本"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c668-route-quiet");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  new Engine(ctx, { graphDir: dir, auto: false, growthFloorTokens: 0, minFoldTokens: 0, retainRatio: 0.1, closeoutMinEvents: 99 });
+  const session = makeSession({ id: "sess-c668-quiet" });
+  await ctx.emitRaw("session/event", session, {
+    type: "user/message",
+    seq: 1,
+    data: { id: "m1", role: "user", content: [{ type: "text", text: "你看着办" }], source: { kind: "user", rpcId: "r-1" } },
+  });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const appendedBefore = (session.appended ?? []).length;
+  await ctx.emitRaw("session/disposed", session);
+  await new Promise((r) => setTimeout(r, 60));
+  const appended = (session.appended ?? []).length;
+  if (appended !== appendedBefore) throw new Error(`棋路容器不许往会话里注入消息（新增 ${appended - appendedBefore} 条）`);
+};
