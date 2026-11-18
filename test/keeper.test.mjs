@@ -194,6 +194,34 @@ tests["C461 落账：换任务时在 user 节点上打 pivot 印记，并累加 
   t.eq(pivotNodes[0].text.includes("折线图"), true, "标的是新任务那条");
 };
 
+/* ───── C666：换任务判据的参照物（真机 61.4% 误标）───── */
+
+tests["C666 参照物太薄时不判：根目标只有一条路径 ⇒ prior-too-thin"] = (t) => {
+  const root = "D:/fixture/repo/HANDOFF.md";
+  const v = taskPivotScore("好，按你推荐，推送吧", { rootText: root });
+  t.eq(v.pivot, false, "只有 3 个 gram 的路径根目标不足以判「换任务」");
+  t.eq(v.reason, "prior-too-thin", "必须显式说明判不了，不能静默算成 related");
+  // 判据阈值是「参照物厚度」而不是「根目标长什么样」：短句根目标同样不判
+  t.eq(taskPivotScore("把散点图换成折线图并加注释", { rootText: "修 bug" }).reason, "prior-too-thin", "两三个字的根目标也判不了");
+};
+
+tests["C666 参照物含最近 3 条：接着聊不算切换，真换话题才算"] = (t) => {
+  const rootText = "修复 dsh-GOkifu-compact 的压缩成本估算";
+  const recentText = "压缩成本估算里的峰谷价要按折叠时刻算 折叠时刻的峰谷价按小时分桶";
+  t.eq(taskPivotScore("折叠时刻的峰谷价还要按小时算吗", { rootText, recentText }).pivot, false, "接着刚才的话题不算换任务");
+  t.eq(taskPivotScore("帮我看看这份安全测试报告里的权限提升问题", { rootText, recentText }).pivot, true, "与根和最近都不搭才判切换");
+};
+
+tests["C666 落账：路径根目标不再把每一句都标成换任务"] = (t) => {
+  const g = createGraph({ sessionId: "s1" });
+  const st = freshState();
+  observeEvent(g, ev("user/message", 1, userMsg("D:/fixture/repo/HANDOFF.md")), st);
+  observeEvent(g, ev("user/message", 3, userMsg("好，按你推荐，推送吧")), st);
+  observeEvent(g, ev("user/message", 5, userMsg("推送完了吗？CI 过了没")), st);
+  t.eq(g.pivots === undefined || g.pivots === 0, true, "整段都在同一个任务里 ⇒ 一条换任务都不该标");
+  t.eq(Object.values(g.nodes).filter((n) => n.pivot === true).length, 0, "节点上也不许留 pivot 印记");
+};
+
 /* ─────────────── AX-04：成功工具结果的短值落边（K-2 退化修复） ─────────────── */
 
 /**

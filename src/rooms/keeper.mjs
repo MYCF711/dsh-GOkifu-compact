@@ -97,15 +97,26 @@ function stableJson(value) {
  * 否则"旧任务的历史每轮都在付费"永远没人知道。
  *
  * 判据刻意保守（宁可漏报，不要天天喊"你要换会话了"）：
- *   · 与「根目标 + 约束」的词重叠极低（CJK 用双字组、ASCII 用整词）；
- *   · 且新消息本身有实质内容（太短的不判：`继续`、`好` 这类不构成切换）。
+ *   · 与「根目标 + 约束 + 最近几条用户消息」的词重叠极低（CJK 用双字组、ASCII 用整词）；
+ *   · 且新消息本身有实质内容（太短的不判：`继续`、`好` 这类不构成切换）；
+ *   · 且参照物本身够厚（`prior-too-thin` 不判）。
+ *
+ * ★ C666：**参照物里必须有「最近在聊什么」**。原判据只比最初那句根目标，
+ * 但会话越长、话题自然演化，与第一句的词重叠必然趋零 —— 真机 400 张图实测
+ * **61.4% 的非根用户消息被判成「换任务」**（本会话 21/27 = 78%：根目标是一条
+ * `HANDOFF.md` 路径，任何中文句子和它重叠率都是 0）。加上最近 3 条后降到 29.3%。
+ * 另外根目标只有 6 个 gram（路径/短句）时判据不成立，直接返回 `prior-too-thin`。
  *
  * @param {string} text 新的用户消息
- * @param {{rootText?:string, constraints?:string[]}} prior 之前的目标与约束
- * @param {{maxOverlap?:number, minChars?:number}} [options]
+ * @param {{rootText?:string, constraints?:string[], recentText?:string}} prior 之前的目标、约束与最近几条用户消息
+ * @param {{maxOverlap?:number, minChars?:number, minPriorGrams?:number}} [options]
  * @returns {{pivot:boolean, overlap:number, reason:string}}
  */
-export function taskPivotScore(text, { rootText = "", constraints = [] } = {}, { maxOverlap = 0.06, minChars = 8 } = {}) {
+export function taskPivotScore(
+  text,
+  { rootText = "", constraints = [], recentText = "" } = {},
+  { maxOverlap = 0.06, minChars = 8, minPriorGrams = 8 } = {},
+) {
   const body = String(text ?? "").trim();
   if (body.length < minChars) return { pivot: false, overlap: 0, reason: "too-short" };
   const grams = (input) => {
@@ -118,10 +129,12 @@ export function taskPivotScore(text, { rootText = "", constraints = [] } = {}, {
     for (let i = 0; i + 1 < cjk.length; i += 1) out.add(`c:${cjk.slice(i, i + 2)}`);
     return out;
   };
-  const priorText = `${rootText} ${(Array.isArray(constraints) ? constraints : []).join(" ")}`;
+  const priorText = `${rootText} ${(Array.isArray(constraints) ? constraints : []).join(" ")} ${recentText}`;
   const prior = grams(priorText);
   const now = grams(body);
   if (prior.size === 0 || now.size === 0) return { pivot: false, overlap: 0, reason: "no-tokens" };
+  // ★ C666：参照物太薄（根目标是一条路径/短句）时「重叠低」不说明任何事，不判。
+  if (prior.size < minPriorGrams) return { pivot: false, overlap: 0, reason: "prior-too-thin" };
   let hit = 0;
   for (const g of now) if (prior.has(g)) hit += 1;
   const overlap = hit / now.size;
@@ -345,9 +358,18 @@ export function observeEvent(g, event, state) {
       // ★ C461：换任务的那一条要留痕 —— 之后每轮请求都在为旧任务的历史付费（Claude Code 的解法是 /clear）
       try {
         const roots = (g.rootUserNodeIds ?? []).map((rid) => g.nodes?.[rid]).filter(Boolean);
+        // ★ C666：参照物要含「最近在聊什么」—— 只比根目标会把 61.4% 的正常追问判成换任务。
+        const recent = [];
+        for (let i = g.order.length - 2; i >= 0 && recent.length < 3; i -= 1) {
+          const node = g.nodes[g.order[i]];
+          if (node?.kind === "user" && node.id !== id) {
+            recent.push(`${node.text ?? ""} ${(Array.isArray(node.constraints) ? node.constraints : []).join(" ")}`);
+          }
+        }
         const prior = {
           rootText: roots.map((n) => n.text ?? "").join(" "),
           constraints: roots.flatMap((n) => (Array.isArray(n.constraints) ? n.constraints : [])),
+          recentText: recent.join(" "),
         };
         const verdict = taskPivotScore(text, prior);
         if (verdict.pivot) {

@@ -33,6 +33,21 @@ export const tests = {
     if (!got[0].includes("必须")) throw new Error("约束句被改写了");
   },
 
+  "C666 约束抽取：A-not-A 疑问式里的「不能/不要」是疑问，不是约束"() {
+    // 「能不能」里嵌着「不能」—— 旧口径把整句抽成用户约束，热清单每步都在渲染它
+    const asks = "调研一下最新资讯，看看能不能更进一步。这个能不能在插件运行时做好？";
+    const got = extractConstraints(asks);
+    if (got.length !== 0) throw new Error(`把疑问抽成了约束：${JSON.stringify(got)}`);
+    // 摘掉疑问式后仍有真约束的，必须保留（不是一刀切掉所有含"不能"的句子）
+    const real = extractConstraints("能不能不要用营销腔");
+    if (real.length !== 1 || real[0] !== "能不能不要用营销腔") {
+      throw new Error(`摘掉 A-not-A 后仍有「不要」，应保留原句逐字：${JSON.stringify(real)}`);
+    }
+    // 普通否定句不受影响
+    const plain = extractConstraints("不能超过 300 行");
+    if (plain.length !== 1) throw new Error(`普通否定句被误删：${JSON.stringify(plain)}`);
+  },
+
   "状态哈希相同 ⇒ 置换：不新建节点，返回命中"() {
     const g = createGraph({ sessionId: "s1" });
     const u = addUserNodeId(g, { seq: 1, text: "目标：修好测试" });
