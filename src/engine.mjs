@@ -58,6 +58,8 @@ const FOLD_MARKS_KEEP = 20;
 /** ★ 2026-11-01（调研候选 #1）：两次 fold 之间少于这么多**事件**，就算「压缩无效（thrashing）」。
  *  30 个事件约等于 10–15 步（一步通常 2~3 个事件）。取值依据：太大会漏判（正常的重压间隔也就几十事件），
  *  太小会把「小步高频压缩」误判成故障。只用于记录与提示，不影响是否 fold。 */
+// ★ C669：折前水位快照的有效期（seq 距离）。超过就认为它是上一轮或别的路径留下的，不采信。
+const PRESSURE_MARK_MAX_SEQ_AGE = 60;
 const THRASH_SEQ = 30;
 /**
  * ★ C177：fold 连续失败后的**重试退避**（按事件计，不是按时间）。
@@ -1007,6 +1009,12 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
         threshold: Math.round(threshold),
         window: Number.isFinite(windowTokens) ? Math.round(windowTokens) : null,
         trigger,
+        // ★ C669：**必须带上归属**。这个快照是实例级内存字段，只在压力分支被写；
+        //   archive / backfill / manual / context-overflow 路径都不刷新它。
+        //   不记 session + seq 的话，foldMark 会把**别的会话**或**几十秒前**的数字当成
+        //   「这次折叠之前的水位」—— 真机实测出现过 57k→322k 这种不可能的组合。
+        session: session.id,
+        seq: session.seq,
         at: now,
       };
       // 节流：这是给 foldMark 用的内存快照，**随下一次账本落盘一起写**（每 ≥1 次 fold 落一次盘）；
@@ -3890,7 +3898,35 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     //   现在取成局部变量，由它一路传到 foldMark；实例字段只在此处清。
     // ★ C400：从账本里取压力快照（由 `#recordPressure` 每次真实写入），
     //   彻底避开"实例字段先清后读"这个反复三次的坑。
-    const markPressure = this.ledgerBudget?.pressureForMark ?? null;
+    const rawPressure = this.ledgerBudget?.pressureForMark ?? null;
+    // ★ C669：**水位证据必须是「这一局、这一刻」的**。旧写法无条件信任 pressureForMark，
+    //   而它只在压力分支写入 ⇒ 归档/补账/手动/溢出四条路径会读到别处的旧数字。
+    //   现在只接受「同会话 + seq 足够近」的快照，否则退回本次 fold 自己的 measurement/spec。
+    const markPressure =
+      rawPressure !== null &&
+      rawPressure.session === session.id &&
+      Number.isFinite(rawPressure.seq) &&
+      session.seq - Number(rawPressure.seq) <= PRESSURE_MARK_MAX_SEQ_AGE
+        ? rawPressure
+        : null;
+    const measuredBeforeTokens =
+      markPressure !== null
+        ? markPressure.tokens
+        : Number.isFinite(measurement?.totalTokens)
+          ? measurement.totalTokens
+          : null;
+    const measuredBeforeThreshold =
+      markPressure !== null
+        ? markPressure.threshold
+        : Number.isFinite(spec?.thresholdTokens)
+          ? spec.thresholdTokens
+          : null;
+    const measuredBeforeWindow =
+      markPressure !== null
+        ? markPressure.window
+        : Number.isFinite(spec?.contextWindow)
+          ? spec.contextWindow
+          : null;
     st.lastFoldFailureAt = 0;
     // ★ 2026-11-01（调研候选 #1，学 Claude Code 的 "Autocompact is thrashing"）：
     //   **压缩无效**要当一等错误记下来，不能静默。判据是「两次 fold 之间隔了多少事件」——
@@ -3976,9 +4012,9 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       sanitizeRan: (Number(this._lastSummarySanitizeChecked) || 0) > 0,
       sanitizeRange: this._lastSummarySanitizeRange ?? null,
       // ★ C366：折前测到多少、阈值多少、窗口多大 —— 证据留在图上，下次就能对账
-      measuredBefore: markPressure?.tokens ?? null,
-      thresholdTokens: markPressure?.threshold ?? null,
-      windowTokens: markPressure?.window ?? null,
+      measuredBefore: measuredBeforeTokens,
+      thresholdTokens: measuredBeforeThreshold,
+      windowTokens: measuredBeforeWindow,
       foldCount: g.foldCount,
       // ★ C398：截断仪器（C317–C321）之前只装在 recordFoldMark 那条路上；自动折叠这里也要记。
       finishReason: summaryFinishReason,
