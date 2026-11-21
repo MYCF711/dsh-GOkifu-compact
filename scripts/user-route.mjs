@@ -116,7 +116,7 @@ function main() {
       if (!write) continue;
       const r = writeUserRoute(dir, loaded.graph, {
         sessionId: d,
-        repaired: Boolean(loaded.deltaError || loaded.badTail),
+        deltaBroken: Boolean(loaded.deltaError || loaded.badTail),
       });
       if (r.written) wrote += 1;
       else if (r.reason && !/no-manual-messages/.test(r.reason)) skipped += 1;
@@ -168,7 +168,8 @@ function main() {
   }
   const r = writeUserRoute(dir, loaded.graph, {
     sessionId,
-    repaired: Boolean(loaded.deltaError || loaded.badTail),
+    deltaBroken: Boolean(loaded.deltaError || loaded.badTail),
+    stats: { sessionSeq: Number(loaded.graph?.lastFoldSeq ?? 0) || null },
   });
   const prev = readUserRouteCount(dir);
   if (!r.ok) {
