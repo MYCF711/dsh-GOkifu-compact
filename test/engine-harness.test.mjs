@@ -2649,7 +2649,13 @@ tests["C366 foldMark 必须记「为什么这一刻才折」：measuredBefore / 
   // ★ C400 起：三要素来自 `#recordPressure` 写入的快照（每次都写，不受节流影响）
   if (!src.includes("this.ledgerBudget.pressureForMark = {")) throw new Error("必须写 pressureForMark 快照（C400）");
   if (!src.includes("spec.contextWindow = info.context.contextWindow")) throw new Error("必须把窗口值带进 spec（C366）");
-  if (!src.includes("markPressure?.window")) throw new Error("foldMark 必须从快照取窗口（C400）");
+  // ★ C669：新鲜度闸 + 会话归属。C400 的「从快照取」意图保留，但要经过时效校验；
+  //   过期的快照退回本次 fold 自己的 measurement/spec（否则会记下别处的水位）。
+  if (!src.includes("markPressure !== null") || !src.includes("measuredBeforeWindow")) {
+    throw new Error("foldMark 必须从（经时效校验的）快照取窗口（C400 + C669）");
+  }
+  if (!src.includes("rawPressure.session === session.id")) throw new Error("快照必须校验会话归属（C669）");
+  if (!src.includes("PRESSURE_MARK_MAX_SEQ_AGE")) throw new Error("快照必须有时效闸（C669）");
 };
 tests["C367 限流/过载除了事件退避，还要有「最小等待时间」（事件数≠时间）"] = async (t) => {
   const { mod } = await load();
@@ -2721,7 +2727,7 @@ tests["C399/C400 三个证据字段必须真的落进 foldMark（不再依赖实
   // foldMark 里只读局部 markPressure
   const pushAt = src.indexOf("g.foldMarks.push({");
   const block = src.slice(pushAt, src.indexOf("});", pushAt));
-  t.includes(block, "measuredBefore: markPressure?.tokens", "foldMark 必须读 markPressure");
+  t.includes(block, "measuredBefore: measuredBeforeTokens", "foldMark 必须读 markPressure 派生值（C400 + C669）");
   t.eq(/this\._foldDiag\?/.test(block), false, "不许再读 this._foldDiag（已废弃）");
 };
 tests["C443 foldMark 的 usage 用行为测住：真机 usage 没有 model 也要补上"] = async (t) => {
@@ -3950,4 +3956,51 @@ tests["C668 棋路容器不许进上下文：归档写完也不改热清单文�
   await new Promise((r) => setTimeout(r, 60));
   const appended = (session.appended ?? []).length;
   if (appended !== appendedBefore) throw new Error(`棋路容器不许往会话里注入消息（新增 ${appended - appendedBefore} 条）`);
+};
+
+/* ───── C669：foldMark 的水位证据必须归属「这一局、这一刻」 ───── */
+
+tests["C669 归档触发的 fold 也必须记下真实的水位证据（不许 null、不许借别处的）"] = async () => {
+  const { Engine, graphDir } = await load();
+  const dir = nodePath.join(graphDir, "c669-watermark");
+  const ctx = makeCtx({ measureTotal: () => 300_000 });
+  const engine = new Engine(ctx, {
+    graphDir: dir,
+    auto: false,
+    growthFloorTokens: 0,
+    minFoldTokens: 0,
+    retainRatio: 0.1,
+    closeoutMinEvents: 3,
+    closeoutTimeoutMs: 8000,
+  });
+  const session = await p22Session(ctx, "sess-c669");
+  for (let i = 0; i < 12; i += 1) session.push("user/message", { source: { kind: "prompt" }, content: [{ type: "text", text: "继续" }] });
+  await ctx.emitRaw("agent/status", { agent: { session }, status: "idle" });
+  const callsBefore = (engine.compactCalls ?? []).length;
+  await ctx.emitRaw("session/disposed", session);
+  for (let i = 0; i < 60 && (engine.compactCalls ?? []).length === callsBefore; i += 1) await new Promise((r) => setTimeout(r, 20));
+  const g = await readGraphReplayed(dir, "sess-c669");
+  const mark = (g.foldMarks ?? []).at(-1);
+  if (!mark) throw new Error("归档收尾没有留下 foldMark");
+  // 判据：归档路径没有压力采样，也必须用本次 fold 自己测到的数字补上，而不是留 null
+  if (!Number.isFinite(Number(mark.measuredBefore)) || Number(mark.measuredBefore) <= 0) {
+    throw new Error(`measuredBefore 必须是本次实测：${JSON.stringify(mark.measuredBefore)}`);
+  }
+  if (!Number.isFinite(Number(mark.thresholdTokens)) || Number(mark.thresholdTokens) <= 0) {
+    throw new Error(`thresholdTokens 缺失：${JSON.stringify(mark.thresholdTokens)}`);
+  }
+  if (!Number.isFinite(Number(mark.windowTokens)) || Number(mark.windowTokens) <= 0) {
+    throw new Error(`windowTokens 缺失：${JSON.stringify(mark.windowTokens)}`);
+  }
+};
+
+tests["C669 水位快照必须带归属：pressureForMark 写 session + seq，消费端验新鲜度"] = () => {
+  const src = nodeFs.readFileSync(SRC, "utf8");
+  const writeAt = src.indexOf("pressureForMark = {");
+  if (writeAt < 0) throw new Error("找不到 pressureForMark 的写入点");
+  const block = src.slice(writeAt, writeAt + 700);
+  if (!/session:\s*session\.id/.test(block)) throw new Error("pressureForMark 没记 session（会跨会话串味）");
+  if (!/seq:\s*session\.seq/.test(block)) throw new Error("pressureForMark 没记 seq（无法判新鲜度）");
+  if (!/PRESSURE_MARK_MAX_SEQ_AGE/.test(src)) throw new Error("消费端没有时效闸：旧快照仍会被当成这次的水位");
+  if (!/rawPressure\.session === session\.id/.test(src)) throw new Error("消费端没有校验会话归属");
 };
