@@ -12,7 +12,7 @@
 
 import { createGraph, addUserNode } from "./graph-fixtures.mjs";
 import { observeEvent as keepObserve } from "../src/rooms/keeper.mjs";
-import { writeUserRoute, readUserRouteCount, userRoutePath } from "../src/rooms/user-route.mjs";
+import { writeUserRoute, readUserRouteCount, readUserRouteState, userRoutePath, truncateVerbatim } from "../src/rooms/user-route.mjs";
 import { buildUserRoute } from "../scripts/user-route.mjs";
 
 const ev = (type, seq, data) => ({ type, seq, data, time: Date.now() });
@@ -126,6 +126,13 @@ function fakePort({ files = new Map(), failRename = false } = {}) {
       files.delete(a);
     },
     remove: (f) => files.delete(f),
+    // 目录分隔符在 Windows 上可能是混合的（join 产出 `\`、夹具里手写 `/`）⇒ 两种前缀都认，
+    // 但**返回 basename**：调用方会用 join(dir, name) 重建真实路径。
+    list: (dir) =>
+      [...files.keys()]
+        .filter((k) => k.startsWith(dir) || k.startsWith(dir.replace(/\//g, "\\")))
+        .map((k) => k.slice(k.lastIndexOf("\\") + 1).slice(k.lastIndexOf("/") + 1)),
+    mtimeMs: () => Date.now(),
   };
 }
 
@@ -195,6 +202,83 @@ tests["C668 墓碑：把 manual 过滤拿掉（把注入源也当手动）必须
   const route = buildUserRoute(g, { sessionId: "s9" });
   t.eq(route.messages.length, 1, "只要少收一条，就说明 manual 判据还在生效");
   t.eq(route.messages[0].text, "你看着办", "收的必须是手动那条");
+};
+
+/* ───── C670：两条盲审 P1 缺陷 + 三处健壮性 ───── */
+
+tests["C670/D-1 图被重建时：有旧容器就不许覆盖（新会话无容器仍可写）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const g = graphWithManual(["重建后的 C", "重建后的 D"]);
+  // 已有 2 条旧容器；重建图也攒到 2 条 ⇒ 旧逻辑会直接盖掉（等条数不算 shrink）
+  const seeded = fakePort();
+  seeded.files.set(userRoutePath(dir), JSON.stringify({ version: 1, kind: "gokifu-user-route", messages: [{}, {}] }));
+  const r = writeUserRoute(dir, g, { sessionId: "s1", port: seeded, graphRepaired: true });
+  t.eq(r.ok, false, "重建图 + 有旧容器 ⇒ 不写");
+  t.eq(r.reason, "graph-repaired", "要给出可读原因");
+  t.eq(JSON.parse(seeded.files.get(userRoutePath(dir))).messages.length, 2, "旧容器逐字没动");
+  // 反例：没有旧容器（新会话）时，重建图也该能写 —— 否则全部新会话都被误杀
+  const fresh = fakePort();
+  const r2 = writeUserRoute(dir, g, { sessionId: "s1", port: fresh, graphRepaired: true });
+  t.eq(r2.ok, true, "没有旧容器 ⇒ 允许写（新会话路径）");
+};
+
+tests["C670/D-6 已有容器版本不认识 ⇒ 拒绝覆盖（不许静默降级）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort();
+  port.files.set(userRoutePath(dir), JSON.stringify({ version: 99, kind: "gokifu-user-route", messages: [{}, {}, {}, {}] }));
+  const r = writeUserRoute(dir, graphWithManual(["你看着办"]), { sessionId: "s1", port });
+  t.eq(r.ok, false, "版本不认识就不写");
+  t.eq(r.reason, "version-unknown:99", `reason 要点名版本：${r.reason}`);
+  t.eq(JSON.parse(port.files.get(userRoutePath(dir))).version, 99, "旧文件没被改写");
+  // 解析不出来的同样不许覆盖
+  const broken = fakePort();
+  broken.files.set(userRoutePath(dir), "{ 这不是 JSON");
+  const r2 = writeUserRoute(dir, graphWithManual(["你看着办"]), { sessionId: "s1", port: broken });
+  t.eq(r2.reason, "version-unknown:unparsable", `坏文件也要拒写：${r2.reason}`);
+};
+
+tests["C670/D-7 崩溃遗留的过期 .tmp-* 会被回收（新鲜的不动）"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort();
+  const base = userRoutePath(dir);
+  port.files.set(`${base}.tmp-1-old`, "x");
+  port.files.set(`${base}.tmp-2-new`, "y");
+  port.mtimeMs = (f) => (f.endsWith("-old") ? 0 : Date.now());   // old 视为很早以前
+  const r = writeUserRoute(dir, graphWithManual(["你看着办"]), { sessionId: "s1", port, now: Date.now() });
+  t.eq(r.ok, true, "正常写入");
+  t.eq(r.cleanedTmp, 1, "只回收过期的那一个");
+  t.eq(port.files.has(`${base}.tmp-1-old`), false, "过期 tmp 已删");
+  t.eq(port.files.has(`${base}.tmp-2-new`), true, "新鲜 tmp 不动（可能是别的进程正在写）");
+};
+
+tests["C670/D-9 截断不切开代理对：不许留半个 emoji"] = (t) => {
+  // 让第 8000 个 char 正好是 emoji 的高位代理
+  const filler = "a".repeat(7999);
+  const raw = filler + "😀" + "b".repeat(10);
+  const out = truncateVerbatim(raw, 8000);
+  t.eq(out.truncated, true, "超长要标 truncated");
+  t.eq(out.text.length, 7999, "高位代理落在边界 ⇒ 退一格");
+  const last = out.text.charCodeAt(out.text.length - 1);
+  t.eq(last >= 0xd800 && last <= 0xdbff, false, "结尾不许是孤立高位代理");
+  t.eq([...out.text].every((ch) => ch.length >= 0 && true), true, "逐码点可遍历");
+};
+
+tests["C670/D-8 容器 source 必须带真有值的现场量（不许恒 null 的死字段）"] = (t) => {
+  const g = graphWithManual(["你看着办"]);
+  const route = buildUserRoute(g, { sessionId: "s10", stats: { sessionSeq: 1234 } });
+  t.eq(route.source.sessionSeq, 1234, "sessionSeq 要真的写进去");
+  t.eq(typeof route.source.foldCount, "number", "foldCount 必须是数（0 也算）");
+  t.eq("graphRevision" in route.source, false, "死字段 graphRevision 必须删掉");
+  t.eq("sessionEvents" in route.source, false, "死字段 sessionEvents 必须删掉");
+};
+
+tests["C670/D-5 delta 坏掉时 CLI 与房间都必须拒写"] = (t) => {
+  const dir = "D:/fixture/sess";
+  const port = fakePort();
+  const r = writeUserRoute(dir, graphWithManual(["你看着办"]), { sessionId: "s1", port, deltaBroken: true });
+  t.eq(r.ok, false, "delta 坏 ⇒ 不写");
+  t.eq(r.reason, "delta-broken", `reason 要是 delta-broken：${r.reason}`);
+  t.eq(port.files.size, 0, "一个字节都没写");
 };
 
 export { tests };

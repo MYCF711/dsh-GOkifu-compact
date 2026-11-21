@@ -1717,7 +1717,14 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     try {
       if (!session || typeof session.id !== "string") return;
       const dir = sessionPaths(this.persist.root, session.id).dir;
-      const write = writeUserRoute(dir, this.#graph(session), { sessionId: session.id });
+      const write = writeUserRoute(dir, this.#graph(session), {
+        sessionId: session.id,
+        // ★ C670/D-1：图是**重建**出来的（读不出/版本不符）时，只要已有容器就不许覆盖 ——
+        //   否则新图攒到相同条数就会把整段真棋路盖掉。新会话（无容器）不受影响。
+        graphRepaired: this.repairedGraphs.has(session.id),
+        // ★ C670/D-8：让容器能自证「从哪个会话位置来」
+        stats: { sessionSeq: Number(session.seq) },
+      });
       if (write.reason && /^would-shrink/.test(write.reason)) {
         this.ctx.logger?.warn?.(`chess-context: 棋路容器未覆盖（${write.reason}）`);
       }
