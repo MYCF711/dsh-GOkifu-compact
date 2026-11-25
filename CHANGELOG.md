@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C682 | P1 第四次搬迁：摘要错误分类进新房间 summary-error |
 | C681 | P1 第三次搬迁：注入统计口径进新房间 skip-stats |
 | C680 | P1 第二次搬迁：退避策略进新房间 retry-policy |
 | C679 | P1 首搬：热清单预算格式化三函数进新房间 ledger-budget |
@@ -743,6 +744,54 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C682 · P1 第四次搬迁：摘要错误分类进新房间 summary-error
+
+**P1 归位第四次搬迁：摘要错误分类进新房间，`engine.mjs` 4585 → 4518 行。**
+
+## 搬了什么（三个纯函数）
+
+`isPermanentSummaryError` / `classifySummaryError` / `summaryErrorHint` → `src/rooms/summary-error.mjs`。
+
+| 函数 | 语义 |
+|---|---|
+| `isPermanentSummaryError` | 官方错误码表里哪些是"重试也没用"（含 422：**已经是 permanent**） |
+| `classifySummaryError` | 分 permanent / rate-limit / overload / timeout / other。**顺序有讲究**：先分「不是我们的错」那几类，再谈提示词/参数（C467 真机 2026-11-03T05:38 的教训） |
+| `summaryErrorHint` | 每一类给一句**能照着做**的话（改提示词 / 查分组 / 充值 / 调超时） |
+
+## 顺手清掉一处上一刀留下的瑕疵
+
+C680 搬 `retryBackoffFor` 时，它头顶那段 C350 注释（"rate-limit 基数不变但上限翻倍 / overload 基数抬高"）**留在了 engine 里**，成了悬空注释。这刀把它移进 `retry-policy.mjs` 的函数上方 —— 注释跟着函数走，不然读者会在 engine 里看到一段不属于任何函数的说明。
+
+## 一处源码文本断言被这刀打红（处理方式值得记）
+
+`test/engine-harness.test.mjs` 的 **C497** 断言：
+
+```js
+const src = readFileSync(".../src/engine.mjs");
+t.includes(src, "要改的是请求本身，不是等一会儿", "提示语要让读者知道该做什么");
+```
+
+函数搬走后这段文字不在 engine 里了 ⇒ **立刻红**。
+
+处理方式：断言**改为读 engine + 房间两个文件拼接后的内容**，并写明理由 ——
+
+> 这条用例钉的是**语义**（422 归 permanent、提示语要说人话），不是"代码住在哪个文件"。
+
+**没有**去删断言、也没有为迁就测试把函数搬回去。归位会不断撞上这类"钉位置"的断言，正确的改法是让断言钉语义。
+
+## 四刀合起来的账
+
+| 指标 | 归位前 | 现在 |
+|---|---:|---:|
+| `src/engine.mjs` | 4689 行 | **4518 行**（−171） |
+| 命名导出 | 29 | 20（9 个搬走，engine 仍转发） |
+| 房间数 | 28 | **32** |
+| 全量用例数 | 2586 | **2586（四刀都没变）** |
+
+## 验证
+
+`engine-harness` **133/0** · `rooms` **20/0** · 全量 **2586 passed / 2 skipped / 0 failed**。
 
 ### C681 · P1 第三次搬迁：注入统计口径进新房间 skip-stats
 
