@@ -538,8 +538,8 @@ export const tests = {
     t.eq(fieldKeys(panel.runtime.tree()), [], "离开配置后全部字段卸载");
   },
 
-  "④ 阈值固定档位：select 只认45/50/65/75/85%，保存闸门拒绝任意数字"(t) {
-    t.eq(T.THRESHOLD_TIERS, [0.45, 0.5, 0.65, 0.75, 0.85], "固定档位含现默认45%");
+  "④ 阈值固定档位：select 只认35/45/50/65/75/85%，保存闸门拒绝任意数字"(t) {
+    t.eq(T.THRESHOLD_TIERS, [0.35, 0.45, 0.5, 0.65, 0.75, 0.85], "固定档位含现默认45% 与新增35%");
     for (const tier of T.THRESHOLD_TIERS) t.eq(T.thresholdTierValue(tier), String(tier), `${tier} 必须可选`);
     for (const invalid of [0.05, 0.51, 0.7, 0.95, "0.51", "", null, undefined, Number.NaN]) t.eq(T.thresholdTierValue(invalid), "", `${JSON.stringify(invalid)} 必须拒绝`);
     t.eq(T.thresholdPatchForSave({ thresholdRatio: "0.75", summaryMode: "rules" }), { ok: true, patch: { thresholdRatio: 0.75, summaryMode: "rules" } }, "合法字符串 canonical 成数字");
@@ -677,7 +677,7 @@ export const tests = {
       if (tabButton(noActiveStyle.runtime.tree(), "overview").props.style.background !== T.styles.tabActive.background) throw new Error("选中背景丢失");
     }, "官方选中背景守卫对变异必须真红");
 
-    const numericSource = SOURCE.replace('panelLabel: "压缩阈值（固定档位）", hint: "只能选 45% / 50% / 65% / 75% / 85%；45% 是现默认值", kind: "threshold"', 'panelLabel: "压缩阈值（固定档位）", hint: "自由数字", kind: "number", step: 0.01, min: 0.05, max: 0.95');
+    const numericSource = SOURCE.replace('panelLabel: "压缩阈值（固定档位）", hint: "只能选 35% / 45% / 50% / 65% / 75% / 85%；45% 是现默认值", kind: "threshold"', 'panelLabel: "压缩阈值（固定档位）", hint: "自由数字", kind: "number", step: 0.01, min: 0.05, max: 0.95');
     t.ne(numericSource, SOURCE, "数字输入变异确实命中源码");
     const numeric = loadClient(numericSource);
     t.throws(() => assertFixedThresholdControl(numeric.T, numeric.runtime), "退回自由数字输入必须让阈值守卫变红");

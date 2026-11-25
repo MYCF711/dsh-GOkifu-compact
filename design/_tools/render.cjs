@@ -329,10 +329,10 @@ const FIELD_ROWS = [
   {
     key: "thresholdRatio",
     label: "压缩阈值（固定档位）",
-    hint: "只能选 45% / 50% / 65% / 75% / 85%；45% 是现默认值",
+    hint: "只能选 35% / 45% / 50% / 65% / 75% / 85%；45% 是现默认值",
     kind: "enum",
     value: "45%",
-    options: ["45%", "50%", "65%", "75%", "85%"]
+    options: ["35%", "45%", "50%", "65%", "75%", "85%"]
   },
   { key: "growthFloorTokens", label: "增长闸（tokens）", hint: "距上次 fold 至少新增这么多才再压", kind: "number", value: "20000" },
   { key: "retainRatio", label: "逐字保留尾部", hint: "近期内容不压，按窗口比例", kind: "number", value: "0.2" }
