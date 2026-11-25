@@ -1,15 +1,15 @@
 /**
- * manual-fold.test.mjs —— 手动压缩命令 `/fold`（R17，方案 2）
+ * manual-fold.test.mjs —— 手动压缩命令 `/compact-fold`（R17，方案 2）
  *
  * 三层：
  *   ① **纯决策层**（R17 `src/rooms/manual-fold.mjs`）：输入解析 / 能不能压 / 文案。
  *      这一层不碰宿主，断言的是**判据顺序**与「拿不到的数不许写成 0」。
- *   ② **命令接线**（engine）：`/fold` 真的注册进 `ctx.commands`，
+ *   ② **命令接线**（engine）：`/compact-fold` 真的注册进 `ctx.commands`，
  *      且**没有 commands 服务时压缩主路径一个字节不变**（不抛、不挂）。
  *   ③ **端到端**：用 harness 的假 ctx 跑 `foldNow` —— 回合开着必拒、没有区间必拒、
  *      正常路径真的调了 `compactRegion` 且返回人话。
  *
- * 为什么要有 ②③：R17 的价值全在「用户敲 /fold 会发生什么」。
+ * 为什么要有 ②③：R17 的价值全在「用户敲 /compact-fold 会发生什么」。
  * 只测纯函数会漏掉「命令根本没注册上」「注册了但 handler 抛错」这两类真事故。
  */
 
@@ -117,10 +117,10 @@ export const tests = {
   "MF-1 命令元数据：名字合宿主正则、描述非空（宿主 register 会直接抛 TypeError 的两条）"(t) {
     // 宿主 `dsh-commands` 的判据：COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
     t.eq(/^[a-z][a-z0-9_-]*$/.test(FOLD_COMMAND_NAME), true, `命令名 ${FOLD_COMMAND_NAME} 必须匹配宿主正则`);
-    t.eq(FOLD_COMMAND_NAME, "fold", "命令名必须是 fold（方案 2 的对外契约）");
+    t.eq(FOLD_COMMAND_NAME, "compact-fold", "命令名必须是 compact-fold（方案 2 的对外契约）");
     t.eq(typeof FOLD_COMMAND_DESCRIPTION, "string", "描述必须是字符串");
     t.eq(FOLD_COMMAND_DESCRIPTION.trim().length > 0, true, "描述不许为空（宿主会抛 TypeError）");
-    t.eq(FOLD_USAGE, "Usage: /fold (no arguments)", "用法提示与官方 /compact 同形");
+    t.eq(FOLD_USAGE, "Usage: /compact-fold (no arguments)", "用法提示与官方 /compact 同形");
     t.eq(MANUAL_FOLD_KINDS.includes("ok"), true, "分类表必须含 ok");
     t.eq(MANUAL_FOLD_KINDS.includes("open-turn"), true, "分类表必须含 open-turn");
   },
@@ -151,7 +151,7 @@ export const tests = {
     const turn = decideManualFold({ openTurn: true, lockActive: false, range: { start: 1, end: 2, shadowedTokens: 9e9 } });
     t.eq(turn.kind, "open-turn", "回合开着必须拒");
     t.includes(turn.text, "回合还开着", "open-turn 必须说清原因");
-    t.includes(turn.text, "/fold", "open-turn 必须给出下一步动作");
+    t.includes(turn.text, "/compact-fold", "open-turn 必须给出下一步动作");
     // 没区间
     const none = decideManualFold({ openTurn: false, lockActive: false, range: null });
     t.eq(none.kind, "nothing-to-fold", "没有区间");
@@ -194,7 +194,7 @@ export const tests = {
 
   /* ───────────────────────── ② 命令接线 ───────────────────────── */
 
-  "MF-6 有 commands 服务时 /fold 真的注册上（名字/描述/handler 三件套齐全）"(t) {
+  "MF-6 有 commands 服务时 /compact-fold 真的注册上（名字/描述/handler 三件套齐全）"(t) {
     return (async () => {
       const { default: Engine } = await loadEngine();
       const registered = [];
@@ -268,7 +268,7 @@ export const tests = {
       session.append("turn/start", { turn: 1 });
       for (let i = 0; i < 20; i += 1) session.seed("user", `step ${i}`);
       session.append("turn/end", { turn: 1 });
-      // ★ 真机（2026-11-25）：/fold 现在走 compactNow（owner:null 手动事务），
+      // ★ 真机（2026-11-25）：/compact-fold 现在走 compactNow（owner:null 手动事务），
       //   区间由 #withManualRange 经 compactRegion 的 override 传入 ⇒ 桩要打在 compactNow 上。
       const calls = [];
       engine.compactNow = async () => {
@@ -354,7 +354,7 @@ function makeGraphDir() {
   return dir;
 }
 
-/** 最小的假 ctx：只给 engine 构造与 /fold 用得到的东西。 */
+/** 最小的假 ctx：只给 engine 构造与 /compact-fold 用得到的东西。 */
 function makeCtx({ commands } = {}) {
   const ctx = {
     logger: { info() {}, warn() {}, debug() {}, error() {} },

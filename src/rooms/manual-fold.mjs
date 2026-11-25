@@ -1,5 +1,5 @@
 /**
- * manual-fold.mjs —— 手动压缩命令（`/fold`）的**纯决策层**（R17）
+ * manual-fold.mjs —— 手动压缩命令（`/compact-fold`）的**纯决策层**（R17）
  *
  * 背景（2026-11-25，用户需求）：用户要一个**命令行里能敲**的压缩命令，
  * 在「自动压缩还没触发」的空闲时刻也能手动压一次。本插件的压缩算法与 DSH 原生
@@ -7,7 +7,7 @@
  * 另开一个命令（方案 2）。
  *
  * 为什么决策要单独成房间：命令处理里真正需要判据的只有三件事 ——
- *   ① 输入合不合法（`/fold` 不收参数）；
+ *   ① 输入合不合法（`/compact-fold` 不收参数）；
  *   ② 现在能不能压（回合开着 / 压缩锁在飞 / 没有可折区间 / 没到最小量）；
  *   ③ 压完怎么向用户交代（遮蔽了多少、省了多少 token、还剩多少）。
  * 这三件事全是**纯函数**，可以脱离宿主单测；engine 只负责把它们接到
@@ -21,7 +21,7 @@
  */
 
 /** 命令名（不带斜杠）。宿主 `COMMAND_NAME = /^[a-z][a-z0-9_-]*$/` ⇒ 必须全小写。 */
-export const FOLD_COMMAND_NAME = "fold";
+export const FOLD_COMMAND_NAME = "compact-fold";
 
 /**
  * 命令描述（宿主 discovery UI 里显示的那一句）。
@@ -30,7 +30,7 @@ export const FOLD_COMMAND_NAME = "fold";
 export const FOLD_COMMAND_DESCRIPTION = "Compress older history now (kifu incremental fold)";
 
 /** 用法提示（带参数时回这一句，与官方 `/compact` 的 USAGE 同形）。 */
-export const FOLD_USAGE = "Usage: /fold (no arguments)";
+export const FOLD_USAGE = "Usage: /compact-fold (no arguments)";
 
 /**
  * 手动折叠的失败分类（冻结）。
@@ -48,10 +48,10 @@ export const MANUAL_FOLD_KINDS = Object.freeze([
 ]);
 
 /**
- * 解析命令输入：`/fold` 后面**不许**有任何参数。
+ * 解析命令输入：`/compact-fold` 后面**不许**有任何参数。
  *
  * 为什么必须显式拒绝：宿主的 `rawInput` 是「命令名之后的原文，含分隔空白」，
- * 用户打 `/fold now` 时如果我们静默忽略参数，用户会以为「now 生效了」。
+ * 用户打 `/compact-fold now` 时如果我们静默忽略参数，用户会以为「now 生效了」。
  * 官方 `/compact` 也是这么做的（`rawInput.trim().length > 0` ⇒ USAGE）。
  *
  * @param {string} rawInput 宿主给的 `invocation.rawInput`
@@ -93,7 +93,7 @@ export function decideManualFold({ openTurn = false, lockActive = false, range =
     return {
       kind: "busy-lock",
       ok: false,
-      text: "另一次压缩正在进行（compaction lock 已激活）—— 等它结束再执行 /fold。",
+      text: "另一次压缩正在进行（compaction lock 已激活）—— 等它结束再执行 /compact-fold。",
       detail,
     };
   }
@@ -101,7 +101,7 @@ export function decideManualFold({ openTurn = false, lockActive = false, range =
     return {
       kind: "open-turn",
       ok: false,
-      text: "当前回合还开着 —— 手动压缩只允许在**已结束的回合**里执行。先等本轮跑完（或停止当前运行），再执行 /fold。",
+      text: "当前回合还开着 —— 手动压缩只允许在**已结束的回合**里执行。先等本轮跑完（或停止当前运行），再执行 /compact-fold。",
       detail,
     };
   }
@@ -114,13 +114,13 @@ export function decideManualFold({ openTurn = false, lockActive = false, range =
     // ★ 真机（2026-11-25）：`#selectRange` 的 reason 形如
     //   `no-foldable-span(surface=30,priced=30)` 或 `checkpoint-at-tail`。
     //   只有前者是「切不动」，后者是「真的没有新内容」—— 判据必须分开，
-    //   否则刚折完再敲一次 /fold 会被误导成「尾巴太大」。
+    //   否则刚折完再敲一次 /compact-fold 会被误导成「尾巴太大」。
     const reasonText = typeof skipReason === "string" ? skipReason : "";
     // ★ 真机（2026-11-25）：`no-foldable-span` 有两种成因，**必须靠 surface 规模分开**：
     //   · surface 很小（折叠后只剩 system + checkpoint + 一两条）⇒ 真的没内容，
     //     报「无需压缩」；
     //   · surface 够大却算不出 ⇒ 尾巴被单条大消息吃满，报「切不动」。
-    //   第一版只看 reason 前缀，于是刚折完再敲一次 /fold 会被告知「尾巴太大」——
+    //   第一版只看 reason 前缀，于是刚折完再敲一次 /compact-fold 会被告知「尾巴太大」——
     //   而实测那次 surface 只有 3 个节点（`no-foldable-span(surface=3,priced=3)`）。
     const surfaceCount = Number(detail.surfaceNodes);
     const tailTooBig =

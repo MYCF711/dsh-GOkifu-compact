@@ -47,7 +47,7 @@ import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
-// ★ R17（2026-11-25，方案 2）：手动压缩命令 `/fold` 的纯决策层（零依赖房间）。
+// ★ R17（2026-11-25，方案 2）：手动压缩命令 `/compact-fold` 的纯决策层（零依赖房间）。
 import { FOLD_COMMAND_NAME, FOLD_COMMAND_DESCRIPTION, parseFoldInput, decideManualFold, renderFoldSuccess } from "./rooms/manual-fold.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
@@ -949,7 +949,7 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.#bindKeeper();
     // ★ C524：自动补账入口；T68 后由 autoArchiveBackfill（默认关）决定是否真的布防。
     this.#startAutoBackfill();
-    // ★ R17（2026-11-25，方案 2）：手动压缩命令 `/fold`。
+    // ★ R17（2026-11-25，方案 2）：手动压缩命令 `/compact-fold`。
     //   刻意**不放进** `commands` 的 inject 列表：宿主 `CommandRuntime` 是全局服务，
     //   而本引擎住在 preset 的 isolate `compaction` group 里 —— 拿不到就跳过（不报错、不影响压缩）。
     this.#bindFoldCommand();
@@ -2276,7 +2276,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   async compactRegion(start, end, agent, signal) {
     const ownerRegion = ENGINE_BY_CTX.get(this?.ctx);
     if (ownerRegion !== undefined && ownerRegion !== this) return ownerRegion.compactRegion(start, end, agent, signal);
-    // ★ R17（2026-11-25）：`/fold` 走 `compactNow`（owner:null 手动事务），但区间要换成
+    // ★ R17（2026-11-25）：`/compact-fold` 走 `compactNow`（owner:null 手动事务），但区间要换成
     //   我们的增量规划结果。`#withManualRange` 把区间放进这个一次性字段，这里取用后**立刻清空**
     //   —— 绝不许残留到下一次自动 fold（那会把别人的区间折错）。
     const override = this._manualRangeOverride ?? null;
@@ -3645,10 +3645,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     return this._chessActiveRange ?? null;
   }
 
-  /* ─────────────────── R17：手动压缩命令 `/fold`（方案 2） ─────────────────── */
+  /* ─────────────────── R17：手动压缩命令 `/compact-fold`（方案 2） ─────────────────── */
 
   /**
-   * ★ R17（2026-11-25）：把 `/fold` 注册到宿主的命令表。
+   * ★ R17（2026-11-25）：把 `/compact-fold` 注册到宿主的命令表。
    *
    * 为什么是**新命令**而不是替换 `/compact`（方案 2，用户拍板）：
    *   · 官方 `/compact` 走 `compactNow`（`owner: null`，整段重摘要）；
@@ -3678,14 +3678,14 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       commands = null;
     }
     if (commands === null || typeof commands.register !== "function") {
-      this.ctx?.logger?.debug?.("chess-context: 没有 commands 服务，/fold 未注册（压缩主路径不受影响）");
+      this.ctx?.logger?.debug?.("chess-context: 没有 commands 服务，/compact-fold 未注册（压缩主路径不受影响）");
       return;
     }
     const owner = this.ctx;
     if (owner !== null && typeof owner === "object") {
       if (FOLD_COMMAND_OWNERS.has(owner)) {
         // 同一 ctx 里已有别的实例注册过 —— 让**先注册的那一个**继续负责（避免同名冲突）。
-        this.ctx?.logger?.debug?.("chess-context: /fold 已由同一 ctx 的另一个引擎实例注册，本次跳过");
+        this.ctx?.logger?.debug?.("chess-context: /compact-fold 已由同一 ctx 的另一个引擎实例注册，本次跳过");
         return;
       }
       try {
@@ -3703,7 +3703,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       });
       if (typeof dispose === "function") {
         // 引擎销毁时把命令摘掉（宿主 effect 也会兜底，这里显式一次更清楚）。
-        this.ctx.effect(() => dispose, "gokifu: /fold 命令");
+        this.ctx.effect(() => dispose, "gokifu: /compact-fold 命令");
       }
       this.ctx?.logger?.info?.(`chess-context: 已注册手动压缩命令 /${FOLD_COMMAND_NAME}`);
     } catch (error) {
@@ -3713,7 +3713,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   }
 
   /**
-   * `/fold` 的命令处理器：解析 → 前置判定 → 真折 → 人话结果。
+   * `/compact-fold` 的命令处理器：解析 → 前置判定 → 真折 → 人话结果。
    *
    * 宿主契约（`dsh-commands` `normalizeResult`）：
    *   · 成功 `{kind:"success", text?, sourceEventSeq?}`；`text` 给了就必须是字符串；
@@ -3750,7 +3750,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   }
 
   /**
-   * ★ R17：**手动压一次**（`/fold` 的唯一实现）。
+   * ★ R17：**手动压一次**（`/compact-fold` 的唯一实现）。
    *
    * 与 `compactNow`（官方 `/compact`）的区别：
    *   · `compactNow` 走宿主 `owner: null` 事务 —— 整段重摘要，**回合必须已结束**；
@@ -3811,7 +3811,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   原因在宿主 `region.ts`：`owner` 是**二选一**的 ——
       //     · `owner: "current-turn"`（`compactRegion`）⇒ **必须**有未结束的 turn；
       //     · `owner: null`（`compactNow`）       ⇒ **必须**没有 turn。
-      //   而 `/fold` 是用户在**回合之间**敲的 ⇒ 只有 `owner: null` 那条路成立。
+      //   而 `/compact-fold` 是用户在**回合之间**敲的 ⇒ 只有 `owner: null` 那条路成立。
       //   所以这里改走 `compactNow`（官方手动路径：runMaintenance + owner:null + 错误分类），
       //   并在调用期间**把区间选择器临时换成我们的增量规划器**（见 #withManualRange）。
       const result = await this.#withManualRange(planned.range, () => this.compactNow(agent, signal, commandId));
@@ -3835,7 +3835,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * 在 `compactNow` 执行期间，把「选哪一段」换成我们自己的增量区间。
    *
    * 为什么需要：宿主 `compactNow` 内部固定调 `selectCompactableRange(..., 0)`（整段重摘要），
-   * 而 `/fold` 的语义是**增量 fold**（一段历史只折一次）。两者的事务语义（`owner: null`、
+   * 而 `/compact-fold` 的语义是**增量 fold**（一段历史只折一次）。两者的事务语义（`owner: null`、
    * `runMaintenance`、错误分类）完全一样，**只有区间选择不同**。
    * 所以这里用一次性的实例字段把区间递进去，`compactRegion` 读到它就用它、读完立刻清掉
    * （一次性，绝不残留到下一次自动 fold —— 那会把别人的区间折错）。
@@ -3897,7 +3897,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   （见 config-schema.mjs:73「没有默认」），而 `planFold` 的保留尾部循环在 undefined 时
       //   算不出保留边界 ⇒ 永远返回 `no-foldable-span`。
       //   自动 fold 不受影响，因为它走 `resolveSpec` 把 ratio 算成具体 token 数；
-      //   手动路径必须做同样的换算，否则 /fold 在**任何**会话上都只会说「没有可折的历史」。
+      //   手动路径必须做同样的换算，否则 /compact-fold 在**任何**会话上都只会说「没有可折的历史」。
       const retainTokens = this.#manualRetainTokens(measurement);
       const spec = { retainTokens, minFoldTokens: this.chess.minFoldTokens };
       // 手动压缩**不受** threshold / growthFloor 门槛限制（用户明确要求现在压），
@@ -3906,7 +3906,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       // ★ 真机（2026-11-25）：**尾部被单条大消息吃满时，退一步再算一次**。
       //   实测：30 节点 / 28897 tok，其中一条 7606 tok 的消息一条就吃满了 4623 的保留预算，
       //   于是 keepFromIdx 落在它身上、可折区间只剩 15 tok ⇒ `no-foldable-span`。
-      //   自动 fold 可以「这次不折」，但 `/fold` 是**用户明确要求现在压**：
+      //   自动 fold 可以「这次不折」，但 `/compact-fold` 是**用户明确要求现在压**：
       //   退到「不保留尾部」再算一次，把那条大消息连同前面的历史一起折进去。
       //   仍然受工具对边界约束（不切断一个步骤），所以这是安全的。
       let retried = false;
@@ -3930,7 +3930,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         retried,
       };
     } catch (error) {
-      this.ctx?.logger?.debug?.(`chess-context: /fold 规划区间失败：${String(error?.message ?? error)}`);
+      this.ctx?.logger?.debug?.(`chess-context: /compact-fold 规划区间失败：${String(error?.message ?? error)}`);
       return { range: null };
     }
   }
@@ -3940,7 +3940,7 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *
    * 与 `resolveSpec` 同一口径：显式 `retainTokens` 优先，否则按 `retainRatio × 消息预算` 折算。
    * 拿不到窗口时退回一个保守的绝对下限 —— 宁可多留一点尾巴，也不要因为 undefined
-   * 让规划器永远算不出区间（那会让 /fold 静默失效，正是真机踩到的那个洞）。
+   * 让规划器永远算不出区间（那会让 /compact-fold 静默失效，正是真机踩到的那个洞）。
    *
    * @param {{totalTokens?:number}} measurement token-meter 的测量结果
    * @returns {number} 非负整数
@@ -4621,7 +4621,7 @@ export function writeAutoBackfillState(dir, payload) {
 const ENGINE_BY_CTX = new WeakMap();
 
 /**
- * ★ R17：哪个引擎实例在**这个 ctx** 上注册了 `/fold`。
+ * ★ R17：哪个引擎实例在**这个 ctx** 上注册了 `/compact-fold`。
  * 宿主按名字建索引，同名重复注册会抛「already registered」；同一个 ctx 里
  * 可能先后 new 出多个引擎（热重载 / 测试），所以用 WeakMap 记住**先注册的那一个**。
  */
