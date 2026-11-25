@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C679 | P1 首搬：热清单预算格式化三函数进新房间 ledger-budget |
 | C678 | 房间边界判据：子进程/网络/动态执行一律禁止，fs 与 env 白名单 |
 | C677 | 面板字段元数据从 SCHEMA 派生：消掉双份手写（UI 下沉 host 侧） |
 | C676 | 工装账：scripts/ 不许长出没人认识的脚本（P4 第一步） |
@@ -740,6 +741,46 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C679 · P1 首搬：热清单预算格式化三函数进新房间 ledger-budget
+
+**P1 归位的第一次真实搬迁：`engine.mjs` 4690 → 4647 行，逻辑一个字符没改。**
+
+## 搬了什么
+
+`ledgerBudgetMetrics` / `ledgerBudgetLogLevel` / `ledgerBudgetLogLine` 三个函数（50 行）从 `src/engine.mjs` 搬进新房间 `src/rooms/ledger-budget.mjs`。
+
+选它的三条理由（都可复现）：
+
+1. **纯函数** —— 不碰 `this`、不碰 `ctx`、不读盘、不发网络；
+2. **零外部消费者** —— `grep` 全仓 `test/` 与 `scripts/` 命中 0 处，只有 engine 自己调用；
+3. **属于"统计与日志"类** —— 正是归位图里最该先搬的一类（不参与折叠决策）。
+
+## 搬迁纪律
+
+- **主体逐字复制**，逻辑零改动；
+- engine 保留 `import` + `export`，任何外部 `mod.ledgerBudgetMetrics` 写法继续有效 —— **不许为了归位去改调用方**；
+- `test/rooms.test.mjs` 的 ROOMS 表与期望集合登记新房间（28 → 29）。
+
+## 踩到的一个真坑（写进代码注释了）
+
+第一版写成**纯 `export … from`**，`engine-harness` 立刻红：
+
+```
+✗ P7-3 impossible：必须 error 级，不许静默
+  ledgerBudgetMetrics is not defined
+```
+
+原因：`export { x } from "./y"` 只做**转发**，**不创建本地绑定** —— 而 engine 自己也要调用它。
+必须 `import …` + `export …` 两条。这类"看起来等价、实际不等价"的写法，只有测试能抓住。
+
+## 顺带修正的文档数字
+
+`docs/方案-繁复收敛.md` 里的"4689 行"已更新为 **4647 行（C679 归位后；归位前 4689）** —— 数字必须跟着代码走。
+
+## 验证
+
+`engine-harness` **133/0** · `rooms` **20/0** · 全量 **2586 passed / 2 skipped / 0 failed**（与前一轮同数，**没有新增用例** —— 归位不该改变行为，这是正确信号）。
 
 ### C678 · 房间边界判据：子进程/网络/动态执行一律禁止，fs 与 env 白名单
 
