@@ -378,11 +378,16 @@ function makeCtx({ commands } = {}) {
     },
     on() {},
     effect() {},
-    get() {
-      return undefined;
+    /**
+     * ★ 真机实测（2026-11-25，隔离实例 3099）：引擎读 `ctx.commands` 会被 cordis 拒绝
+     *   （`cannot get property "commands" without inject`），必须走 `ctx.get("commands")`。
+     *   所以夹具**只**提供 `get`，并且**故意不**提供 `ctx.commands` —— 这样一旦引擎退回
+     *   直接属性读取，MF-6/8/12/13 会立刻红（真机同款失败）。
+     */
+    get(name) {
+      return name === "commands" ? commands : undefined;
     },
   };
-  if (commands !== undefined) ctx.commands = commands;
   return ctx;
 }
 

@@ -317,7 +317,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | R13 | `install-link` · `ws-install` · `ui` | — |
 | R14 | `migrate`（**10/0**：7 等价迁移 + P6C-8 路径经 R01 + P6C-9 120s 守卫） | 原型 `test/archive-dangling.mjs` 已删除（git 识别为 rename） |
 | R15 | `ui-config` · `config-schema`（**11/0**） | ✅ A2-4 已补表驱动全键 |
-| R17 | `manual-fold`（**13/0**：5 条纯判据 + 3 条命令接线 + 5 条端到端） | 手动压缩命令 `/fold`（方案 2）。**不进 `static inject`** —— 拿不到 `commands` 时只跳过注册，压缩主路径不变（MF-7 钉着） |
+| R17 | `manual-fold`（**13/0**：5 条纯判据 + 3 条命令接线 + 5 条端到端） | 手动压缩命令 `/fold`（方案 2）。**读 `commands` 必须用 `ctx.get("commands")`** —— 直接读属性会抛 `without inject`，写进 `static inject` 又会让引擎挂不上（见 §7 陷阱 11） |
 
 ---
 
@@ -451,7 +451,12 @@ AGENTS.md  本文件（不进包）
 7. **`cordis.patch.yml` patch 打不中只 warning** ⇒ 改完必须核对生效。
 8. **`run.mjs` 的 filter 是文件名子串** ⇒ 按房间名写命令会漏测（见 §3.2）。
 9. **恢复旧门面必须变红** —— A3-2 删掉的 8 个门面（`verifier` / `range` / `worldstate` / `graph` / `keeper` / `extract` / `ledger` / `summary-prompt`）**只要在 `src/` 顶层重新出现，或被任何文件 import，`rooms` 门禁必须立刻红**（`SRC_TOP_LEVEL_ALLOWED` + `DELETED_FACADES`）。**原因**：门面一复活，同一份实现就有了两个入口，「哪个才是真的」立刻无人能答 —— 这正是 A3 全部工作的意义。**新增房间同理：`src/rooms/` 下多一个未登记文件，C3 就必须红。**
-10. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
+11. **在 isolate group 里读全局服务，必须用 `ctx.get(name)`，不能用 `ctx.name`**（2026-11-25 真机实测，隔离实例 3099）：
+    cordis 的属性读取**强制**要求该服务声明在 `inject` 里，否则抛 `cannot get property "X" without inject`（`cordis/src/reflect.ts:152`）；
+    而把全局服务写进 `static inject` 又会让插件在拿不到它时**整个挂不上**（`fiber.ts:617-628`：任一 inject 条目缺失 ⇒ `epoch = INACTIVE`）。
+    正解是 `ctx.get(name)` —— `reflect.ts` 文档原文「Read a service from the store **without the inject requirement**」。
+    本仓实例：`/fold` 命令注册（R17）。**测试夹具故意不提供 `ctx.commands`**，退回属性读取立刻红。
+12. **运行中改 `profiles/*/cordis.patch.yml` 会整树热重载并可能让 host `exit(1)`** —— `dsh-hmr` 1 秒内 `reconcileProfilePatches` → idle-but-unsettled 的 subagent 读到已撤销的 inbox 投影 → unhandledRejection → `installFailLoud`。**15:00 已实测**（`session-893bfb9d`，改 `includeHarnessIdentity` 触发）。**要改配置：走设置 UI / 确认无 live subagent / 启动前改或改完立刻重启。**（L2 插件代码层是否热重载仍未验证，别混说。）
 ---
 
 ## 17 · 自动化协作（watcher 唤醒时读这一节）

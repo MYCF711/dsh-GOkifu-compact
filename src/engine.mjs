@@ -3655,9 +3655,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    *   本进程里同一个 ctx 只注册一次（`FOLD_COMMAND_OWNERS` 是 WeakMap，随 ctx 生命周期回收）。
    */
   #bindFoldCommand() {
+    // ★ 真机实测（2026-11-25，隔离实例 3099）：直接读 `this.ctx.commands` 会抛
+    //   `cannot get property "commands" without inject` —— cordis 的属性读取**强制**要求
+    //   该服务声明在 `inject` 里（reflect.ts:152）。而把 `commands` 写进 `static inject`
+    //   又会让引擎在拿不到它时**整个挂不上**（fiber.ts:617-628：任一 inject 条目缺失 ⇒ INACTIVE）。
+    //   正解是 `ctx.get(name)`：reflect.ts 的文档写明它「Read a service from the store
+    //   **without the inject requirement**」。这样既不阻塞启动，也拿得到服务。
+    //   （test/manual-fold.test.mjs 的夹具**故意不提供** `ctx.commands`，退回属性读取立刻红。）
     let commands = null;
     try {
-      commands = this.ctx?.commands ?? null;
+      commands = typeof this.ctx?.get === "function" ? (this.ctx.get("commands") ?? null) : null;
     } catch {
       commands = null;
     }
