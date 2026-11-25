@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C677 | 面板字段元数据从 SCHEMA 派生：消掉双份手写（UI 下沉 host 侧） |
 | C676 | 工装账：scripts/ 不许长出没人认识的脚本（P4 第一步） |
 | C675 | 配置布局版本号 + 33 键按序快照（P3 第三张面收口） |
 | C674 | 持久化面契约快照：graph.json 17 键 + delta 帧三列格式 |
@@ -738,6 +739,55 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C677 · 面板字段元数据从 SCHEMA 派生：消掉双份手写（UI 下沉 host 侧）
+
+**P2 的 UI 声明下沉：host 侧那一半做完了 —— 面板要的元数据现在**由 `SCHEMA` 派生**，不再是 client 手写第二份。**
+
+## 解决的是哪个具体病
+
+浏览器半 `lib/client.js` 手写了一份 `FIELDS`（标签 / 类型 / step / min / max / 枚举），与 `src/rooms/config-schema.mjs` 的 `SCHEMA` 是**两份真值**。实测代价：**5 处数值范围不一致，其中 3 处 host 更严 ⇒ 面板放行、保存即 400**：
+
+```
+{"headroomTokens":800000} => 400: 压力余量（tokens） 超出范围 [0, 512000]
+{"closeoutMinEvents":0}   => 400: 归档收尾最小事件数 超出范围 [1, 10000]
+{"closeoutTimeoutMs":0}   => 400: 归档收尾超时(ms) 超出范围 [1000, 600000]
+```
+
+用户看到的就是"填了不生效"。
+
+## 改了什么
+
+```js
+// src/rooms/config-schema.mjs —— 只派生，不新增判断
+export function describeFields() {
+  return SCHEMA.map((entry) => ({
+    key, label, type, where, default,
+    range:  数值域原样交出 {min, max}（null = 无界）,
+    options: 枚举原样交出,
+    desc,
+  }));
+}
+
+// src/ui.mjs 的 state 响应
+fields: describeFields(),      // ← 33 条，与 SCHEMA 一一对应
+```
+
+**client 从此不该再手写 FIELDS** —— 数据已经随 `state.fields` 送到浏览器半手边。
+
+## 契约测试（`test/config-schema.test.mjs`）
+
+1. **一一对应**：条数 33、**键序与 SCHEMA 完全一致**（键序同时是 preset 行序）、`type` 原样、数值域 `range` 原样、枚举 `options` 原样；
+2. **标签同源**：`fieldLabels` 里有的键，`label` 必须与它相同（不在其中的，如 engine 作用域的 `factGuard`，以 SCHEMA 为准 —— `fieldLabels` 只覆盖可编辑键，这是既有契约 C252）；
+3. **墓碑**：字段声明里不许出现 `SCHEMA` 之外的键（否则面板会渲染出保存不了的东西 —— 这正是 `autoBackfill` 那个已知假 UI 的形态）。
+
+## 还没做的一步（写清楚）
+
+client 侧真正改成读 `state.fields` 还没有做 —— 那是浏览器代码，Node 里装不起 React bundle，改完说不清对不对。**host 侧已就位，client 侧需要一个可跑的 UI 验收手段才能动。**
+
+## 验证
+
+`config-schema` **22/0** · `ui` **151/0** · 全量 **2582 passed / 2 skipped / 0 failed**。
 
 ### C676 · 工装账：scripts/ 不许长出没人认识的脚本（P4 第一步）
 
