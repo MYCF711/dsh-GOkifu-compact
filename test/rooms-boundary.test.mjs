@@ -23,6 +23,7 @@ export const tests = {};
 
 /** 允许直接 import `node:fs` 的房间（每个都写清"为什么它必须有 fs"）。 */
 const FS_ALLOWED = {
+  "backfill-state.mjs": "补账状态落盘：按 pid 一份 + latest 索引 + 旧版单文件（多实例不互相覆盖）",
   "kifu-persist.mjs": "落盘协议的实现者（load / flush / 路径 / delta 回放）",
   "migrate.mjs": "数据迁移：备份 / 应用 / 回滚都要读写 sessions 目录",
   "profile-io.mjs": "profile 文件读写",
