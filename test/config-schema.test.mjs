@@ -291,3 +291,30 @@ tests["C671 口径判据来自 SCHEMA 的区间，不是代码里的键名清单
   t.eq(/key === "thresholdRatio" \|\| key === "retainRatio"/.test(src), false, "不许再有键名白名单");
   t.includes(src, "Number.isFinite(v) && !Number.isInteger(v)", "必须按区间是否含小数来判");
 };
+
+/* ───── C672：preset 里能写的键，引擎必须真的读得到 ───── */
+
+tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板写了引擎读不到 = 假 UI）"] = (t) => {
+  const engineSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  const start = engineSrc.indexOf("const RESOLVE_ORDER = [");
+  const end = engineSrc.indexOf("];", start);
+  t.ok(start > 0 && end > start, "找不到 RESOLVE_ORDER");
+  const order = new Set([...engineSrc.slice(start, end).matchAll(/"([A-Za-z0-9_]+)"/g)].map((m) => m[1]));
+
+  // 这份名单是**已知欠账**，不是许可：新增一个就必须同时写理由，或者把它接进 RESOLVE_ORDER。
+  const KNOWN_UNRESOLVED = {
+    auto: "引擎构造选项（`new Engine(ctx,{auto:false})`），不是 chess 配置",
+    autoBackfill: "C524 的「自动补账」勾选；T68/T72 已把总闸改成 autoArchiveBackfill 并判定旧键不生效，面板仍在渲染它 ⇒ 已知假 UI，等接线",
+    closeoutMaxFoldTokens: "归档收尾折叠上限；当前经 engineBlock 模板下发，未经 RESOLVE_ORDER",
+  };
+
+  const preset = SCHEMA.filter((e) => e.where === "preset").map((e) => e.key);
+  const outside = preset.filter((k) => !order.has(k)).sort();
+  const known = Object.keys(KNOWN_UNRESOLVED).sort();
+
+  t.eq(JSON.stringify(outside), JSON.stringify(known), `preset 键与已知欠账名单不一致：实际 ${JSON.stringify(outside)}`);
+  for (const k of known) {
+    t.ok(String(KNOWN_UNRESOLVED[k]).length > 8, `${k} 必须写清为什么可以不在 RESOLVE_ORDER 里`);
+  }
+};
+
