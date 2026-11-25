@@ -624,3 +624,52 @@ tests["C176 规模 × 失败：300 节点图上任意写序点失败，读回只
     });
   }
 };
+
+/* ───── C674：持久化面的契约快照（P3 第二张对外面） ───── */
+
+tests["C674 graph.json 顶层形状是契约：键集精确相等 + version 必须 1"] = async (t) => {
+  const { createGraph, addUserNode, toJSON } = await import("../src/rooms/kifu-model.mjs");
+  const g = createGraph({ sessionId: "s1", cwd: "D:/x" });
+  addUserNode(g, { seq: 1, text: "你好" });
+  const obj = JSON.parse(toJSON(g));
+  t.eq(obj.version, 1, "graph.json 的 version 必须是 1（不认识的版本必须显式拒绝，不许静默降级）");
+  // 记忆侧/外部工具直接读这个文件 ⇒ 键集就是契约。加键必须同步改这里（这就是"改字段必须登记"）。
+  t.eq(
+    JSON.stringify(Object.keys(obj).sort()),
+    JSON.stringify([
+      "checkpointSeq", "createdAt", "cwd", "edges", "foldCount", "foldMarks", "lastFoldTotalTokens",
+      "lastFoldUsage", "nextEdge", "nextNode", "nodes", "order", "rootUserNodeIds", "sessionId",
+      "stateIndex", "updatedAt", "version",
+    ]),
+    "graph.json 顶层形状变了：必须改快照（这是对外契约，不是实现细节）",
+  );
+};
+
+tests["C674 不认识的 graph 版本必须抛错（不许静默降级）"] = async (t) => {
+  const { fromJSON } = await import("../src/rooms/kifu-model.mjs");
+  let err = null;
+  try {
+    fromJSON(JSON.stringify({ version: 2, nodes: {}, edges: {}, order: [] }));
+  } catch (error) {
+    err = error;
+  }
+  t.ok(err !== null, "version:2 必须抛错");
+  t.includes(String(err.message), "unsupported version", "错误信息要点名版本问题");
+};
+
+tests["C674 delta 帧格式是契约：<16位baseHash> TAB <31位校验> TAB <json>"] = async (t) => {
+  const { checksum31, encodeDeltaFrame } = await import("../src/rooms/kifu-model.mjs");
+  const baseHash = "0123456789abcdef";
+  const line = encodeDeltaFrame(baseHash, { v: 1, set: {} });
+  // 必须先去掉行尾换行：帧体不含换行符，带着它算 checksum 一定对不上（自己踩过这个坑）
+  const parts = line.replace(/\n$/, "").split("\t");
+  t.eq(parts.length, 3, `帧必须是三列（收到 ${parts.length} 列）`);
+  t.eq(parts[0].length, 16, "baseHash 必须 16 位");
+  // `checksum31` 是**函数名**（乘数 31），不是"31 位校验"——实测就是十进制整数，
+  // 之前这条断言按名字想当然写成 31 位，被自己的契约测试当场抓出来。
+  t.eq(/^-?\d+$/.test(parts[1]), true, `校验列必须是十进制整数：${parts[1]}`);
+  t.eq(Number(parts[1]), checksum31(parts[2]), "校验值必须等于 json 的 checksum31");
+  t.eq(line.endsWith("\n"), true, "一帧一行，必须换行结尾");
+  t.eq(/^[0-9a-f]{16}$/.test(parts[0]), true, `baseHash 必须是 16 位小写十六进制：${parts[0]}`);
+  t.ok(JSON.parse(parts[2]) !== null, "第三列必须是可解析 JSON");
+};

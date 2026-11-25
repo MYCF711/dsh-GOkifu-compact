@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C674 | 持久化面契约快照：graph.json 17 键 + delta 帧三列格式 |
 | C673 | 对外 JSON 面加 schemaVersion + 三个读面顶层形状快照 |
 | C672 | 给「面板写了引擎读不到」上判据：preset 键必须登记 |
 | C671 | 配置取整口径改由区间决定：firstFoldRatio 0.9 不再被静默写成一 |
@@ -735,6 +736,31 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C674 · 持久化面契约快照：graph.json 17 键 + delta 帧三列格式
+
+**P3 第二张对外面：持久化面（`graph.json` + delta 帧）的契约快照。**
+
+## 为什么这张面最要紧
+
+`graph.json` 不是内部实现细节 —— **记忆侧与外部工具直接读它**，`delta.jsonl` 也是跨进程格式。此前它只有 `version: 1` 并在加载时拒绝陌生版本，但**顶层键集没有任何快照**：一次重构顺手加/删一个键，读的人只会静默拿到不同的东西。
+
+## 新增三条契约测试（`test/kifu-persist.test.mjs`）
+
+1. **顶层形状快照**：`graph.json` 的 17 个顶层键**精确相等**（`checkpointSeq / createdAt / cwd / edges / foldCount / foldMarks / lastFoldTotalTokens / lastFoldUsage / nextEdge / nextNode / nodes / order / rootUserNodeIds / sessionId / stateIndex / updatedAt / version`）+ `version === 1`。加键必须同步改快照。
+2. **陌生版本必须抛错**：`{version: 2}` ⇒ 抛错且 message 含 `unsupported version`（不许静默降级）。
+3. **delta 帧格式**：`<16位小写hex baseHash>` TAB `<checksum31 整数>` TAB `<json>` + 换行结尾；校验列必须等于 `checksum31(json)`。
+
+## 两条被自己的契约测试当场抓出的错（都记在测试注释里）
+
+- **`checksum31` 是函数名（乘数 31），不是"31 位校验"**。我按名字想当然写成 `parts[1].length === 31`，实测是十进制整数（`1451322369`）⇒ 断言立刻红。注释里写明，避免下一个人重犯。
+- **重算校验时必须先去掉行尾换行**：帧体不含换行符，`line.split("\t")` 直接把 `\n` 带进了第三列 ⇒ checksum 对不上（`1451322369 ≠ 2041320489`）。改成 `line.replace(/\n$/, "")` 后一致。
+
+这两条正是"契约测试的价值"——**它们验证的是格式，不是实现**，所以能抓出写测试的人自己的想当然。
+
+## 验证
+
+`kifu-persist` **24/0**（+3）；全量 **2577 passed / 2 skipped / 0 failed**。
 
 ### C673 · 对外 JSON 面加 schemaVersion + 三个读面顶层形状快照
 
