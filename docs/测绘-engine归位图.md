@@ -1,7 +1,7 @@
 # 测绘 · engine.mjs 归位图（P1 作业图）
 
 > **这份文件是 P1 的唯一作业图**：把 4689 行的 `src/engine.mjs` 按职责搬进房间之前，
-> 先钉死「谁调谁、每个导出归哪一类、七件事各在哪几行、搬哪一条会红」。
+> 先钉死「谁调谁、29 个导出各归哪一类、七件事（用户口径；实际落成 8 段区间）各在哪几行、搬哪一条会红」。
 > 依据 `docs/方案-繁复收敛.md`（P1 只归位 → P2 切房），**本文不改任何逻辑**。
 >
 > **只读分析**：本次未修改 `src/` `test/` `scripts/` `lib/` 下任何文件，也未改 `docs/README.md`。
@@ -95,7 +95,7 @@ node test/run.mjs 2>&1 | tail -2
 1. **`test/engine-harness.test.mjs:23,92-96`** —— 把 `engine.mjs` **源码读成字符串**，用 4 次
    `.replace('from "@deepseek-ai/…"', 'from "./.harness-stubs/stub-….mjs"')` 换成 stub，
    写到 `src/.engine-under-test.mjs`，再 `import()` 那个副本。**测试取的是副本，不是真文件。**
-2. **`test/real-modules.mjs:132-137`** —— 把整个 `src/` 拷到 tmp 目录，`import` 拷贝里的 `engine.mjs`。
+2. **`test/real-modules.mjs:131-136`** —— 把整个 `src/` 拷到 tmp 目录（131），`import` 拷贝里的 `engine.mjs`（133、136）。
 3. **`package.json` 的 `exports["./engine"]` = `./src/engine.mjs`** —— 这是**对外子路径契约**，
    也是 `cordis.patch.yml` 里 `name: 'dsh-gokifu-compact/engine'` 指向的东西（永久路径，不能改名）。
 
@@ -138,8 +138,10 @@ node test/run.mjs 2>&1 | tail -2
 
 `migrate` · `node-docs` · `preset-format` · `profile-io` · `query-recall` · `user-patch` · `verify`
 
-前 3 个各走各的消费者（`migrate` 只被 CLI 与测试用；`preset-format` 被 `ui.mjs` + `install.mjs` 用；
-`verify` 被 `keeper`/`ledger`/`offline-fold` 用）。**它们不能被当成"engine 的归属房间"。**
+它们各走各的消费者：`migrate` 只被 `scripts/migrate-dangling.mjs` / `scripts/p6c-preflight.mjs` / `test/migrate.test.mjs` 用；
+`preset-format` 被 `src/ui.mjs` + `scripts/install.mjs` 用；`verify` 被 `keeper`/`ledger`/`offline-fold` 用；
+`node-docs` 与 `user-patch` 被 `scripts/doctor.mjs` 用；`query-recall` 被 `src/rooms/hot-inject.mjs` 用；
+`profile-io` 只有 `test/profile-io.test.mjs`。**它们不能被当成"engine 的归属房间"。**
 
 ### 复现命令
 
@@ -185,7 +187,7 @@ console.log(process.argv[1], hits.length);
 
 - `export (async )?function|const|class` 形态：**24** 个；
 - `export { … }` 形态：**1 条语句、5 个名字**（4689 行，全部是 `rooms/closeout-plan.mjs` 的再导出）；
-- **24 + 5 = 29**；`export default` 的类按用户口径不计入「命名导出」，但它同样是注册面（§3-⑧）。
+- **24 + 5 = 29**；`export default` 的类按用户口径不计入「命名导出」，但它同样是注册面（§3 区间 8 的主体）。
 
 ### 2.2 归位表
 
