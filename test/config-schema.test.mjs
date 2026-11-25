@@ -363,3 +363,40 @@ tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 
       "queryRecall",
     ]), "SCHEMA 键序变了：必须改快照（这是对外契约）");
 };
+
+/* ───── C677：面板字段声明必须从 SCHEMA 派生（UI 声明下沉的 host 侧） ───── */
+
+tests["C677 describeFields 与 SCHEMA 一一对应：条数、键序、标签、范围、枚举全一致"] = async (t) => {
+  const { describeFields, SCHEMA, fieldLabels } = await import(ROOM);
+  const fields = describeFields();
+  t.eq(fields.length, SCHEMA.length, `字段声明条数必须等于 SCHEMA 条数（${SCHEMA.length}）`);
+  t.eq(JSON.stringify(fields.map((f) => f.key)), JSON.stringify(SCHEMA.map((e) => e.key)), "键序必须与 SCHEMA 完全一致（它同时是 preset 行序）");
+
+  const labels = fieldLabels();
+  for (const entry of SCHEMA) {
+    const f = fields.find((x) => x.key === entry.key);
+    t.ok(f !== undefined, `${entry.key} 必须有字段声明`);
+    // 数值域：range 必须原样（这是"面板放行、保存即 400"那 5 处不一致的根治点）
+    if (entry.type === "number" && Array.isArray(entry.range)) {
+      t.eq(JSON.stringify(f.range), JSON.stringify([entry.range[0], entry.range[1] === null ? null : entry.range[1]]), `${entry.key} 的 range 必须与 SCHEMA 相同`);
+    }
+    // 枚举域：可选值必须原样
+    if (entry.type === "enum") {
+      t.eq(JSON.stringify(f.options), JSON.stringify([...entry.values]), `${entry.key} 的枚举必须与 SCHEMA 相同`);
+    }
+    // 标签必须与 fieldLabels 同源（否则面板与 state 各显示一套名字）
+    // fieldLabels 只覆盖可编辑键（C252）；不在其中的（如 engine 作用域的 factGuard）以 SCHEMA 的 label 为准。
+    if (labels[entry.key] !== undefined) {
+      t.eq(f.label, labels[entry.key], `${entry.key} 的 label 必须与 fieldLabels 同源`);
+    }
+    // 类型必须原样
+    t.eq(f.type, entry.type, `${entry.key} 的 type 必须与 SCHEMA 相同`);
+  }
+};
+
+tests["C677 墓碑：字段声明里不许出现 SCHEMA 之外的键（面板会渲染出保存不了的东西）"] = async (t) => {
+  const { describeFields, SCHEMA } = await import(ROOM);
+  const keys = new Set(SCHEMA.map((e) => e.key));
+  const extra = describeFields().map((f) => f.key).filter((k) => !keys.has(k));
+  t.eq(JSON.stringify(extra), "[]", `字段声明里出现了 SCHEMA 之外的键：${JSON.stringify(extra)}（面板会渲染出保存不了的东西）`);
+};

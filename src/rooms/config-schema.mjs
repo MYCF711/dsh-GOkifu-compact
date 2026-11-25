@@ -330,6 +330,30 @@ const label = (key) => describe(key)?.label ?? key;
  * 与 A2-4 之前 `ui.mjs:describeConfig()` **逐键相同**（注意：数字键只判「是不是有限数字」，
  * **不判范围** —— 范围只用于页面提交校验，这是既有行为，本刀不改）。
  */
+/**
+ * ★ C677：**面板要用的完整字段声明**（UI 声明下沉的 host 侧）。
+ *
+ * 为什么需要它：浏览器半现在手写一份 FIELDS（标签 / 类型 / step / min / max / 枚举），
+ * 与 `SCHEMA` 是**两份真值** —— 实测已有 5 处范围不一致（3 处 host 更严 ⇒ 面板放行、保存即 400）。
+ * 这里把面板需要的全部元数据**从 SCHEMA 派生**一次交给它：`fields` 一给，client 就不该再手写。
+ *
+ * 纪律：**只派生，不新增判断**。字段的形状必须与 SCHEMA 一一对应（测试钉住条数与键序）。
+ */
+export function describeFields() {
+  return SCHEMA.map((entry) => ({
+    key: entry.key,
+    label: entry.label ?? entry.key,
+    type: entry.type,
+    where: entry.where ?? null,
+    default: entry.default ?? null,
+    // 数值域：区间原样交出（客户端据此设 min/max/step，不许自己拍）
+    range: Array.isArray(entry.range) ? [entry.range[0], entry.range[1] === null ? null : entry.range[1]] : null,
+    // 枚举域：可选值原样交出
+    options: Array.isArray(entry.values) ? [...entry.values] : null,
+    desc: entry.desc ?? "",
+  }));
+}
+
 export function describeConfig(presetConfig = {}) {
   const src = presetConfig ?? {};
   const defaults = configDefaults();

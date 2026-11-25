@@ -467,7 +467,7 @@ tests["C673 所有 JSON 响应都带 schemaVersion，且三个读面顶层形状
 
     // ② 快照：三个读面的顶层形状**逐键钉死**。加字段必须同时改这里 —— 这就是"改字段必须登记"。
     const shapes = {
-      state: ["config", "configFile", "configItems", "configOrigins", "configSchemaVersion", "defaults", "fieldLabels", "foldMarks", "health", "latest", "models", "ok", "presetConfig", "profile", "schemaVersion", "today", "unconfiguredKeys", "update", "version"],
+      state: ["config", "configFile", "configItems", "configOrigins", "configSchemaVersion", "defaults", "fieldLabels", "fields", "foldMarks", "health", "latest", "models", "ok", "presetConfig", "profile", "schemaVersion", "today", "unconfiguredKeys", "update", "version"],
       defaults: ["configItems", "defaults", "fieldLabels", "ok", "schemaVersion"],
       health: ["health", "latest", "ok", "profile", "schemaVersion", "today"],
     };
