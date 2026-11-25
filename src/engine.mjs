@@ -122,77 +122,10 @@ const THRASH_SEQ = 30;
  * @returns {{est:number, tail:number, chunks:Array<{start:number,end:number,estTokens:number}>}|null}
  *          null = 不需要分段（或估不出来）
  */
-/**
- * ★ C328：**归档信号只在这里解析一次**（纯函数，可单测）。
- *
- * 这条路径是本仓库最容易错的地方 —— C210 的设计（挂 `session/disposed`）在**真机上被证伪**过：
- * GUI 归档只往 `workspace.json` 写 `archivedSessionIds`，**不发那个事件**（C216）。
- * 所以过滤条件必须逐条钉住，不能只靠"源码里有这几行"。
- *
- * 认的形状：`{domain:"workspace", table:"", operation:"put", value:{archivedSessionIds:[…]}}`
- *   · `table` 可以是 `""` 或 `undefined`（都是 global 记录），其它表一律不认；
- *   · `value` 可能是对象，也可能是 JSON 字符串（durable 存储回放时见过）。
- *
- * @param {any} change
- * @param {{archivedSessionIds?: unknown[]} | null} [registry] 兜底来源（有一拍延迟，只当最后手段）
- * @returns {{ids: string[], trusted: boolean} | null} null = 不是归档信号
- */
-export function archivedIdsFromChange(change, registry = null) {
-  if (!change || change.domain !== "workspace") return null;
-  if (change.operation !== "put") return null;
-  const table = change.table;
-  if (table !== "" && table !== undefined) return null;
-  let value = change.value;
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  const ids = value?.archivedSessionIds;
-  if (Array.isArray(ids)) return { ids: ids.map(String), trusted: true };
-  const fromRegistry = registry?.archivedSessionIds;
-  return Array.isArray(fromRegistry) ? { ids: fromRegistry.map(String), trusted: false } : null;
-}
+// ★ C683：归档信号识别 + foldMark usage 构造已搬进 `rooms/fold-stats.mjs`。
+import { archivedIdsFromChange, buildFoldMarkUsage, newlyArchived } from "./rooms/fold-stats.mjs";
 
-/**
- * ★ C328：从「上一份归档集合」到「这一份」的差分 —— 只挑**新出现**的 id。
- *
- * @param {Set<string>|Iterable<string>} previous
- * @param {Iterable<string>} current
- * @returns {string[]}
- */
-export function newlyArchived(previous, current) {
-  const seen = previous instanceof Set ? previous : new Set(previous ?? []);
-  const out = [];
-  for (const id of current ?? []) {
-    const value = String(id);
-    if (!seen.has(value)) out.push(value);
-  }
-  return out;
-}
-
-/**
- * ★ C443：foldMark 里那份 usage 的**唯一构造点**。纯函数。
- *
- * 为什么抽出来：C346/C398 修的就是"这里要写 model 与 finishReason"，
- * 但那两次都只能用**源码断言**验证（字段在不在那一行）。
- * 抽成纯函数后，可以**行为地**测：给一份没有 model 的真机 usage，看输出里有没有 model。
- *
- * @param {object|null} summaryUsage 宿主返回的 usage（可能没有 model）
- * @param {{provider?:string|null, model?:string|null, instructionTokens?:number|null}} extra
- * @returns {object|null}
- */
-export function buildFoldMarkUsage(summaryUsage, { provider = null, model = null, instructionTokens = null } = {}) {
-  if (summaryUsage === null || summaryUsage === undefined || typeof summaryUsage !== "object") return null;
-  return {
-    ...summaryUsage,
-    provider: provider ?? null,
-    model: model ?? null,
-    instructionTokens: Number.isFinite(Number(instructionTokens)) ? Number(instructionTokens) : null,
-  };
-}
+export { archivedIdsFromChange, buildFoldMarkUsage, newlyArchived };
 
 // ★ C682：摘要错误分类已搬进 `rooms/summary-error.mjs`（三个纯函数）。
 //   同前三次：必须 import + export 两条（`export … from` 不创建本地绑定）。
@@ -435,104 +368,16 @@ import { bumpSkipReason, injectActionKey, injectionErrorDelta, skipReasonKey } f
 
 export { bumpSkipReason, injectActionKey, injectionErrorDelta, skipReasonKey };
 
-// ★ C679：热清单预算的格式化函数已搬进房间 `rooms/ledger-budget.mjs`（纯函数，零外部消费者）。
+// ★ C679/C683：热清单预算的格式化与累计都已搬进 `rooms/ledger-budget.mjs`（纯函数）。
 //   这里只 re-export，保证 `mod.ledgerBudgetMetrics` 这类写法继续有效（不许为了"归位"改调用方）。
-//   ⚠ 必须 **import + export** 两条：`export … from` 只做转发、**不创建本地绑定**，
-//   而 engine 自己也要调用它们（第一次写成纯 re-export，engine-harness 立刻红：
+
+import { accumulateLedgerBudget, ledgerBudgetLogLevel, ledgerBudgetLogLine, ledgerBudgetMetrics } from "./rooms/ledger-budget.mjs";
+
+export { accumulateLedgerBudget, ledgerBudgetLogLevel, ledgerBudgetLogLine, ledgerBudgetMetrics };
+//   ⚠ 必须 import + export 两条：`export … from` 只做转发、不创建本地绑定，
+//   而 engine 自己也要调用它们（C679 第一次写成纯 re-export 时 engine-harness 立刻红：
 //   `ledgerBudgetMetrics is not defined`）。
-import { ledgerBudgetLogLevel, ledgerBudgetLogLine, ledgerBudgetMetrics } from "./rooms/ledger-budget.mjs";
 
-export { ledgerBudgetLogLevel, ledgerBudgetLogLine, ledgerBudgetMetrics };
-
-/**
- * 把一次渲染的 metrics 累计进统计对象（纯函数，便于单测；engine 的 `consumeLedgerBudget` 调用它）。
- *
- * 为什么单独抽出来：累计规则是**持久化文件的口径**（`ledger-budget.json` 被 doctor 读），
- * 旧文件没有 `provenanceMin` 字段 ⇒ 首次累计按 1 起算（1 = 没有观察到任何下降），
- * 不能因为旧文件缺字段就报成 0（那会让 doctor 误报「出处全丢了」）。
- */
-export function accumulateLedgerBudget(stats, metrics, now = Date.now(), sessionId = "") {
-  const target = stats ?? {};
-  target[metrics.fallback] = (target[metrics.fallback] ?? 0) + 1;
-  target.samples = (target.samples ?? 0) + 1;
-  if (metrics.minimal === true) {
-    target.minimalRenders = (Number.isFinite(target.minimalRenders) ? target.minimalRenders : 0) + 1;
-  }
-  if (metrics.traceRecent === "dropped-for-budget") {
-    target.traceDropped = (Number.isFinite(target.traceDropped) ? target.traceDropped : 0) + 1;
-  }
-  target.maxOverBudgetBy = Math.max(Number.isFinite(target.maxOverBudgetBy) ? target.maxOverBudgetBy : 0, metrics.overBudgetBy ?? 0);
-  // ★ C245：**over-budget 按成因归因**：超预算到底是「约束/根目标逐字保留那段就占了大半」，
-  //   还是「失败边等可压缩内容占大头」？实测（session-example，579 tok / 预算 500）：
-  //   CONSTRAINTS 198 + markers 图例 43 + ROOT 19 ⇒ 不可裁部分已占 45%，失败边只有 230。
-  //   这两类的处置完全不同：前者只能改预算或改约束长度，后者才有"再压一点"的空间。
-  if (
-    metrics.fallback === "over-budget" &&
-    Number.isFinite(metrics.tokens) &&
-    metrics.tokens > 0 &&
-    Number.isFinite(metrics.unyieldingTokens)
-  ) {
-    const by = target.overByCause && typeof target.overByCause === "object" ? { ...target.overByCause } : {};
-    const cause = metrics.unyieldingTokens / metrics.tokens >= 0.4 ? "constraints" : "content";
-    by[cause] = (Number.isFinite(by[cause]) ? by[cause] : 0) + 1;
-    target.overByCause = by;
-  }
-  // ★ C244：**over-budget 按档位归因**。此前 1005 次超预算里只有 174 次有归因（floorOver 86 + irreducible 88），
-  //   剩下 831 次「不知道为什么超」—— 而档位能直接回答：落在 L5（已是最省一份）就是设计内，
-  //   落在 L0–L3 就说明还有压缩空间。一个字段把 831 次从"未知"变成"已知"。
-  if (metrics.fallback === "over-budget" && Number.isFinite(metrics.level)) {
-    const by = target.overByLevel && typeof target.overByLevel === "object" ? { ...target.overByLevel } : {};
-    const key = `L${Math.max(0, Math.min(5, Math.trunc(metrics.level)))}`;
-    by[key] = (Number.isFinite(by[key]) ? by[key] : 0) + 1;
-    target.overByLevel = by;
-  }
-  // ★ C44：over-budget 里有多少次是「约束+根目标下限」本身就超预算（不可裁 ⇒ 设计内，不是渲染 bug）。
-  if (
-    metrics.fallback === "over-budget" &&
-    Number.isFinite(metrics.unyieldingTokens) &&
-    Number.isFinite(metrics.budgetMax) &&
-    metrics.unyieldingTokens >= metrics.budgetMax
-  ) {
-    target.budgetFloorOver = (Number.isFinite(target.budgetFloorOver) ? target.budgetFloorOver : 0) + 1;
-  }
-  // ★ C49：超预算但**已经把失败边全列出来**（shownFailures === failureCount）⇒ 再省就只能删失败边，
-  //   而「每条失败边都要出现」是合同红线（L4/L5 已经只在 >20/>10 条时才截）。这类超预算是设计内，
-  //   与「明明有更省形式却仍超」区分开（后者才可能是渲染 bug）。
-  if (
-    metrics.fallback === "over-budget" &&
-    Number.isFinite(metrics.shownFailures) &&
-    Number.isFinite(metrics.failureCount) &&
-    metrics.failureCount > 0 &&
-    metrics.shownFailures >= metrics.failureCount
-  ) {
-    target.budgetIrreducible = (Number.isFinite(target.budgetIrreducible) ? target.budgetIrreducible : 0) + 1;
-  }
-  // ★ C48：超预算按会话归因 —— 只有一个会话反复超时，聚合数字会误导（"系统性问题" vs "这一个会话"）。
-  //   有界保留前 8 个来源，避免 ledger-budget.json 无限增长。
-  if (metrics.fallback === "over-budget" && typeof sessionId === "string" && sessionId.length > 0) {
-    const by = target.overBySession && typeof target.overBySession === "object" ? { ...target.overBySession } : {};
-    by[sessionId] = (Number.isFinite(by[sessionId]) ? by[sessionId] : 0) + 1;
-    const entries = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    target.overBySession = Object.fromEntries(entries);
-  }
-  if (Number.isFinite(metrics.provenanceCoverage)) {
-    const prev = Number.isFinite(target.provenanceMin) ? target.provenanceMin : 1;
-    target.provenanceMin = Math.min(prev, metrics.provenanceCoverage);
-    if (metrics.provenanceCoverage < 1) target.provenanceLow = (Number.isFinite(target.provenanceLow) ? target.provenanceLow : 0) + 1;
-  }
-  // ★ 2026-11-01：分项占用按**样本累加**（平均 It 才代表"钱通常花在哪"）。
-  //   只留最后一次会让"某次恰好被根目标占满"被误当成常态。
-  if (metrics.sections && typeof metrics.sections === "object") {
-    const acc = target.sectionsAvg && typeof target.sectionsAvg === "object" ? target.sectionsAvg : {};
-    const next = { ...acc };
-    for (const [key, value] of Object.entries(metrics.sections)) {
-      if (Number.isFinite(value)) next[key] = (Number.isFinite(next[key]) ? next[key] : 0) + value;
-    }
-    target.sectionsAvg = next;
-  }
-  target.updatedAt = now;
-  return target;
-}
 
 /** 预算统计文件的相对位置（相对 graphDir）：`<graphDir>/ledger-budget.json`。 */
 /**
