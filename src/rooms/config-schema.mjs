@@ -368,6 +368,17 @@ export function describeConfig(presetConfig = {}) {
  *
  * @returns {{patch: Record<string, any>, skipped: string[]}}
  */
+/**
+ * ★ C675：**配置面对外的版本号**（P3 第三张面）。
+ *
+ * 为什么需要：`SCHEMA` 的**键序**就是 preset 块里 `engine` 段的行序，也是面板渲染顺序 ——
+ * 记忆侧与手写 preset 都依赖它。此前只有"单一来源"（好），但没有版本号：**改一格顺序都没人知道**。
+ * 浏览器半/记忆侧拿到这个号，就能判断自己按哪一版布局解释（不认识就显式报错，而不是错位渲染）。
+ *
+ * 变更纪律：只加不改。新增键追加到末尾；删除或重排键必须让版本号 +1 并同步发布说明。
+ */
+export const CONFIG_SCHEMA_VERSION = 1;
+
 export function validatePatch(patch = {}) {
   const editable = new Set(Object.keys(configDefaults()));
   const out = {};
