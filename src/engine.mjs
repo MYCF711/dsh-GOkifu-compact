@@ -267,24 +267,11 @@ export function summaryErrorHint(kind) {
  * @param {{base?: number, cap?: number}} [defaults]
  * @returns {{base:number, cap:number}}
  */
-/**
- * ★ C367：早期退避只能数**事件**，但官方对 429 说的是「放慢节奏」——那是**时间**语义。
- *  所以在事件退避之外，再加一道**最小等待毫秒数**（仅对限流/过载生效，其它类型 0 = 不影响旧行为）。
- * 官方并发限制：`deepseek-flash` 2500 / `deepseek-v4-pro` 500（账号级）。
- * @param {string} kind
- * @returns {number} 毫秒
- */
-export function retryMinDelayMs(kind) {
-  if (kind === "rate-limit") return 30_000;
-  if (kind === "overload") return 5_000;
-  return 0;
-}
+// ★ C680：退避策略已搬进 `rooms/retry-policy.mjs`（纯函数）。
+//   同 C679 的教训：必须 import + export 两条 —— `export … from` 不创建本地绑定，而 engine 自己要调用。
+import { retryBackoffFor, retryMinDelayMs } from "./rooms/retry-policy.mjs";
 
-export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
-  if (kind === "rate-limit") return { base, cap: cap * 2 };
-  if (kind === "overload") return { base: Math.round(base * 2), cap };
-  return { base, cap };
-}
+export { retryBackoffFor, retryMinDelayMs };
 
 /** ★ T67：每轮 TRANSPORT / 超时 = 1 首调 + 最多 2 补试；runOfflineFold 最多再放大一轮 ⇒ 组合硬上限 3×2=6 次。30s → 60s，单次等待上限 120s，±20% 抖动。 */
 const TRANSPORT_RETRY_MAX = 2;
