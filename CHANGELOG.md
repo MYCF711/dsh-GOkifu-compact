@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C671 | 配置取整口径改由区间决定：firstFoldRatio 0.9 不再被静默写成一 |
 | C670 | 按盲审修棋路落盘：重建图不再覆盖、版本与 tmp 与代理对 |
 | C669 | 压缩水位证据串味：折前水位可能记的是别处/旧值 |
 | C668 | 会话级棋路在归档时落盘：新房间 user-route + 三道守卫 |
@@ -732,6 +733,58 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C671 · 配置取整口径改由区间决定：firstFoldRatio 0.9 不再被静默写成一
+
+**面板上能选的值，落盘时被静默改成了别的值 —— 这就是用户说的「假 UI / 文本填进去不是真生效」。**
+
+## 缺陷（实测复现）
+
+```bash
+$ node --input-type=module -e 'import {validatePatch} from "./src/rooms/config-schema.mjs"; console.log(JSON.stringify(validatePatch({firstFoldRatio:0.9})))'
+{"patch":{"firstFoldRatio":1},"skipped":[]}
+```
+
+面板那个控件是 `step: 0.01, max: 0.95` —— **0.9 完全可达**，但落盘变成 `1`，**越过 max 且不报错**。
+
+## 根因：取整口径维护了一份键名白名单
+
+```js
+// 旧写法
+out[key] = key === "thresholdRatio" || key === "retainRatio" ? Math.round(n * 1000) / 1000 : Math.round(n);
+```
+
+`SCHEMA` 里有 **4 个小数域键**，白名单只写了 2 个：
+
+| 键 | 区间 | 旧口径 | 结果 |
+|---|---|---|---|
+| `thresholdRatio` | `[0.05, 0.95]` | 三位小数 | 正常（在白名单里） |
+| `retainRatio` | `[0, 0.9]` | 三位小数 | 正常（在白名单里） |
+| **`firstFoldRatio`** | `[0, 0.95]` | **`Math.round`** | **0.9 → 1，越界** |
+| `retainTokens` | `[0, null]` | `Math.round` | 正常（它本来就该是整数） |
+
+## 修法：口径由声明的区间决定
+
+```js
+const bound = (v) => typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v);
+out[key] = bound(min) || bound(max) ? Math.round(n * 1000) / 1000 : Math.round(n);
+```
+
+- 区间里有**有限小数端** ⇒ 保留三位小数（`thresholdRatio` / `retainRatio` / `firstFoldRatio`）；
+- 两端都是整数、或上界是 `null`（无界）⇒ 仍然取整（`retainTokens` 这类 token 数不会被变成小数）。
+
+**为什么不是"再往白名单里加一个键"**：那正是本仓「UI 声明必须单一来源」要消灭的东西 ——
+多一份手写清单，就多一处会对不上。这次是漏了第三个键，下次会漏第四个。
+
+## 为什么属纯正向
+
+- **没人付代价**：白名单里的两个键行为逐字不变（`0.35 → 0.35`、`0.16 → 0.16`）；token 类键仍取整（`8000.7 → 8001`）；
+- 只是把**静默写错值**变成**写对**，外加删掉一份会漂的手写清单。
+
+## 验证
+
+新增 3 条测试（小数域保真 / 整数域仍取整 / 判据不许回到键名白名单）。
+`config-schema` **18/0**；全量 **2572 passed / 2 skipped / 0 failed**。
 
 ### C670 · 按盲审修棋路落盘：重建图不再覆盖、版本与 tmp 与代理对
 

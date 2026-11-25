@@ -388,7 +388,13 @@ export function validatePatch(patch = {}) {
       if (!Number.isFinite(n)) throw new Error(`${label(key)} 必须是有限数字`);
       const [min, max] = entry.range;
       if (n < min || n > max) throw new Error(`${label(key)} 超出范围 [${min}, ${max}]（收到 ${n}）`);
-      out[key] = key === "thresholdRatio" || key === "retainRatio" ? Math.round(n * 1000) / 1000 : Math.round(n);
+      // ★ C671：取整口径**由声明的区间决定，不许维护一份键名白名单**。
+      //   旧写法把 `thresholdRatio` / `retainRatio` 写死成"保留三位小数"，其余一律 `Math.round` ——
+      //   于是同样是小数的 `firstFoldRatio` 被静默取整：面板给 0.9（step 0.01、max 0.95，可达），
+      //   落盘变成 `1`，**越界且不报错**（实测 `{"firstFoldRatio":0.9} => ok {"patch":{"firstFoldRatio":1}}`）。
+      //   白名单的错法与本仓"UI 声明必须单一来源"同源：多一份手写清单，就多一处会对不上。
+      const bound = (v) => typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v);
+      out[key] = bound(min) || bound(max) ? Math.round(n * 1000) / 1000 : Math.round(n);
       continue;
     }
     if (entry.type === "enum") {

@@ -269,3 +269,25 @@ tests["Q1-UI：queryRecall 是 preset 作用域实验开关（默认关 / 只认
   t.eq(describeConfig({ queryRecall: true }).origins.queryRecall, "preset", "来源 = preset");
   t.eq(describeConfig({}).unconfiguredKeys.includes("queryRecall"), true, "未配置时出现在 unconfiguredKeys");
 };
+
+/* ───── C671：取整口径由区间决定，不许维护键名白名单 ───── */
+
+tests["C671 小数域键一律保留三位小数：firstFoldRatio 0.9 不许被静默取整成 1"] = (t) => {
+  // 旧实现把 thresholdRatio/retainRatio 写死在白名单里，其余 Math.round ⇒ firstFoldRatio 被取整，
+  // 面板 step 0.01 / max 0.95（可达）→ 落盘 1，越界且不报错。
+  t.eq(validatePatch({ firstFoldRatio: 0.9 }).patch.firstFoldRatio, 0.9, "0.9 必须原样保留");
+  t.eq(validatePatch({ firstFoldRatio: 0.3 }).patch.firstFoldRatio, 0.3, "0.3 必须原样保留");
+  t.eq(validatePatch({ thresholdRatio: 0.35 }).patch.thresholdRatio, 0.35, "阈值档不被破坏");
+  t.eq(validatePatch({ retainRatio: 0.16 }).patch.retainRatio, 0.16, "保留比不被破坏");
+};
+
+tests["C671 整数域键仍然取整（不许因为修上一行就把 token 数也变成小数）"] = (t) => {
+  t.eq(validatePatch({ headroomTokens: 8000.7 }).patch.headroomTokens, 8001, "token 数必须取整");
+  t.eq(validatePatch({ closeoutMinEvents: 40.4 }).patch.closeoutMinEvents, 40, "事件数必须取整");
+};
+
+tests["C671 口径判据来自 SCHEMA 的区间，不是代码里的键名清单"] = (t) => {
+  const src = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "config-schema.mjs"), "utf8");
+  t.eq(/key === "thresholdRatio" \|\| key === "retainRatio"/.test(src), false, "不许再有键名白名单");
+  t.includes(src, "Number.isFinite(v) && !Number.isInteger(v)", "必须按区间是否含小数来判");
+};
