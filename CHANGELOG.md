@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C685 | P1 第七次搬迁：观测守门人并进 fold-quality、补账状态落盘成 backfill-state |
 | C684 | P1 第六次搬迁：补账路由进 backfill-route、摘要文本去重进 summary-text |
 | C683 | P1 第五次搬迁：归档信号与 foldMark usage 进新房间 fold-stats |
 | C682 | P1 第四次搬迁：摘要错误分类进新房间 summary-error |
@@ -746,6 +747,46 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C685 · P1 第七次搬迁：观测守门人并进 fold-quality、补账状态落盘成 backfill-state
+
+**P1 归位第七次搬迁：观测守门人并进质量房间、补账状态落盘独立成房；`engine.mjs` 4316 → 4270 行。**
+
+## 搬了两处
+
+**① `safeMeasureFoldQuality` → 并进已有的 `rooms/fold-quality.mjs`**
+
+它只有 7 行，但意义不小：**测量绝不抛**。质量测量一旦抛错就会打断压缩主链 —— 一个只读指标把功能弄挂，是本仓踩过的类型。所以它属于「纯观测」这间房的守门人，而不是散在 engine 里。
+
+（`test/fold-mark-sites.test.mjs` 断言的是 `recordFoldMark` **函数体里出现这个名字**，而调用点留在 engine ⇒ 搬定义不影响那条断言。）
+
+**② `writeAutoBackfillState` + 两个文件名常量 → 新房间 `rooms/backfill-state.mjs`**（该房间允许 `node:fs`）
+
+它带着一段真机事故的完整记录，整段搬走没删：
+
+> 本机同时跑多个 DSH 实例、**共享**同一个 `<chess-context>`。旧实现只写一个 `auto-backfill-state.json` ⇒ 实例互相覆盖：02:30 写的是 `everyMs:600000`（10 分钟，新代码），02:34 被另一实例的 `everyMs:1800000`（30 分钟，旧代码副本）盖掉；文件里的 pid 每次都不一样，而且**读到时就已退出**。
+> ⇒「读一个共享状态文件判断运行状态」读到的是**最后写者**，不是**当前实例**。
+
+现在写三份（按 pid / latest 索引 / 旧版兼容），读侧聚合在 `scripts/backfill-state.mjs`。
+
+## 边界白名单同步
+
+新房间用了 `node:fs` ⇒ 同时登记进 `test/rooms-boundary.test.mjs` 的 `FS_ALLOWED`（C678 立的规矩：**新增 fs 使用者必须出现在改动里**），并写明它是"补账状态落盘：按 pid 一份 + latest 索引 + 旧版单文件"。
+
+这条规矩这轮就发挥了作用 —— 它逼我把"为什么这个房间需要 fs"写下来，而不是默默加一行 import。
+
+## 七刀合起来的账
+
+| 指标 | 归位前 | 现在 |
+|---|---:|---:|
+| `src/engine.mjs` | 4689 行 | **4270 行**（−419，−8.9%） |
+| 命名导出 | 29 | 12 |
+| 房间数 | 28 | **36** |
+| 全量用例数 | 2586 | **2586（七刀都没变）** |
+
+## 验证
+
+`rooms` **20/0** · `rooms-boundary` **4/0** · `engine-harness` **133/0** · 全量 **2586 passed / 2 skipped / 0 failed**。
 
 ### C684 · P1 第六次搬迁：补账路由进 backfill-route、摘要文本去重进 summary-text
 

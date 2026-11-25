@@ -48,6 +48,25 @@ import { collectConstraints, estimateTokens, isDanglingResidue } from "./ledger.
  *
  * @returns {{inputTokens:number, shadowedTokens:number, summaryTokens:number|null, ratio:number, share:number, savedTokens:number, roi:number}|null}
  */
+/**
+ * ★ C685：测量**绝不抛**。原来在 `src/engine.mjs`，但它是本房间「纯观测」承诺的守门人：
+ *   质量测量一旦抛错就会打断压缩主链（一个只读指标把功能弄挂，是本仓踩过的类型）。
+ *   参数错、图结构怪、区间 NaN —— 统统返回 `null`，让调用方当"没测到"处理。
+ */
+/**
+ * ★ C64（专员审计 P1）：`measureFoldQuality` 是**纯诊断**，但此前在 fold 主链路上没有任何保护 ——
+ * 图结构一旦漂移（例如缺 `order`），它抛异常就会把「已经成功提交的 fold」变成一次失败，
+ * 与同函数里 logger/hook/persistBudget 的纪律（全部 try/catch、「不许影响压缩」）不一致。
+ * 这里统一降级：诊断失败 ⇒ quality = null（doctor 已有「未采集」分支），压缩照常完成。
+ */
+export function safeMeasureFoldQuality(args) {
+  try {
+    return measureFoldQuality(args);
+  } catch {
+    return null;
+  }
+}
+
 export function foldCostMetrics({ inputTokens, shadowedTokens, summaryTokens = null } = {}) {
   const input = Number(inputTokens);
   const shadowed = Number(shadowedTokens);
