@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C673 | 对外 JSON 面加 schemaVersion + 三个读面顶层形状快照 |
 | C672 | 给「面板写了引擎读不到」上判据：preset 键必须登记 |
 | C671 | 配置取整口径改由区间决定：firstFoldRatio 0.9 不再被静默写成一 |
 | C670 | 按盲审修棋路落盘：重建图不再覆盖、版本与 tmp 与代理对 |
@@ -734,6 +735,49 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C673 · 对外 JSON 面加 schemaVersion + 三个读面顶层形状快照
+
+**P3 契约第一步：给对外 JSON 面加版本号，并把三个读面的顶层形状钉成快照。**
+
+## 为什么这一步先做
+
+面板与宿主是**两个进程**，`/gokifu/api` 的响应形状是**真契约**，但此前**没有任何版本号**。后果是加一个字段、改一个嵌套结构，浏览器半只能"看运气" —— 而本仓已经因此出过一次"假 UI"（面板写死第二份字段表）。
+
+按参考方案 §7 的最小起步清单，这一步"投入最小、收益最快"。
+
+## 改了什么（`src/ui.mjs`）
+
+```js
+export const UI_API_SCHEMA_VERSION = 1;
+
+function sendJson(res, status, payload) {
+  const stamped = payload 是对象 && payload.schemaVersion === undefined
+    ? { schemaVersion: UI_API_SCHEMA_VERSION, ...payload }
+    : payload;
+  ...
+}
+```
+
+`sendJson` 是**唯一**的 JSON 出口（8 个 action 全走它）⇒ 一处注入，全量覆盖，不需要逐个 action 改。
+
+**变更纪律写进代码注释**：只加不改；新字段随版本号 +1；删/改字段必须先让旧版浏览器半退役。
+
+## 契约测试（`test/ui.test.mjs`）
+
+1. **每个响应必须带 `schemaVersion`**（`state` / `defaults` / `health` 逐个断言）；
+2. **三个读面的顶层形状逐键快照**：`state` 18 键、`defaults` 5 键、`health` 6 键，键集**精确相等** —— 加字段就必须同步改快照，这就是"改字段必须登记"的机器判据；
+3. **声明式数据必须在 `state` 里**：`fieldLabels` / `configItems` / `presetConfig` / `configOrigins` / `unconfiguredKeys` / `version` 六个字段逐个断言存在 —— 这是"UI 单一来源"的判据（浏览器半必须读它们，不许自己手写一份）。
+
+## 一个被契约测试当场抓住的点
+
+`test/ui-update.test.mjs` 有一条断言「返回体字段与契约一致（只这 9 个）」，加 `schemaVersion` 后**立刻红**。
+
+这正是契约测试该有的行为 —— 不是去放宽它，而是**把新字段登记进去**（9 → 10，注释写明 C394 加 `relation`、C673 加 `schemaVersion`）。放宽断言才是"照抄实现"的假绿。
+
+## 验证
+
+`ui` **150/0**；`ui.test` 19/0；全量 **2574 passed / 2 skipped / 0 failed**。
 
 ### C672 · 给「面板写了引擎读不到」上判据：preset 键必须登记
 

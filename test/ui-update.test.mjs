@@ -201,8 +201,9 @@ tests["U5-1 registry 有新版本 ⇒ hasUpdate:true、命令里的版本正确�
         );
         t.eq(
           Object.keys(res.json ?? {}).sort(),
-          ["cachedAt", "command", "current", "error", "hasUpdate", "latest", "ok", "publishedAt", "relation"],
-          "返回体字段与契约一致（只这 9 个；C394 起新增 relation）",
+          // ★ C673：C394 起加 relation；C673 起所有 JSON 响应统一带 schemaVersion（对外契约版本号）。
+          ["cachedAt", "command", "current", "error", "hasUpdate", "latest", "ok", "publishedAt", "relation", "schemaVersion"],
+          "返回体字段与契约一致（这 10 个；C394 加 relation、C673 加 schemaVersion）",
         );
 
         // 有了缓存之后，state 直接能显示，且仍然不发网络
