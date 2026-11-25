@@ -430,3 +430,59 @@ tests["C511 两个摘要选择器必须同一套外壳与配色（不许一半�
   t.includes(src, 'background: "var(--dsw-specific-menu, Canvas)"', "弹层用官方 menu 令牌（回退系统色），跟随宿主主题");
   t.includes(src, "rgba(127,127,127,0.24)", "选中态用面板同一套中性灰");
 };
+
+/* ───── C673：对外 JSON 面的契约版本号（P3 第一步） ───── */
+
+tests["C673 所有 JSON 响应都带 schemaVersion，且三个读面顶层形状有快照"] = async (t) => {
+  const uiMod = await import(pathToFileURL(nodePath.join(ROOT, "src", "ui.mjs")).href);
+  t.eq(uiMod.UI_API_SCHEMA_VERSION, 1, "契约版本号必须导出且为 1");
+  const routes = [];
+  const ctx = { webServer: { register: (route) => (routes.push(route), () => {}) }, effect: (fn) => fn() };
+  uiMod.apply(ctx);
+  const handler = routes[0].handler;
+  const home = tempHome();
+  const prevHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    const call = (body) =>
+      new Promise((resolve, reject) => {
+        const req = {
+          method: "POST",
+          headers: { host: "127.0.0.1:19387", "content-type": "application/json" },
+          on: (event, cb) => {
+            if (event === "data") cb(Buffer.from(JSON.stringify(body)));
+            if (event === "end") cb();
+          },
+        };
+        const res = { status: 0, writeHead(status) { this.status = status; }, end(text) { resolve({ status: this.status, json: JSON.parse(text) }); } };
+        Promise.resolve(handler(req, res)).catch(reject);
+      });
+
+    // ① 每个响应都必须带版本号（浏览器半据此决定怎么解释，不认识就显式报错）
+    for (const action of ["state", "defaults", "health"]) {
+      const r = await call({ action });
+      t.eq(r.status, 200, `${action} 必须 200`);
+      t.eq(r.json.schemaVersion, uiMod.UI_API_SCHEMA_VERSION, `${action} 必须带 schemaVersion`);
+    }
+
+    // ② 快照：三个读面的顶层形状**逐键钉死**。加字段必须同时改这里 —— 这就是"改字段必须登记"。
+    const shapes = {
+      state: ["config", "configFile", "configItems", "configOrigins", "defaults", "fieldLabels", "foldMarks", "health", "latest", "models", "ok", "presetConfig", "profile", "schemaVersion", "today", "unconfiguredKeys", "update", "version"],
+      defaults: ["configItems", "defaults", "fieldLabels", "ok", "schemaVersion"],
+      health: ["health", "latest", "ok", "profile", "schemaVersion", "today"],
+    };
+    for (const [action, expected] of Object.entries(shapes)) {
+      const r = await call({ action });
+      t.eq(JSON.stringify(Object.keys(r.json).sort()), JSON.stringify(expected), `${action} 的顶层形状变了：必须改快照（这是契约）`);
+    }
+
+    // ③ 声明式数据必须真的出现在 state 里（这是"UI 单一来源"的机器判据）
+    const st = await call({ action: "state" });
+    for (const key of ["fieldLabels", "configItems", "presetConfig", "configOrigins", "unconfiguredKeys", "version"]) {
+      t.ok(st.json[key] !== undefined, `state 必须带 ${key}（浏览器半要据此渲染，不许自己手写一份）`);
+    }
+  } finally {
+    if (prevHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prevHome;
+  }
+};

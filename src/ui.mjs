@@ -1070,8 +1070,24 @@ function readBody(req) {
   });
 }
 
+/**
+ * ★ C673：**对外 JSON 面的版本号**（P3 契约第一步）。
+ *
+ * 为什么要有它：面板与宿主是两个进程，`/gokifu/api` 的响应形状是**真契约**，
+ * 但此前没有任何版本号 —— 加一个字段、改一个嵌套结构，浏览器半只能"看运气"。
+ * 有了它，浏览器半可以先看版本再决定怎么解释（不认识就显式报错，而不是静默显示错的东西）。
+ *
+ * 变更纪律：**只加不改**（新字段随版本号 +1；删/改字段必须先让旧版浏览器半退役）。
+ */
+export const UI_API_SCHEMA_VERSION = 1;
+
 function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload, null, 1);
+  // 所有 JSON 响应统一带 `schemaVersion`；已是对象的才注入（字符串/数组原样发）。
+  const stamped =
+    payload !== null && typeof payload === "object" && !Array.isArray(payload) && payload.schemaVersion === undefined
+      ? { schemaVersion: UI_API_SCHEMA_VERSION, ...payload }
+      : payload;
+  const body = JSON.stringify(stamped, null, 1);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(body);
 }
