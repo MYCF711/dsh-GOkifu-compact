@@ -317,6 +317,7 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | R13 | `install-link` · `ws-install` · `ui` | — |
 | R14 | `migrate`（**10/0**：7 等价迁移 + P6C-8 路径经 R01 + P6C-9 120s 守卫） | 原型 `test/archive-dangling.mjs` 已删除（git 识别为 rename） |
 | R15 | `ui-config` · `config-schema`（**11/0**） | ✅ A2-4 已补表驱动全键 |
+| R17 | `manual-fold`（**13/0**：5 条纯判据 + 3 条命令接线 + 5 条端到端） | 手动压缩命令 `/fold`（方案 2）。**不进 `static inject`** —— 拿不到 `commands` 时只跳过注册，压缩主路径不变（MF-7 钉着） |
 
 ---
 

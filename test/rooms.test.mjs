@@ -174,6 +174,13 @@ const ROOMS = {
     allowed: [],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "manual-fold": {
+    file: "manual-fold.mjs",
+    // R17（2026-11-25，方案 2）：手动压缩命令 `/fold` 的**纯决策层** ——
+    //   输入解析 / 能不能压 / 成功与空转的文案。零依赖：不碰宿主、engine、scripts、lib、其它房间。
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
+  },
   "fold-quality": {
     file: "fold-quality.mjs",
     // ★ 2026-11-01（并行会话产出，本会话补登记）：L1 保真度指标（纯函数）——
@@ -532,13 +539,13 @@ export const tests = {
     t.eq(deletedFacadeRepoRefs('await import(nodePath.join(SRC, "graph.mjs"));'), ["graph.mjs"], "join(SRC, *) 旧路径必须被检出");
   },
 
-  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；C444 起 22 个）"(t) {
+  "A3-3：rooms 表的最终路径（每个房间 file === <id>.mjs 且都落在 src/rooms/；R17 起 29 个）"(t) {
     const bad = roomPathViolations();
     t.eq(bad, [], `房间最终路径违规：${bad.join("; ")}`);
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
+      ["build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "loop-guard", "manual-compact", "manual-fold", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
       "房间集合必须与契约 22 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route）",
     );
     // 判据自检

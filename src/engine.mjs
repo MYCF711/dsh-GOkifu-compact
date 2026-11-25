@@ -47,6 +47,8 @@ import { findSessionLog, listSessionLogs, readSessionEvents } from "./rooms/zstd
 import { afterTailBucket } from "./rooms/hot-inject.mjs";
 import { touchedFilesBlock } from "./rooms/touched-files.mjs";
 import { annotateManualCompactError } from "./rooms/manual-compact.mjs";
+// ★ R17（2026-11-25，方案 2）：手动压缩命令 `/fold` 的纯决策层（零依赖房间）。
+import { FOLD_COMMAND_NAME, FOLD_COMMAND_DESCRIPTION, parseFoldInput, decideManualFold, renderFoldSuccess } from "./rooms/manual-fold.mjs";
 
 const BASE_KEYS = new Set(BASE_KEY_LIST);
 
@@ -947,6 +949,10 @@ export default class ChessCompactionEngine extends BasicCompactionEngine {
     this.#bindKeeper();
     // ★ C524：自动补账入口；T68 后由 autoArchiveBackfill（默认关）决定是否真的布防。
     this.#startAutoBackfill();
+    // ★ R17（2026-11-25，方案 2）：手动压缩命令 `/fold`。
+    //   刻意**不放进** `commands` 的 inject 列表：宿主 `CommandRuntime` 是全局服务，
+    //   而本引擎住在 preset 的 isolate `compaction` group 里 —— 拿不到就跳过（不报错、不影响压缩）。
+    this.#bindFoldCommand();
   }
 
   /* ────────────────────────── P7：预算消费 ────────────────────────── */
@@ -3630,6 +3636,237 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
     return this._chessActiveRange ?? null;
   }
 
+  /* ─────────────────── R17：手动压缩命令 `/fold`（方案 2） ─────────────────── */
+
+  /**
+   * ★ R17（2026-11-25）：把 `/fold` 注册到宿主的命令表。
+   *
+   * 为什么是**新命令**而不是替换 `/compact`（方案 2，用户拍板）：
+   *   · 官方 `/compact` 走 `compactNow`（`owner: null`，整段重摘要）；
+   *   · 本命令走**我们自己的**增量 fold（`owner: 'current-turn'` 的 `compactRegion`），
+   *     一段历史只折一次 —— 两种算法，两个入口，互不遮蔽。
+   *
+   * 为什么**不进** `static inject`：`commands` 是宿主全局服务，而本引擎住在 preset 的
+   *   isolate `compaction` group 里。把它写进 inject 会让整个引擎在拿不到 commands 时
+   *   **挂不上**（压缩后端直接没了）—— 一个可选命令不值得这个代价。
+   *   所以这里**尽力而为**：拿得到就注册，拿不到就记一行 debug，压缩主路径一个字节不变。
+   *
+   * 幂等：宿主按名字建索引，同名重复注册会抛「already registered」。
+   *   本进程里同一个 ctx 只注册一次（`FOLD_COMMAND_OWNERS` 是 WeakMap，随 ctx 生命周期回收）。
+   */
+  #bindFoldCommand() {
+    let commands = null;
+    try {
+      commands = this.ctx?.commands ?? null;
+    } catch {
+      commands = null;
+    }
+    if (commands === null || typeof commands.register !== "function") {
+      this.ctx?.logger?.debug?.("chess-context: 没有 commands 服务，/fold 未注册（压缩主路径不受影响）");
+      return;
+    }
+    const owner = this.ctx;
+    if (owner !== null && typeof owner === "object") {
+      if (FOLD_COMMAND_OWNERS.has(owner)) {
+        // 同一 ctx 里已有别的实例注册过 —— 让**先注册的那一个**继续负责（避免同名冲突）。
+        this.ctx?.logger?.debug?.("chess-context: /fold 已由同一 ctx 的另一个引擎实例注册，本次跳过");
+        return;
+      }
+      try {
+        FOLD_COMMAND_OWNERS.set(owner, this);
+      } catch {
+        /* WeakMap 只接受对象 */
+      }
+    }
+    const handler = (invocation) => this.#runFoldCommand(invocation);
+    try {
+      const dispose = commands.register({
+        name: FOLD_COMMAND_NAME,
+        description: FOLD_COMMAND_DESCRIPTION,
+        handler,
+      });
+      if (typeof dispose === "function") {
+        // 引擎销毁时把命令摘掉（宿主 effect 也会兜底，这里显式一次更清楚）。
+        this.ctx.effect(() => dispose, "gokifu: /fold 命令");
+      }
+      this.ctx?.logger?.info?.(`chess-context: 已注册手动压缩命令 /${FOLD_COMMAND_NAME}`);
+    } catch (error) {
+      // 注册失败（同名冲突 / 宿主版本差异）**不许**影响压缩主路径。
+      this.ctx?.logger?.warn?.(`chess-context: /${FOLD_COMMAND_NAME} 注册失败（不影响压缩）：${String(error?.message ?? error)}`);
+    }
+  }
+
+  /**
+   * `/fold` 的命令处理器：解析 → 前置判定 → 真折 → 人话结果。
+   *
+   * 宿主契约（`dsh-commands` `normalizeResult`）：
+   *   · 成功 `{kind:"success", text?, sourceEventSeq?}`；`text` 给了就必须是字符串；
+   *   · 失败 `{kind:"error", text}`，`text` 必须**非空**；
+   *   · handler **抛错**会被宿主记成 error 并**原样 rethrow** —— 所以我们自己把可预期的
+   *     失败翻译成 `{kind:"error"}`，只有真正意外的异常才让它冒出去。
+   *
+   * @param {{agent:object, rawInput:string, signal:AbortSignal, commandId:string}} invocation
+   * @returns {Promise<{kind:string, text?:string, sourceEventSeq?:number}>}
+   */
+  async #runFoldCommand(invocation) {
+    const parsed = parseFoldInput(invocation?.rawInput);
+    if (parsed.ok !== true) return { kind: "error", text: parsed.text };
+    const agent = invocation?.agent ?? null;
+    const session = agent?.session ?? null;
+    if (session === null || session === undefined) {
+      return { kind: "error", text: "没有可压缩的会话（agent.session 缺失）。" };
+    }
+    try {
+      const outcome = await this.foldNow(agent, invocation?.signal, invocation?.commandId);
+      if (outcome.kind === "ok") {
+        return {
+          kind: "success",
+          text: outcome.text,
+          ...(Number.isSafeInteger(outcome.summarySeq) && outcome.summarySeq >= 0 ? { sourceEventSeq: outcome.summarySeq } : {}),
+        };
+      }
+      return { kind: "error", text: outcome.text };
+    } catch (error) {
+      // 真意外的异常：交给宿主记成 error（它会把 handler 的抛错原样上报）。
+      if (invocation?.signal?.aborted === true) return { kind: "error", text: "压缩已取消。" };
+      throw error;
+    }
+  }
+
+  /**
+   * ★ R17：**手动压一次**（`/fold` 的唯一实现）。
+   *
+   * 与 `compactNow`（官方 `/compact`）的区别：
+   *   · `compactNow` 走宿主 `owner: null` 事务 —— 整段重摘要，**回合必须已结束**；
+   *   · 本方法走**本插件的增量 fold**：从上一个 checkpoint 之后开始，一段只折一次，
+   *     并复用 `compactRegion`（`owner: 'current-turn'`）的完整事务语义。
+   *
+   * 前置判定（全部纯函数，见 R17 `manual-fold.mjs`）：
+   *   busy-lock → open-turn → nothing-to-fold → below-minimum。
+   *   **不猜、不补**：判不过就说清楚原因，绝不静默成功。
+   *
+   * @param {object} agent 宿主 agent（要有 `session`）
+   * @param {AbortSignal} [signal] 命令的取消信号
+   * @param {string} [commandId] 宿主给的命令 id（进 `compaction/start` 的 sourceCommandId）
+   * @returns {Promise<{kind:string, text:string, summarySeq?:number, detail?:object}>}
+   */
+  async foldNow(agent, signal, commandId) {
+    const ownerNow = ENGINE_BY_CTX.get(this?.ctx);
+    if (ownerNow !== undefined && ownerNow !== this) return ownerNow.foldNow(agent, signal, commandId);
+    const session = agent?.session ?? null;
+    if (session === null || session === undefined) {
+      return { kind: "nothing-to-fold", text: "没有可压缩的会话。" };
+    }
+    // ① 压缩锁：上一次 `compaction/start` 还没配对 `compaction/end`。
+    const lockActive = this.#compactionLockActive(session);
+    // ② 回合：宿主 `compactRegion(owner:'current-turn')` 在**没有** open turn 时直接抛
+    //    `compactRegion: no open turn`。手动命令是在回合之间敲的 ⇒ 这里必须自己判，
+    //    否则用户只会看到那句英文。
+    //    ★ 注意方向：`#hasOpenTurn` 返回「**还有**未结束的 turn」，而判据要的是
+    //      「回合开着 ⇒ 拒」。这里**不许**再取反（第一版写成 `!hasOpenTurn`，
+    //      MF-9/MF-10/MF-13 三条同时红 —— 正是「方向写反」这类错最容易漏的地方）。
+    const openTurn = this.#hasOpenTurn(session);
+    // ③ 区间：与自动 fold 同一条规划器（增量、工具对边界、retain 尾部）。
+    const planned = this.#planManualFold(session);
+    const decision = decideManualFold({
+      openTurn,
+      lockActive,
+      range: planned.range,
+      minFoldTokens: this.chess.minFoldTokens,
+    });
+    if (decision.ok !== true) {
+      return { kind: decision.kind, text: decision.text, detail: decision.detail };
+    }
+    // ④ 真折：全程 pin 住图（与 compactNow / compactIfNeeded 同一把锁）。
+    let unpin = () => {};
+    try {
+      unpin = this.#pinGraph(session.id, "manual-fold");
+    } catch {
+      /* 外来 this：不 pin */
+    }
+    try {
+      const result = await this.compactRegion(planned.range.start, planned.range.end, agent, signal);
+      const tokensAfter = this.#measureTokens(session);
+      return {
+        kind: "ok",
+        text: renderFoldSuccess(result, tokensAfter),
+        summarySeq: Number(result?.summarySeq),
+        detail: decision.detail,
+      };
+    } catch (error) {
+      // 宿主在事务里抛的 ManualCompactionError 已经有 R16 的诊断（compactRegion 不诊断，
+      // compactNow 才诊断）⇒ 这里补一次，让用户看到的仍是人话。
+      annotateManualCompactError(error);
+      return { kind: "error", text: String(error?.message ?? error) };
+    } finally {
+      unpin();
+    }
+  }
+
+  /** 会话是否还有未配对的 `compaction/start`（宿主的压缩锁）。 */
+  #compactionLockActive(session) {
+    try {
+      for (let seq = Number(session.seq) - 1; seq >= 0; seq -= 1) {
+        const event = session.eventAt(seq);
+        if (event === undefined || event === null) continue;
+        if (event.type === "compaction/end") return false;
+        if (event.type === "compaction/start") return true;
+      }
+    } catch {
+      /* 读不到日志 ⇒ 当作没有锁（真锁由宿主事务自己再判一次） */
+    }
+    return false;
+  }
+
+  /** 会话是否还有未结束的 turn（`turn/start` 之后没有 `turn/end`）。 */
+  #hasOpenTurn(session) {
+    try {
+      for (let seq = Number(session.seq) - 1; seq >= 0; seq -= 1) {
+        const event = session.eventAt(seq);
+        if (event === undefined || event === null) continue;
+        if (event.type === "turn/end") return false;
+        if (event.type === "turn/start") return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * 用**与自动 fold 同一条规划器**算手动折叠区间。
+   * 拿不到 tokenMeter / 规划不出区间时返回 `{range:null}`（判据在 R17）。
+   */
+  #planManualFold(session) {
+    try {
+      const meter = this.ctx?.tokenMeter;
+      if (meter === undefined || meter === null || typeof meter.measure !== "function") return { range: null };
+      const measurement = meter.measure(session);
+      const g = this.#graph(session);
+      const spec = { retainTokens: this.chess.retainTokens, minFoldTokens: this.chess.minFoldTokens };
+      // 手动压缩**不受** threshold / growthFloor 门槛限制（用户明确要求现在压），
+      // 但保留 retain 尾部与工具对边界 —— 那是「不切断一个步骤」的硬约束。
+      const range = this.#selectRange(session, measurement, g, spec, false);
+      return { range };
+    } catch (error) {
+      this.ctx?.logger?.debug?.(`chess-context: /fold 规划区间失败：${String(error?.message ?? error)}`);
+      return { range: null };
+    }
+  }
+
+  /** 当前上下文 token 数（拿不到给 null —— 绝不写 0）。 */
+  #measureTokens(session) {
+    try {
+      const meter = this.ctx?.tokenMeter;
+      if (meter === undefined || meter === null || typeof meter.measure !== "function") return null;
+      const measured = Number(meter.measure(session)?.totalTokens);
+      return Number.isFinite(measured) ? measured : null;
+    } catch {
+      return null;
+    }
+  }
+
+
   /* ─────────────────── 触发策略：growth-gated 增量 fold ─────────────────── */
 
   async compactIfNeeded(agent, trigger, signal) {
@@ -4274,6 +4511,13 @@ export function writeAutoBackfillState(dir, payload) {
  * 这里留一条**回退路**：入口方法开头用 `ctx` 反查真身，真身不等于 `this` 就转调真身。
  */
 const ENGINE_BY_CTX = new WeakMap();
+
+/**
+ * ★ R17：哪个引擎实例在**这个 ctx** 上注册了 `/fold`。
+ * 宿主按名字建索引，同名重复注册会抛「already registered」；同一个 ctx 里
+ * 可能先后 new 出多个引擎（热重载 / 测试），所以用 WeakMap 记住**先注册的那一个**。
+ */
+const FOLD_COMMAND_OWNERS = new WeakMap();
 
 /** resolveChess 的键序（与 A2-4 之前逐键同序；`onLedgerBudget` 是 engine 的注入位，不进 SCHEMA）。 */
 const RESOLVE_ORDER = [
