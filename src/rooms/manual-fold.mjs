@@ -79,13 +79,15 @@ export function parseFoldInput(rawInput) {
  * @param {number} [input.minFoldTokens] 最小可折量（0/未给 = 不设门槛）
  * @returns {{kind:string, ok:boolean, text:string, detail:object}}
  */
-export function decideManualFold({ openTurn = false, lockActive = false, range = null, minFoldTokens = 0 } = {}) {
+export function decideManualFold({ openTurn = false, lockActive = false, range = null, minFoldTokens = 0, skipReason = null, surfaceNodes = null } = {}) {
   const detail = {
     openTurn: openTurn === true,
     lockActive: lockActive === true,
     range: range === null || range === undefined ? null : { start: Number(range.start), end: Number(range.end) },
     shadowedTokens: range === null || range === undefined ? null : Number(range.shadowedTokens),
     minFoldTokens: Number.isFinite(Number(minFoldTokens)) ? Number(minFoldTokens) : 0,
+    // surface 节点数（判「真的没内容」还是「切不动」用；拿不到就是 null，不猜）
+    surfaceNodes: Number.isFinite(Number(surfaceNodes)) ? Number(surfaceNodes) : null,
   };
   if (detail.lockActive) {
     return {
@@ -104,11 +106,37 @@ export function decideManualFold({ openTurn = false, lockActive = false, range =
     };
   }
   if (detail.range === null) {
+    // ★ 真机（2026-11-25）：`nothing-to-fold` 有两种完全不同的成因，处置也不同：
+    //   · `checkpoint-at-tail` —— 真的没有新内容，无需压缩；
+    //   · `no-foldable-span` —— 有内容，但**切不动**（尾巴里有一条巨型消息，
+    //     保留尾部预算被它一条吃满，切点退到起点之前）。
+    //   糊成一句「没有可折的历史」会让用户以为会话太短，而实际是「尾巴太大」。
+    // ★ 真机（2026-11-25）：`#selectRange` 的 reason 形如
+    //   `no-foldable-span(surface=30,priced=30)` 或 `checkpoint-at-tail`。
+    //   只有前者是「切不动」，后者是「真的没有新内容」—— 判据必须分开，
+    //   否则刚折完再敲一次 /fold 会被误导成「尾巴太大」。
+    const reasonText = typeof skipReason === "string" ? skipReason : "";
+    // ★ 真机（2026-11-25）：`no-foldable-span` 有两种成因，**必须靠 surface 规模分开**：
+    //   · surface 很小（折叠后只剩 system + checkpoint + 一两条）⇒ 真的没内容，
+    //     报「无需压缩」；
+    //   · surface 够大却算不出 ⇒ 尾巴被单条大消息吃满，报「切不动」。
+    //   第一版只看 reason 前缀，于是刚折完再敲一次 /fold 会被告知「尾巴太大」——
+    //   而实测那次 surface 只有 3 个节点（`no-foldable-span(surface=3,priced=3)`）。
+    const surfaceCount = Number(detail.surfaceNodes);
+    const tailTooBig =
+      reasonText.startsWith("no-foldable-span") &&
+      Number.isFinite(surfaceCount) &&
+      surfaceCount > 4;
     return {
       kind: "nothing-to-fold",
       ok: false,
-      text: "没有可折的历史（上一个 checkpoint 之后没有可折区间，或会话太短）—— 无需压缩。",
-      detail,
+      text: tailTooBig
+        ? "有历史，但**切不出可折区间**——近期尾部里有一条很大的消息，保留预算被它一条占满，" +
+          "切点会退到起点之前。这是保守行为（不切断一条完整消息）。想强压请调小 retainRatio / retainTokens。"
+        : reasonText.startsWith("checkpoint-at-tail")
+          ? "上一个 checkpoint 已经在历史末尾 —— 没有新内容可折，无需压缩。"
+          : "没有可折的历史（上一个 checkpoint 之后没有可折区间，或会话太短）—— 无需压缩。",
+      detail: { ...detail, skipReason: skipReason === null ? null : String(skipReason) },
     };
   }
   if (detail.minFoldTokens > 0 && Number.isFinite(detail.shadowedTokens) && detail.shadowedTokens < detail.minFoldTokens) {

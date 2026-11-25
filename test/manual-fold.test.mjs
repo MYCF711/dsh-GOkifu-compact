@@ -268,10 +268,13 @@ export const tests = {
       session.append("turn/start", { turn: 1 });
       for (let i = 0; i < 20; i += 1) session.seed("user", `step ${i}`);
       session.append("turn/end", { turn: 1 });
+      // ★ 真机（2026-11-25）：/fold 现在走 compactNow（owner:null 手动事务），
+      //   区间由 #withManualRange 经 compactRegion 的 override 传入 ⇒ 桩要打在 compactNow 上。
       const calls = [];
-      engine.compactRegion = async (s, e) => {
-        calls.push([s, e]);
-        return { shadowedSeqs: [s, e], shadowedRange: { start: s, end: e }, shadowedTokenCount: 4242, summarySeq: 777 };
+      engine.compactNow = async () => {
+        const ov = engine._manualRangeOverride;
+        calls.push([ov?.start, ov?.end]);
+        return { shadowedSeqs: [ov.start, ov.end], shadowedRange: { start: ov.start, end: ov.end }, shadowedTokenCount: 4242, summarySeq: 777 };
       };
       const out = await engine.foldNow({ session }, new AbortController().signal);
       t.eq(out.kind, "ok", `应当成功，实际 ${out.kind}：${out.text}`);
@@ -327,7 +330,10 @@ export const tests = {
       session.append("turn/start", { turn: 1 });
       for (let i = 0; i < 20; i += 1) session.seed("user", `step ${i}`);
       session.append("turn/end", { turn: 1 });
-      engine.compactRegion = async (s, e) => ({ shadowedSeqs: [s, e], shadowedRange: { start: s, end: e }, shadowedTokenCount: 100, summarySeq: 42 });
+      engine.compactNow = async () => {
+        const ov = engine._manualRangeOverride;
+        return { shadowedSeqs: [ov.start, ov.end], shadowedRange: { start: ov.start, end: ov.end }, shadowedTokenCount: 100, summarySeq: 42 };
+      };
       const out = await handler({ agent: { session }, rawInput: "", signal: new AbortController().signal, commandId: "cmd-2" });
       t.eq(out.kind, "success", `应当成功，实际 ${out.kind}：${out.text}`);
       t.eq(out.sourceEventSeq, 42, "sourceEventSeq 必须是 summarySeq");

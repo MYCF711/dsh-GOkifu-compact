@@ -451,7 +451,15 @@ AGENTS.md  本文件（不进包）
 7. **`cordis.patch.yml` patch 打不中只 warning** ⇒ 改完必须核对生效。
 8. **`run.mjs` 的 filter 是文件名子串** ⇒ 按房间名写命令会漏测（见 §3.2）。
 9. **恢复旧门面必须变红** —— A3-2 删掉的 8 个门面（`verifier` / `range` / `worldstate` / `graph` / `keeper` / `extract` / `ledger` / `summary-prompt`）**只要在 `src/` 顶层重新出现，或被任何文件 import，`rooms` 门禁必须立刻红**（`SRC_TOP_LEVEL_ALLOWED` + `DELETED_FACADES`）。**原因**：门面一复活，同一份实现就有了两个入口，「哪个才是真的」立刻无人能答 —— 这正是 A3 全部工作的意义。**新增房间同理：`src/rooms/` 下多一个未登记文件，C3 就必须红。**
-11. **在 isolate group 里读全局服务，必须用 `ctx.get(name)`，不能用 `ctx.name`**（2026-11-25 真机实测，隔离实例 3099）：
+11. **手动压缩只能走 `compactNow`（`owner: null`），不能走 `compactRegion`（`owner: 'current-turn'`）**（2026-11-25 真机实测）：
+    宿主 `region.ts` 里 `owner` 是**二选一**的 —— `'current-turn'` 要求**有**未结束的 turn，`null` 要求**没有** turn。
+    用户在回合之间敲的命令只满足后者。第一版 `/fold` 调 `compactRegion`，真机当场抛
+    `compactRegion: no open turn — automatic compaction events must be enclosed in a turn`。
+    正确做法：`compactNow` + 用一次性字段把我们的增量区间递进 `compactRegion`（读完立刻清空）。
+12. **`retainTokens` 的配置默认是 `undefined`，不是 0**（`config-schema.mjs:73`）：
+    直接把它喂给 `planFold` 会让保留尾部循环算不出边界 ⇒ **永远** `no-foldable-span`（`/fold` 静默失效）。
+    自动 fold 不受影响，因为它走 `resolveSpec` 把 ratio 折成具体 token 数；手动路径必须做同样的换算。
+13. **在 isolate group 里读全局服务，必须用 `ctx.get(name)`，不能用 `ctx.name`**（2026-11-25 真机实测，隔离实例 3099）：
     cordis 的属性读取**强制**要求该服务声明在 `inject` 里，否则抛 `cannot get property "X" without inject`（`cordis/src/reflect.ts:152`）；
     而把全局服务写进 `static inject` 又会让插件在拿不到它时**整个挂不上**（`fiber.ts:617-628`：任一 inject 条目缺失 ⇒ `epoch = INACTIVE`）。
     正解是 `ctx.get(name)` —— `reflect.ts` 文档原文「Read a service from the store **without the inject requirement**」。

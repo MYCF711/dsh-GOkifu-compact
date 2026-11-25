@@ -2276,6 +2276,15 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   async compactRegion(start, end, agent, signal) {
     const ownerRegion = ENGINE_BY_CTX.get(this?.ctx);
     if (ownerRegion !== undefined && ownerRegion !== this) return ownerRegion.compactRegion(start, end, agent, signal);
+    // ★ R17（2026-11-25）：`/fold` 走 `compactNow`（owner:null 手动事务），但区间要换成
+    //   我们的增量规划结果。`#withManualRange` 把区间放进这个一次性字段，这里取用后**立刻清空**
+    //   —— 绝不许残留到下一次自动 fold（那会把别人的区间折错）。
+    const override = this._manualRangeOverride ?? null;
+    if (override !== null) {
+      this._manualRangeOverride = null;
+      start = override.start;
+      end = override.end;
+    }
     const prev = this._chessActiveRange ?? null;
     // ★ C198：**宿主直接调用** `compactRegion`（不走我们的 compactIfNeeded / compactNow）时，
     //   以前完全不留账 —— live 上表现为「上下文明显在被压（checkpoint 一条条出现），但 foldMarks 一动不动」，
@@ -3780,6 +3789,10 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       lockActive,
       range: planned.range,
       minFoldTokens: this.chess.minFoldTokens,
+      // 规划器给的跳过原因（真机：尾巴太大切不动 ≠ 真的没内容）
+      skipReason: planned.reason,
+      // surface 规模：判「真的没内容」还是「尾巴太大切不动」用
+      surfaceNodes: Array.isArray(session?.surface?.nodes) ? session.surface.nodes.length : null,
     });
     if (decision.ok !== true) {
       return { kind: decision.kind, text: decision.text, detail: decision.detail };
@@ -3792,7 +3805,16 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       /* 外来 this：不 pin */
     }
     try {
-      const result = await this.compactRegion(planned.range.start, planned.range.end, agent, signal);
+      // ★★ 真机（2026-11-25，隔离实例 3099）**证伪了第一版的调用方式**：
+      //   第一版调 `this.compactRegion(start, end, agent, signal)`，宿主当场抛
+      //     `compactRegion: no open turn — automatic compaction events must be enclosed in a turn`
+      //   原因在宿主 `region.ts`：`owner` 是**二选一**的 ——
+      //     · `owner: "current-turn"`（`compactRegion`）⇒ **必须**有未结束的 turn；
+      //     · `owner: null`（`compactNow`）       ⇒ **必须**没有 turn。
+      //   而 `/fold` 是用户在**回合之间**敲的 ⇒ 只有 `owner: null` 那条路成立。
+      //   所以这里改走 `compactNow`（官方手动路径：runMaintenance + owner:null + 错误分类），
+      //   并在调用期间**把区间选择器临时换成我们的增量规划器**（见 #withManualRange）。
+      const result = await this.#withManualRange(planned.range, () => this.compactNow(agent, signal, commandId));
       const tokensAfter = this.#measureTokens(session);
       return {
         kind: "ok",
@@ -3801,12 +3823,33 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
         detail: decision.detail,
       };
     } catch (error) {
-      // 宿主在事务里抛的 ManualCompactionError 已经有 R16 的诊断（compactRegion 不诊断，
-      // compactNow 才诊断）⇒ 这里补一次，让用户看到的仍是人话。
-      annotateManualCompactError(error);
+      // `compactNow` 已经做过 R16 诊断（annotateManualCompactError）；这里只兜底非 Manual 错误。
+      if (error?.diagnosis === undefined) annotateManualCompactError(error);
       return { kind: "error", text: String(error?.message ?? error) };
     } finally {
       unpin();
+    }
+  }
+
+  /**
+   * 在 `compactNow` 执行期间，把「选哪一段」换成我们自己的增量区间。
+   *
+   * 为什么需要：宿主 `compactNow` 内部固定调 `selectCompactableRange(..., 0)`（整段重摘要），
+   * 而 `/fold` 的语义是**增量 fold**（一段历史只折一次）。两者的事务语义（`owner: null`、
+   * `runMaintenance`、错误分类）完全一样，**只有区间选择不同**。
+   * 所以这里用一次性的实例字段把区间递进去，`compactRegion` 读到它就用它、读完立刻清掉
+   * （一次性，绝不残留到下一次自动 fold —— 那会把别人的区间折错）。
+   *
+   * @param {{start:number,end:number}} range 规划好的区间
+   * @param {() => Promise<any>} run 真正执行折叠的函数
+   */
+  async #withManualRange(range, run) {
+    const prev = this._manualRangeOverride ?? null;
+    this._manualRangeOverride = { start: Number(range.start), end: Number(range.end) };
+    try {
+      return await run();
+    } finally {
+      this._manualRangeOverride = prev;
     }
   }
 
@@ -3850,15 +3893,73 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       if (meter === undefined || meter === null || typeof meter.measure !== "function") return { range: null };
       const measurement = meter.measure(session);
       const g = this.#graph(session);
-      const spec = { retainTokens: this.chess.retainTokens, minFoldTokens: this.chess.minFoldTokens };
+      // ★ 真机实测（2026-11-25，隔离实例 3099）：`retainTokens` 的配置默认是 **undefined**
+      //   （见 config-schema.mjs:73「没有默认」），而 `planFold` 的保留尾部循环在 undefined 时
+      //   算不出保留边界 ⇒ 永远返回 `no-foldable-span`。
+      //   自动 fold 不受影响，因为它走 `resolveSpec` 把 ratio 算成具体 token 数；
+      //   手动路径必须做同样的换算，否则 /fold 在**任何**会话上都只会说「没有可折的历史」。
+      const retainTokens = this.#manualRetainTokens(measurement);
+      const spec = { retainTokens, minFoldTokens: this.chess.minFoldTokens };
       // 手动压缩**不受** threshold / growthFloor 门槛限制（用户明确要求现在压），
       // 但保留 retain 尾部与工具对边界 —— 那是「不切断一个步骤」的硬约束。
-      const range = this.#selectRange(session, measurement, g, spec, false);
-      return { range };
+      let range = this.#selectRange(session, measurement, g, spec, false);
+      // ★ 真机（2026-11-25）：**尾部被单条大消息吃满时，退一步再算一次**。
+      //   实测：30 节点 / 28897 tok，其中一条 7606 tok 的消息一条就吃满了 4623 的保留预算，
+      //   于是 keepFromIdx 落在它身上、可折区间只剩 15 tok ⇒ `no-foldable-span`。
+      //   自动 fold 可以「这次不折」，但 `/fold` 是**用户明确要求现在压**：
+      //   退到「不保留尾部」再算一次，把那条大消息连同前面的历史一起折进去。
+      //   仍然受工具对边界约束（不切断一个步骤），所以这是安全的。
+      let retried = false;
+      // ★ 真机（2026-11-25）：**先记下第一次的 reason**。重试会把 `_foldSkipReason` 覆盖掉，
+      //   于是「checkpoint 已在末尾」（真的没内容）会被第二次的「切不动」顶掉，
+      //   用户看到的就是误导性的「尾巴太大」。
+      const firstReason = range === null ? String(this._foldSkipReason ?? "no-foldable-span") : null;
+      if (range === null && retainTokens > 0) {
+        const retrySpec = { retainTokens: 0, minFoldTokens: this.chess.minFoldTokens };
+        range = this.#selectRange(session, measurement, g, retrySpec, false);
+        retried = true;
+      }
+      // ★ 真机（2026-11-25）：`#selectRange` 会把**跳过原因**写进 `_foldSkipReason`
+      //   （如 `no-foldable-span(surface=26,priced=26)`）。手动路径要把这个原因带回给用户，
+      //   否则「没有可折的历史」既可能是「真的没内容」，也可能是「尾巴太大切不动」——
+      //   两者处置完全不同，不能糊成一句。
+      return {
+        range,
+        // 用**第一次**的原因：它才是「为什么原样算不出区间」的答案。
+        reason: range === null ? firstReason : null,
+        retried,
+      };
     } catch (error) {
       this.ctx?.logger?.debug?.(`chess-context: /fold 规划区间失败：${String(error?.message ?? error)}`);
       return { range: null };
     }
+  }
+
+  /**
+   * 手动折叠的「逐字保留尾部」预算（**必须是具体 token 数，不能是 undefined**）。
+   *
+   * 与 `resolveSpec` 同一口径：显式 `retainTokens` 优先，否则按 `retainRatio × 消息预算` 折算。
+   * 拿不到窗口时退回一个保守的绝对下限 —— 宁可多留一点尾巴，也不要因为 undefined
+   * 让规划器永远算不出区间（那会让 /fold 静默失效，正是真机踩到的那个洞）。
+   *
+   * @param {{totalTokens?:number}} measurement token-meter 的测量结果
+   * @returns {number} 非负整数
+   */
+  #manualRetainTokens(measurement) {
+    const explicit = Number(this.chess?.retainTokens);
+    if (Number.isFinite(explicit) && explicit >= 0) return Math.floor(explicit);
+    const ratio = Number(this.chess?.retainRatio);
+    const total = Number(measurement?.totalTokens);
+    if (!Number.isFinite(total) || total <= 0) return 0;
+    const r = Number.isFinite(ratio) && ratio > 0 ? ratio : 0.16;
+    // ★ 真机（2026-11-25）：**不许加绝对下限**。第一版写的是 `Math.max(byRatio, 8000)`，
+    //   于是 34k token 的会话被要求「至少留 8k 尾巴」—— 而尾巴里一条大消息就吃满预算，
+    //   切点退到起点之前 ⇒ 永远 `no-foldable-span`。
+    //   手动折叠的语义是「用户明确要求现在压」，保留尾部应按**比例**走（与自动 fold 的
+    //   `resolveSpec` 同一口径），而不是按一个与上下文规模无关的常数。
+    //   同时留一个**相对**下限：至少保留 1 个节点，避免 ratio 极小时把整段都折掉。
+    const byRatio = Math.floor(total * r);
+    return Math.max(0, Math.min(byRatio, total - 1));
   }
 
   /** 当前上下文 token 数（拿不到给 null —— 绝不写 0）。 */
