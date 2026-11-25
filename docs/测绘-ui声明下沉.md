@@ -619,7 +619,7 @@ for (const room of Object.values(ROOMS)) {
 |---|---|---|---|
 | `autoArchiveBackfill` 不在 `SCHEMA` | `engine.mjs:737` + `ui.mjs:102` 两处定义 | 它无法被「声明 + 门禁」覆盖；要么进 `SCHEMA`，要么明确标注「无 UI 面」 | §3.3(d) |
 | `firstFoldRatio` 被取整成整数 | `config-schema.mjs:391` | 声明里写的 `step:0.01` 与 host 的 `Math.round` 互相矛盾，门禁查不出来 | §3.3(c) |
-| `thresholdRatio` 5 档 vs 连续区间 | `client.js:250` + `config-schema.mjs:46-53` | 声明只能写一个形态，两套取值域必须先在 schema 侧定下来 | §3.3(b) |
+| `thresholdRatio` 5 档 vs 连续区间 | `lib/client.js:250` + `config-schema.mjs:46-53` | 声明只能写一个形态，两套取值域必须先在 schema 侧定下来 | §3.3(b) |
 
 ---
 
@@ -631,4 +631,4 @@ for (const room of Object.values(ROOMS)) {
 4. **「哪些房间需要 UI」里 5 个我标了「潜在」（`ledger`/`manual-compact`/`fold-quality`/`user-route`/`offline-fold`）。** 判定依据是「今天面板没有入口」，但我**没有**查证它们是否在 `计划表.md` 里已排期做面板。⇒ 若排期已定，这 5 个应转「需要」。
 5. **`lib/client.js` 是 classic script，我没能用 Node 直接 import 它做运行时断言。** §3.2 的 `FIELDS` 提取走的是「按行 `new Function` 求值」（`L.slice(785,813)`），依赖「每条 FIELDS 都在单行」这个当前事实。**若将来 FIELDS 条目换行书写，这个命令会静默少抓**——`test/ui-config.test.mjs:361` 的正则也有同样的单行前提。⇒ 复现命令本身有脆弱性，已在 §3.2 命令里显式钉住行号区间。
 6. **`state.version` 是死字段、`src/ui.mjs:82-84` 的注释已失效** —— 我确认了 `lib/client.js` 里 `version` 0 命中、标题写死（`:1406`），但**没有**确认是否还有其它消费方（例如某个测试断言页面显示版本号）。⇒ 「删掉它安不安全」本文不下结论。
-7. **未跑 `node scripts/gate.mjs`。** 本文只跑了 `node test/run.mjs`（**2569 passed / 2 skipped / 0 failed**）与 `node scripts/docs-index-check.mjs`（写本文前 **170 个文件 / 未索引 0**）。⇒ 若要把本文当 P2 的依据，建议再跑一次 `gate.mjs` 确认 9 个判分门。
+7. **未跑 `node scripts/gate.mjs`。** 本文只跑了：`node test/run.mjs` = **2569 passed / 2 skipped / 0 failed**（本次会话实测，写本文前后同一棵树）；`node scripts/docs-index-check.mjs` = **171 个文件 / 未索引 0** —— 这里要说明一句：**本文件登记进 `docs/README.md` 的那一行不是我加的**（写作用域只含本文件，索引由另一个会话统一登记），我写完时它已经在索引里了，所以索引检查是绿而不是红。⇒ 若要把本文当 P2 的依据，建议再跑一次 `gate.mjs` 确认 9 个判分门。
