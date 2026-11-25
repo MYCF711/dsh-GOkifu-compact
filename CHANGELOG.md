@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C681 | P1 第三次搬迁：注入统计口径进新房间 skip-stats |
 | C680 | P1 第二次搬迁：退避策略进新房间 retry-policy |
 | C679 | P1 首搬：热清单预算格式化三函数进新房间 ledger-budget |
 | C678 | 房间边界判据：子进程/网络/动态执行一律禁止，fs 与 env 白名单 |
@@ -742,6 +743,38 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C681 · P1 第三次搬迁：注入统计口径进新房间 skip-stats
+
+**P1 归位第三次搬迁：注入统计口径进新房间，`engine.mjs` 4634 → 4585 行。**
+
+## 搬了什么（四个纯函数）
+
+`injectionErrorDelta` / `skipReasonKey` / `injectActionKey` / `bumpSkipReason` → `src/rooms/skip-stats.mjs`。
+
+它们回答的是同一个问题：**热清单注入到底在哪一步被省掉了**。四者语义各不同，搬迁时逐字保留：
+
+| 函数 | 语义 |
+|---|---|
+| `injectionErrorDelta` | "本该注入却没注入"算不算一次渲染失败（`error:` 前缀才算） |
+| `skipReasonKey` | 跳过原因分布（identical / throttled-events / no-ledger… **都不是缺陷**，但分布能定位省在哪一步） |
+| `injectActionKey` | `append` vs `replace`：前者缓存友好，后者会让 disk cache **从那条消息起失去前缀匹配** |
+| `bumpSkipReason` | 有界累加（最多 8 个键，其余归 `other`，防止极端 reason 撑爆统计表） |
+
+这四条的注释里带着**真实踩坑史**（C90/C91/C219），搬进房间时全部保留 —— 注释是资产，不是包袱。
+
+## 三刀合起来的账
+
+| 指标 | 归位前 | 现在 |
+|---|---:|---:|
+| `src/engine.mjs` | 4689 行 | **4585 行** |
+| 命名导出 | 29 | 23（6 个搬走，engine 仍转发） |
+| 房间数 | 28 | **31** |
+| 全量用例数 | 2586 | **2586（三刀都没变）** |
+
+## 验证
+
+`engine-harness` **133/0** · `rooms` **20/0** · 全量 **2586 passed / 2 skipped / 0 failed**。
 
 ### C680 · P1 第二次搬迁：退避策略进新房间 retry-policy
 
