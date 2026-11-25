@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C683 | P1 第五次搬迁：归档信号与 foldMark usage 进新房间 fold-stats |
 | C682 | P1 第四次搬迁：摘要错误分类进新房间 summary-error |
 | C681 | P1 第三次搬迁：注入统计口径进新房间 skip-stats |
 | C680 | P1 第二次搬迁：退避策略进新房间 retry-policy |
@@ -744,6 +745,41 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C683 · P1 第五次搬迁：归档信号与 foldMark usage 进新房间 fold-stats
+
+**P1 归位第五次搬迁：归档信号识别与 foldMark usage 归一进新房间，`engine.mjs` 4518 → 4363 行。**
+
+## 这一刀搬了两个地方
+
+1. **新房间 `src/rooms/fold-stats.mjs`**：`archivedIdsFromChange` / `newlyArchived` / `buildFoldMarkUsage`
+   - `archivedIdsFromChange`：从宿主 durable 变更里认出"哪些会话被归档了"。过滤条件**必须逐条钉住**（domain / operation / table / value 三种形状，`value` 可能是对象也可能是 JSON 字符串）—— 注释原话：「不能只靠'源码里有这几行'」；
+   - `newlyArchived`：两次快照取差集（只报新归档的）；
+   - `buildFoldMarkUsage`：foldMark 的 usage 归一 —— 真机 usage 里**没有 model 字段**，不补上就会让成本永远按默认模型估（C443 的教训）。
+2. **并进已有房间 `ledger-budget.mjs`**：`accumulateLedgerBudget`（预算累计），与它同职责的格式化函数本来就住那里 —— 顺手把「累计」和「格式化」放回同一间房。
+
+## 一次踩坑：重复 import
+
+插入 `accumulateLedgerBudget` 时没注意 C679 已经 import 过另外三个函数，于是同一份 `ledger-budget.mjs` 被 import 两遍：
+
+```
+SyntaxError: Identifier 'ledgerBudgetLogLevel' has already been declared
+```
+
+已合并成一条 import（四个名字一次取回）。**这类错误 `node --check` 一秒就抓到** —— 这也是为什么每次搬迁都先跑 `--check` 再跑测试。
+
+## 五刀合起来的账
+
+| 指标 | 归位前 | 现在 |
+|---|---:|---:|
+| `src/engine.mjs` | 4689 行 | **4363 行**（−326，−7.0%） |
+| 命名导出 | 29 | 16（13 个搬走，engine 仍转发） |
+| 房间数 | 28 | **33** |
+| 全量用例数 | 2586 | **2586（五刀都没变）** |
+
+## 验证
+
+`rooms` **20/0** · `engine-harness` **133/0** · 全量 **2586 passed / 2 skipped / 0 failed**。
 
 ### C682 · P1 第四次搬迁：摘要错误分类进新房间 summary-error
 
