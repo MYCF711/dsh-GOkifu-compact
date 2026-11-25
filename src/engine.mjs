@@ -336,31 +336,10 @@ export function safeMeasureFoldQuality(args) {
   }
 }
 
-/**
- * ★ T29：foldMark 的**正文落盘**字段 —— 同一份正文在图里**只许出现一次**。
- *
- * C642 只让离线补折落了 `summaryText`，engine 的两条写回点（`compactIfNeeded` 的 pressure/auto/
- * overflow/archive/backfill/disposed/loop、`recordFoldMark` 的手动 `/compact`）一直没落（真机
- * 2026-11-04T22:02:10.932Z 那条 pressure 折痕只有 `summaryChars: 2418`、没有正文）。但**不能无脑写**：
- * `lastOfflineSummary` 是单槽的，最后一段折痕本来就和它共用同一个字符串（只留 `summaryTextRef`），
- * 同一份正文存两遍 = 磁盘成本翻倍。三选一：空正文 ⇒ 不写；同一段同一份已落在 `lastOfflineSummary`
- * ⇒ 只留引用；否则 ⇒ 存这一份。
- *
- * @param {{lastOfflineSummary?: any}} graph 棋谱
- * @param {{start?:number, end?:number}|null} range 本次折叠区间
- * @param {string} text 摘要正文（`_lastSummaryText` 的快照，不重算）
- * @returns {{summaryText:string}|{summaryTextRef:string}|{}} 要并进 foldMark 的字段
- */
-export function summaryTextField(graph, range, text) {
-  if (typeof text !== "string" || text === "") return {};
-  const last = graph?.lastOfflineSummary;
-  if (last === null || last === undefined || typeof last.text !== "string" || last.text !== text) {
-    return { summaryText: text };
-  }
-  // 区间为空（NaN）时全等比较天然为 false ⇒ 落回「存一份」是安全的。
-  const sameRange = Number(last?.range?.start) === Number(range?.start) && Number(last?.range?.end) === Number(range?.end);
-  return sameRange ? { summaryTextRef: "lastOfflineSummary" } : { summaryText: text };
-}
+// ★ C684：摘要文本去重已搬进 `rooms/summary-text.mjs`。
+import { summaryTextField } from "./rooms/summary-text.mjs";
+
+export { summaryTextField };
 
 // ★ C681：注入统计口径已搬进 `rooms/skip-stats.mjs`（四个纯函数）。
 //   同 C679/C680 的教训：必须 import + export 两条（`export … from` 不创建本地绑定）。
@@ -423,36 +402,10 @@ function resolveHome() {
   return nodePath.join(os.homedir(), ".dsh");
 }
 
-/** 按钮的一次性路由：两个值都给了才覆盖；否则完整继承父 agent 的当前路由。 */
-export function backfillSubagentRoute(options = {}, parent = null) {
-  const requestedProvider = String(options.summarizationProvider ?? options.provider ?? "").trim();
-  const requestedModel = String(options.summarizationModel ?? options.model ?? "").trim();
-  const explicit = requestedProvider !== "" && requestedModel !== "";
-  const header = (() => {
-    try {
-      return parent?.session?.requestHeader?.()?.config ?? null;
-    } catch {
-      return null;
-    }
-  })();
-  const currentProvider = String(header?.provider ?? parent?.options?.provider ?? "").trim();
-  const currentModel = String(header?.model ?? parent?.options?.model ?? "").trim();
-  return {
-    provider: explicit ? requestedProvider : currentProvider,
-    model: explicit ? requestedModel : currentModel,
-    explicit,
-  };
-}
+// ★ C684：补账子代理的路由与结果判定已搬进 `rooms/backfill-route.mjs`。
+import { backfillSubagentOutcome, backfillSubagentRoute } from "./rooms/backfill-route.mjs";
 
-/** 子代理只负责生成摘要；是否补折成功由现有离线折叠写回结果另行判定。 */
-export function backfillSubagentOutcome(result) {
-  const text = String(result?.structured?.text ?? "");
-  if (result?.stopReason !== "completed") {
-    return { ok: false, text: "", error: `补折子代理未正常完成（${String(result?.stopReason ?? "unknown")}）` };
-  }
-  if (text.trim() === "") return { ok: false, text: "", error: "补折子代理没有产出摘要" };
-  return { ok: true, text, error: null };
-}
+export { backfillSubagentOutcome, backfillSubagentRoute };
 
 export default class ChessCompactionEngine extends BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
