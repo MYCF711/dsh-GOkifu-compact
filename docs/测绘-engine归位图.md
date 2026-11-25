@@ -22,9 +22,9 @@
 | `@deepseek-ai/*` import | **4** 条 | `schemastery` / `dsh-compaction-basic` / `dsh-compaction` / `dsh-llm` |
 | `src/rooms/` 房间文件 | **28** | 其中 **21** 被 engine 导入，**7** 不被导入 |
 | 静态 import `src/engine.mjs` 的文件 | **0** | `src/` `test/` `scripts/` `lib/` 全扫 |
-| 文本提到 `engine.mjs` 的位置 | **208** | 注释 / 文档 / 源码文本断言，**都不是依赖** |
+| 文本提到 `engine.mjs` 的位置 | **208** | 207 个 `.mjs` ＋ 1 个 `test/fixtures/fact-guard.json`；全是注释 / 文档 / 源码文本断言，**都不是依赖** |
 | 读 `engine.mjs` 源码做断言的脚本 | **50** 个文件 | 35 个 `test/` + 15 个 `scripts/` |
-| 门禁基线 | **2569 passed, 2 skipped, 0 failed** | `node test/run.mjs`（本次实跑，exit 0）—— **本文档存在之前**的数字；加入本文档后必多 1 项失败（`D-3` 文档未索引），见 §5-5 |
+| 门禁基线 | **2569 passed, 2 skipped, 0 failed** | `node test/run.mjs`（本次实跑，exit 0）—— 本文档与索引登记都已落地之后的复跑（见 §5-5） |
 
 **代码面与方案里引用的 commit 相同**（所以方案 §1 的实测表对本图继续有效）：
 
@@ -99,7 +99,7 @@ node test/run.mjs 2>&1 | tail -2
 3. **`package.json` 的 `exports["./engine"]` = `./src/engine.mjs`** —— 这是**对外子路径契约**，
    也是 `cordis.patch.yml` 里 `name: 'dsh-gokifu-compact/engine'` 指向的东西（永久路径，不能改名）。
 
-另有 **208 处** 文本提及 `engine.mjs`（`src/` `test/` `scripts/` `lib/`），全部是注释、文档引用或
+另有 **208 处**（207 `.mjs` + 1 `.json`）文本提及 `engine.mjs`（`src/` `test/` `scripts/` `lib/`），全部是注释、文档引用或
 `readFileSync` 源码文本断言 —— **改这些地方不会破代码，但改 engine 的代码文本会破它们**（见 §4.2）。
 
 ### 1.3 「只被 engine 用」vs「也被外部用」
@@ -157,8 +157,9 @@ grep -oE 'from "@deepseek-ai/[^"]+"' src/engine.mjs | sort -u                   
 grep -rnE '^[[:space:]]*import[^;]*from[[:space:]]+"[^"]*engine[^"]*"' src/ test/ scripts/ lib/ --include=*.mjs
 # ⇒ 空
 
-# 208 处文本提及（不是依赖）
-grep -rn "engine\.mjs" src/ test/ scripts/ lib/ --include=*.mjs | wc -l                 # 208
+# 208 处文本提及（不是依赖）：207 个 .mjs + 1 个 test/fixtures/fact-guard.json
+grep -rn "engine\.mjs" src/ test/ scripts/ lib/ --include=*.mjs | wc -l                 # 207
+grep -rn "engine\.mjs" src/ test/ scripts/ lib/                     | wc -l             # 208
 
 # 50 个读源码做断言的文件（35 test + 15 scripts）
 for f in $(grep -rlE 'readFileSync|readSource|read\(' test/ scripts/ --include=*.mjs); do
@@ -298,7 +299,7 @@ grep -oE 'mod\.[a-zA-Z_]+' test/engine-harness.test.mjs | sort | uniq -c | sort 
 
 ---
 
-## 3 七件事的行区间（全覆盖分区）
+## 3 七件事的行区间（用户口径「七件事」；实际落成 8 段 + 杂项全覆盖 4689 行）
 
 **读法**：下表 8 行是**八件事各自的定义区间**（连续、互不重叠，合计 705 行）；
 其余 3984 行按「同一件事的**运行期接线** or 别的职责」列进 §3.2 的「杂项」，每块都写明是什么。
@@ -330,7 +331,7 @@ grep -oE 'mod\.[a-zA-Z_]+' test/engine-harness.test.mjs | sort | uniq -c | sort 
 | 1-13 | 13 | 文件头 JSDoc（插件定位：官方事务安全 + 增量语义） |
 | 14-49 | 36 | import 声明块（4 条 `@deepseek-ai/*` + 22 条 `./rooms/*` + 3 条 `node:*`） |
 | 50-139 | 90 | 常量（`BASE_KEYS` / `FOLD_MARKS_KEEP=20` / `PRESSURE_MARK_MAX_SEQ_AGE=60` / `THRASH_SEQ=30`）+ **12 段孤儿 JSDoc**（多数是已搬去 `rooms/closeout-plan.mjs` 的函数留下的文档，**别当成还有实现**） |
-| 175-196 | 22 | `buildFoldMarkUsage`（六类「统计与日志」）+ 空行 —— 被区间 1 与区间 2 切开 |
+| 175-196 | 22 | `buildFoldMarkUsage`（六类「统计与日志」）+ 空行 —— 夹在区间 1 与区间 2 之间 |
 | 396-471 | 76 | 常量（`edgeSeq` / `FOLD_RETRY_BASE_SEQ=30` / `FOLD_RETRY_CAP_SEQ=480` / `COLD_GRAPH_QUIET_MS=15min` / `SEEN_IDS_CAP=4096`）+ `offlineAssemblerResult`（397-423，离线折叠结果读取）+ 3 段孤儿 JSDoc |
 | 708-715 | 8 | 2 段孤儿 JSDoc（预算文件相对位置 / C288 单次折叠上限）+ 空行 |
 | 951-1035 | 85 | **区间 7 的运行期**：`consumeLedgerBudget` / `getLedgerBudgetStats` / `#persistLedgerBudget` / `#recordPressure`（压力快照与节流） |
@@ -345,7 +346,7 @@ grep -oE 'mod\.[a-zA-Z_]+' test/engine-harness.test.mjs | sort | uniq -c | sort 
 | 2824-3225 | 402 | 自动补账调度：`#startAutoBackfill` / `#autoBackfillTick`（2861 / 2996 / 3169 落 `writeAutoBackfillState`） |
 | 3226-3535 | 310 | 离线补折：`#tryOfflineCloseout` / `#offlineCloseoutFold` |
 | 3536-3591 | 56 | `compactNow`（宿主 `/compact` 入口） |
-| 3592-3628 | 37 | `recordFoldMark`（**区间 4 的运行期调用点：3603 `safeMeasureFoldQuality`、3616 `summaryTextField`**；另有 2540 行那套 `_lastSummaryFinishReason` 取值→清理顺序被文本断言钉住） |
+| 3592-3628 | 37 | `recordFoldMark`（**区间 4 的运行期调用点：3603 `safeMeasureFoldQuality`、3616 `summaryTextField`**；另有 `test/engine-harness.test.mjs:2540` 钉住的 `_lastSummaryFinishReason` 取值→清理顺序） |
 | 3629-4077 | 449 | 触发策略主链：`#activeRange` / `compactIfNeeded` / `#compactIfNeededBody`（**区间 3 的运行期：3701 / 3709 退避；区间 2 的运行期：3844-3864 错误分类与永久错误闸门**；另含 4031 `buildFoldMarkUsage`（六类「统计与日志」，本节无独立区间）与 4042 `summaryTextField`（区间 4）） |
 | 4078-4219 | 142 | `#selectRange` / `#tier2IfNeeded` / `#tier2IfNeededUnsafe` + **类结束（4218）** |
 | 4220-4275 | 56 | 补账状态落盘：`LEGACY_BACKFILL_STATE` / `LATEST_BACKFILL_STATE` / `writeAutoBackfillState`（六类「统计与日志」）+ `ENGINE_BY_CTX` 的文档 |
@@ -357,20 +358,27 @@ grep -oE 'mod\.[a-zA-Z_]+' test/engine-harness.test.mjs | sort | uniq -c | sort 
 ```bash
 cd "D:/主工作区/repos/dsh-GOkifu-compact"
 
-# ① 八件事合计 705 行，且互不重叠（区间已排序、首尾不接）
+# ① 八件事合计 705 行、互不重叠（按行号升序；后一段 start 必须 > 前一段 end）
 printf '%s\n' 140-174 197-260 261-395 472-511 512-523 524-565 566-707 716-950 \
-| awk -F- '{c+=$2-$1+1} END{print "concerns="c}'        # concerns=705
+| awk -F- '{c+=$2-$1+1; if (NR>1 && $1<=prev) bad++; prev=$2} END{print "concerns="c" overlaps="bad+0}'
+# ⇒ concerns=705 overlaps=0
 
-# ② 全文件 4689 行；杂项 = 4689 − 705 = 3984
+# ② 杂项 24 块逐块行数之和 = 3984（区间照抄 §3.2 的表）⇒ 705 + 3984 = 4689
+printf '%s\n' 1-13 14-49 50-139 175-196 396-471 708-715 951-1035 1036-1499 1500-1540 \
+  1541-1735 1736-1873 1874-1960 1961-2369 2370-2632 2633-2823 2824-3225 3226-3535 \
+  3536-3591 3592-3628 3629-4077 4078-4219 4220-4275 4276-4688 4689-4689 \
+| awk -F- '{c+=$2-$1+1} END{print "misc="c" total="c+705}'
+# ⇒ misc=3984 total=4689
+
+# ③ 全文件行数（必须等于 ② 的 total）
 wc -l < src/engine.mjs                                  # 4689
-#    705 + 3984 = 4689
 
-# ③ 每条区间的首/末行（照抄核对边界）
+# ④ 每条区间的首/末行（照抄核对边界）
 for r in 140-174 197-260 261-395 472-511 512-523 524-565 566-707 716-950; do
   s=${r%-*}; e=${r#*-}; echo "== $r =="; sed -n "${s}p;${e}p" src/engine.mjs
 done
 
-# ④ 三处「区间不是全部」的证据：①④⑤⑥ 的运行期都在 1500+ / 1874+ / 3592+
+# ⑤ 「区间不是全部」的证据：归档 / 注入 / 预算的运行期分别在 1500+ / 1874+ / 951+
 grep -n "archivedIdsFromChange\|newlyArchived" src/engine.mjs      # 140,1502 / 166,1521
 grep -n "injectActionKey\|skipReasonKey\|bumpSkipReason" src/engine.mjs   # 549,1924 / 532,1940 / 556,1942
 grep -n "ledgerBudgetMetrics\|accumulateLedgerBudget" src/engine.mjs      # 567,959 / 625,961
@@ -401,7 +409,7 @@ grep -n "ledgerBudgetMetrics\|accumulateLedgerBudget" src/engine.mjs      # 567,
 
 ### 4.2 源码文本断言：**re-export 也救不了**（最容易被忽略的一类）
 
-这 6 条断言**读 `src/engine.mjs` 的文本**，实现或调用点一挪走就红：
+下面 9 条断言**读 `src/engine.mjs` 的文本**，实现或调用点一挪走就红（涉及 5 个导出名：`Config` / `isPermanentSummaryError` / `retryMinDelayMs` / `safeMeasureFoldQuality` / `summaryTextField`）：
 
 | 断言位置 | 钉住的文本 | 后果 |
 |---|---|---|
@@ -416,7 +424,7 @@ grep -n "ledgerBudgetMetrics\|accumulateLedgerBudget" src/engine.mjs      # 567,
 | `test/summary-text-coverage.test.mjs:128` | tier2 的 `foldMarks.push` 那一行**不许**出现 `summaryTextField` | 反向约束：别为了"统一"给 tier2 补正文 |
 
 > 另有 **50 个文件**（35 test + 15 scripts）会 `readFileSync("src/engine.mjs")` 做类似断言，
-> 本表只列与本图 29 个导出**直接相关**的 6 处；搬动前建议先跑
+> 本表只列与本图 29 个导出**直接相关**的 9 处；搬动前建议先跑
 > `grep -rn "engine\.mjs" test/ | wc -l` 自查影响面（见 §4 末命令）。
 
 ### 4.3 `scripts/check-maintenance.mjs` 与 `scripts/doctor.mjs`：**0 引用**
@@ -452,7 +460,7 @@ $ grep -c "engine" scripts/check-maintenance.mjs scripts/doctor.mjs      # 0 0
 | **`allowed` 白名单** | 每个 specifier 必须命中该房 `allowed` 前缀，否则 `not-allowed` | 新房若 import `./kifu-model.mjs`，必须在 `allowed` 里写它 |
 | **最终路径** | `roomPathViolations`（355-363）：`entry.file === <id>.mjs` 且文件真实存在 | 房间名与 id 不一致（如 `rooms/archive-rule.mjs` 登记成 id `archive`）⇒ 红 |
 | **顶层白名单** | `SRC_TOP_LEVEL_ALLOWED = ["engine.mjs","ui.mjs"]`（281）+ 用例 517 | **不能在 `src/` 顶层新建文件** —— 搬出去的东西只能进 `src/rooms/` |
-| **`DELETED_FACADES`** | 8 个名字（278）：`verifier` `range` `worldstate` `graph` `keeper` `extract` `ledger` `summary-prompt` 不许在 `src/` 顶层复活、也不许被任何文件 import | 想把②（错误分类）做成 `summary-prompt.mjs`、或把①做成 `range.mjs` ⇒ **红**；给房间起名必须先避开这 8 个 |
+| **`DELETED_FACADES`** | 8 个名字（278）：`verifier` `range` `worldstate` `graph` `keeper` `extract` `ledger` `summary-prompt` 不许在 `src/` 顶层复活、也不许被任何文件 import | 想给新房间起名 `ledger.mjs`（「注入/统计」看起来很"账本"）、`extract.mjs`（「归档抽取」）、`summary-prompt.mjs`（「错误分类」）⇒ **全部红** —— 这 8 个墓碑名字必须先避开 |
 | **R-A** | `findReverseDependencies`（250-256）+ 用例 421 | 新房 import `../scripts/…` 或 `../lib/…` ⇒ 红 |
 | **R-E** | `rEViolations`（381-393）+ 用例 559 | engine import `rooms/migrate.mjs` ⇒ 红（「禁止 engine 启动钩子」的机器判据） |
 | **R-F** | `bannedTokenHits`（395-404）+ 用例 571 | 新房/新脚本出现 `allowedModels` 字样 ⇒ 红 |
@@ -481,7 +489,7 @@ harness 的副本会去 import 真宿主包 ⇒ **加载期就崩**，全量测�
 
 **(c) 4689 行的 `export { … }` 看着像"重复导出"，删了必红**
 这 5 个名字在 engine 里**没有定义**（定义在 `rooms/closeout-plan.mjs`），只有这一行转手。
-删掉它 ⇒ `mod.CLOSEOUT_MAX_FOLD_TOKENS` 等 **24 处 `mod.` 断言**（23 行，2389-2516）全红；
+删掉它 ⇒ `mod.CLOSEOUT_MAX_FOLD_TOKENS` 等 **24 处 `mod.` 断言**（分布在 23 行，2390-2516）全红；
 反过来，真身已经在房间里，所以**不要**为了"归位"把这 5 个函数抄回 engine。
 
 ### 复现命令
@@ -495,7 +503,7 @@ grep -rn "mod\.name\|mod\.Config" test/real-modules.mjs
 grep -n "mod\.backfillSubagentOutcome" test/backfill-button.test.mjs
 grep -n "mod\.writeAutoBackfillState"  test/backfill-state-multi.test.mjs
 
-# §4.2 源码文本断言（6 处）
+# §4.2 源码文本断言（9 处）
 grep -n 'SCHEMA.map((entry) => \[entry.key, zodField(entry)\])' test/config-schema.test.mjs
 grep -n 'isPermanentSummaryError(st.lastFoldError)' test/engine-harness.test.mjs
 grep -n 'const minDelay = retryMinDelayMs('           test/engine-harness.test.mjs
@@ -535,37 +543,35 @@ sed -n '4689p' src/engine.mjs
 4. **`test/run.mjs` 基线 2569/2/0 是我这一次跑的**。仓库里同时有其它工作在进行（我第一次跑时
    `.harness.lock` 被另一个 `node test/run.mjs` 占着，等了 300 秒退出），数字随时会因他人改动漂移；
    引用时必须带时点。
-5. **`docs-index-check` 是红的，而且它会让 `node test/run.mjs` 也红 1 项 —— 这是本文档的必然副作用，不是代码回归**。
-   `test/docs-index-check.test.mjs` 的 `D-3` 用例（33-37 行）对**真实仓库**跑 `checkRepo()` 并断言 `ok === true`，
-   所以只要本文档没登记进 `docs/README.md`，全量就会多 1 个 failed。实跑：
+5. **索引与门禁：现在全绿（这一条曾在写作途中是红的，如实记下）**。
+   本文档写完后先红过：`node scripts/docs-index-check.mjs` 报「未索引文档 1 个」，
+   而 `test/docs-index-check.test.mjs` 的 `D-3`（33-37 行）对**真实仓库**断言 `checkRepo().ok === true`，
+   所以那时全量会多 1 项 failed。**这不是代码回归，是「新文档还没登记」的必然结果。**
+   随后同事把索引加进 `docs/README.md:61`（HEAD `dbbbf54` 已含），复跑结果：
 
    ```
    $ node scripts/docs-index-check.mjs
    == 文档索引检查（172 个文件 · docs/research/README.md · evidence/README.md · docs/README.md · docs/knowledge/README.md）==
-     ✗ docs/测绘-engine归位图.md —— 没出现在 docs/README.md 里
-
-   ❌ 未索引文档 1 个
-   $ echo $?
-   1
+     ✓ 每个文档都在索引里（没有孤儿文档）
+   ✅ 未索引文档 0 个          # exit 0
+   $ node test/run.mjs 2>&1 | tail -1
+   == 2569 passed, 2 skipped, 0 failed ==      # exit 0
    ```
 
-   按分工 `docs/README.md` **不由我改**（另有人在同位置写索引，由 Lead 统一登记），
-   所以这 1 项要等 **Lead 在 `docs/README.md` 加一行**之后才会转绿。
-   **不要为了让门禁变绿去动 `docs/README.md`，也不要把这条红当成"代码坏了"。**
-6. **「搬走之后 harness 还能不能加载」我没有实测**。§4.2 / §4.5 的结论来自读 harness 源码
-   （`readFileSync` + 4 次 `replace` + 写 `src/.engine-under-test.mjs`），
-   没有做「真的搬一个函数出去再跑测试」的实验 —— 那会改 `src/`，超出本任务边界。
-7. **`lib/client.js` 侧没有任何 engine 依赖**（0 条 import），但 `name` / 配置键会经 preset 与 HTTP 落到
+   ⇒ **门禁这条对本文档不构成遗留问题**；但下一个人新增文档时仍会经历同一段红，
+   别去改 `docs/README.md` 的其它内容，只补一行索引。
+
+6. **`lib/client.js` 侧没有任何 engine 依赖**（0 条 import），但 `name` / 配置键会经 preset 与 HTTP 落到
    浏览器半；这条链（`preset-format` → `cordis.patch.yml` → `lib/client.js`）我只验证了文本存在，
    没有验证端到端生效 —— 那属于「生产是否生效」三态里的第三态，本图不覆盖。
 
 ---
 
-## 附：本次未改动的文件（供 Lead 对账）
+## 附：这次动了什么（供 Lead 对账）
 
-```
-git status --short          ⇒ 只有 4 个未跟踪的 cordis.patch.yml.bak-before-ui-*（他人遗留）
-git diff --stat HEAD -- src/ test/ scripts/ lib/ docs/README.md   ⇒ 空
-```
-
-新增文件只有这一个：`docs/测绘-engine归位图.md`。
+- **新增**：`docs/测绘-engine归位图.md`（本文档）。
+- **未改** `src/` `test/` `scripts/` `lib/`：`git diff --stat HEAD -- src/ test/ scripts/ lib/` ⇒ 空。
+- **未由我改** `docs/README.md`：索引行 `docs/README.md:61` 是 Lead / 同事统一登记的（HEAD `dbbbf54` 已含）。
+- 本文档已有两笔提交（Lead 落）：`58ff26f` 首版、`acb9bfd` 补风险清单与复现命令；
+  **本文件在工作树里还有若干收口修订未提交**（`git status --short` 显示 ` M docs/测绘-engine归位图.md`），
+  差异 = §3.3 自检升级为可验证 `overlaps=0`、三处措辞修正、§5-5 改为「索引登记后复跑全绿」。
