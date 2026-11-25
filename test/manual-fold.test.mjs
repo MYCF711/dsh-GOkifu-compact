@@ -285,6 +285,26 @@ export const tests = {
     })();
   },
 
+  "MF-14 宿主 compactNow 返回 null ⇒ 不许报成功（铁律：绝不静默成功）"(t) {
+    return (async () => {
+      const { default: Engine } = await loadEngine();
+      const ctx = makeCtx({ commands: { register: () => () => {} } });
+      const engine = new Engine(ctx, { auto: false, graphDir: makeGraphDir(), summaryMode: "rules", minFoldTokens: 0, retainTokens: 0 });
+      const session = makeSession("fold-null");
+      session.append("turn/start", { turn: 1 });
+      for (let i = 0; i < 20; i += 1) session.seed("user", `step ${i}`);
+      session.append("turn/end", { turn: 1 });
+      // 宿主按**自己的**规则算不出区间 ⇒ 返回 null。旧写法照样报 ok + 「已压缩一段历史」。
+      engine.compactNow = async () => null;
+      const out = await engine.foldNow({ session }, new AbortController().signal);
+      t.eq(out.kind === "ok", false, `宿主返回 null 时绝不许报成功，实际 ${out.kind}：${out.text}`);
+      t.eq(out.kind, "nothing-to-fold", "必须报 nothing-to-fold");
+      t.includes(out.text, "未改变", "必须明说历史没变");
+      t.eq(/已压缩/.test(out.text), false, "不许出现「已压缩」（那是在编造一次没发生的压缩）");
+      engine.dispose?.();
+    })();
+  },
+
   "MF-11 foldNow：没有可折区间 ⇒ nothing-to-fold，不调 compactRegion"(t) {
     return (async () => {
       const { default: Engine } = await loadEngine();

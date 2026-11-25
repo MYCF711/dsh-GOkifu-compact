@@ -2276,9 +2276,13 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
   async compactRegion(start, end, agent, signal) {
     const ownerRegion = ENGINE_BY_CTX.get(this?.ctx);
     if (ownerRegion !== undefined && ownerRegion !== this) return ownerRegion.compactRegion(start, end, agent, signal);
-    // ★ R17（2026-11-25）：`/compact-fold` 走 `compactNow`（owner:null 手动事务），但区间要换成
-    //   我们的增量规划结果。`#withManualRange` 把区间放进这个一次性字段，这里取用后**立刻清空**
-    //   —— 绝不许残留到下一次自动 fold（那会把别人的区间折错）。
+    // ⚠ 审核发现（2026-11-25）：`/compact-fold` 走 `compactNow`，而宿主 `compactNow` 内部
+    //   **直接调模块函数 `compactSurfaceRegion`**，根本不经过本方法 ⇒ 手动路径下这个 override
+    //   **永远不会被读到**（真机实测：命令报成功，但实际折的是宿主选的 {9,91}，
+    //   我们规划的 {9,67} 被忽略）。
+    //   保留这段是因为它对**其它**可能经过 compactRegion 的调用方仍然有效；
+    //   但**不要**以为它能让 `/compact-fold` 用上增量区间 —— 那需要宿主暴露区间参数，
+    //   见 docs/架构-房间契约.md 附录 D「未修复」一节。
     const override = this._manualRangeOverride ?? null;
     if (override !== null) {
       this._manualRangeOverride = null;
@@ -3815,6 +3819,17 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
       //   所以这里改走 `compactNow`（官方手动路径：runMaintenance + owner:null + 错误分类），
       //   并在调用期间**把区间选择器临时换成我们的增量规划器**（见 #withManualRange）。
       const result = await this.#withManualRange(planned.range, () => this.compactNow(agent, signal, commandId));
+      // ★ 审核修复（2026-11-25）：宿主 `compactNow` 在**它自己**算不出区间时返回 `null`。
+      //   旧写法照样报 `ok` + 「已压缩一段历史」—— 实际什么都没压，违反铁律「绝不静默成功」。
+      //   这里如实报「没折成」，并说明这是宿主侧的判定（我们的规划器算出了区间，
+      //   但宿主按它自己的规则拒绝了）。
+      if (result === null || result === undefined) {
+        return {
+          kind: "nothing-to-fold",
+          text: "宿主没有接受这次折叠（它按自己的规则判定没有可折区间）—— 历史未改变。",
+          detail: decision.detail,
+        };
+      }
       const tokensAfter = this.#measureTokens(session);
       return {
         kind: "ok",
@@ -3839,6 +3854,11 @@ ${constraintsBlock.split("\n").map((l) => `- ${l}`).join("\n")}` });
    * `runMaintenance`、错误分类）完全一样，**只有区间选择不同**。
    * 所以这里用一次性的实例字段把区间递进去，`compactRegion` 读到它就用它、读完立刻清掉
    * （一次性，绝不残留到下一次自动 fold —— 那会把别人的区间折错）。
+   *
+   * ⚠ 审核发现（2026-11-25）：**这条路对 `/compact-fold` 实际无效** —— 宿主 `compactNow`
+   *   内部直接调模块函数 `compactSurfaceRegion`，绕过 `this.compactRegion`，所以 override
+   *   永远读不到。当前 `/compact-fold` 实际折的是宿主自己选的整段区间（`retainTokens=0`），
+   *   不是本插件规划的增量区间。详见 `docs/架构-房间契约.md` 附录 D「未修复」。
    *
    * @param {{start:number,end:number}} range 规划好的区间
    * @param {() => Promise<any>} run 真正执行折叠的函数
