@@ -67,7 +67,7 @@ import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms
 //   缺 import 也照样绿 —— 这类「只看字面量」的守卫正是它能活下来的原因。
 import { closeoutTimeoutAdvice, recentFoldP90 } from "./rooms/closeout-plan.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
-import { configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
+import { CONFIG_SCHEMA_VERSION, configDefaults, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
 // ★ C216「补做收尾」：判债务 / 排序限量 / 串行补（取消归档 → resume → 收尾 → 归档回去）都在 R17 房间里，
 //   这里只做接线（取会话清单、拿宿主服务、把引擎的 closeoutNow 递进去）。
 import { listDebts, backfillArchivedSessions } from "./rooms/closeout-backfill.mjs";
@@ -1625,6 +1625,8 @@ function applyInner(ctx) {
           const scan = scanGraphs(home);
           return sendJson(res, 200, {
             ok: true,
+            // ★ C675：配置布局版本（键序即 preset 行序）—— 浏览器半据此判断怎么解释 config。
+            configSchemaVersion: CONFIG_SCHEMA_VERSION,
             // ★ W-D：带出实际用的 profile，排障时一眼看出读的是哪个（不传 = desktop，旧行为不变）。
             profile: profileName,
             version: readVersion(),

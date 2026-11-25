@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C675 | 配置布局版本号 + 33 键按序快照（P3 第三张面收口） |
 | C674 | 持久化面契约快照：graph.json 17 键 + delta 帧三列格式 |
 | C673 | 对外 JSON 面加 schemaVersion + 三个读面顶层形状快照 |
 | C672 | 给「面板写了引擎读不到」上判据：preset 键必须登记 |
@@ -736,6 +737,51 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C675 · 配置布局版本号 + 33 键按序快照（P3 第三张面收口）
+
+**P3 第三张对外面：配置布局的版本号 + 键序快照。P3 三张面到此收口。**
+
+## 为什么配置面也需要版本号
+
+`SCHEMA` 的**键序**不只是内部顺序：它就是 preset 块里 `engine` 段的行序，也是面板渲染顺序 ——
+**记忆侧和手写 preset 都依赖它**。此前只有"单一来源"（好），但没有版本号：**改一格顺序都没人知道**。
+
+拿到这个号，浏览器半/记忆侧就能判断自己按哪一版布局解释；不认识就显式报错，而不是错位渲染（那正是"假 UI"的另一副面孔）。
+
+## 改了什么
+
+```js
+// src/rooms/config-schema.mjs
+export const CONFIG_SCHEMA_VERSION = 1;   // 只加不改：新键追加末尾，删/重排必须 +1
+
+// src/ui.mjs 的 state 响应
+configSchemaVersion: CONFIG_SCHEMA_VERSION,
+```
+
+## 契约测试
+
+1. `CONFIG_SCHEMA_VERSION === 1`；
+2. **`SCHEMA` 的 33 个键按序快照**（`JSON.stringify(SCHEMA.map(e => e.key))` 精确相等）——
+   加键必须追加并改快照，删/重排必须先升版本号；
+3. C673 的 `state` 顶层形状快照**登记新字段**（18 → 19 键）。
+
+## 一处按纪律处理的地方
+
+新增 `state.configSchemaVersion` 后，C673 的快照**立刻红** —— 这正是它该有的行为。
+处理方式是**把字段登记进快照**（并注意排序位置：`configOrigins` 之后），不是放宽断言。
+
+## P3 三张面收口
+
+| 面 | 版本号 | 快照契约 |
+|---|---|---|
+| API（JSON 响应） | `UI_API_SCHEMA_VERSION = 1`（C673） | `state`/`defaults`/`health` 顶层形状 |
+| 持久化（`graph.json` + delta） | `version: 1` + 陌生版本抛错（C674） | 17 键精确相等 · delta 三列格式 |
+| 配置（`SCHEMA`） | `CONFIG_SCHEMA_VERSION = 1`（C675） | 33 键按序快照 |
+
+## 验证
+
+`config-schema` **20/0** · `ui` **151/0** · 全量 **2578 passed / 2 skipped / 0 failed**。
 
 ### C674 · 持久化面契约快照：graph.json 17 键 + delta 帧三列格式
 

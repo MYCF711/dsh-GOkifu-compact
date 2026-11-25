@@ -318,3 +318,48 @@ tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板�
   }
 };
 
+
+
+/* ───── C675：配置面对外的版本号 + 键序快照（P3 第三张面） ───── */
+
+tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 / 面板顺序）"] = async (t) => {
+  const { CONFIG_SCHEMA_VERSION, SCHEMA } = await import(ROOM);
+  t.eq(CONFIG_SCHEMA_VERSION, 1, "配置面版本号必须导出且为 1");
+  // 键序 = preset 块里 engine 段的行序 = 面板渲染顺序 ⇒ 记忆侧与手写 preset 都依赖它。
+  // 加键追加到末尾；删/重排必须让版本号 +1 并同步发布说明。
+  t.eq(JSON.stringify(SCHEMA.map((e) => e.key)), JSON.stringify([
+      "thresholdRatio",
+      "firstFoldRatio",
+      "headroomTokens",
+      "retainRatio",
+      "retainTokens",
+      "summarizationProvider",
+      "summarizationModel",
+      "maxTokens",
+      "compactionRetries",
+      "maxOverflowRetries",
+      "modelPolicies",
+      "auto",
+      "autoBackfill",
+      "summaryMode",
+      "growthFloorTokens",
+      "minFoldTokens",
+      "hotLedger",
+      "hotLedgerMaxTokens",
+      "hotLedgerMinEvents",
+      "hotLedgerMinFailureDelta",
+      "hotLedgerMarkers",
+      "hotLedgerTraceRoot",
+      "hotLedgerReplace",
+      "transposition",
+      "tier2After",
+      "closeoutFold",
+      "closeoutMinEvents",
+      "closeoutTimeoutMs",
+      "closeoutMaxFoldTokens",
+      "graphDir",
+      "worldHashMaxFiles",
+      "factGuard",
+      "queryRecall",
+    ]), "SCHEMA 键序变了：必须改快照（这是对外契约）");
+};
