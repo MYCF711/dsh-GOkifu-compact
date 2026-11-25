@@ -22,6 +22,15 @@ export function retryMinDelayMs(kind) {
   return 0;
 }
 
+/**
+ * ★ C350：按类别给退避参数（事件数口径 —— 我们只数事件，没有时间轴）。
+ * - rate-limit：基数不变但**上限翻倍**（限流时重试越快越糟）
+ * - overload：基数抬高（"稍后重试"要真的等一会儿）
+ * - 其它：与原来完全一致（不改变既有行为，避免回归）
+ * @param {string} kind
+ * @param {{base?: number, cap?: number}} [defaults]
+ * @returns {{base:number, cap:number}}
+ */
 export function retryBackoffFor(kind, { base = 30, cap = 480 } = {}) {
   if (kind === "rate-limit") return { base, cap: cap * 2 };
   if (kind === "overload") return { base: Math.round(base * 2), cap };
