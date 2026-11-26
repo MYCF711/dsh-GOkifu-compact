@@ -79,6 +79,12 @@ const ROOMS = {
     allowed: ["node:fs", "node:path", "./kifu-model.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//],
   },
+  "guard-source": {
+    // C689：事实守卫的证据源（本段区间内的事件 → {seq, role, text}）—— P1 归位第八次搬迁。
+    file: "guard-source.mjs",
+    allowed: [],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /from\s+"node:/],
+  },
   "hot-inject": {
     file: "hot-inject.mjs",
     // ★ Q1 M-1：`keeper.injectionKind` 是「人话来源」的**单一判据**（HUMAN_SOURCES）——
@@ -586,8 +592,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["backfill-route", "backfill-state", "build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "fold-stats", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "ledger-budget", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "retry-policy", "skip-stats", "summary-error", "summary-text", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
-      "房间集合必须与契约 36 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route）",
+      ["backfill-route", "backfill-state", "build-stamp", "closeout-backfill", "closeout-plan", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "fold-stats", "guard-source", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "ledger-budget", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "retry-policy", "skip-stats", "summary-error", "summary-text", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
+      "房间集合必须与契约 37 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");

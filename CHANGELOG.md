@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C689 | P1 第八次搬迁：事实守卫证据源进新房间 guard-source |
 | C688 | P2 client 侧：面板字段表补上 host 下发的新键（含 range/步长/只读过滤） |
 | C687 | 历史钉住解开 ⑳×C118-2 死锁：gate.mjs 首次 9/9 全绿 |
 | C686 | 记录一条门禁口径冲突：⑳ 与 C118-2 无法同时绿（含实测证据） |
@@ -750,6 +751,45 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C689 · P1 第八次搬迁：事实守卫证据源进新房间 guard-source
+
+**P1 归位第八次搬迁：事实守卫的证据源独立成房，`engine.mjs` 4270 → 4155 行（−115）。**
+
+## 搬了什么
+
+`collectGuardEvents` + 它的三个判据函数（`guardEventRole` / `guardEventText` / `guardEventMessage` / `guardEventSourceKind`）+ 三个常量 → `src/rooms/guard-source.mjs`。
+
+**依赖全部来自既有房间**（`keeper` 的 `injectionKind`/`messageText`、`offline-fold` 的 `toolDigestLine`）⇒ 这间房没有任何新的外部耦合。
+
+## 三段踩坑史一起搬（注释是资产）
+
+1. **必须按 `session.eventAt(seq)` 走完整日志，不能只走 `surface.nodes`** —— surface 只收 message 类事件，`tool/call` 不在其上（真机 `surfaceOp` 恒 null），只走 surface 会把 `tool/call` **整类漏掉**（P1-1 根因）；
+2. **`user/message` 的 `role` 由宿主恒填 "user"** —— 主体必须由 `source.kind` 派生，且与 keeper 的注入分类**同一份判定**，否则子代理收尾 / 技能目录这些注入消息永远算成 user；
+3. **`tool/call` 的文本与离线证据源同一份 `toolDigestLine`** —— 不复制文本逻辑，否则在线与离线裁决会悄悄分叉。
+
+## 一处夹带错误（已修，记进代码注释）
+
+块里夹了一个 `VALUE_FACTS_LIMIT = 40`，但它属于**价值事实抽取**（`collectValueFacts`）而不是守卫证据源。切走之后 `engine-harness` 立刻红：
+
+```
+AX06-2 guard=true：… → ReferenceError: VALUE_FACTS_LIMIT is not defined
+```
+
+已把它留在 engine 并在注释里写明原因。**这是"按行区间切片"的固有风险**：区间边界是几何的，不是语义的 —— 所以每刀都要靠全量测试兜。
+
+## 八刀合起来的账
+
+| 指标 | 归位前 | 现在 |
+|---|---:|---:|
+| `src/engine.mjs` | 4689 行 | **4155 行**（−534，**−11.4%**） |
+| 命名导出 | 29 | 11 |
+| 房间数 | 28 | **37** |
+| 全量用例数 | 2588 | **2588（八刀都没变）** |
+
+## 验证
+
+`rooms` **20/0** · `engine-harness` **133/0** · 全量 **2588 passed / 2 skipped / 0 failed**。
 
 ### C688 · P2 client 侧：面板字段表补上 host 下发的新键（含 range/步长/只读过滤）
 
