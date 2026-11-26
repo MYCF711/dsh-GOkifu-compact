@@ -28,9 +28,9 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 
 ---
 
-## 1 · 16 个房间（R00–R15）与**最终路径**（A2+A3+P6-C 已完成）
+## 1 · 18 个房间（R00–R17）与**最终路径**（A2+A3+P6-C+C687/C688 已完成）
 
-**现状：A2 + A3 全部收口 + P6-C 已晋升 —— 12 个房间全在 `src/rooms/`；`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）两个永久文件；8 个旧门面已删除**（`verifier` · `range` · `worldstate` · `graph` · `keeper` · `extract` · `ledger` · `summary-prompt`）。**A2-R / A3-R 隔离实例 PASS；P6C-3 隔离目录端到端 PASS（dry-run 零写入 · apply 只归档 residue · candidate 一条未动 · rollback 逐字恢复）。未碰 live home。**
+**现状：A2 + A3 全部收口 + P6-C 已晋升 + C687/C688 配置驱动落地 —— 14 个房间全在 `src/rooms/`；`src/` 顶层只剩 `engine.mjs`（R09）与 `ui.mjs`（R11）两个永久文件；8 个旧门面已删除**（`verifier` · `range` · `worldstate` · `graph` · `keeper` · `extract` · `ledger` · `summary-prompt`）。**A2-R / A3-R 隔离实例 PASS；P6C-3 隔离目录端到端 PASS（dry-run 零写入 · apply 只归档 residue · candidate 一条未动 · rollback 逐字恢复）。未碰 live home。**
 
 | id | 房间 | 职责 | 最终路径 | 命名导出（实测） | 允许依赖 |
 |---|---|---|---|---:|---|
@@ -49,17 +49,23 @@ DSH（DeepSeek Harness）的**上下文压缩后端插件**。核心不是「把
 | **R12** | `ui-client` | 浏览器半（React） | `lib/client.js`（**永久路径**） | — | `react`（零本仓依赖） |
 | **R13** | `install` | profile / preset 安装与链接 | `scripts/`（**永久，不搬**） | — | R15 |
 | **R14** | `migrate` | 数据迁移（P6-C：**只归档 settled residue**；`candidate` 保留在图里） | **`src/rooms/migrate.mjs`（已落位，20,913 B）** + **`scripts/migrate-dangling.mjs`**（CLI）+ `scripts/cli.mjs` 的 `migrate-dangling` 子命令 | 21 | R00 · R01 · R06（判据）· `node:fs/path/crypto` |
-| **R15** | `config-schema` | 配置的**单一来源**（A2-4 后 **4/5 收敛**；`lib/client.js` `FIELDS` 15 键待 R12） | `src/rooms/config-schema.mjs` | 9 | **零依赖** |
+| **R15** | `config-schema` | 配置的**单一来源**（C688 起 **5/5 收敛**：`autoArchiveBackfill` 已收编；`lib/client.js` 手写 `FIELDS` 已删除，改由 `deriveFields()` 从 SCHEMA 派生） | `src/rooms/config-schema.mjs` | 10 | **零依赖** |
+| **R16** | `config-resolve` | 配置解析与压缩规格推导（C687 P1 第八次归位：`resolveChess` / `routedTarget` / `resolvePolicy` / `resolveSpec` / `summarizeTarget` 五个纯函数） | `src/rooms/config-resolve.mjs` | 6 | R15 |
+| **R17** | `feature-registry` | **功能 ↔ 配置键的声明式注册表**（C688 配置驱动第一层）：`FEATURES` 11 个功能 + `HOST_CONSUMED` 4 个宿主键 + 四个纯查询（`orphanKeys` / `undeclaredKeys` / `duplicateKeys` / `featureOf`） | `src/rooms/feature-registry.mjs` | 9 | R15 |
 
-**12 个房间文件（`src/rooms/`，`ls` 实测）**：
+> **配置驱动链路**（C688）：`config-schema`（有哪些键）→ `feature-registry`（归谁管）→ `deriveFields()`（怎么画）。
+> 加一个配置键要动哪几步、每步的门禁是什么，见 **`docs/架构-配置驱动.md`**。
+
+**14 个房间文件（`src/rooms/`，`ls` 实测；C687 加 `config-resolve`、C688 加 `feature-registry`）**：
 
 ```
-config-schema.mjs   14,968 B     preset-format.mjs    8,364 B
+config-schema.mjs   26,587 B     preset-format.mjs    8,364 B
 facts-prompt.mjs     6,035 B     verify.mjs          17,914 B
 fold-planner.mjs     6,502 B     world.mjs            3,296 B
 hot-inject.mjs      12,557 B     kifu-model.mjs      47,853 B
 keeper.mjs          12,335 B     ledger.mjs          59,539 B
 kifu-persist.mjs    12,368 B     migrate.mjs         20,913 B
+config-resolve.mjs   8,730 B     feature-registry.mjs 8,716 B
 ```
 
 **两个永久顶层文件**：`src/engine.mjs`（R09，唯一 import `@deepseek-ai/*`）· `src/ui.mjs`（R11，`main` + `exports "."`）。
@@ -67,7 +73,8 @@ kifu-persist.mjs    12,368 B     migrate.mjs         20,913 B
 
 **关键实现要点（写在代码里的契约，别改）**：
 - `preset-format.mjs` 被 `src/ui.mjs` + `scripts/install.mjs` 双用（`install.mjs` **必须 re-export**）；**删 re-export 是「运行期红」不是「加载期红」**（`38914c7` 教训）。
-- `config-schema.mjs` = `SCHEMA` 23 键 / `PRESET_KEYS` 16 / `BASE_KEYS` 11；**收敛只到 4/5**（`lib/client.js:78` `FIELDS` 15 键仍是硬编码，待 R12）。
+- `config-schema.mjs` = `SCHEMA` **34 键** / `PRESET_KEYS` **23** / `BASE_KEYS` 11；**C688 起 5/5 收敛**（`autoArchiveBackfill` 已收编进 SCHEMA；`lib/client.js` 手写 `FIELDS` 已删除，改由 `deriveFields()` 从 SCHEMA 派生）。
+  `CONFIG_SCHEMA_VERSION` = **2**（C688 加键 ⇒ +1，C675 纪律）。
 - `kifu-persist.mjs` 吃注入的 `port`，**不吞错**（`{ok,error}` / `repaired`+`repairedReason`）。
 - `hot-inject.mjs` 的 session port = `{id, seq, surface:{nodes}, eventAt, append}`，`createUserMessage` 由 R09 注入 ⇒ **R08 不 import DSH**；六条契约常量未改（`INJECT_MIN_EVENTS=40` / `INJECT_MIN_FAILURE_DELTA=5` / `LEDGER_STUB_TEXT` 逐字 / digest 组成 / replace 退回 append / never-throws）。
 
@@ -108,7 +115,7 @@ R14 migrate（只读 R00 + R01 路径规则，独立 CLI）
 - **C1/R-C 精确化**：`@deepseek-ai/*` 的 **import** 只允许出现在 `src/engine.mjs`，且 R09 的宿主说明符集合必须**恰好**是契约那 4 个（`dsh-compaction` / `dsh-compaction-basic` / `dsh-llm` / `schemastery`）—— 判据按**说明符**而非裸文本，所以 preset 块与注释里仍可写官方包名（行为面冻结）。
 - **最终路径 + 顶层白名单**：`ROOMS` 每项 `file === <id>.mjs` 且真实存在；`src/` 顶层只允许 `engine.mjs` / `ui.mjs`；**`DELETED_FACADES` 里的 8 个名字一旦出现在 `src/` 顶层或被任何文件 import，立即红**。
 
-> `rooms` 门禁跑法：`node test/run.mjs rooms`（现 **15 用例**）。**这条命令是「架构有没有被破坏」的唯一判据**，任何搬动/新增房间后必跑。
+> `rooms` 门禁跑法：`node test/run.mjs rooms`（现 **20 用例**）。**这条命令是「架构有没有被破坏」的唯一判据**，任何搬动/新增房间后必跑。
 
 ---
 
@@ -316,7 +323,9 @@ node scripts/cli.mjs install --dry-run   # exit 0；live profile 两文件 sha25
 | R12 | `ui`（源码文本断言，弱） | 待补 Node 装载用例 |
 | R13 | `install-link` · `ws-install` · `ui` | — |
 | R14 | `migrate`（**10/0**：7 等价迁移 + P6C-8 路径经 R01 + P6C-9 120s 守卫） | 原型 `test/archive-dangling.mjs` 已删除（git 识别为 rename） |
-| R15 | `ui-config` · `config-schema`（**11/0**） | ✅ A2-4 已补表驱动全键 |
+| R15 | `ui-config` · `config-schema`（**22/0**） | ✅ A2-4 已补表驱动全键；C688 加 `CONFIG_SCHEMA_VERSION=2` 与键序快照 |
+| R16 | `config-schema` · `c572-review-fixes`（C597 判据跟着真身走） | C687 归位 |
+| R17 | `feature-registry`（**7/0**：孤儿/未声明/重复/声明完整/墓碑/豁免表/只读） | C688 新增 |
 
 ---
 
