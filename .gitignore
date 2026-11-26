@@ -11,3 +11,10 @@ node_modules/
 # worldhash.test.mjs、headless-fold-check.patch.yml）不受影响，仍是跟踪状态。
 tmp/
 test/.harness.lock
+
+# ★ C693：运行期备份与回收站**永远不进 git**。
+#   `cordis.patch.yml.bak-before-ui-*` 是插件 UI 改配置时自动留的备份（每个实例一份、带时间戳），
+#   它们曾经被 `git add -A` 收进仓库过一份（1793723655877），是典型的"运行时产物混入发布面"。
+#   `.trash/` 是本仓约定的回收站（AGENTS §2.8：不删除非本会话创建的文件，只进 .trash/<date>/）。
+.trash/
+cordis.patch.yml.bak-*
