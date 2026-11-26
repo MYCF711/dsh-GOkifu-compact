@@ -28,7 +28,7 @@ const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, r
 // ★ C248：有意新增 `hotLedgerMinEvents`（注入节流间隔可配，默认 40 = 旧行为）—— 以下 golden 一并更新。
 // ★ Q1：有意新增 `queryRecall`（锚点召回，实验线，默认 false）。★ Q1-UI：已提升为 **preset 作用域**——
 //   进 DEFAULTS / FIELD_LABELS / describeConfig，并同步 PRESET_KEYS 与 engineBlock()（面板可开关、保存能写回）。
-const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles", "factGuard", "queryRecall"];
+const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles", "factGuard", "queryRecall", "autoArchiveBackfill"];
 
 const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "autoBackfill", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "queryRecall", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens"];
 
@@ -48,8 +48,8 @@ const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["sem
 /* ───────────────────────────── 用例 ───────────────────────────── */
 
 export const tests = {
-  "SCHEMA：33 行、键集合与顺序逐键一致"(t) {
-    t.eq(SCHEMA.length, 33, "SCHEMA 行数（C524 新增 autoBackfill；AX-01 新增 factGuard；Q1 新增 queryRecall）");
+  "SCHEMA：34 行、键集合与顺序逐键一致"(t) {
+    t.eq(SCHEMA.length, 34, "SCHEMA 行数（C524 新增 autoBackfill；AX-01 新增 factGuard；Q1 新增 queryRecall；C688 收编 autoArchiveBackfill）");
     t.eq(SCHEMA.map((e) => e.key), GOLDEN_KEYS, "键与顺序");
   },
 
@@ -329,7 +329,7 @@ tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板�
 
 tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 / 面板顺序）"] = async (t) => {
   const { CONFIG_SCHEMA_VERSION, SCHEMA } = await import(ROOM);
-  t.eq(CONFIG_SCHEMA_VERSION, 1, "配置面版本号必须导出且为 1");
+  t.eq(CONFIG_SCHEMA_VERSION, 2, "配置面版本号必须导出且为 2（C688 追加 autoArchiveBackfill ⇒ +1）");
   // 键序 = preset 块里 engine 段的行序 = 面板渲染顺序 ⇒ 记忆侧与手写 preset 都依赖它。
   // 加键追加到末尾；删/重排必须让版本号 +1 并同步发布说明。
   t.eq(JSON.stringify(SCHEMA.map((e) => e.key)), JSON.stringify([
@@ -366,6 +366,8 @@ tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 
       "worldHashMaxFiles",
       "factGuard",
       "queryRecall",
+      // ★ C688：追加到末尾（只增不改）—— autoArchiveBackfill 从"散落 5 处的字面量"收编进 SCHEMA。
+      "autoArchiveBackfill",
     ]), "SCHEMA 键序变了：必须改快照（这是对外契约）");
 };
 

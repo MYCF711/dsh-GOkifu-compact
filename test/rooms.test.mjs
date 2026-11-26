@@ -217,6 +217,14 @@ const ROOMS = {
     allowed: ["./config-schema.mjs"],
     forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /^node:/],
   },
+  "feature-registry": {
+    // C688：功能 ↔ 配置键的声明式注册表（配置驱动的第一层）。
+    //   只读表 + 三个纯查询（featureOf / orphanKeys / undeclaredKeys）；
+    //   必须只依赖 config-schema（键的单一来源），不许碰 engine / 宿主 / fs。
+    file: "feature-registry.mjs",
+    allowed: ["./config-schema.mjs"],
+    forbid: [/^@deepseek-ai\//, /(^|\/)engine(\.mjs)?$/, /(^|\/)scripts\//, /(^|\/)lib\//, /^node:/],
+  },
   "tool-value-facts": {
     // AX-02：成功工具结果的短值抽取（只依赖 R15 配置单一来源；零模型/零 fs）
     file: "tool-value-facts.mjs",
@@ -599,8 +607,8 @@ export const tests = {
     // 契约最终路径集合：11 个房间（顺序无关）
     t.eq(
       Object.keys(ROOMS).sort(),
-      ["backfill-route", "backfill-state", "build-stamp", "closeout-backfill", "closeout-plan", "config-resolve", "config-schema", "fact-guard", "facts-prompt", "fold-planner", "fold-quality", "fold-stats", "guard-source", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "ledger-budget", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "retry-policy", "skip-stats", "summary-error", "summary-text", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
-      "房间集合必须与契约 38 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route；C687 config-resolve；C693 guard-source）",
+      ["backfill-route", "backfill-state", "build-stamp", "closeout-backfill", "closeout-plan", "config-resolve", "config-schema", "fact-guard", "facts-prompt", "feature-registry", "fold-planner", "fold-quality", "fold-stats", "guard-source", "hot-inject", "keeper", "kifu-model", "kifu-persist", "ledger", "ledger-budget", "loop-guard", "manual-compact", "migrate", "node-docs", "offline-fold", "preset-format", "profile-io", "query-recall", "retry-policy", "skip-stats", "summary-error", "summary-text", "tool-value-facts", "touched-files", "user-patch", "user-route", "verify", "world", "zstd-log"],
+      "房间集合必须与契约 39 个一致（C339 closeout-plan；C306 profile-io；P6C-2 migrate；task-174 manual-compact；2026-11-01 touched-files 与 fold-quality；2026-11-02 user-patch 与 build-stamp；C216 closeout-backfill；C668 user-route；C687 config-resolve；C688 feature-registry；C693 guard-source）",
     );
     // 判据自检
     t.eq(roomPathViolations({ world: { file: "worldx.mjs" } }), ["world: file=worldx.mjs（契约要求 world.mjs）"], "file 名不符必须被检出");
