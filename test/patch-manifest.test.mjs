@@ -45,7 +45,9 @@ tests["C87-2 四个 preset 覆盖块齐全且 id 正确"] = (t) => {
 
 tests["C87-3 UI host 行用同一个包名；patch 里不许再有 compaction-basic"] = (t) => {
   const text = patchText();
-  const insertBlock = text.match(/- insert:\n(?:.*\n)*?\s*- id: gokifu-ui\n\s*name: '([^']+)'/);
+  // ★ C687：patch 文件是 CRLF（Windows 工作树）—— 旧判据写死 \n，一旦换行符不是 LF 就恒 null，
+  //   把「文件没换行」误报成「UI host 行丢了」。判据只认内容，不认换行符。
+  const insertBlock = text.match(/- insert:\r?\n(?:.*\r?\n)*?\s*- id: gokifu-ui\r?\n\s*name: '([^']+)'/);
   t.eq(insertBlock !== null, true, "patch 必须有 insert: gokifu-ui 块");
   t.eq(insertBlock[1], PKG.name, `UI host 行 name 必须是包名 ${PKG.name}，实际 ${insertBlock[1]}`);
   // ★ 只看**YAML 行**，不看注释 —— 头部注释会解释「把 compaction-basic 换成 …」，那是文档不是配置

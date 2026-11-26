@@ -166,7 +166,11 @@ export const tests = {
     t.includes(engine, 'from "./rooms/config-schema.mjs"', "engine 必须 import 房间");
     t.includes(engine, "SCHEMA.map((entry) => [entry.key, zodField(entry)])", "Config 必须由 SCHEMA 生成");
     t.notIncludes(engine, "thresholdRatio: z.number().default(0.45)", "engine 不许再留手写 schema 字面量");
-    t.includes(engine, "resolveConfig(c)", "resolveChess 必须委托");
+    // ★ C687：resolveChess 已搬进 rooms/config-resolve.mjs（R16）—— 判据跟着代码走，
+    //   但断言不许放宽：engine 必须真的 import 这个房间，委托也必须真的发生。
+    t.includes(engine, 'from "./rooms/config-resolve.mjs"', "engine 必须 import config-resolve 房间");
+    const resolveRoom = nodeFs.readFileSync(nodePath.join(ROOT, "src", "rooms", "config-resolve.mjs"), "utf8");
+    t.includes(resolveRoom, "resolveConfig(c)", "resolveChess 必须委托（C687 起在 config-resolve 房间）");
     const ui = nodeFs.readFileSync(nodePath.join(ROOT, "src", "ui.mjs"), "utf8");
     t.includes(ui, "export const DEFAULTS = Object.freeze(configDefaults());", "DEFAULTS 必须派生");
     t.includes(ui, "export const FIELD_LABELS = Object.freeze(fieldLabels());", "FIELD_LABELS 必须派生");
@@ -295,7 +299,8 @@ tests["C671 口径判据来自 SCHEMA 的区间，不是代码里的键名清单
 /* ───── C672：preset 里能写的键，引擎必须真的读得到 ───── */
 
 tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板写了引擎读不到 = 假 UI）"] = (t) => {
-  const engineSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "engine.mjs"), "utf8");
+  // ★ C687：RESOLVE_ORDER 搬进 rooms/config-resolve.mjs —— 判据读新家（键遗漏照样红）。
+  const engineSrc = nodeFs.readFileSync(nodePath.join(HERE, "..", "src", "rooms", "config-resolve.mjs"), "utf8");
   const start = engineSrc.indexOf("const RESOLVE_ORDER = [");
   const end = engineSrc.indexOf("];", start);
   t.ok(start > 0 && end > start, "找不到 RESOLVE_ORDER");
