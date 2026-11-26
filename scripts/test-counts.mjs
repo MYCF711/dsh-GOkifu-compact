@@ -54,6 +54,14 @@ export function recordPassedCount(passed, { baselineFile = BASELINE } = {}) {
   const n = Number(passed);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`通过数不合理：${passed}`);
   const current = nodeFs.existsSync(baselineFile) ? JSON.parse(nodeFs.readFileSync(baselineFile, "utf8")) : { total: 0, files: {} };
+  // ★ C687：**CI 不许回写 `passed`**。
+  //   理由（真机实测）：`passed` 是**平台相关**的 —— CI 的 Windows runner 与开发机在跳过/环境用例上
+  //   本来就会差几条，而文档里的锚点必须跟一个**稳定值**走。CI 一旦回写，`sync-doc-numbers --check`
+  //   就会拿 CI 的临时数去比开发机写好的文档 ⇒ **同一棵树本地绿、CI 红**（本轮踩到：2586 vs 2585）。
+  //   ⇒ 基线是**committed artifact**，只在开发者本机更新；CI 只读它当权威。
+  if (process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true") {
+    return { passed: Number.isFinite(current.passed) ? current.passed : null, skipped: "ci" };
+  }
   current.passed = Math.round(n);
   current.passedAt = new Date().toISOString();
   nodeFs.writeFileSync(baselineFile, JSON.stringify(current, null, 1), "utf8");
