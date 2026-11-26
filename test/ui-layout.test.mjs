@@ -364,3 +364,38 @@ tests["C688 只读键（host 不认保存的）不许进面板 —— 否则又�
   const engineKey = x.fieldsFromState({ fields: [{ key: "__c688_engine_only__", label: "只读", type: "number", range: [0, 10], where: "engine" }] });
   t.eq(engineKey.length, 0, `where:"engine" 的键面板不可写，不许渲染成控件`);
 };
+
+/* ───── C690：数值域以 host 为准（面板不许放行会被 host 400 的值） ───── */
+
+tests["C690 面板手写的 min/max 必须被 host 的 range 覆盖（3 处 host 更严的历史问题）"] = async (t) => {
+  const x = T;
+  const hostByKey = x.fieldsByKey({
+    fields: [
+      { key: "headroomTokens", type: "number", range: [0, 512000], where: "preset" },
+      { key: "closeoutMinEvents", type: "number", range: [1, 10000], where: "preset" },
+      { key: "closeoutTimeoutMs", type: "number", range: [1000, 600000], where: "preset" },
+    ],
+  });
+  const headroom = x.withHostRange({ key: "headroomTokens", label: "压力余量", kind: "number", min: 0, max: 2000000, step: 1000 }, hostByKey);
+  t.eq(headroom.max, 512000, "面板原写 2000000，必须被 host 的 512000 收窄（否则保存即 400）");
+  const minEvents = x.withHostRange({ key: "closeoutMinEvents", label: "归档最小事件", kind: "number", min: 0, max: 10000, step: 1 }, hostByKey);
+  t.eq(minEvents.min, 1, "面板原写 0，必须被 host 的 1 抬高");
+  const timeout = x.withHostRange({ key: "closeoutTimeoutMs", label: "收尾超时", kind: "number", min: 0, max: 600000, step: 100 }, hostByKey);
+  t.eq(timeout.min, 1000, "面板原写 0，必须被 host 的 1000 抬高");
+  // 呈现决策仍归面板：label 不许被覆盖
+  t.eq(headroom.label, "压力余量", "label 是面板的呈现决策，host 不覆盖");
+};
+
+tests["C690 host 没给 range 时不猜（不可编辑/无界的键保持面板原值）"] = async (t) => {
+  const x = T;
+  const byKey = x.fieldsByKey({ fields: [{ key: "maxTokens", type: "number", range: [256, 65536], where: "preset" }] });
+  const noRange = x.withHostRange({ key: "retainTokens", kind: "number", min: 0, max: 999999, step: 1000 }, byKey);
+  t.eq(noRange.min, 0, "host 没这个键 ⇒ 保持面板原值");
+  t.eq(noRange.max, 999999, "host 没这个键 ⇒ 保持面板原值");
+  // 小数域必须给小数步长，整数域不许被改成 0.01
+  const frac = x.withHostRange({ key: "maxTokens", kind: "number", step: 256, min: 256, max: 65536 }, x.fieldsByKey({ fields: [{ key: "maxTokens", type: "number", range: [0.05, 0.95] }] }));
+  t.eq(frac.step, 0.01, "小数域 ⇒ 步长必须 0.01");
+  const int = x.withHostRange({ key: "maxTokens", kind: "number", step: 256, min: 256, max: 65536 }, byKey);
+  t.eq(int.step, 256, "整数域 ⇒ 保留面板自己的步长（不强行改 1）");
+  t.eq(int.max, 65536, "整数域 max 取 host");
+};
