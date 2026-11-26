@@ -399,3 +399,19 @@ tests["C690 host 没给 range 时不猜（不可编辑/无界的键保持面板�
   t.eq(int.step, 256, "整数域 ⇒ 保留面板自己的步长（不强行改 1）");
   t.eq(int.max, 65536, "整数域 max 取 host");
 };
+
+/* ───── C694：面板不许把「已暂存」说成「重启后生效」 ───── */
+
+tests["C694 保存结果显示必须区分「已暂存未生效」与「已生效」（B1 零代价修正）"] = async (t) => {
+  const nodeFs = (await import("node:fs")).default;
+  const src = nodeFs.readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  // 必须按宿主返回的 applied 分流，而不是一律宣称「重启后生效」
+  t.includes(src, "saved.applied === false", "必须用宿主返回的 applied 判断是否真正生效");
+  t.includes(src, "先运行 node scripts/apply-pending-preset.mjs --write", "暂存态必须告诉用户跑哪个命令才会生效");
+  t.eq(/重启 DSH 后生效/.test(src), false, "不许再出现无条件的「重启 DSH 后生效」——那是假话（光重启不应用）");
+};
+
+tests["C694 应用脚本必须真实存在（文案指向的路径不许是幽灵）"] = async (t) => {
+  const nodeFs = (await import("node:fs")).default;
+  t.eq(nodeFs.existsSync(new URL("../scripts/apply-pending-preset.mjs", import.meta.url)), true, "文案里点名的脚本必须存在");
+};
