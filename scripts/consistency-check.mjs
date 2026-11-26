@@ -183,6 +183,13 @@ export function compareSnapshot({
     problems.push("证据缺少 generatedAt/folds（旧格式），无法做快照感知核对；先跑 node scripts/live-folds.mjs --write");
     return { snapshot: null, problems };
   }
+  // ★ C687：**历史钉住记录**（`historical: true`）不参与"证据↔磁盘"核对 ——
+  //   它们是**已确认、但磁盘上已被环形淘汰**的历史事实（当前只有 C655 那条 manual 折痕）。
+  //   此前这两条门禁互相打架：不重建证据 ⇒ ⑳ 红（证据数 ≠ 磁盘数）；重建 ⇒ 删掉那条历史记录、C118-2 红。
+  //   现在口径写死：钉住记录**只供读者与 C118-2 核对历史**，不冒充磁盘现状。
+  const historicalPins = Array.isArray(evidenceFolds) ? evidenceFolds.filter((r) => r?.historical === true) : [];
+  evidenceFolds = Array.isArray(evidenceFolds) ? evidenceFolds.filter((r) => r?.historical !== true) : evidenceFolds;
+
   const generatedAtMs = Date.parse(generatedAt);
   const cap = Number.isFinite(Number(retentionCap)) && Number(retentionCap) > 0 ? Number(retentionCap) : FOLD_MARKS_KEEP;
   const isNewSinceSnapshot = (record) => typeof record?.at === "number" && record.at > generatedAtMs;
@@ -294,6 +301,7 @@ export function compareSnapshot({
     generatedAt,
     retentionCap: cap,
     evidenceRecords: evidenceFolds.length,
+    historicalPins: historicalPins.length,
     diskOldRecords: oldDisk.length,
     newSinceSnapshot: newSinceDisk.length,
     evidenceFuture: evidenceFuture.length,
