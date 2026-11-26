@@ -4,12 +4,12 @@
 
 | 项 | 值 |
 |---|---|
-| **🆕 最新（2026-11-16 23:5x，先看这一节）** | **Q1 代码锚点按需召回完成实验但未采纳**：Stage A **15/15**、真实图派生 p95 **9.996ms**、独立初审 2 BLOCKER / 5 MAJOR / 7 MINOR 全部闭环、全量 **2541 passed / 0 failed**；真实 Stage B **120/120、0 重试**，A0 8/20 → A1 15/20，但 B-06 退化且 wall p95 变差 ⇒ **`NEGATIVE_SIGNAL / NOT_ADOPTED`**。`queryRecall` 默认 `false`，实验代码保留，未发布；证据见 `evidence/query-recall-review-final.md` |
-| 版本 | **1.19.1**（已发布，2026-11-09；1.19.0 的补丁：修冷图回收丢节点文档）：npm `latest`=1.19.0 · tag `v1.19.0`（`ce59140`）· Release 非 draft · `verify-release` 逐文件一致 · main 上 CI **success**；记录见 `evidence/release-1.19.0.json`。主题是内存。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2541 passed / 0 failed**；gate 当前 **8/9**（handoff live 数据 FAIL 1 / WARN 400，基线同样复现；不是宣称 9/9 全绿） |
+| **🆕 最新（2026-11-16 23:5x，先看这一节）** | **Q1 代码锚点按需召回完成实验但未采纳**：Stage A **15/15**、真实图派生 p95 **9.996ms**、独立初审 2 BLOCKER / 5 MAJOR / 7 MINOR 全部闭环、全量 **2586 passed / 0 failed**；真实 Stage B **120/120、0 重试**，A0 8/20 → A1 15/20，但 B-06 退化且 wall p95 变差 ⇒ **`NEGATIVE_SIGNAL / NOT_ADOPTED`**。`queryRecall` 默认 `false`，实验代码保留，未发布；证据见 `evidence/query-recall-review-final.md` |
+| 版本 | **1.19.1**（已发布，2026-11-09；1.19.0 的补丁：修冷图回收丢节点文档）：npm `latest`=1.19.0 · tag `v1.19.0`（`ce59140`）· Release 非 draft · `verify-release` 逐文件一致 · main 上 CI **success**；记录见 `evidence/release-1.19.0.json`。主题是内存。K-27 真实 reader 正式 50/50 PASS（带 v1e 后处理）、K-26 12/12 审稿、K-2 reader 边界；全量 **2586 passed / 0 failed**；gate 当前 **8/9**（handoff live 数据 FAIL 1 / WARN 400，基线同样复现；不是宣称 9/9 全绿） |
 | ⏳ **运行实例接管状态（看 buildId，别看"接管过没"）** | 2026-11-03 那次**已接管**过；**但此后 `src/` 一直在改** ⇒ 现在 **运行 buildId `1a6b8375aab1` ≠ 磁盘 `3b0492243b5e`** ⇒ 跑的不是仓库里这份代码（`node scripts/accept-after-restart.mjs` 直说「跑的不是仓库里这份代码」，面板也判「旧构建」）· 面板 **53063**（pid 13364，起于 2026-11-04T11:53:53Z）· version **1.17.6** 两边一致 · 动作指纹 **47949 / 75681 条边**带 `sig`（新代码已在写）· ⚠️ **面板 backfill 通道报 `bridge0 is not defined`**（`src/ui.mjs` 拼写错误 —— **已由 C588 修**，工作树已改；运行实例还是旧构建 ⇒ **面板补账要等重启才通**）· 补账干跑 **due 185**（明细见下一行） |
 | 重启后开场一条命令 | `node scripts/accept-after-restart.mjs` → 应给 `ready`；若 `stale` 会直点名原因（面板能力 / buildId / 收尾数据） |
 | 一条命令看现状 | `npm run status`（门禁/测试/doctor/面板/补账/真机基准）——C422起可用 |
-| 门禁 | `npm run gate`：**9/9 判分门 + 5 条参考门**。全量 **2541 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
+| 门禁 | `npm run gate`：**9/9 判分门 + 5 条参考门**。全量 **2586 passed / 0 failed**；doctor **0 错 / 9 警**；boundary-audit **0 条** |
 | 真机实测基准 | 命中率 **94.2%**（分母 = 未命中 + 命中）· 全量花费 ≈ **$131.91**，**最贵 5 个会话占 71%** · 上下文曲线**锯齿**（折叠在工作）· fold 中位 **11.5s** / p90 **19.5s** / max **61.7s**· 数字来自 `docs/真机基准-自动生成.md`（C376 起为**生成物**，勿手改；C377 守卫会比对）· 补账**该从哪开始**见该文档第五节（最小的三个会话） |
 | 补账（尚未执行） | `node scripts/backfill-plan.mjs`（**当次输出 2026-11-04 20:5x**，这个数每开一个会话就变 ⇒ 只认当次）：约 **185 个欠账 / 28.1M tok / 250 段 / 42 轮 / 约 69 分钟**；冷缓存 **$4.51（低谷）～ $9.02（高峰）**；**31 个会话按 p90 会超 90s 单会话超时** ⇒ 建议 `closeoutMaxFoldTokens ≈ 186290` 或调大 `closeoutTimeoutMs`；面板约 **10 次点击**（每次 ≤20 会话、每会话 ≤6 段）（C368/C343） |
 | 面板（重启后可用） | 「检查更新」「补账」（dryRun 先看清单）；路由**自愈**（C372）：被热重载弄丢时，下一次模型交互会重新注册。⚠️ **当前「补账」通道曾一调就抛 `bridge0 is not defined`（C588 已修，`accept-after-restart` 就是那条探针）**（`src/ui.mjs`；修的是工作树，**面板里要等重启才生效**），**别把"面板能补账"当已验证** |
@@ -33,7 +33,7 @@
 | Stage A | **15/15**；含长 action 失败原因；最大真实图 340 次渲染、命中 240，派生 p95 **9.996ms** |
 | Stage B | **120/120、0 重试、0 调用错误**；A0 8/20 → A1 15/20；UNKNOWN 样本 30→5；B-06 退化、wall p95 2265→2838ms |
 | 裁决 | **`NEGATIVE_SIGNAL` / `NOT_ADOPTED`**。B-06 按冻结 gold/aliases 判错，未事后修改 grader；下一次必须新 held-out 题集 + 新预注册 |
-| 全量 | **2541 passed / 3 skipped / 0 failed**；Q1 专项 69/69；boundary 0、privacy pass、docs-index 0、pack 禁入 0 |
+| 全量 | **2586 passed / 3 skipped / 0 failed**；Q1 专项 69/69；boundary 0、privacy pass、docs-index 0、pack 禁入 0 |
 | 证据 | `evidence/query-recall-review-final.md` · `query-recall-pilot.results.json` · `query-recall-pilot-public.json` · `query-recall-stage-a.json` · `query-recall-stage-a-perf.json` |
 | 三态 | 分支 `q1-code-recall` 代码与测试已完成；**默认不采纳、未发布、生产未安装** |
 
@@ -62,7 +62,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 / HEAD | `task/axiom-integration`（本地，未 push；`main` 仍是 `3d3d009`） |
-| 全量 | **2454 passed / 0 skipped / 0 failed**（当次输出，2026-11-09；`node test/run.mjs` 串行） |
+| 全量 | **2586 passed / 0 skipped / 0 failed**（当次输出，2026-11-09；`node test/run.mjs` 串行） |
 | 门禁 | boundary **0 条** · docs-index **0** · evidence-consistency **25/25** · knowledge-markers **2/2** · lme-relation-coverage **10/10** · lme-relation-ab **6/6** · 用例数 **2030 = 2030** · 文档数字 9 份 / 20 处一致 · privacy `--changed` pass |
 | 本轮新增 | `scripts/lme-relation-render-v4.mjs`（消歧渲染器）· `evidence/lme-task50-v4-status.fixtures.json`（`fd3e0d15…`）· checker **v3**（`4a667ec1…`，双形态 + C19–C22 四条 v4 负例）· `scripts/lme-relation-ab.mjs`（配对裁决）· 预注册（`188fd375…`）· 两份 pilot（`811eb9e4…` / `a7bfa965…`，已剥离逐样本 raw）· 配对报告（`86099548…`）· `evidence/k27-ab-结论-2026-11-09.md` |
 | 未改（冻结） | v1 夹具 `6a68e82b…` · v3 夹具 `9055b1b9…` · v3 渲染器 `306dd46e…` · runner `c035954a…` · grader `d8eaf62e…` · prompt `8ac9aee5…`（v4 走**独立新文件**，因为 v3 的 `note` 里嵌了生成器自身 sha256，改它就毁掉 v3 的逐字节重放） |

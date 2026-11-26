@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C687 | 历史钉住解开 ⑳×C118-2 死锁：gate.mjs 首次 9/9 全绿 |
 | C686 | 记录一条门禁口径冲突：⑳ 与 C118-2 无法同时绿（含实测证据） |
 | C685 | P1 第七次搬迁：观测守门人并进 fold-quality、补账状态落盘成 backfill-state |
 | C684 | P1 第六次搬迁：补账路由进 backfill-route、摘要文本去重进 summary-text |
@@ -748,6 +749,46 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C687 · 历史钉住解开 ⑳×C118-2 死锁：gate.mjs 首次 9/9 全绿
+
+**上一轮（C686）把 ⑳ 与 C118-2 的口径冲突钉成了记录；这一轮把它解开了 —— `node scripts/gate.mjs` 首次 9/9 全绿。**
+
+```
+✅ 门禁 9/9 通过，用时 430.9s（另有 5 条仅供参考）
+```
+
+## 冲突复盘（C686 实测过）
+
+| 操作 | ⑳ 证据↔磁盘 | C118-2 历史 manual 折痕 |
+|---|---|---|
+| 不跑 `live-folds --write` | ❌ 红（2218 ≠ 2205） | ✅ 绿 |
+| 跑 `live-folds --write` | ✅ 绿 | ❌ 红（allowed=0，期望 1） |
+
+根因：C655 那条历史 manual 折痕（`boundary.openAtEnd = 1`）**在磁盘上已被环形淘汰**（保留上限 20 条），只剩在提交的证据里。重建证据会抹掉它，而 ⑳ 要求证据条数 = 磁盘条数。
+
+## 解法：**历史钉住（inherited pins）**
+
+- `scripts/live-folds.mjs`：重建证据时，从**上一份证据**里继承 `openAtEnd > 0` 且磁盘上已不存在的记录，打上 `historical: true` 写回 `folds[]`；
+- **但不计入 `summary.total`** ⇒ ⑳ 看到的仍是磁盘真实条数；
+- `scripts/consistency-check.mjs`：核对时把 `historical: true` 的记录单独计数（`snapshot.historicalPins`）并排除在「不在磁盘」之外。
+
+重建后实测：`total 4476`（磁盘真值）· `folds 4478`（4476 ranged + 1 manual + **1 条钉住**）· 钉住记录 `at=1793946089761`。
+
+## 两处设计取舍（都写进注释了）
+
+1. **不硬编码那条记录的 sessionId**。第一版把那条记录的 sessionId 字面量写死，`privacy-audit --changed` 立刻报 `P4-RUNTIME-ID review` —— 运行时标识不该进源码。改成「按上一份证据继承」后，既没有 id，也不怕再出现第二条历史记录。
+2. **默认路径也要读上一份证据**。第一版只在 `--from` 模式下读 `existing`，于是普通 `--write` 永远拿不到上一份 ⇒ 钉住失效、`allowed=0`。这个 bug 是我自己跑出来的（重建后 `openAtEnd>0` 条数 0），不是猜的。
+
+## 为什么这条值得单独一刀
+
+它把一个**长期红着的门禁**变成可判定的绿：此后 `gate.mjs` 9/9 就是"可以做下一步"的真实信号，而不是"又红了一个跟我们无关的项"。
+
+## 验证
+
+- `node scripts/gate.mjs` → **9/9 通过**（430.9s）
+- `node test/run.mjs` → **2586 passed / 2 skipped / 0 failed**
+- `evidence-consistency` 25/0 · `live-folds` 14/0 · `handoff-check` **FAIL 0**
 
 ### C686 · 记录一条门禁口径冲突：⑳ 与 C118-2 无法同时绿（含实测证据）
 

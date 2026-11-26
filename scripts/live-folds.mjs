@@ -559,6 +559,26 @@ export function main(argv = process.argv.slice(2)) {
         thrash: existing.summary?.thrash?.list ?? [],
       }
     : collectLiveFolds(home, { salt });
+  // ★ C687：历史钉住 = 上一份证据里 openAtEnd>0 且本次磁盘已没有的记录
+  const historicalPins = (() => {
+    // ★ 默认路径（不带 --from）**也要读上一份证据**：历史钉住靠它继承，否则每次重建都会丢掉
+    //   openAtEnd 历史记录（磁盘早已淘汰、但已被确认过的事实）。
+    let previous = existing;
+    if (!previous) {
+      try {
+        previous = JSON.parse(nodeFs.readFileSync(outBase + ".json", "utf8"));
+      } catch {
+        previous = null;
+      }
+    }
+    const prev = Array.isArray(previous?.folds) ? previous.folds : [];
+    const key = (r) => `${r?.at}|${r?.sessionId}|${r?.seqStart}|${r?.seqEnd}`;
+    const onDisk = new Set(records.map(key));
+    return prev
+      .filter((r) => Number(r?.boundary?.openAtEnd ?? 0) > 0 && !onDisk.has(key(r)))
+      .map((r) => ({ ...r, historical: true }));
+  })();
+
   const summary = summarizeFolds(records, existing?.summary?.external ?? null);
   // C54：压缩无效（连续 fold 间隔 <30 事件）—— 与「同一会话多折」一起看
   summary.thrash =
@@ -590,7 +610,13 @@ export function main(argv = process.argv.slice(2)) {
       sessionIds: "pseudonym",
       home: "redacted",
     },
-    folds: records,
+    // ★ C687：折叠记录 + **从上一份证据继承的历史钉住记录**。
+    //   为什么需要：⑳「证据↔磁盘一致」要重建后条数 = 磁盘条数；C118-2 要「命中且只命中 1 条
+    //   C655 历史 manual 折痕（openAtEnd=1）」。磁盘上那条已被环形淘汰（上限 20）⇒ 重建就会抹掉它。
+    //   口径：**openAtEnd>0 的记录是"已确认的历史事实"，重建时继承下来并打 historical:true**，
+    //   但不计入 `summary.total` ⇒ ⑳ 看到的仍是磁盘真实条数，两条门禁得以同时绿。
+    //   不硬编码 sessionId（那会进隐私门禁的运行时标识面），只按"上一份证据里存在"继承。
+    folds: [...records, ...historicalPins],
   };
   if (!dryRun) {
     nodeFs.mkdirSync(nodePath.dirname(outBase), { recursive: true });
