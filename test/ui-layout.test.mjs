@@ -395,6 +395,52 @@ tests["C690 面板手写的 min/max 必须被 host 的 range 覆盖（3 处 host
   t.eq(headroom.label, "压力余量", "label 是面板的呈现决策，host 不覆盖");
 };
 
+/* ───── C690 接管：删掉手写表后，「数值域以 host 为准」由 deriveFields 直接保证 ─────
+ *
+ * C690 原本是「手写 FIELDS 的 min/max 与 SCHEMA 漂了 5 处 ⇒ 运行时用 withHostRange 覆盖」。
+ * C688 删掉手写表后，面板**没有任何手写 min/max 可漂** —— `deriveFields` 直接取
+ * `state.fields[].range`。所以 C690 的语义不是「没人管了」，而是**从运行时补丁
+ * 升级成了构造期唯一来源**：没有第二份值，也就没有覆盖这件事。
+ *
+ * 本用例把这条接管关系钉死：
+ *   ① 面板 min/max 必须逐字等于 host 的 range（不是"被覆盖后相等"，是"只有这一份"）；
+ *   ② 历史漂移的 3 个键（headroomTokens / closeoutMinEvents / closeoutTimeoutMs）
+ *      在面板上必须呈现 host 的更严值；
+ *   ③ 墓碑：如果谁把 deriveFields 改回读手写值，①②立刻红。
+ */
+tests["C690 接管：面板 min/max 直接来自 host 的 range（无手写值可漂，故无需运行时覆盖）"] = async (t) => {
+  const x = T;
+  // 历史漂移的 3 处：面板曾写 2000000 / 0 / 0，host 是 512000 / 1 / 1000
+  const hostFields = [
+    { key: "headroomTokens", label: "压力余量", type: "number", range: [0, 512000], where: "preset" },
+    { key: "closeoutMinEvents", label: "归档最小事件", type: "number", range: [1, 10000], where: "preset" },
+    { key: "closeoutTimeoutMs", label: "收尾超时", type: "number", range: [1000, 600000], where: "preset" },
+  ];
+  const out = x.deriveFields(hostFields);
+  const byKey = Object.fromEntries(out.map((f) => [f.key, f]));
+
+  t.eq(byKey.headroomTokens.max, 512000, "headroomTokens.max 必须是 host 的 512000（面板曾写 2000000 ⇒ 保存即 400）");
+  t.eq(byKey.closeoutMinEvents.min, 1, "closeoutMinEvents.min 必须是 host 的 1（面板曾写 0）");
+  t.eq(byKey.closeoutTimeoutMs.min, 1000, "closeoutTimeoutMs.min 必须是 host 的 1000（面板曾写 0）");
+
+  // ① 逐字相等：不是"被覆盖后相等"，是面板根本没有第二个来源
+  for (const f of hostFields) {
+    t.eq([byKey[f.key].min, byKey[f.key].max], f.range, `${f.key} 的 min/max 必须逐字等于 host 的 range`);
+  }
+
+  // ② host 没给 range ⇒ 面板也不许猜（不写 min/max，输入框按无界处理）
+  const unbounded = x.deriveFields([{ key: "summarizationProvider", label: "provider", type: "string", where: "preset" }]);
+  t.eq(unbounded[0].min, undefined, "host 没给 range ⇒ 面板不许凭空造 min");
+  t.eq(unbounded[0].max, undefined, "host 没给 range ⇒ 面板不许凭空造 max");
+
+  // ③ 墓碑：面板的 min/max 必须全部可追溯到 host 的 range —— 出现任何 host 没给的值即红
+  const ghost = out.filter((f) => {
+    const src = hostFields.find((h) => h.key === f.key);
+    return src && (f.min !== src.range[0] || f.max !== src.range[1]);
+  });
+  t.eq(ghost.map((f) => f.key), [], "面板出现了 host 没给过的 min/max（说明又有人手写了一份）");
+};
+
 tests["C690 host 没给 range 时不猜（不可编辑/无界的键保持面板原值）"] = async (t) => {
   const x = T;
   const byKey = x.fieldsByKey({ fields: [{ key: "maxTokens", type: "number", range: [256, 65536], where: "preset" }] });
