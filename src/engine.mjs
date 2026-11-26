@@ -376,9 +376,8 @@ function zodField(entry) {
 
 export const Config = z.object({
   ...Object.fromEntries(SCHEMA.map((entry) => [entry.key, zodField(entry)])),
-  // T68：504 个归档会话 / 1158 段摘要真实使用 0 次，却已花 $11.0546。
-  // 这是替用户预付的可选功能，按 AGENTS.md §2.0 默认关；显式 true 才自动补折。
-  autoArchiveBackfill: z.boolean().default(false).description("自动补折已归档会话；默认关闭，打开会产生摘要模型费用"),
+  // ★ C688：`autoArchiveBackfill` 已收编进 SCHEMA（此前它是唯一一个不在 SCHEMA 里的键，
+  //   默认值在这里又手写了一遍 `false`）。现在 Config 完全由 SCHEMA 生成 —— 一行为零。
 });
 
 function pickBase(config) {

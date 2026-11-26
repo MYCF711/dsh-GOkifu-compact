@@ -41,7 +41,9 @@ function resolveChess(config) {
   for (const key of RESOLVE_ORDER) {
     out[key] = key === "onLedgerBudget" ? (typeof c.onLedgerBudget === "function" ? c.onLedgerBudget : null) : base[key];
   }
-  // 新开关独立于旧 autoBackfill golden：只有显式 true 才允许后台自动补折。
+  // ★ C688：`autoArchiveBackfill` 已收编进 SCHEMA（此前是唯一一个不在 SCHEMA 里的键，
+  //   默认值散在 5 处）。语义不变：只有**字面 true** 才开（实验开关不靠真值转换）。
+  //   默认值由 SCHEMA 说了算 —— 这里不再写字面量 `false`。
   out.autoArchiveBackfill = c.autoArchiveBackfill === true;
   return out;
 }
