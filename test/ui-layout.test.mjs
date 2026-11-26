@@ -332,3 +332,35 @@ tests["⑨ C510 假 React 必须提供客户端用到的每个 hook（否则渲�
   const missing = [...hooks].filter((name) => !local.has(name) && !fakeSrc.includes(`${name}:`));
   t.eq(missing, [], `假 React 缺这些 hook：${missing.join(", ")}`);
 };
+
+/* ───── C688：面板字段表 = 手写表 + host 下发的新键（消灭"新键不出现在面板"） ───── */
+
+tests["C688 面板只补 host 有、手写表没有的键；已手写的键零变化"] = async (t) => {
+  const x = T;
+  const fields = x.FIELDS.map((f) => f.key);
+
+  // ① 空 state ⇒ 一个都不补（既有行为逐字不变）
+  t.eq(x.fieldsFromState(undefined).length, 0, "没有 state 时不许凭空造字段");
+  t.eq(x.fieldsFromState({}).length, 0, "没有 fields 时不许补");
+  t.eq(x.fieldsFromState({ fields: [] }).length, 0, "空数组不补");
+
+  // ② 手写表已有的键 ⇒ 不重复补（面板的呈现决策由面板说了算）
+  const dup = x.fieldsFromState({ fields: [{ key: fields[0], label: "HOST", type: "number", range: [0, 1], where: "preset" }] });
+  t.eq(dup.length, 0, `手写表已有的键 ${fields[0]} 不许被 host 覆盖`);
+
+  // ③ host 有、手写表没有的键 ⇒ 补进来，且 min/max 取 host 的 range
+  const added = x.fieldsFromState({
+    fields: [{ key: "__c688_new_key__", label: "新键", type: "number", range: [0.05, 0.95], where: "preset", desc: "说明" }],
+  });
+  t.eq(added.length, 1, "host 独有的键必须补进面板");
+  t.eq(added[0].min, 0.05, "min 必须取 host 的 range[0]");
+  t.eq(added[0].max, 0.95, "max 必须取 host 的 range[1]");
+  t.eq(added[0].step, 0.01, "小数域必须给小数步长（否则面板只能选整数）");
+  t.eq(added[0].label, "新键", "label 取 host 的");
+};
+
+tests["C688 只读键（host 不认保存的）不许进面板 —— 否则又是一个填了不生效的控件"] = async (t) => {
+  const x = T;
+  const engineKey = x.fieldsFromState({ fields: [{ key: "__c688_engine_only__", label: "只读", type: "number", range: [0, 10], where: "engine" }] });
+  t.eq(engineKey.length, 0, `where:"engine" 的键面板不可写，不许渲染成控件`);
+};
