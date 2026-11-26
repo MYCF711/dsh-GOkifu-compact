@@ -7,12 +7,15 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const CLIENT = nodePath.join(ROOT, "lib", "client.js");
 const SOURCE = nodeFs.readFileSync(CLIENT, "utf8");
+
+/** ★ C688：面板字段的唯一来源 —— host 的 `describeFields()`（从 SCHEMA 派生）。 */
+const SCHEMA_FIELDS = (await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href)).describeFields();
 
 const ADVANCED_WARNING = "以下参数影响折叠时机与成本，改错会导致摘要截断、缓存失效或重复扣费";
 const TAB_IDS = Object.freeze(["overview", "folds", "config"]);
@@ -126,7 +129,9 @@ function loadClient(source = SOURCE) {
     if (spec === "react") return runtime.react;
     throw new Error(`意外 require(${spec})`);
   });
-  return { runtime, T: mod.__testables };
+  // ★ C688：面板字段不再由 client 手写 —— 从 host 的 describeFields()（SCHEMA 派生）翻译过来。
+  //   测试与面板读同一份，`T.FIELDS` 只是这份派生结果的别名（不是第二份真值）。
+  return { runtime, T: { ...mod.__testables, FIELDS: mod.__testables.deriveFields(SCHEMA_FIELDS) } };
 }
 
 const { runtime: defaultRuntime, T } = loadClient();
@@ -176,6 +181,9 @@ function fixture(overrides = {}) {
     version: "1.17.6",
     config: { ...DEFAULTS, thresholdRatio: 0.65 },
     defaults: DEFAULTS,
+    // ★ C688：面板字段来自 host 下发的 `state.fields`（SCHEMA 派生）—— 夹具必须带上，
+    //   否则 `deriveFields(undefined)` 返回空表、配置 tab 一项都画不出来（这正是派生链路在工作的证据）。
+    fields: SCHEMA_FIELDS,
     configFile: "D:/fixture/cordis.patch.yml",
     latest: {
       session: "session-panel-layout",
@@ -677,7 +685,9 @@ export const tests = {
       if (tabButton(noActiveStyle.runtime.tree(), "overview").props.style.background !== T.styles.tabActive.background) throw new Error("选中背景丢失");
     }, "官方选中背景守卫对变异必须真红");
 
-    const numericSource = SOURCE.replace('panelLabel: "压缩阈值（固定档位）", hint: "只能选 45% / 50% / 65% / 75% / 85%；45% 是现默认值", kind: "threshold"', 'panelLabel: "压缩阈值（固定档位）", hint: "自由数字", kind: "number", step: 0.01, min: 0.05, max: 0.95');
+    // ★ C688：阈值档位不再来自手写字面量，而是 `deriveFields` 里那行 `kind = "threshold"`。
+    //   变异点跟着代码走：把它改成 number ⇒ 阈值守卫必须变红（判据强度不变）。
+    const numericSource = SOURCE.replace('if (f.key === "thresholdRatio") kind = "threshold";', 'if (f.key === "thresholdRatio") kind = "number";');
     t.ne(numericSource, SOURCE, "数字输入变异确实命中源码");
     const numeric = loadClient(numericSource);
     t.throws(() => assertFixedThresholdControl(numeric.T, numeric.runtime), "退回自由数字输入必须让阈值守卫变红");

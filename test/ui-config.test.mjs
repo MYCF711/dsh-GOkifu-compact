@@ -19,6 +19,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 
+/** ★ C688：面板字段的唯一来源 —— host 的 `describeFields()`（从 SCHEMA 派生）。 */
+const SCHEMA_FIELDS = (await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href)).describeFields();
+
 const installMod = await import(pathToFileURL(nodePath.join(ROOT, "scripts", "install.mjs")).href);
 const { PKG_NAME, ENTRY_ID } = installMod;
 
@@ -357,11 +360,30 @@ tests["一致性 · 中文字段名与 client.js 的 FIELDS label 一致，且�
     for (const key of Object.keys(uiMod.DEFAULTS)) {
       if (typeof uiMod.FIELD_LABELS[key] !== "string" || uiMod.FIELD_LABELS[key].length === 0) throw new Error(`FIELD_LABELS 缺 ${key}`);
     }
+    // ★ C688：client 不再手写 FIELDS —— 面板字段由 `deriveFields(describeFields())` 从 SCHEMA 派生。
+    //   断言随之升级：**真的执行**派生函数再比对 label（旧版是正则抓源码文本，比现在弱）。
     const clientSrc = nodeFs.readFileSync(nodePath.join(ROOT, "lib", "client.js"), "utf8");
-    const pairs = [...clientSrc.matchAll(/\{\s*key:\s*"([^"]+)",\s*label:\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]);
-    if (pairs.length < 10) throw new Error(`没从 client.js 解析出字段表（得到 ${pairs.length} 条），断言会假绿`);
-    const mismatches = pairs.filter(([key, label]) => uiMod.FIELD_LABELS[key] !== label).map(([key, label]) => `${key}: client=${label} host=${uiMod.FIELD_LABELS[key]}`);
+    let loaded = null;
+    const fakeWindow = { __ModuleLoader__: { load: (row) => (loaded = row) } };
+    // eslint-disable-next-line no-new-func
+    new Function("window", clientSrc)(fakeWindow);
+    if (loaded === null) throw new Error("client.js 没有注册模块");
+    const clientMod = loaded.factory((spec) => {
+      if (spec === "react") {
+        return { createElement: () => null, useState: () => [undefined, () => {}], useRef: () => ({ current: null }), useEffect: () => {}, useMemo: (f) => f(), useCallback: (f) => f };
+      }
+      throw new Error(`意外 require(${spec})`);
+    });
+    const fields = clientMod.__testables.deriveFields(SCHEMA_FIELDS);
+    if (fields.length < 10) throw new Error(`派生出的字段表只有 ${fields.length} 条，断言会假绿`);
+    const mismatches = fields
+      .filter((f) => uiMod.FIELD_LABELS[f.key] !== f.label)
+      .map((f) => `${f.key}: client=${f.label} host=${uiMod.FIELD_LABELS[f.key]}`);
     if (mismatches.length > 0) throw new Error(`字段名漂移：\n  ${mismatches.join("\n  ")}`);
+    // 覆盖 DEFAULTS 全部键：面板必须能画出每一个可编辑键（少一个 = 那个键只能手改 yaml）
+    const drawn = new Set(fields.map((f) => f.key));
+    const missing = Object.keys(uiMod.DEFAULTS).filter((key) => !drawn.has(key));
+    if (missing.length > 0) throw new Error(`面板缺少这些可编辑键：${missing.join(", ")}`);
   });
 };
 
