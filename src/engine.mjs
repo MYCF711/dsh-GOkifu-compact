@@ -4091,7 +4091,16 @@ function ruleSummary(g, range) {
   const lines = [];
   lines.push("## 目标");
   const root = g.rootUserNodeIds.map((id) => g.nodes[id]).filter(Boolean)[0];
-  lines.push(`- ${root ? root.text.split("\n")[0] : "(none)"}`);
+  // ★ C693（AB 复核实测）：根目标只取**首行**，但首行本身没有上限 —— 一条 2,097,165 字符的单行消息
+  //   会让规则摘要直接产出 2,097,473 字符（同内容走 renderFacts 只有 4,239，因为它有 ROOT_LIMIT=4000）。
+  //   降级路径（模型挂 / forceRulesNext）本该更省，结果反而把上下文撑大 ⇒ 与 renderFacts 同口径截断。
+  const ROOT_FIRST_LINE_LIMIT = 4000;
+  const rootLine = root ? root.text.split("\n")[0] : "";
+  const rootShown =
+    rootLine.length > ROOT_FIRST_LINE_LIMIT
+      ? `${rootLine.slice(0, ROOT_FIRST_LINE_LIMIT)} …[truncated ${rootLine.length - ROOT_FIRST_LINE_LIMIT} chars; full text in session log seq ${root.seq}]`
+      : rootLine;
+  lines.push(`- ${root ? rootShown : "(none)"}`);
   // ★ C656：**约束一条都不许丢**（重注入契约 §1 ②「逐字」/ fold-quality「最终产物 = 1 是设计保证」）。
   //   这里曾有 `.slice(0, 12)` —— 真机 2026-11-08（pressure fold，seq 509-1600）走的正是本函数的
   //   规则兜底（hybrid 试模型失败 ⇒ fallback="rules"），于是第 13/14 条约束**一个字都没进摘要**，

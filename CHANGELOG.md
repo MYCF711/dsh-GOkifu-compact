@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C693 | AB 复核修复：坏图备份、形状校验、规则摘要上限、面板 range 对齐 |
 | C692 | 四阶段收口：交付状态表 + 架构上明确不做的三条（附判据） |
 | C691 | 量出改动半径基线：行为改动 1.40 个文件 / 搬迁 2.33（参考方案 §7 第 1 条） |
 | C690 | P2 收尾：面板数值域改以 host 为准（3 处 host 更严的历史问题根治） |
@@ -754,6 +755,46 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C693 · AB 复核修复：坏图备份、形状校验、规则摘要上限、面板 range 对齐
+
+**两组独立 AB 复核的产出：修掉 4 条「会静默出错」的问题。剩下 2 条 blocker 我没动 —— 理由在下。**
+
+## 已修（都是 AB 组实测出来的，不是推测）
+
+### ① 合法 JSON 但缺字段的图会一路抛到宿主
+```text
+{"version":1}  → 版本检查通过 → [...g.order] → "g.order is not iterable"
+```
+从 `summarize` / `compactIfNeeded` 直接抛给宿主。**现在加载边界校验形状**：`nodes`/`edges` 必须是对象、`order` 必须是数组，否则明确报 `graph: corrupt …`。
+
+### ② 坏图会被"静默覆盖成空图"，且不留备份
+实测：版本不符或半写的 `graph.json` 会让 `load` 建空图，下一次 flush 把原文件覆盖掉 —— **备份目录里什么都没有**。
+现在**降级前先备份**到 `graph.json.bak-<ts>`，并把备份路径写进 `repairedReason`；备份失败也照实上报（`repairedBackupError`），不吞。
+
+### ③ 规则摘要的首行没有上限（降级路径反而更贵）
+一条 2,097,165 字符的单行消息 ⇒ 规则摘要产出 **2,097,473 字符**；同内容走 `renderFacts` 只有 4,239（那边有 `ROOT_LIMIT=4000`）。
+**现在同口径截断**（4000 + 明确的 truncated 说明与 seq 出处）。降级路径本该更省，不该把上下文撑大。
+
+### ④ 面板手写的 4 处 range 与 `SCHEMA` 不符
+`firstFoldRatio 0.9↔0.95`、`headroomTokens 1048576↔512000`、`closeoutMinEvents 0↔1`、`closeoutTimeoutMs 0↔1000`。
+此前靠 `withHostRange` 在运行时兜住，但 `state.fields` 一缺就回归"填了保存 400"。现在**底表也对齐**。
+
+## 没动的两条 blocker（都需要你拍板，不是我能自决的）
+
+**B1 · 面板「保存」只写 `<preset>.pending`，重启不应用。**
+`src/ui.mjs` 只写 pending 并返回 `applied:false`，面板却提示"重启 DSH 后生效"。全仓唯一应用者是 `scripts/apply-pending-preset.mjs --write`（没钩子、没门禁、文档没提）。
+为什么我不敢直接改成直写：AGENTS §2.2 / §7-10 明确记着"**运行中改 `profiles/*/cordis.patch.yml` 会整树热重载，可能让 host exit(1)**"（15:00 实测过）。直写 = 拿用户正在跑的实例冒险。
+两条可选路：**(a)** 面板如实改为"已暂存，需运行 `apply-pending-preset --write` 应用"，并在 state 里暴露 pending 状态；**(b)** 做成插件启动时自动应用 pending（行为变更，需你同意）。
+
+**B2 · `autoBackfill` 是死开关，真开关 `autoArchiveBackfill` 面板看不到。**
+`autoBackfill` 在 SCHEMA 里默认 `true`、进 `PRESET_KEYS`，但不在 `RESOLVE_ORDER` ⇒ 面板永远显示「开」，引擎实际因 `autoArchiveBackfill=false` **不补账**：**开关拨动完全无效，且状态显示与真实相反**。
+为什么我不敢直接接：把 `autoBackfill` 加进 `RESOLVE_ORDER` 会**推翻 `test/doctor-switch.test.mjs` 的 T72 三条既定判据**（"旧键 false 不许覆盖新键 / 旧键单独不生效"）—— 那是 2026-11 的明确决定。
+可选路：**(a)** 从 SCHEMA/面板移除旧键，把 `autoArchiveBackfill`（付费总闸，默认关，desc 里已含 $11.05 真实费用）接进面板；**(b)** 保留旧键但面板标注"已停用，实际开关见 X"。
+
+## 验证
+
+全量 **2590 passed / 2 skipped / 0 failed**；`kifu-persist` 24/0；`persist` 50/0；`ui` 155/0；`engine-harness` 133/0。
 
 ### C692 · 四阶段收口：交付状态表 + 架构上明确不做的三条（附判据）
 

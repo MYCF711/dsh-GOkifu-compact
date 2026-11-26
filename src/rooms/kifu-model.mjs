@@ -550,6 +550,13 @@ export function toJSON(g) {
 export function fromJSON(text, { heal = false } = {}) {
   const obj = JSON.parse(text);
   if (obj.version !== GRAPH_VERSION) throw new Error(`graph: unsupported version ${obj.version}`);
+  // ★ C693（AB 复核实测）：`{"version":1}` 这种"合法 JSON 但缺字段"的图能过版本检查，
+  //   然后在 `[...g.order]` 处抛 `g.order is not iterable` —— 从 `summarize` 一路抛给宿主。
+  //   加载边界必须把**形状**也校验掉：缺 facts 就明确报错，而不是让它在几十行之后炸。
+  for (const key of ["nodes", "edges"]) {
+    if (obj[key] === null || typeof obj[key] !== "object") throw new Error(`graph: corrupt ${key}`);
+  }
+  if (!Array.isArray(obj.order)) throw new Error("graph: corrupt order");
   // ★ P0 历史数据修复：v1.3.4 及以前，keeper 把 worldstate.hash() 返回的
   //   { hash, mode, files } 对象直接写进了节点字段。这里在加载边界统一收敛成字符串，
   //   否则 ledger 的 `.slice()` 会抛 "latest?.worldHash?.slice is not a function"，

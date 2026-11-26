@@ -155,8 +155,31 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
       return { graph, baseHash: base, repaired: false, repairedReason: null, truncatedFrames };
     } catch (error) {
       // ★ A2-2 行为变更①：不再静默建空图 —— 返回 repaired + 原因，由 R09 打日志。
+      // ★ C693（AB 复核实测）：**降级前必须先备份原文件**。此前版本不符 / 半写 / 形状损坏时
+      //   直接建空图，下一次 flush 就会把原 graph.json 覆盖成空图且**不留任何备份**
+      //   （实测：坏图 852 字节 → 归档后 852 字节的空图，备份目录里什么都没有）。
+      //   备份失败不影响降级（读不出就是读不出），但必须把两件事都报给调用方。
+      const reason = String(error?.message ?? error);
+      let backupPath = null;
+      let backupError = null;
+      try {
+        if (port.existsSync(p.graphFile)) {
+          backupPath = `${p.graphFile}.bak-${Date.now()}`;
+          port.copyFileSync ? port.copyFileSync(p.graphFile, backupPath) : port.writeFileSync(backupPath, port.readFileSync(p.graphFile, "utf8"), "utf8");
+        }
+      } catch (backupFailure) {
+        backupError = String(backupFailure?.message ?? backupFailure);
+      }
       const graph = createGraph({ sessionId: key, cwd: cwd ?? process.cwd() });
-      return { graph, baseHash: undefined, repaired: true, repairedReason: String(error?.message ?? error), truncatedFrames };
+      return {
+        graph,
+        baseHash: undefined,
+        repaired: true,
+        repairedReason: backupPath === null ? reason : `${reason}（原文件已备份到 ${nodePath.basename(backupPath)}）`,
+        repairedBackup: backupPath,
+        repairedBackupError: backupError,
+        truncatedFrames,
+      };
     }
   }
 
