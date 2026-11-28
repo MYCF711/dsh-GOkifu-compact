@@ -84,7 +84,7 @@ export const SCHEMA = Object.freeze([
   //   间隔与批量刻意**不开放配置**（30 分钟 / 每轮 1 个），要调就用环境变量：
   //   `DSH_GOKIFU_AUTO_BACKFILL_MIN` / `DSH_GOKIFU_AUTO_BACKFILL_MAX` —— 少一个配置项，
   //   就少一处 golden 与文档漂移（这是吃过教训的：每个新键要同步 6 个 golden）。
-  { key: "autoBackfill", type: "boolean", default: true, where: "preset", label: "自动补账", desc: "后台每 30 分钟自动补一个归档会话的尾巴（离线补折：读日志 + 默认模型）；关掉就只手动补" },
+  { key: "autoBackfill", type: "boolean", default: true, where: "preset", label: "自动补账", desc: "★ 已停用：这个键引擎不再读取（不在 resolveChess 白名单），拨它没有任何效果。真正的开关是 autoArchiveBackfill（默认关，打开会产生摘要模型费用）；想手动补一次用面板的补账按钮" },
   { key: "summaryMode", type: "enum", values: ["hybrid", "rules", "llm"], default: "hybrid", where: "preset", label: "摘要方式", desc: "hybrid=规则事实+模型润色；rules=零模型调用；llm=完全交给模型" },
   {
     key: "growthFloorTokens",
