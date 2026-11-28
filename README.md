@@ -3,7 +3,7 @@
 <img src="assets/icon-180.png" width="88" height="88" alt="">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.18.5-green.svg)](https://github.com/MYCF711/dsh-GOkifu-compact/releases)
+[![Version](https://img.shields.io/badge/version-1.20.0-green.svg)](https://github.com/MYCF711/dsh-GOkifu-compact/releases)
 [![npm](https://img.shields.io/npm/v/dsh-gokifu-compact.svg)](https://www.npmjs.com/package/dsh-gokifu-compact)
 [![dsh](https://img.shields.io/badge/DeepSeek%20Harness-plugin-orange.svg)](https://github.com/topics/dsh-plugin)
 
@@ -237,7 +237,7 @@ npm run gate                             # 9 判分门 + 5 条参考门（发版
 
 | 质量基线 | 值 |
 |---|---|
-| 全量测试 | `node test/run.mjs` → **2590 passed**（当次输出 2026-11-09；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
+| 全量测试 | `node test/run.mjs` → **2597 passed**（当次输出 2026-11-09；实测时刻见 `test/counts-baseline.json` 的 `passedAt`；**必须串行**，否则会出现四种不同的计数） |
 | 越界审计 | **0 条**（扫 26 个 `src/**/*.mjs` · **6 条规则** · 豁免 1 条） |
 | 文档索引 | **148 个文件 · 未索引 0** |
 | 文档数字同步 | **9 份文档 / 20 处锚点**全一致 |
