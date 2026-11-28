@@ -226,6 +226,8 @@ const LABEL_ORDER = Object.freeze([
   "growthFloorTokens",
   "minFoldTokens",
   "autoBackfill",
+  // ★ C698：付费总闸进面板 —— 标签顺序里紧跟它替代的那个旧键，读者一眼能看出"新开关在哪"。
+  "autoArchiveBackfill",
   "summaryMode",
   "maxTokens",
   "hotLedger",
@@ -297,6 +299,9 @@ export function resolveConfig(raw = {}) {
     minFoldTokens: num(c.minFoldTokens, describe("minFoldTokens").default),
     // ★ C524：默认开（只有显式 false 才关）
     autoBackfill: c.autoBackfill !== false,
+    // ★ C698（用户选 (a)）：付费总闸 —— **只认字面 true**（与 engine.mjs 的 sanitize 同义），默认关。
+    //   进面板 ≠ 默认打开：不写这一行，面板能写但引擎读不到，就又是"假 UI"。
+    autoArchiveBackfill: c.autoArchiveBackfill === true,
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
     // ★ C248：注入节流间隔（默认 40 = 旧行为）

@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C698 | 付费总闸进面板（用户选 a）：默认关、文案带 $11.05 实测费用、契约版本 1→2 |
 | C697 | B2 零代价那一半：死开关的文案改成实话（付费开关仍等你拍板） |
 | C696 | AB 复核末条：反向 evidence 区间不许静默 —— validate 报出、查询归一 |
 | C695 | AB 复核尾巴：delta 不毁基线、staleBase 与 badTail 分开、随包脚本给人话 |
@@ -759,6 +760,41 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C698 · 付费总闸进面板（用户选 a）：默认关、文案带 $11.05 实测费用、契约版本 1→2
+
+**用户选 (a)：把付费总闸 `autoArchiveBackfill` 接进面板 —— 可达、默认关、文案带真实费用。**
+
+## 为什么不是"打开一个开关"这么简单
+
+这个键此前**只在 engine 的 `Config` 里手写声明**：SCHEMA 没有、`PRESET_KEYS` 没有、面板看不到。所以它属于「有功能、没开关」。接进面板 = **一次对外配置契约变更**，必须逐处同步，否则就是新的假 UI。
+
+## 改动清单（逐处都有门禁）
+
+| 位置 | 改了什么 |
+|---|---|
+| `config-schema.mjs` | 新增 SCHEMA 行：`default: false`、`where: "preset"`、desc 写明"实测历史花费 **$11.05**、真实使用 0 次，故默认关闭"；进 `PRESET_KEYS` 与 `LABEL_ORDER`；`resolveConfig` 里 **只认字面 true** |
+| `CONFIG_SCHEMA_VERSION` | **1 → 2**（多一个键就是契约变更，必须升版本） |
+| `preset-format.mjs` | `engineBlock()` 加一行 `autoArchiveBackfill: false`，并把已停用的 `autoBackfill` 行注释标成「引擎不读这一行」 |
+| `engine.mjs` | 进 `RESOLVE_ORDER` —— 否则面板写了引擎读不到，又回到假 UI |
+| `ui.mjs` | `uiDefaults()` 的临时覆盖失效（键已在 SCHEMA 里），行为不变 |
+| 测试 | 6 处契约快照同步：golden keys / preset keys / defaults / labels / resolveConfig / describeConfig / C675 键序 + 版本号 / A2-1 逐行 golden（29 行 / 23 键，后四条行索引 +1） |
+
+## 三条判据（新用例）
+
+1. **SCHEMA 必须有它**，`default === false`、`where === "preset"`（否则面板拿不到）；
+2. **文案必须带真实费用**：断言 desc 里有「费用」和 `11.05`，label 里能看出「付费」—— 不让人点开才知道要花钱；
+3. **只认字面 `true`**：`"true"` 字符串不许打开（面板传字符串是常见形态）、不写就是关。
+
+## 中途踩的坑（都记在提交里）
+
+- 我用字符串替换插 `LABEL_ORDER` 时，`"minFoldTokens",` 在 SCHEMA 里也出现 ⇒ **误伤了一整行 SCHEMA**，两轮才拆干净。教训：改数组要按上下文定位，不能只按值替换。
+- `describeConfig` 的 `unconfiguredKeys` 是**排序后**比对，`autoArchiveBackfill` 排在 `autoBackfill` **之前**（ASCII `A` < `B`），顺序错了就红。
+- 加一行模板导致 A2-1 的 `block[21]/[23]/[26]` 全部下移一位 —— 逐行 golden 的代价，已同步并注明"C698 加行后下移"。
+
+## 验证
+
+全量 **2597 passed / 2 skipped / 0 failed**（+1 用例）· `config-schema` 22/0 · `rooms` 20/0 · `auto-backfill-switch` 5/0 · `docs-index` 0 · `privacy-audit --changed` pass。
 
 ### C697 · B2 零代价那一半：死开关的文案改成实话（付费开关仍等你拍板）
 

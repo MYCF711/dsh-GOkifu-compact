@@ -282,8 +282,10 @@ tests["T68④ UI：默认关与费用说明可发现，配置可读写并可重�
     const state = await callApi(handler, { action: "state" });
     t.eq(state.status, 200, state.raw);
     t.eq(state.json?.config?.autoArchiveBackfill, false, "未配置时 UI 必须读到生效值 false");
-    t.eq(state.json?.configOrigins?.autoArchiveBackfill, "default", "默认值来源必须是 default");
-    t.eq(state.json?.unconfiguredKeys?.includes("autoArchiveBackfill"), true, "未配置列表必须包含新键");
+    // ★ C698：这个键进了 SCHEMA/PRESET_KEYS ⇒ 新建 preset 里会**显式写一行**（值 false），
+    //   所以它的来源是 preset 而不是 default —— 这比"隐性默认"更好：文件里看得见、可核对。
+    t.eq(state.json?.configOrigins?.autoArchiveBackfill, "preset", "进了模板 ⇒ 来源是 preset（显式写在 preset 里）");
+    t.eq(state.json?.unconfiguredKeys?.includes("autoArchiveBackfill"), false, "已在 preset 模板里显式声明，不再属于未配置键");
 
     t.eq(ui.sanitizePatch({ autoArchiveBackfill: "true" }), { patch: { autoArchiveBackfill: true }, skipped: [] }, "UI 必须接受字符串 true 并规整成布尔");
     t.throws(() => ui.sanitizePatch({ autoArchiveBackfill: "yes" }), "非法布尔必须真红");
@@ -299,4 +301,22 @@ tests["T68④ UI：默认关与费用说明可发现，配置可读写并可重�
     const reread = parseEngineBlock(readEffective(presetFile));
     t.eq(reread.config.autoArchiveBackfill, false, "重新关闭必须真的写回 false");
   });
+};
+
+/* ───── C698（用户选 a）：付费总闸进面板 —— 可达、默认关、文案带真实费用 ───── */
+
+tests["C698 付费总闸必须出现在面板字段里，且默认关 + 文案写明费用"] = async (t) => {
+  const client = await import("../lib/client.js").catch(() => null);
+  const cfg = await import("../src/rooms/config-schema.mjs");
+  const row = cfg.SCHEMA.find((e) => e.key === "autoArchiveBackfill");
+  t.ok(row !== undefined, "SCHEMA 必须有这个键（否则面板拿不到它）");
+  t.eq(row.default, false, "默认必须关 —— 不替用户预付模型费用");
+  t.eq(row.where, "preset", "必须可写进 preset（面板只渲染 preset 域）");
+  t.includes(row.desc, "费用", "文案必须写明会产生费用");
+  t.includes(row.desc, "11.05", "必须带真实实测花费，不能只说可能会花钱");
+  t.includes(row.label, "付费", "标签本身要能看出是付费开关（不必点开才知道）");
+  // 只认字面 true：字符串 "true" 不许打开（面板传字符串是常见形态）
+  t.eq(cfg.resolveConfig({ autoArchiveBackfill: true }).autoArchiveBackfill, true, "字面 true 才开");
+  t.eq(cfg.resolveConfig({ autoArchiveBackfill: "true" }).autoArchiveBackfill, false, "字符串 true 不许开");
+  t.eq(cfg.resolveConfig({}).autoArchiveBackfill, false, "不写就是关");
 };

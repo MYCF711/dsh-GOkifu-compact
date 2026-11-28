@@ -3868,6 +3868,9 @@ const RESOLVE_ORDER = [
   // ★ Q1 B-1（2026-11-16）：锚点召回开关。**必须**进这张白名单 —— 否则 UI 里打开了 `queryRecall`，
   //   `resolveChess` 也会把它丢掉（`this.chess.queryRecall` 恒 `undefined`），热注入永远看不到开关。
   "queryRecall",
+  // ★ C698（用户选 (a)）：付费总闸也进白名单 —— 面板能写它，引擎就必须读它，
+  //   否则又回到"面板写了引擎读不到 = 假 UI"。语义仍是"只认字面 true"（下方显式 === true 收敛）。
+  "autoArchiveBackfill",
 ];
 
 /** ★ A2-4：净化语义全部在 R15（`resolveConfig`）；这里只负责 engine 的注入位与键序。 */

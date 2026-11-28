@@ -40,7 +40,7 @@ const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（�
 
 const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, autoArchiveBackfill: false, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200, factGuard: false, queryRecall: false };
 
-const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", queryRecall: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "queryRecall", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
+const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, autoArchiveBackfill: false, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", autoArchiveBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", queryRecall: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoArchiveBackfill", "autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "queryRecall", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
 
 const RANGES = { thresholdRatio: [0.05, 0.95], firstFoldRatio: [0, 0.95], headroomTokens: [0, 512000], retainRatio: [0, 0.9], growthFloorTokens: [0, 1000000], minFoldTokens: [0, 1000000], maxTokens: [256, 65536], hotLedgerMaxTokens: [0, 20000], tier2After: [0, 100] };
 const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["semantic", "terse", "off"] };
@@ -176,7 +176,7 @@ export const tests = {
     t.includes(ui, "return describeConfigFromSchema(presetConfig);", "describeConfig 必须委托");
   },
 
-  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，28 行（C316 加 closeoutMaxFoldTokens；Q1-UI 加 queryRecall）"(t) {
+  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，29 行（C316 加 closeoutMaxFoldTokens；C698 加 autoArchiveBackfill；Q1-UI 加 queryRecall）"(t) {
     return import(PRESET_FORMAT).then((pf) => {
       const lines = pf.engineBlock();
       const keys = [];
@@ -198,7 +198,7 @@ export const tests = {
       t.eq(values.tier2After, String(describe("tier2After").default), "tier2After 值");
       // ★ Q1-UI：面板开关必须真的写进安装器模板（否则新建的 preset 里没有这一行，用户只能手写）
       t.eq(values.queryRecall, "false", "queryRecall 在模板里必须是 false（默认关）");
-      t.eq(lines.length, 28, "engineBlock 总行数（C524 autoBackfill；Q1-UI queryRecall）");
+      t.eq(lines.length, 29, "engineBlock 总行数（C524 autoBackfill；Q1-UI queryRecall）");
       return undefined;
     });
   },
@@ -324,7 +324,7 @@ tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板�
 
 tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 / 面板顺序）"] = async (t) => {
   const { CONFIG_SCHEMA_VERSION, SCHEMA } = await import(ROOM);
-  t.eq(CONFIG_SCHEMA_VERSION, 1, "配置面版本号必须导出且为 1");
+  t.eq(CONFIG_SCHEMA_VERSION, 2, "配置面版本号 = 2（C698 加 autoArchiveBackfill，属对外契约变更 ⇒ 必须 +1）");
   // 键序 = preset 块里 engine 段的行序 = 面板渲染顺序 ⇒ 记忆侧与手写 preset 都依赖它。
   // 加键追加到末尾；删/重排必须让版本号 +1 并同步发布说明。
   t.eq(JSON.stringify(SCHEMA.map((e) => e.key)), JSON.stringify([
@@ -341,6 +341,7 @@ tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 
       "modelPolicies",
       "auto",
       "autoBackfill",
+      "autoArchiveBackfill",
       "summaryMode",
       "growthFloorTokens",
       "minFoldTokens",
