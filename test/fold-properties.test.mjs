@@ -154,3 +154,33 @@ tests["C60 保真度：含全约束/全失败 id ⇒ 召回 1；缺一条进 mis
     }
   }
 };
+
+/* ───── C696：反向区间不许"静默无结果"（AB 复核 MINOR） ───── */
+
+tests["C696 反向 evidence 区间必须在 validate() 里报出来（不许静默通过）"] = async (t) => {
+  const m = await import("../src/rooms/kifu-model.mjs");
+  const g = createGraph({ sessionId: "c696", cwd: "D:/tmp/c696" });
+  const a = addUserNodeId(g, { seq: 1, text: "目标" });
+  const b = addAgentNode(g, { seq: 5, turn: 1, goal: "试", worldHash: "W", constraintHash: "C" });
+  // ⚠ 夹具的 addEdge 返回**边 id**（不是对象）—— 本仓已因此犯过两次，这里显式回读。
+  const eid = addEdge(g, { from: a, to: b, action: "尝试", evidence: { start: 9, end: 3 } });
+  g.edges[eid].result = "failure";
+  g.edges[eid].errorSnippet = "x";
+  const problems = m.validate(g);
+  t.eq(problems.some((p) => p.includes("evidence 区间反向")), true, `反了要报；实际：${problems.join(" | ")}`);
+  t.eq(problems.some((p) => p.includes(eid)), true, "报错必须点名是哪条边");
+};
+
+tests["C696 failuresInFoldRange 遇到反向区间必须归一，而不是恒不命中"] = async (t) => {
+  const g = createGraph({ sessionId: "c696b", cwd: "D:/tmp/c696" });
+  const a = addUserNodeId(g, { seq: 1, text: "目标" });
+  const b = addAgentNode(g, { seq: 5, turn: 1, goal: "试", worldHash: "W", constraintHash: "C" });
+  const eid = addEdge(g, { from: a, to: b, action: "尝试", evidence: { start: 3, end: 4 } });
+  // settleEdge 收的是**边 id**（不是对象）—— 与 addEdge 返回 id 配套。
+  const m2 = await import("../src/rooms/kifu-model.mjs");
+  m2.settleEdge(g, eid, { result: "failure", errorSnippet: "x" });
+  const forward = failuresInFoldRange(g, { start: 2, end: 6 });
+  const reversedRange = failuresInFoldRange(g, { start: 6, end: 2 });
+  t.eq(forward.length, 1, "正向区间应命中 1 条失败边");
+  t.eq(reversedRange.length, forward.length, "区间写反了结论不该变（归一后同结果），旧写法会恒为 0");
+};

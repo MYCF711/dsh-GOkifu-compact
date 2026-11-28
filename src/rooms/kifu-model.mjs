@@ -723,6 +723,14 @@ export function validate(g) {
     if (edge.weak && edge.result !== "unverified") {
       problems.push(`edge ${id}: weak=${edge.weak} 却 result=${edge.result}（弱成功必须保持 unverified）`);
     }
+    // ★ C696（AB 复核 MINOR）：**反向 evidence 区间**以前静默通过校验。
+    //   `{start:5,end:3}` 这样的证据区间在所有"是否落在本折区间内"的过滤里恒不命中，
+    //   于是这条边看起来"这段折叠里没有任何证据" —— 真相是区间写反了，不是没证据。
+    //   与 `foldClosureOf` 的 C194 自愈同源，但这里**必须报出来**：校验器的作用就是让脏数据可见。
+    const span = edge?.evidence !== null && typeof edge?.evidence === "object" ? edge.evidence : null;
+    if (span !== null && Number.isFinite(span.start) && Number.isFinite(span.end) && span.start > span.end) {
+      problems.push(`edge ${id}: evidence 区间反向 (start ${span.start} > end ${span.end})`);
+    }
   }
   for (const id of g.order) {
     const node = g.nodes[id];

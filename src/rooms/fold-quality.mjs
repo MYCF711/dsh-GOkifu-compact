@@ -88,10 +88,14 @@ export function foldCostMetrics({ inputTokens, shadowedTokens, summaryTokens = n
 export function failuresInFoldRange(graph, range = null) {
   const all = failureEdges(graph).filter((edge) => !isDanglingResidue(edge, { graph }));
   if (range === null || range === undefined || !Number.isFinite(range.start) || !Number.isFinite(range.end)) return all;
+  // ★ C696：区间方向先归一（同 `foldClosureOf` 的 C194）。区间反了时旧写法恒不命中 ⇒
+  //   "这段折叠里没有任何失败边"是**假结论**，真结论是"区间写反了"。
+  const lo = Math.min(range.start, range.end);
+  const hi = Math.max(range.start, range.end);
   return all.filter((edge) => {
     const span = evidenceSpan(edge);
     if (span === null) return true;
-    return span.end >= range.start && span.start <= range.end;
+    return span.end >= lo && span.start <= hi;
   });
 }
 
