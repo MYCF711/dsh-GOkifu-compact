@@ -67,7 +67,7 @@ import { parseEngineBlock, renderEngineBlock, ENTRY_ID, PKG_NAME } from "./rooms
 //   缺 import 也照样绿 —— 这类「只看字面量」的守卫正是它能活下来的原因。
 import { closeoutTimeoutAdvice, recentFoldP90 } from "./rooms/closeout-plan.mjs";
 // ★ A2-4（2026-10-30）：默认值/中文名/净化规则全部来自 R15（config-schema），页面不再各留一份。
-import { CONFIG_SCHEMA_VERSION, configDefaults, describeFields, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
+import { CONFIG_SCHEMA_VERSION, configDefaults, describe as describeSchemaKey, describeFields, fieldLabels, describeConfig as describeConfigFromSchema, validatePatch } from "./rooms/config-schema.mjs";
 // ★ C216「补做收尾」：判债务 / 排序限量 / 串行补（取消归档 → resume → 收尾 → 归档回去）都在 R17 房间里，
 //   这里只做接线（取会话清单、拿宿主服务、把引擎的 closeoutNow 递进去）。
 import { listDebts, backfillArchivedSessions } from "./rooms/closeout-backfill.mjs";
@@ -98,18 +98,25 @@ import { healHomePatch, planHomePatch, isTestRuntime } from "./rooms/user-patch.
 /** 与 R15（config-schema）保持一致的默认值（页面用来显示「默认」）。 */
 export const DEFAULTS = Object.freeze(configDefaults());
 
-/** T68：自动归档补折是可选的预付功能，默认关；说明随 defaults/state 一并暴露。 */
+/**
+ * T68：自动归档补折是可选的预付功能，默认关；说明随 defaults/state 一并暴露。
+ *
+ * ★ C688：**结构从 SCHEMA 派生**（key / type / default / label），这里只留两样
+ * SCHEMA 表达不了的：`desc` 里那段"打开会花多少钱"的实测说明，以及面板上的短名。
+ * 此前 default 在这里又写了一遍 `false` —— 与 SCHEMA 是两份真值。
+ */
 export const AUTO_ARCHIVE_BACKFILL_CONFIG = Object.freeze({
   key: "autoArchiveBackfill",
-  type: "boolean",
-  default: false,
+  type: describeSchemaKey("autoArchiveBackfill").type,
+  default: describeSchemaKey("autoArchiveBackfill").default,
   label: "自动归档补折",
   desc: "自动为已归档会话补做离线折叠；默认关闭。打开后会按既有调度调用摘要模型并产生费用（T68：504 个会话 / 1158 段，真实使用 0 次，已花 $11.0546）；设为 true 打开，设为 false 关闭。实时折叠与当前会话归档收尾不受影响；手工补：node scripts/archive-fold.mjs --session <id> --write",
 });
 export const CONFIG_ITEMS = Object.freeze([AUTO_ARCHIVE_BACKFILL_CONFIG]);
 
 function uiDefaults() {
-  return { ...DEFAULTS, autoArchiveBackfill: AUTO_ARCHIVE_BACKFILL_CONFIG.default };
+  // ★ C688：默认值只从 SCHEMA 取（不再 `AUTO_ARCHIVE_BACKFILL_CONFIG.default` 二次转手）。
+  return { ...DEFAULTS, autoArchiveBackfill: describeSchemaKey("autoArchiveBackfill").default };
 }
 
 /**

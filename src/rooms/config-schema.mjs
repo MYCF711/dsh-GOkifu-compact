@@ -155,6 +155,19 @@ export const SCHEMA = Object.freeze([
       "把机械召回的棋谱条目作为一段附在热清单前（条数与字符上限固定）；无锚点或无匹配时一段都不加。" +
       "关掉（不写或写 false）即恢复逐字不变的旧渲染",
   },
+  // ★ C688：**自动补折已归档会话**（后台 job）。此前它是**唯一一个不在 SCHEMA 里的键** ——
+  //   默认值散在 5 处（engine 的 Config 字面量 / resolveChess 的 `=== true` / ui 的
+  //   AUTO_ARCHIVE_BACKFILL_CONFIG / config-resolve 的注入位 / 文档），任何一处漂移都没人发现。
+  //   T68 实测：504 个归档会话、1158 段摘要，真实使用 **0 次**，已花 **$11.0546** ⇒ 默认关。
+  //   只有**字面 true** 才开启（与 factGuard / queryRecall 同一套实验开关语义）。
+  {
+    key: "autoArchiveBackfill",
+    type: "boolean",
+    default: false,
+    where: "engine",
+    label: "自动补折已归档会话",
+    desc: "后台每 10 分钟自动补一个归档会话的尾巴（离线补折：读日志 + 摘要模型）；默认关闭，打开会产生摘要模型费用",
+  },
 ]);
 
 const BY_KEY = new Map(SCHEMA.map((entry) => [entry.key, entry]));
@@ -401,7 +414,7 @@ export function describeConfig(presetConfig = {}) {
  *
  * 变更纪律：只加不改。新增键追加到末尾；删除或重排键必须让版本号 +1 并同步发布说明。
  */
-export const CONFIG_SCHEMA_VERSION = 1;
+export const CONFIG_SCHEMA_VERSION = 2;
 
 export function validatePatch(patch = {}) {
   const editable = new Set(Object.keys(configDefaults()));
