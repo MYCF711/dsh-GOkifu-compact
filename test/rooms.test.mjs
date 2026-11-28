@@ -510,21 +510,21 @@ export const tests = {
     t.notIncludes(install, "export function replaceCompactionBlock", "install.mjs 不得再有自持实现");
   },
 
-  "A2-1：preset 块格式逐字未变（engineBlock 28 行 / 22 个配置键；C524 加 autoBackfill，Q1-UI 加 queryRecall）"(t) {
+  "A2-1：preset 块格式逐字未变（engineBlock 29 行 / 23 个配置键；C524 加 autoBackfill，Q1-UI 加 queryRecall）"(t) {
     // 动态 import 房间，直接比对块内容 —— 这是「一个字节都不许变」的机器判据。
     return import(pathToFileURL(nodePath.join(SRC, "rooms", "preset-format.mjs")).href).then((room) => {
       const block = room.engineBlock();
-      t.eq(block.length, 28, "engineBlock 行数（C524 加 autoBackfill；Q1-UI 加 queryRecall）");
+      t.eq(block.length, 29, "engineBlock 行数（C524 加 autoBackfill；Q1-UI 加 queryRecall；C698 加 autoArchiveBackfill）");
       t.eq(block[0], "# ★ 压缩后端：棋谱式增量 fold（失败记忆 + 手割 + 置换检测）。", "首行注释");
       t.eq(block[3], "- id: gokifu-compact", "id 行");
       t.eq(block[4], "  name: 'dsh-gokifu-compact/engine'", "name 行（单引号）");
       t.eq(block[8], "    firstFoldRatio: 0.30      # 首折阈值：只作用于本会话第一次 fold（0 = 关闭）", "S8 首折行（紧跟在 thresholdRatio 之后）");
-      t.eq(block[21], "    queryRecall: false         # 按当前问题里的文件/符号补已有证据（默认关，零模型调用）", "Q1-UI 召回开关行（面板可开关，默认关）");
-      t.eq(block[23], "    tier2After: 8", "tier2After 行（Q1-UI 之后整体下移一位）");
-      t.eq(block[26], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
-      t.eq(block[27], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316）");
+      t.eq(block[22], "    queryRecall: false         # 按当前问题里的文件/符号补已有证据（默认关，零模型调用）", "Q1-UI 召回开关行（面板可开关，默认关）");
+      t.eq(block[24], "    tier2After: 8", "tier2After 行（Q1-UI 之后整体下移一位）");
+      t.eq(block[27], "    closeoutTimeoutMs: 90000 # 收尾折叠硬超时；超时只记日志，归档继续", "C210 的收尾行");
+      t.eq(block[28], "    closeoutMaxFoldTokens: 150000 # 分段收尾的单段输入上限（宿主窗口大时可调大，减少补账轮次）", "末行（C316；C698 加行后下移一位）");
       const parsed = room.parseEngineBlock(block.join("\n"));
-      t.eq(Object.keys(parsed.config).length, 22, "配置键数（C524 +1；Q1-UI +1）");
+      t.eq(Object.keys(parsed.config).length, 23, "配置键数（C524 +1；Q1-UI +1；C698 +1）");
       t.eq(parsed.config.queryRecall, false, "queryRecall 解析成布尔 false（不是字符串）");
       t.eq(parsed.config.thresholdRatio, 0.45, "thresholdRatio 数值型");
       t.eq(parsed.config.firstFoldRatio, 0.3, "firstFoldRatio 数值型（0.30 → 0.3）");

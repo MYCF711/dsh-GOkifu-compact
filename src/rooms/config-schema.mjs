@@ -85,6 +85,8 @@ export const SCHEMA = Object.freeze([
   //   `DSH_GOKIFU_AUTO_BACKFILL_MIN` / `DSH_GOKIFU_AUTO_BACKFILL_MAX` —— 少一个配置项，
   //   就少一处 golden 与文档漂移（这是吃过教训的：每个新键要同步 6 个 golden）。
   { key: "autoBackfill", type: "boolean", default: true, where: "preset", label: "自动补账", desc: "★ 已停用：这个键引擎不再读取（不在 resolveChess 白名单），拨它没有任何效果。真正的开关是 autoArchiveBackfill（默认关，打开会产生摘要模型费用）；想手动补一次用面板的补账按钮" },
+  // ★ C698（用户选 (a)）：付费总闸进面板 —— 默认关、文案带真实费用，让功能可达但不替用户预付。
+  { key: "autoArchiveBackfill", type: "boolean", default: false, where: "preset", label: "自动补账（付费，默认关）", desc: "后台自动补折已归档会话的尾巴。★ 打开会**产生摘要模型费用**（真机实测历史花费 $11.05、真实使用 0 次，故默认关闭）；关闭时仍可用面板的补账按钮手动补一次" },
   { key: "summaryMode", type: "enum", values: ["hybrid", "rules", "llm"], default: "hybrid", where: "preset", label: "摘要方式", desc: "hybrid=规则事实+模型润色；rules=零模型调用；llm=完全交给模型" },
   {
     key: "growthFloorTokens",
@@ -169,6 +171,7 @@ export const PRESET_KEYS = Object.freeze([
   "growthFloorTokens",
   "minFoldTokens",
   "autoBackfill",
+  "autoArchiveBackfill",
   "summaryMode",
   "maxTokens",
   "summarizationProvider",
@@ -223,6 +226,8 @@ const LABEL_ORDER = Object.freeze([
   "growthFloorTokens",
   "minFoldTokens",
   "autoBackfill",
+  // ★ C698：付费总闸进面板 —— 标签顺序里紧跟它替代的那个旧键，读者一眼能看出"新开关在哪"。
+  "autoArchiveBackfill",
   "summaryMode",
   "maxTokens",
   "hotLedger",
@@ -294,6 +299,9 @@ export function resolveConfig(raw = {}) {
     minFoldTokens: num(c.minFoldTokens, describe("minFoldTokens").default),
     // ★ C524：默认开（只有显式 false 才关）
     autoBackfill: c.autoBackfill !== false,
+    // ★ C698（用户选 (a)）：付费总闸 —— **只认字面 true**（与 engine.mjs 的 sanitize 同义），默认关。
+    //   进面板 ≠ 默认打开：不写这一行，面板能写但引擎读不到，就又是"假 UI"。
+    autoArchiveBackfill: c.autoArchiveBackfill === true,
     hotLedger: c.hotLedger !== false,
     hotLedgerMaxTokens: num(c.hotLedgerMaxTokens, describe("hotLedgerMaxTokens").default),
     // ★ C248：注入节流间隔（默认 40 = 旧行为）
@@ -401,7 +409,7 @@ export function describeConfig(presetConfig = {}) {
  *
  * 变更纪律：只加不改。新增键追加到末尾；删除或重排键必须让版本号 +1 并同步发布说明。
  */
-export const CONFIG_SCHEMA_VERSION = 1;
+export const CONFIG_SCHEMA_VERSION = 2;
 
 export function validatePatch(patch = {}) {
   const editable = new Set(Object.keys(configDefaults()));

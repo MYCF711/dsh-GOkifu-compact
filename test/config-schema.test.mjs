@@ -28,19 +28,19 @@ const { SCHEMA, PRESET_KEYS, BASE_KEYS, describe, configDefaults, fieldLabels, r
 // ★ C248：有意新增 `hotLedgerMinEvents`（注入节流间隔可配，默认 40 = 旧行为）—— 以下 golden 一并更新。
 // ★ Q1：有意新增 `queryRecall`（锚点召回，实验线，默认 false）。★ Q1-UI：已提升为 **preset 作用域**——
 //   进 DEFAULTS / FIELD_LABELS / describeConfig，并同步 PRESET_KEYS 与 engineBlock()（面板可开关、保存能写回）。
-const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles", "factGuard", "queryRecall"];
+const GOLDEN_KEYS = ["thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto", "autoBackfill", "autoArchiveBackfill", "summaryMode", "growthFloorTokens", "minFoldTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMinEvents", "hotLedgerMinFailureDelta", "hotLedgerMarkers", "hotLedgerTraceRoot", "hotLedgerReplace", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens", "graphDir", "worldHashMaxFiles", "factGuard", "queryRecall"];
 
-const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "autoBackfill", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "queryRecall", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens"];
+const GOLDEN_PRESET_KEYS = ["auto", "thresholdRatio", "firstFoldRatio", "headroomTokens", "retainRatio", "growthFloorTokens", "minFoldTokens", "autoBackfill", "autoArchiveBackfill", "summaryMode", "maxTokens", "summarizationProvider", "summarizationModel", "hotLedger", "hotLedgerMaxTokens", "hotLedgerMarkers", "hotLedgerReplace", "queryRecall", "transposition", "tier2After", "closeoutFold", "closeoutMinEvents", "closeoutTimeoutMs", "closeoutMaxFoldTokens"];
 
 const GOLDEN_BASE_KEYS = ["thresholdRatio", "headroomTokens", "retainRatio", "retainTokens", "summarizationProvider", "summarizationModel", "maxTokens", "compactionRetries", "maxOverflowRetries", "modelPolicies", "auto"];
 
-const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 };
+const GOLDEN_DEFAULTS = { auto: true, thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, autoArchiveBackfill: false, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "semantic", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 };
 
-const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", autoBackfill: "自动补账", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", queryRecall: "按问题召回代码证据（实验）", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", closeoutMaxFoldTokens: "收尾单段上限(tokens)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
+const GOLDEN_LABELS = { auto: "自动压缩", thresholdRatio: "触发阈值（占窗口）", firstFoldRatio: "首折阈值（占窗口）", headroomTokens: "压力余量（tokens）", retainRatio: "逐字保留尾部", growthFloorTokens: "增长闸（tokens）", minFoldTokens: "最小 fold 量（tokens）", autoBackfill: "自动补账", autoArchiveBackfill: "自动补账（付费，默认关）", summaryMode: "摘要方式", maxTokens: "摘要输出上限（tokens）", hotLedger: "热清单", hotLedgerMaxTokens: "热清单预算（tokens）", hotLedgerReplace: "就地替换旧清单", hotLedgerMarkers: "清单标记档位", queryRecall: "按问题召回代码证据（实验）", transposition: "置换检测", tier2After: "checkpoint 合并阈值", closeoutFold: "归档收尾折叠", closeoutMinEvents: "归档收尾最小事件数", closeoutTimeoutMs: "归档收尾超时(ms)", closeoutMaxFoldTokens: "收尾单段上限(tokens)", summarizationProvider: "摘要 provider", summarizationModel: "摘要 model" };
 
-const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200, factGuard: false, queryRecall: false };
+const GOLDEN_RESOLVE_EMPTY = { summaryMode: "hybrid", thresholdRatio: 0.45, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.16, summarizationProvider: "", summarizationModel: "", maxTokens: 8192, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, autoArchiveBackfill: false, hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMinEvents: 40, hotLedgerMinFailureDelta: 5, hotLedgerMarkers: "semantic", hotLedgerTraceRoot: "sessions", hotLedgerReplace: true, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, graphDir: "", worldHashMaxFiles: 200, factGuard: false, queryRecall: false };
 
-const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", queryRecall: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "queryRecall", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
+const GOLDEN_DESCRIBE = { effective: { auto: false, thresholdRatio: 0.5, firstFoldRatio: 0.3, headroomTokens: 65536, retainRatio: 0.45, growthFloorTokens: 40000, minFoldTokens: 8000, autoBackfill: true, autoArchiveBackfill: false, summaryMode: "hybrid", maxTokens: 8192, summarizationProvider: "", summarizationModel: "", hotLedger: true, hotLedgerMaxTokens: 500, hotLedgerMarkers: "terse", hotLedgerReplace: true, queryRecall: false, transposition: true, tier2After: 8, closeoutFold: true, closeoutMinEvents: 40, closeoutTimeoutMs: 90000, closeoutMaxFoldTokens: 150000 }, origins: { auto: "preset", thresholdRatio: "preset", firstFoldRatio: "default", headroomTokens: "default", retainRatio: "adjusted", growthFloorTokens: "default", minFoldTokens: "default", autoBackfill: "default", autoArchiveBackfill: "default", summaryMode: "default", maxTokens: "default", summarizationProvider: "default", summarizationModel: "default", hotLedger: "default", hotLedgerMaxTokens: "default", hotLedgerMarkers: "preset", hotLedgerReplace: "default", queryRecall: "default", transposition: "default", tier2After: "default", closeoutFold: "default", closeoutMinEvents: "default", closeoutTimeoutMs: "default", closeoutMaxFoldTokens: "default" }, unconfiguredKeys: ["autoArchiveBackfill", "autoBackfill", "closeoutFold", "closeoutMaxFoldTokens", "closeoutMinEvents", "closeoutTimeoutMs", "firstFoldRatio", "growthFloorTokens", "headroomTokens", "hotLedger", "hotLedgerMaxTokens", "hotLedgerReplace", "maxTokens", "minFoldTokens", "queryRecall", "summarizationModel", "summarizationProvider", "summaryMode", "tier2After", "transposition"] };
 
 const RANGES = { thresholdRatio: [0.05, 0.95], firstFoldRatio: [0, 0.95], headroomTokens: [0, 512000], retainRatio: [0, 0.9], growthFloorTokens: [0, 1000000], minFoldTokens: [0, 1000000], maxTokens: [256, 65536], hotLedgerMaxTokens: [0, 20000], tier2After: [0, 100] };
 const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["semantic", "terse", "off"] };
@@ -49,7 +49,7 @@ const ENUMS = { summaryMode: ["hybrid", "rules", "llm"], hotLedgerMarkers: ["sem
 
 export const tests = {
   "SCHEMA：33 行、键集合与顺序逐键一致"(t) {
-    t.eq(SCHEMA.length, 33, "SCHEMA 行数（C524 新增 autoBackfill；AX-01 新增 factGuard；Q1 新增 queryRecall）");
+    t.eq(SCHEMA.length, 34, "SCHEMA 行数（C524 新增 autoBackfill；AX-01 新增 factGuard；Q1 新增 queryRecall）");
     t.eq(SCHEMA.map((e) => e.key), GOLDEN_KEYS, "键与顺序");
   },
 
@@ -176,7 +176,7 @@ export const tests = {
     t.includes(ui, "return describeConfigFromSchema(presetConfig);", "describeConfig 必须委托");
   },
 
-  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，28 行（C316 加 closeoutMaxFoldTokens；Q1-UI 加 queryRecall）"(t) {
+  "engineBlock：键序 = PRESET_KEYS 去 maxTokens，29 行（C316 加 closeoutMaxFoldTokens；C698 加 autoArchiveBackfill；Q1-UI 加 queryRecall）"(t) {
     return import(PRESET_FORMAT).then((pf) => {
       const lines = pf.engineBlock();
       const keys = [];
@@ -198,7 +198,7 @@ export const tests = {
       t.eq(values.tier2After, String(describe("tier2After").default), "tier2After 值");
       // ★ Q1-UI：面板开关必须真的写进安装器模板（否则新建的 preset 里没有这一行，用户只能手写）
       t.eq(values.queryRecall, "false", "queryRecall 在模板里必须是 false（默认关）");
-      t.eq(lines.length, 28, "engineBlock 总行数（C524 autoBackfill；Q1-UI queryRecall）");
+      t.eq(lines.length, 29, "engineBlock 总行数（C524 autoBackfill；Q1-UI queryRecall）");
       return undefined;
     });
   },
@@ -324,7 +324,7 @@ tests["C672 preset 域里没进 RESOLVE_ORDER 的键必须登记（否则面板�
 
 tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 / 面板顺序）"] = async (t) => {
   const { CONFIG_SCHEMA_VERSION, SCHEMA } = await import(ROOM);
-  t.eq(CONFIG_SCHEMA_VERSION, 1, "配置面版本号必须导出且为 1");
+  t.eq(CONFIG_SCHEMA_VERSION, 2, "配置面版本号 = 2（C698 加 autoArchiveBackfill，属对外契约变更 ⇒ 必须 +1）");
   // 键序 = preset 块里 engine 段的行序 = 面板渲染顺序 ⇒ 记忆侧与手写 preset 都依赖它。
   // 加键追加到末尾；删/重排必须让版本号 +1 并同步发布说明。
   t.eq(JSON.stringify(SCHEMA.map((e) => e.key)), JSON.stringify([
@@ -341,6 +341,7 @@ tests["C675 配置布局有版本号，且键序是对外契约（preset 行序 
       "modelPolicies",
       "auto",
       "autoBackfill",
+      "autoArchiveBackfill",
       "summaryMode",
       "growthFloorTokens",
       "minFoldTokens",
