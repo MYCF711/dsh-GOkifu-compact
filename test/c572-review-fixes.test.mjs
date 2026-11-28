@@ -18,6 +18,8 @@ export const tests = {};
 
 const ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const engine = () => nodeFs.readFileSync(nodePath.join(ROOT, "src", "engine.mjs"), "utf8");
+// ★ C687：routedTarget 搬进 rooms/config-resolve.mjs —— C597 判据跟着它走。
+const resolveRoom = () => nodeFs.readFileSync(nodePath.join(ROOT, "src", "rooms", "config-resolve.mjs"), "utf8");
 
 tests["C572① 离线补折的 home 必须来自 graphRoot（this.graphDir 从未赋值）"] = (t) => {
   const src = engine();
@@ -179,7 +181,7 @@ tests["C593 后台补账必须有状态文件（否则零产出与没跑过长�
 };
 
 tests["C597 routedTarget 必须容错合成会话（补账 tick 传的是 {id,cwd}）"] = (t) => {
-  const src = engine();
+  const src = resolveRoom();
   const at = src.indexOf("function routedTarget(session)");
   t.eq(at > 0, true, "函数还在");
   const seg = src.slice(at, at + 900);

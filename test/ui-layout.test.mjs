@@ -18,11 +18,17 @@
 
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));
 const ROOT = nodePath.resolve(HERE, "..");
 const CLIENT = nodePath.join(ROOT, "lib", "client.js");
+
+/**
+ * ★ C688：面板字段的唯一来源 —— host 的 `describeFields()`（从 SCHEMA 派生）。
+ * 测试不再依赖 client 里的手写副本：它读的和面板读的是同一份。
+ */
+const SCHEMA_FIELDS = (await import(pathToFileURL(nodePath.join(ROOT, "src", "rooms", "config-schema.mjs")).href)).describeFields();
 
 /** 与 test/ui.test.mjs 同法加载 client bundle（classic script，只注入 window）。 */
 function loadClientBundle() {
@@ -165,8 +171,10 @@ export const tests = {
     t.eq(T.modelsAvailable(MODELS), true, "有目录 ⇒ 用下拉");
     t.eq(T.modelGroups({ providers: [] }), [], "空目录分组为空");
     // 字段定义仍是 where:"preset" 的两个字符串键（kind 保持 text 作为降级形态）
-    const providerField = T.FIELDS.find((f) => f.key === "summarizationProvider");
-    const modelField = T.FIELDS.find((f) => f.key === "summarizationModel");
+    // ★ C688：字段不再手写 —— 从 host 的 describeFields()（SCHEMA 派生）翻译过来再断言。
+    const fields = T.deriveFields(SCHEMA_FIELDS);
+    const providerField = fields.find((f) => f.key === "summarizationProvider");
+    const modelField = fields.find((f) => f.key === "summarizationModel");
     t.ok(providerField !== undefined && modelField !== undefined, "两个摘要模型字段必须还在");
     t.eq(providerField.kind, "text", "降级形态仍是文本输入");
     // 源码里确实有降级分支的提示语 + 「刷新模型列表」轻操作（U1 的目录可能走网络，首屏不该被它挡住）
@@ -333,36 +341,37 @@ tests["⑨ C510 假 React 必须提供客户端用到的每个 hook（否则渲�
   t.eq(missing, [], `假 React 缺这些 hook：${missing.join(", ")}`);
 };
 
-/* ───── C688：面板字段表 = 手写表 + host 下发的新键（消灭"新键不出现在面板"） ───── */
+/* ───── C688：面板字段 = SCHEMA 派生（消灭"新键不出现在面板"与"手写表漂移"） ───── */
 
-tests["C688 面板只补 host 有、手写表没有的键；已手写的键零变化"] = async (t) => {
+tests["C688 面板字段全部从 host 派生：新键自动出现，min/max 取 host 的 range"] = async (t) => {
   const x = T;
-  const fields = x.FIELDS.map((f) => f.key);
+  // ① 空 state ⇒ 一个字段都没有（不许凭空造）
+  t.eq(x.deriveFields(undefined).length, 0, "没有 fields 时不许凭空造字段");
+  t.eq(x.deriveFields([]).length, 0, "空数组不补");
 
-  // ① 空 state ⇒ 一个都不补（既有行为逐字不变）
-  t.eq(x.fieldsFromState(undefined).length, 0, "没有 state 时不许凭空造字段");
-  t.eq(x.fieldsFromState({}).length, 0, "没有 fields 时不许补");
-  t.eq(x.fieldsFromState({ fields: [] }).length, 0, "空数组不补");
-
-  // ② 手写表已有的键 ⇒ 不重复补（面板的呈现决策由面板说了算）
-  const dup = x.fieldsFromState({ fields: [{ key: fields[0], label: "HOST", type: "number", range: [0, 1], where: "preset" }] });
-  t.eq(dup.length, 0, `手写表已有的键 ${fields[0]} 不许被 host 覆盖`);
-
-  // ③ host 有、手写表没有的键 ⇒ 补进来，且 min/max 取 host 的 range
-  const added = x.fieldsFromState({
-    fields: [{ key: "__c688_new_key__", label: "新键", type: "number", range: [0.05, 0.95], where: "preset", desc: "说明" }],
-  });
-  t.eq(added.length, 1, "host 独有的键必须补进面板");
+  // ② host 有的 preset 键 ⇒ 全部出现（不再有"host 有、面板没有"的漏键）
+  const added = x.deriveFields([
+    { key: "__c688_new_key__", label: "新键", type: "number", range: [0.05, 0.95], where: "preset", desc: "说明" },
+  ]);
+  t.eq(added.length, 1, "host 独有的键必须出现在面板（C688 前这里是漏键的现场）");
   t.eq(added[0].min, 0.05, "min 必须取 host 的 range[0]");
   t.eq(added[0].max, 0.95, "max 必须取 host 的 range[1]");
-  t.eq(added[0].step, 0.01, "小数域必须给小数步长（否则面板只能选整数）");
-  t.eq(added[0].label, "新键", "label 取 host 的");
+  t.eq(added[0].label, "新键", "label 取 host 的（面板不再手写一份）");
+  t.eq(added[0].hint, "说明", "hint 回落到 host 的 desc");
+
+  // ③ 面板的呈现决策仍然生效（panelLabel / step 来自 FIELD_PRESENTATION）
+  const threshold = x.deriveFields([{ key: "thresholdRatio", label: "触发阈值", type: "number", range: [0.05, 0.95], where: "preset" }]);
+  t.eq(threshold[0].kind, "threshold", "阈值必须是固定档位选择器（呈现决策归面板）");
+  t.eq(threshold[0].panelLabel, "压缩阈值（固定档位）", "panelLabel 来自面板的呈现表");
 };
 
 tests["C688 只读键（host 不认保存的）不许进面板 —— 否则又是一个填了不生效的控件"] = async (t) => {
   const x = T;
-  const engineKey = x.fieldsFromState({ fields: [{ key: "__c688_engine_only__", label: "只读", type: "number", range: [0, 10], where: "engine" }] });
+  const engineKey = x.deriveFields([{ key: "__c688_engine_only__", label: "只读", type: "number", range: [0, 10], where: "engine" }]);
   t.eq(engineKey.length, 0, `where:"engine" 的键面板不可写，不许渲染成控件`);
+  // 反例：preset 域的键必须留下（判据不能一刀切）
+  const presetKey = x.deriveFields([{ key: "__c688_engine_only__", label: "可写", type: "number", range: [0, 10], where: "preset" }]);
+  t.eq(presetKey.length, 1, "preset 域的键必须渲染");
 };
 
 /* ───── C690：数值域以 host 为准（面板不许放行会被 host 400 的值） ───── */
@@ -384,6 +393,52 @@ tests["C690 面板手写的 min/max 必须被 host 的 range 覆盖（3 处 host
   t.eq(timeout.min, 1000, "面板原写 0，必须被 host 的 1000 抬高");
   // 呈现决策仍归面板：label 不许被覆盖
   t.eq(headroom.label, "压力余量", "label 是面板的呈现决策，host 不覆盖");
+};
+
+/* ───── C690 接管：删掉手写表后，「数值域以 host 为准」由 deriveFields 直接保证 ─────
+ *
+ * C690 原本是「手写 FIELDS 的 min/max 与 SCHEMA 漂了 5 处 ⇒ 运行时用 withHostRange 覆盖」。
+ * C688 删掉手写表后，面板**没有任何手写 min/max 可漂** —— `deriveFields` 直接取
+ * `state.fields[].range`。所以 C690 的语义不是「没人管了」，而是**从运行时补丁
+ * 升级成了构造期唯一来源**：没有第二份值，也就没有覆盖这件事。
+ *
+ * 本用例把这条接管关系钉死：
+ *   ① 面板 min/max 必须逐字等于 host 的 range（不是"被覆盖后相等"，是"只有这一份"）；
+ *   ② 历史漂移的 3 个键（headroomTokens / closeoutMinEvents / closeoutTimeoutMs）
+ *      在面板上必须呈现 host 的更严值；
+ *   ③ 墓碑：如果谁把 deriveFields 改回读手写值，①②立刻红。
+ */
+tests["C690 接管：面板 min/max 直接来自 host 的 range（无手写值可漂，故无需运行时覆盖）"] = async (t) => {
+  const x = T;
+  // 历史漂移的 3 处：面板曾写 2000000 / 0 / 0，host 是 512000 / 1 / 1000
+  const hostFields = [
+    { key: "headroomTokens", label: "压力余量", type: "number", range: [0, 512000], where: "preset" },
+    { key: "closeoutMinEvents", label: "归档最小事件", type: "number", range: [1, 10000], where: "preset" },
+    { key: "closeoutTimeoutMs", label: "收尾超时", type: "number", range: [1000, 600000], where: "preset" },
+  ];
+  const out = x.deriveFields(hostFields);
+  const byKey = Object.fromEntries(out.map((f) => [f.key, f]));
+
+  t.eq(byKey.headroomTokens.max, 512000, "headroomTokens.max 必须是 host 的 512000（面板曾写 2000000 ⇒ 保存即 400）");
+  t.eq(byKey.closeoutMinEvents.min, 1, "closeoutMinEvents.min 必须是 host 的 1（面板曾写 0）");
+  t.eq(byKey.closeoutTimeoutMs.min, 1000, "closeoutTimeoutMs.min 必须是 host 的 1000（面板曾写 0）");
+
+  // ① 逐字相等：不是"被覆盖后相等"，是面板根本没有第二个来源
+  for (const f of hostFields) {
+    t.eq([byKey[f.key].min, byKey[f.key].max], f.range, `${f.key} 的 min/max 必须逐字等于 host 的 range`);
+  }
+
+  // ② host 没给 range ⇒ 面板也不许猜（不写 min/max，输入框按无界处理）
+  const unbounded = x.deriveFields([{ key: "summarizationProvider", label: "provider", type: "string", where: "preset" }]);
+  t.eq(unbounded[0].min, undefined, "host 没给 range ⇒ 面板不许凭空造 min");
+  t.eq(unbounded[0].max, undefined, "host 没给 range ⇒ 面板不许凭空造 max");
+
+  // ③ 墓碑：面板的 min/max 必须全部可追溯到 host 的 range —— 出现任何 host 没给的值即红
+  const ghost = out.filter((f) => {
+    const src = hostFields.find((h) => h.key === f.key);
+    return src && (f.min !== src.range[0] || f.max !== src.range[1]);
+  });
+  t.eq(ghost.map((f) => f.key), [], "面板出现了 host 没给过的 min/max（说明又有人手写了一份）");
 };
 
 tests["C690 host 没给 range 时不猜（不可编辑/无界的键保持面板原值）"] = async (t) => {
