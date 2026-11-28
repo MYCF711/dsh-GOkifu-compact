@@ -2,6 +2,7 @@
 
 | 轮次 | 一句话 |
 |---|---|
+| C695 | AB 复核尾巴：delta 不毁基线、staleBase 与 badTail 分开、随包脚本给人话 |
 | C694 | B1 修复：面板不再把「已暂存」说成「重启后生效」（零代价） |
 | C693 | AB 复核修复：坏图备份、形状校验、规则摘要上限、面板 range 对齐 |
 | C692 | 四阶段收口：交付状态表 + 架构上明确不做的三条（附判据） |
@@ -756,6 +757,43 @@ K-29 折叠质量只统计折叠结束时已存在的约束，未来约束右删
 > 并修复手动折账跨会话污染、约束空白变体、残留失败静默省略与面板信息层级。
 
 ### 压缩记账与保真
+
+### C695 · AB 复核尾巴：delta 不毁基线、staleBase 与 badTail 分开、随包脚本给人话
+
+**第三刀收 AB 复核的尾巴：三条“出事时会更糟”的零代价修正。**
+
+## ① delta 坏了会把整份基线丢掉（AB-A MAJOR）
+
+旧 `load` 把 `applyDelta` 和 `fromJSON` 放在**同一个 try** 里 ⇒ delta 里只要有一帧版本不符，异常冒到外层，**已经解析成功的基线整份被丢弃**、改成空图。AB 组实测：`baseline {nodes:2} → loaded {nodes:0} → flush 后 1042→442 字节`。
+
+现在 **delta 单独 try**：基线是基线的事，delta 是 delta 的事。delta 不可用就退到“只有基线”的图，并把原因经 `deltaDropped` 如实带出。
+
+## ② “基线换了”被当成“文件坏了”（AB-A MINOR）
+
+`decodeDeltaFrames` 里那段代码自己的注释就写着「基线已重写 ⇒ 整段忽略，**不是坏帧**」，但下一行设的是 `badTail = true` ⇒ 调用方打“delta 尾部有坏帧”、并当半写处理。
+
+现在拆成两个标记：**`staleBase`（基线换了）** 与 **`badTail`（校验和/格式真坏了）**。日志措辞也分开。
+
+> 顺带修了自己第一版写错的地方：stale 分支一开始直接清空 delta 文件，会**连基线之前的有效帧一起删掉**（被既有用例当场抓红）。已改成“只保留本基线下的好帧”。
+
+## ③ 随包脚本在安装版里报“插件坏了”（AB-B M3）
+
+`scripts/bench-repro.mjs` 静态 import `../test/graph-fixtures.mjs`、`scripts/test-instance-verify.mjs` 动态 import `../test/engine-harness.test.mjs` —— 而 **`test/` 不进 npm 包**。装包用户跑它们只会得到 `ERR_MODULE_NOT_FOUND`，看起来像插件故障。
+
+现在两条都在缺夹具时给一句人话（“源码树专用脚本，不是插件故障”）并 **exit 2**（与断言失败 exit 1 区分）。
+
+## 门禁
+
+新增两条回归（都是精确断言，能复现旧 bug）：
+
+- `C695 load：delta 坏了不许把基线丢成空图` —— 断言 `repaired===false`、节点数仍为 1、`deltaDropped` 非空；
+- `C693 load：坏图必须留 .bak 备份` —— 断言备份文件真实存在且与原文件逐字相同（把上一刀的修复也钉住）。
+
+并把 `persist-incremental` 里那条把「基线换了」断言成 `badTail===true` 的旧用例升级为 `staleBase===true && badTail===false` —— **旧断言本身编码了那个混同**。
+
+## 验证
+
+`kifu-persist` **26/0**（+2）· `persist` 50/0 · 全量 **2594 passed / 2 skipped / 0 failed**（+2）。
 
 ### C694 · B1 修复：面板不再把「已暂存」说成「重启后生效」（零代价）
 

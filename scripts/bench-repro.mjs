@@ -14,7 +14,18 @@ import { spawnSync } from "node:child_process";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } from "../test/graph-fixtures.mjs";
+// ★ C695（AB 复核 M3）：本脚本依赖 `test/` 里的夹具，而 **test/ 不进 npm 包**。
+//   静态 import 在安装版里会直接抛 ERR_MODULE_NOT_FOUND，用户看到的是"插件坏了"而不是
+//   "这个脚本要源码树"。改成动态 import + 一句人话，退出码 2（区别于断言失败 1）。
+let fixtures = null;
+try {
+  fixtures = await import("../test/graph-fixtures.mjs");
+} catch {
+  console.error("bench-repro 是**源码树专用**脚本：它需要 test/graph-fixtures.mjs，而 test/ 不在 npm 包里。");
+  console.error("请在仓库 checkout 里运行；用 npm 安装的版本无法执行本脚本（这不是插件故障）。");
+  process.exit(2);
+}
+const { createGraph, addUserNodeId, addEdge, settleEdge, addAgentNode } = fixtures;
 import { renderFacts } from "../src/rooms/ledger.mjs";
 
 const HERE = nodePath.dirname(fileURLToPath(import.meta.url));

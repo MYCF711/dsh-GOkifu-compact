@@ -1530,11 +1530,12 @@ export function encodeDeltaFrame(baseHash, delta) {
 
 /**
  * 解码 delta 文件内容：只接受 baseHash 与当前基线一致、且校验通过的帧；遇到坏帧就地停止。
- * @returns {{frames: object[], badTail: boolean}}
+ * @returns {{frames: object[], badTail: boolean, staleBase: boolean}}
  */
 export function decodeDeltaFrames(text, baseHash) {
   const frames = [];
   let badTail = false;
+  let staleBase = false;
   for (const line of String(text ?? "").split("\n")) {
     if (line.length === 0) continue;
     const p1 = line.indexOf("\t");
@@ -1545,8 +1546,11 @@ export function decodeDeltaFrames(text, baseHash) {
     }
     const frameBase = line.slice(0, p1);
     if (frameBase !== baseHash) {
-      // 基线已重写（压缩后留下的旧帧）⇒ 整段忽略，不是坏帧
-      badTail = true;
+      // 基线已重写（压缩后留下的旧帧）⇒ 整段忽略，**且这不是坏帧**。
+      // ★ C695：这里以前置 `badTail = true`，调用方于是把「基线换了」当「文件坏了」——
+      //   既打误导日志（"delta 尾部有坏帧"），又把 delta 文件**重写成空**。
+      //   现在单列成 `staleBase`：`badTail` 只表示"校验和/格式坏了"，语义不再混。
+      staleBase = true;
       break;
     }
     const sum = Number(line.slice(p1 + 1, p2));
@@ -1562,7 +1566,7 @@ export function decodeDeltaFrames(text, baseHash) {
       break;
     }
   }
-  return { frames, badTail };
+  return { frames, badTail, staleBase };
 }
 
 /* ── index.md 增量追加（fold / 首次写全量；其余每次只追加新内容） ── */
