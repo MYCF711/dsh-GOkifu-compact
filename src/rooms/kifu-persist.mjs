@@ -135,6 +135,7 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
     const key = String(id ?? "session");
     const p = sessionPaths(root, key);
     let truncatedFrames = 0;
+    let deltaDropped = null;
     try {
       const text = port.readFileSync(p.graphFile, "utf8");
       const graph = fromJSON(text);
@@ -142,17 +143,37 @@ export function createPersistStore({ port = createFsPort(), root = "", onWarn = 
       baseHash.set(key, base);
       if (port.existsSync(p.deltaFile)) {
         const dtext = port.readFileSync(p.deltaFile, "utf8");
-        const { frames, badTail } = decodeDeltaFrames(dtext, base);
-        for (const f of frames) applyDelta(graph, f);
-        if (badTail) {
+        // ★ C695（AB 复核 MAJOR）：**delta 的问题不许毁掉基线**。
+        //   旧代码把 `applyDelta` 放在同一个 try 里 ⇒ 只要 delta 里有一帧版本不符 / 结构怪，
+        //   异常就会冒到外层 catch，把**已经成功解析的基线整份丢弃**、改成空图
+        //   （实测：baseline 2 节点 → 读到 0 节点 → flush 后文件 1042→442 字节）。
+        //   基线坏了是基线的事，delta 坏了只是 delta 的事 —— 分开处理。
+        try {
+          const { frames, badTail, staleBase } = decodeDeltaFrames(dtext, base);
+          for (const f of frames) applyDelta(graph, f);
+          if (badTail) {
+            truncatedFrames = 1;
+            // 截到最后一个好帧（防止后续追加接在半帧后面）
+            const good = frames.map((f) => encodeDeltaFrame(base, f)).join("");
+            port.writeFileSync(p.deltaFile, good, "utf8");
+            warn(`chess-context: delta 尾部有坏帧，已截断到第 ${frames.length} 帧（半写不污染图）`);
+          } else if (staleBase) {
+            // ★ C695：基线已重写留下的旧帧 —— **不是坏帧**，措辞别再吓人，也别再当"半写"处理。
+            truncatedFrames = 1;
+            // ★ 只保留**本基线**下的好帧（此前误删了它们）：基线之前的有效帧要留，
+            //   被换掉基线之后的旧帧才丢。写回的东西与 badTail 分支同源，只是措辞不同。
+            const keep = frames.map((f) => encodeDeltaFrame(base, f)).join("");
+            port.writeFileSync(p.deltaFile, keep, "utf8");
+            warn("chess-context: 基线已重写，忽略旧 delta 帧（不是坏帧）");
+          }
+        } catch (deltaError) {
+          // delta 不可用 ⇒ 退到"只有基线"的图，并把原因如实带出去（不静默、也不丢基线）。
           truncatedFrames = 1;
-          // 截到最后一个好帧（防止后续追加接在半帧后面）
-          const good = frames.map((f) => encodeDeltaFrame(base, f)).join("");
-          port.writeFileSync(p.deltaFile, good, "utf8");
-          warn(`chess-context: delta 尾部有坏帧，已截断到第 ${frames.length} 帧（半写不污染图）`);
+          deltaDropped = String(deltaError?.message ?? deltaError);
+          warn(`chess-context: delta 不可用，已只用基线加载（原因：${deltaDropped}）`);
         }
       }
-      return { graph, baseHash: base, repaired: false, repairedReason: null, truncatedFrames };
+      return { graph, baseHash: base, repaired: false, repairedReason: null, truncatedFrames, deltaDropped };
     } catch (error) {
       // ★ A2-2 行为变更①：不再静默建空图 —— 返回 repaired + 原因，由 R09 打日志。
       // ★ C693（AB 复核实测）：**降级前必须先备份原文件**。此前版本不符 / 半写 / 形状损坏时

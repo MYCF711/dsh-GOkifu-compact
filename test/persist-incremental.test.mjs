@@ -109,9 +109,12 @@ tests["崩溃：校验和不对的帧同样被拒（不是合法 JSON 也要挡�
 /* ── 4. generation 保护 ───────────────────────────────────── */
 tests["崩溃：基线重写后旧帧被忽略（不会把新基线倒退）"] = (t) => {
   const oldFrame = encodeDeltaFrame("aaaaaaaaaaaaaaaa", deltaFromDirty(smallGraph()));
-  const { frames, badTail } = decodeDeltaFrames(oldFrame, "bbbbbbbbbbbbbbbb");
+  const { frames, badTail, staleBase } = decodeDeltaFrames(oldFrame, "bbbbbbbbbbbbbbbb");
   t.eq(frames.length, 0, "哈希不匹配 ⇒ 不应用");
-  t.eq(badTail, true, "标记不匹配");
+  // ★ C695：这条以前断言 badTail===true，把「基线换了」和「文件坏了」混成同一个标记 ——
+  //   调用方因此既打误导日志、又按"半写"处理。现在两者分开：基线换了是 staleBase，文件坏了才是 badTail。
+  t.eq(staleBase, true, "基线已重写 ⇒ staleBase");
+  t.eq(badTail, false, "基线换了不是坏帧 —— 不许冒充 badTail");
 };
 
 /* ── 5. index 增量 ────────────────────────────────────────── */

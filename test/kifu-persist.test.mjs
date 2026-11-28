@@ -312,6 +312,38 @@ export const tests = {
     });
   },
 
+  "C695 load：delta 坏了不许把基线丢成空图（基线是基线的事，delta 是 delta 的事）"(t) {
+    withTmp((root) => {
+      const p = sessionPaths(root, "s1");
+      nodeFs.mkdirSync(p.dir, { recursive: true });
+      const g = createGraph({ sessionId: "s1", cwd: "D:/tmp/proj" });
+      addUserNodeId(g, { seq: 1, text: "根目标" });
+      const base = sha(JSON.stringify(g, null, 1)).slice(0, 16);
+      nodeFs.writeFileSync(p.graphFile, JSON.stringify(g, null, 1), "utf8");
+      // 坏 delta：版本不符的帧（applyDelta 会抛）
+      nodeFs.writeFileSync(p.deltaFile, encodeDeltaFrame(base, { v: 99 }) + "\n", "utf8");
+      const store = createPersistStore({ port: makePort().port, root });
+      const r = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+      t.eq(r.repaired, false, "基线本身是好的 ⇒ 不是 repaired");
+      t.eq(Object.keys(r.graph.nodes).length, 1, "基线里的节点必须还在（旧代码会整份丢成空图）");
+      t.ok(typeof r.deltaDropped === "string" && r.deltaDropped.length > 0, "必须如实报出 delta 为什么被丢掉");
+    });
+  },
+
+  "C693 load：坏图必须留 .bak 备份（不许静默覆盖成空图且无备份）"(t) {
+    withTmp((root) => {
+      const p = sessionPaths(root, "s1");
+      nodeFs.mkdirSync(p.dir, { recursive: true });
+      nodeFs.writeFileSync(p.graphFile, "{ 坏掉的图", "utf8");
+      const store = createPersistStore({ port: makePort().port, root });
+      const r = store.load({ id: "s1", cwd: "D:/tmp/proj" });
+      t.eq(r.repaired, true, "坏图必须 repaired");
+      t.ok(typeof r.repairedBackup === "string", "必须给出备份路径");
+      t.eq(nodeFs.existsSync(r.repairedBackup), true, "备份文件必须真的存在");
+      t.eq(nodeFs.readFileSync(r.repairedBackup, "utf8"), "{ 坏掉的图", "备份必须是原文件逐字");
+    });
+  },
+
   "persistBudget：原子写并回 {ok:true}；失败回 {ok:false,error} 不抛"(t) {
     withTmp((root) => {
       const store = createPersistStore({ port: makePort().port, root });

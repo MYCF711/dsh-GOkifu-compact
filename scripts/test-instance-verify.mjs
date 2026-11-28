@@ -73,7 +73,15 @@ let cached = null;
 async function loadTestEngine() {
   if (cached !== null) return cached;
   cached = (async () => {
-    const harness = await import("../test/engine-harness.test.mjs");
+    // ★ C695（AB 复核 M3）：test/ 不在 npm 包里 —— 安装版跑到这里要给一句人话，别抛 ERR_MODULE_NOT_FOUND。
+    let harness = null;
+    try {
+      harness = await import("../test/engine-harness.test.mjs");
+    } catch {
+      console.error("test-instance-verify 是**源码树专用**脚本：它需要 test/engine-harness.test.mjs，而 test/ 不在 npm 包里。");
+      console.error("请在仓库 checkout 里运行；用 npm 安装的版本无法执行本脚本（这不是插件故障）。");
+      process.exit(2);
+    }
     await harness.load();
     nodeFs.mkdirSync(STUBS, { recursive: true });
     nodeFs.writeFileSync(LLM_STUB, LLM_SOURCE, "utf8");
